@@ -32,6 +32,12 @@ Example:
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/clipback
 ```
 
+Start the local PostgreSQL service from the repository root:
+
+```bash
+docker compose up -d postgres
+```
+
 ```bash
 cd backend
 source .venv/bin/activate
