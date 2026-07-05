@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,36 @@ class CategoryRepository:
                 or_(Category.user_id.is_(None), Category.user_id == user_id),
                 func.lower(Category.name) == name.lower(),
             )
+        )
+        return result.first()
+
+    async def list_available_by_ids(
+        self,
+        user_id: int,
+        category_ids: Sequence[int],
+    ) -> list[Category]:
+        if not category_ids:
+            return []
+
+        result = await self.session.scalars(
+            select(Category)
+            .where(
+                Category.id.in_(category_ids),
+                or_(Category.user_id.is_(None), Category.user_id == user_id),
+            )
+            .order_by(Category.id.asc())
+        )
+        return list(result)
+
+    async def get_uncategorized(self) -> Category | None:
+        result = await self.session.scalars(
+            select(Category)
+            .where(
+                Category.user_id.is_(None),
+                Category.name == "미분류",
+                Category.is_default.is_(True),
+            )
+            .order_by(Category.id.asc())
         )
         return result.first()
 
