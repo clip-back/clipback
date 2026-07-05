@@ -103,6 +103,7 @@ def upgrade() -> None:
         sa.Column("title", sa.String(length=120), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("original_url", sa.String(length=2048), nullable=True),
+        sa.Column("is_favorite", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("saved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("last_viewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["category_id"], ["categories.id"]),
@@ -112,6 +113,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_contents_category_id"), "contents", ["category_id"], unique=False)
     op.create_index(op.f("ix_contents_content_type"), "contents", ["content_type"], unique=False)
     op.create_index(op.f("ix_contents_id"), "contents", ["id"], unique=False)
+    op.create_index(op.f("ix_contents_is_favorite"), "contents", ["is_favorite"], unique=False)
     op.create_index(op.f("ix_contents_user_id"), "contents", ["user_id"], unique=False)
 
     op.create_table(
@@ -169,6 +171,7 @@ def downgrade() -> None:
     op.drop_table("content_assets")
 
     op.drop_index(op.f("ix_contents_user_id"), table_name="contents")
+    op.drop_index(op.f("ix_contents_is_favorite"), table_name="contents")
     op.drop_index(op.f("ix_contents_id"), table_name="contents")
     op.drop_index(op.f("ix_contents_content_type"), table_name="contents")
     op.drop_index(op.f("ix_contents_category_id"), table_name="contents")
