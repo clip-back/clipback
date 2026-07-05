@@ -16,13 +16,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+render_as_batch = settings.database_url.startswith("sqlite")
 
 
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.database_url,
         target_metadata=target_metadata,
+        compare_type=True,
         literal_binds=True,
+        render_as_batch=render_as_batch,
         dialect_opts={"paramstyle": "named"},
     )
 
@@ -31,7 +34,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        render_as_batch=render_as_batch,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -56,4 +64,3 @@ else:
     import asyncio
 
     asyncio.run(run_migrations_online())
-

@@ -15,6 +15,7 @@ class ContentService:
             title=title,
             summary=summary,
             original_url=str(payload.original_url) if payload.original_url else None,
+            is_favorite=payload.is_favorite,
             tags=["MVP", "저장"],
             saved_at=datetime.now(UTC),
         )
@@ -28,7 +29,7 @@ class ContentService:
             title="포트폴리오 문제 정의",
             summary="사용자 행동과 비즈니스 목표를 연결해 하나의 핵심 문제로 압축해야 한다.",
             original_url="https://example.com/original",
+            is_favorite=False,
             tags=["포트폴리오", "문제정의"],
             saved_at=datetime.now(UTC),
         )
-

@@ -25,6 +25,7 @@ class ContentCreate(BaseModel):
     source: ContentSource = ContentSource.UNKNOWN
     title: str | None = Field(default=None, max_length=120)
     summary: str | None = None
+    is_favorite: bool = False
 
 
 class ContentRead(BaseModel):
@@ -35,6 +36,7 @@ class ContentRead(BaseModel):
     title: str
     summary: str
     original_url: str | None = None
+    is_favorite: bool = False
     tags: list[str] = Field(default_factory=list)
     saved_at: datetime
     last_viewed_at: datetime | None = None
