@@ -29,7 +29,7 @@ Set `DATABASE_URL` to your PostgreSQL database before running migrations.
 Example:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/clipback
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/clipback
 ```
 
 Start the local PostgreSQL service from the repository root:
@@ -37,6 +37,9 @@ Start the local PostgreSQL service from the repository root:
 ```bash
 docker compose up -d postgres
 ```
+
+The Compose service exposes PostgreSQL on host port `5433` to avoid conflicts with
+an existing local PostgreSQL running on `5432`.
 
 ```bash
 cd backend

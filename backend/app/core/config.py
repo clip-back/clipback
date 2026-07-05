@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     project_name: str = "Clipback API"
     api_v1_prefix: str = "/api/v1"
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/clipback"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/clipback"
     backend_cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
     )
