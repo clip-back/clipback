@@ -1,18 +1,3 @@
-# OS files
-.DS_Store
-
-# IDE files
-.idea/
-.vscode/
-
-# Environment files
-.env
-.env.*
-!.env.example
-
-# Logs
-*.log
-
 # Python
 __pycache__/
 *.py[cod]
@@ -23,6 +8,11 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Environment files
+.env
+.env.*
+!.env.example
 
 # Test, lint, and type-check caches
 .pytest_cache/
@@ -38,3 +28,10 @@ htmlcov/
 uploads/
 storage/
 
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
