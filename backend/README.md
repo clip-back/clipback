@@ -22,6 +22,22 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
+## Database Migrations
+
+Set `DATABASE_URL` to your PostgreSQL database before running migrations.
+
+Example:
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/clipback
+```
+
+```bash
+cd backend
+source .venv/bin/activate
+alembic upgrade head
+```
+
 API docs will be available at:
 
 ```text
@@ -41,4 +57,3 @@ app/services     Business logic layer.
 app/integrations External systems such as AI, OCR, metadata, and storage.
 tests            API, service, and repository tests.
 ```
-
