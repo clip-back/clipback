@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.content_category import content_categories
 
 
 class Category(Base):
@@ -18,4 +19,4 @@ class Category(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="categories")
-    contents = relationship("Content", back_populates="category")
+    contents = relationship("Content", secondary=content_categories, back_populates="categories")

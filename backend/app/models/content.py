@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.types import enum_values
+from app.models.content_category import content_categories
 
 
 class ContentSource(StrEnum):
@@ -27,7 +28,6 @@ class Content(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), index=True)
     content_type: Mapped[ContentType] = mapped_column(
         Enum(
             ContentType,
@@ -61,7 +61,6 @@ class Content(Base):
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="contents")
-    category = relationship("Category", back_populates="contents")
+    categories = relationship("Category", secondary=content_categories, back_populates="contents")
     assets = relationship("ContentAsset", back_populates="content", cascade="all, delete-orphan")
     events = relationship("ContentEvent", back_populates="content", cascade="all, delete-orphan")
-    tags = relationship("Tag", secondary="content_tags", back_populates="contents")

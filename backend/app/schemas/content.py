@@ -3,6 +3,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from app.schemas.category import CategoryRead
+
 
 class ContentType(StrEnum):
     LINK = "link"
@@ -20,7 +22,7 @@ class ContentSource(StrEnum):
 
 class ContentCreate(BaseModel):
     content_type: ContentType = ContentType.LINK
-    category_id: int
+    category_ids: list[int] = Field(default_factory=list)
     original_url: HttpUrl | None = None
     source: ContentSource = ContentSource.UNKNOWN
     title: str | None = Field(default=None, max_length=120)
@@ -30,14 +32,13 @@ class ContentCreate(BaseModel):
 
 class ContentRead(BaseModel):
     id: int
-    category_id: int
+    categories: list[CategoryRead] = Field(default_factory=list)
     content_type: ContentType
     source: ContentSource
     title: str
     summary: str
     original_url: str | None = None
     is_favorite: bool = False
-    tags: list[str] = Field(default_factory=list)
     saved_at: datetime
     last_viewed_at: datetime | None = None
 
