@@ -7,12 +7,11 @@ class UploadService:
     async def upload_screenshot_placeholder(
         self,
         file: UploadFile,
-        category_id: int,
+        category_ids: list[int],
     ) -> ScreenshotUploadResponse:
         return ScreenshotUploadResponse(
-            category_id=category_id,
+            category_ids=category_ids,
             filename=file.filename or "screenshot",
             mime_type=file.content_type,
             status="received",
         )
-

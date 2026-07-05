@@ -1,8 +1,8 @@
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_asset import AssetType, ContentAsset
+from app.models.content_category import content_categories
 from app.models.content_event import ContentEvent, ContentEventType
-from app.models.tag import Tag, content_tags
 from app.models.user import User
 
 __all__ = [
@@ -14,7 +14,6 @@ __all__ = [
     "ContentEventType",
     "ContentSource",
     "ContentType",
-    "Tag",
     "User",
-    "content_tags",
+    "content_categories",
 ]
