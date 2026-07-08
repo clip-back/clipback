@@ -56,7 +56,12 @@ class ContentService:
         self.event_repository = event_repository
         self.user_repository = user_repository
 
-    async def create_content(self, user_id: int, payload: ContentCreate) -> ContentRead:
+    async def create_content(
+        self,
+        user_id: int,
+        payload: ContentCreate,
+        event_metadata_json: str | None = None,
+    ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
                 status_code=422,
@@ -96,6 +101,7 @@ class ContentService:
                 user_id=user_id,
                 content_id=content.id,
                 event_type=ContentEventType.CONTENT_CREATED,
+                metadata_json=event_metadata_json,
             )
             content_id = content.id
             await self.content_repository.session.commit()
