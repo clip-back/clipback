@@ -13,6 +13,8 @@ from app.schemas.content import (
     ContentType,
     ShareAttachment,
 )
+from app.integrations.metadata_client import MetadataResult
+from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
 
@@ -45,9 +47,25 @@ class FakeContentService:
         )
 
 
+class FakeMetadataClient:
+    async def extract_from_url(self, url: str) -> MetadataResult:
+        return MetadataResult(
+            resolved_url="https://www.instagram.com/accounts/login/",
+            title="Instagram 제목",
+            description="Instagram 설명",
+            status="success",
+        )
+
+
 def build_service() -> tuple[ShareIntakeService, FakeContentService]:
     content_service = FakeContentService()
-    return ShareIntakeService(content_service=content_service), content_service
+    return (
+        ShareIntakeService(
+            content_service=content_service,
+            extraction_service=ExtractionService(metadata_client=FakeMetadataClient()),
+        ),
+        content_service,
+    )
 
 
 @pytest.mark.asyncio
@@ -74,6 +92,8 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
     assert content_service.payload is not None
     assert content_service.payload.content_type == ContentType.LINK
     assert content_service.payload.source == ContentSource.INSTAGRAM
+    assert content_service.payload.title == "Instagram 제목"
+    assert content_service.payload.summary == "Instagram 설명"
     assert str(content_service.payload.original_url) == "https://www.instagram.com/reel/SHORTCODE/"
     assert content_service.payload.category_ids == [2, 3]
     assert content_service.payload.is_favorite is True
@@ -87,6 +107,9 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
         "attachment_count": 1,
         "extracted_url": "https://www.instagram.com/reel/SHORTCODE/",
         "url_source": "url",
+        "metadata_status": "success",
+        "metadata_failure_reason": None,
+        "resolved_url": "https://www.instagram.com/reel/SHORTCODE/",
     }
     assert "raw text should not be persisted" not in content_service.event_metadata_json
 

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     secret_key: str = "change-this-in-production"
     access_token_expire_minutes: int = 60 * 24 * 7
     refresh_token_expire_days: int = 90
+    metadata_total_timeout_seconds: float = Field(default=5.0, gt=0)
+    metadata_max_redirects: int = Field(default=3, ge=0)
+    metadata_max_response_bytes: int = Field(default=1_000_000, gt=0)
+    metadata_user_agent: str = "ClipbackBot/0.1"
 
     @model_validator(mode="after")
     def reject_default_production_secret(self) -> "Settings":

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import re
-from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException
 
@@ -14,17 +12,21 @@ from app.schemas.content import (
     ContentType,
 )
 from app.services.content_service import ContentService
+from app.services.extraction_service import ExtractionService
+from app.services.link_url import URL_TRAILING_CHARS, normalize_instagram_url
 
 
-INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
-INSTAGRAM_CONTENT_PATH_PREFIXES = ("/p/", "/reel/", "/tv/", "/stories/")
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
-URL_TRAILING_CHARS = ".,;:!?)]}>"
 
 
 class ShareIntakeService:
-    def __init__(self, content_service: ContentService) -> None:
+    def __init__(
+        self,
+        content_service: ContentService,
+        extraction_service: ExtractionService,
+    ) -> None:
         self.content_service = content_service
+        self.extraction_service = extraction_service
 
     async def create_instagram_content(
         self,
@@ -33,22 +35,28 @@ class ShareIntakeService:
         payload: ContentShareCreate,
     ) -> ContentRead:
         url, url_source = self._select_url(payload)
-        normalized_url = self.normalize_instagram_url(url)
-        metadata_json = self._build_metadata_json(
-            payload=payload,
-            extracted_url=normalized_url,
-            url_source=url_source,
+        normalized_url = normalize_instagram_url(url)
+        content_payload = ContentCreate(
+            content_type=ContentType.LINK,
+            source=ContentSource.INSTAGRAM,
+            original_url=normalized_url,
+            category_ids=payload.category_ids,
+            is_favorite=payload.is_favorite,
+        )
+        extraction = await self.extraction_service.enrich_link(content_payload)
+        enriched_payload = self.extraction_service.apply_to_payload(content_payload, extraction)
+        metadata_json = self.extraction_service.build_event_metadata_json(
+            extraction,
+            base=self._build_event_metadata(
+                payload=payload,
+                extracted_url=normalized_url,
+                url_source=url_source,
+            ),
         )
 
         return await self.content_service.create_content(
             user_id=user_id,
-            payload=ContentCreate(
-                content_type=ContentType.LINK,
-                source=ContentSource.INSTAGRAM,
-                original_url=normalized_url,
-                category_ids=payload.category_ids,
-                is_favorite=payload.is_favorite,
-            ),
+            payload=enriched_payload,
             event_metadata_json=metadata_json,
         )
 
@@ -75,41 +83,16 @@ class ShareIntakeService:
 
     @staticmethod
     def normalize_instagram_url(url: str) -> str:
-        candidate = url.strip().rstrip(URL_TRAILING_CHARS)
-        if "://" not in candidate:
-            candidate = f"https://{candidate}"
-
-        parsed = urlparse(candidate)
-        host = parsed.hostname.lower() if parsed.hostname else ""
-        if host not in INSTAGRAM_HOSTS:
-            raise HTTPException(status_code=422, detail="Only Instagram URLs are supported")
-
-        path = ShareIntakeService._normalize_path(parsed.path)
-        if not ShareIntakeService._is_supported_instagram_path(path):
-            raise HTTPException(status_code=422, detail="Unsupported Instagram URL path")
-
-        return urlunparse(("https", "www.instagram.com", path, "", "", ""))
+        return normalize_instagram_url(url)
 
     @staticmethod
-    def _normalize_path(path: str) -> str:
-        path_parts = [part for part in path.split("/") if part]
-        return f"/{'/'.join(path_parts)}/"
-
-    @staticmethod
-    def _is_supported_instagram_path(path: str) -> bool:
-        return any(
-            path.startswith(prefix) and len(path) > len(prefix)
-            for prefix in INSTAGRAM_CONTENT_PATH_PREFIXES
-        )
-
-    @staticmethod
-    def _build_metadata_json(
+    def _build_event_metadata(
         *,
         payload: ContentShareCreate,
         extracted_url: str,
         url_source: str,
-    ) -> str:
-        metadata = {
+    ) -> dict[str, object]:
+        return {
             "source_app": payload.source_app,
             "platform": payload.platform,
             "mime_type": payload.mime_type,
@@ -117,4 +100,3 @@ class ShareIntakeService:
             "extracted_url": extracted_url,
             "url_source": url_source,
         }
-        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
