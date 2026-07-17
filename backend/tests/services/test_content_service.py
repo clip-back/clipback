@@ -208,6 +208,24 @@ async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -
 
 
 @pytest.mark.asyncio
+async def test_create_content_records_event_metadata_json() -> None:
+    service, _, event_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True)]
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/post",
+            category_ids=[1],
+        ),
+        event_metadata_json='{"url_source":"url"}',
+    )
+
+    assert event_repository.events[0].metadata_json == '{"url_source":"url"}'
+
+
+@pytest.mark.asyncio
 async def test_create_content_rejects_inaccessible_categories() -> None:
     service, content_repository, _, _ = build_service(
         categories=[category(1, "취업", is_default=True)]

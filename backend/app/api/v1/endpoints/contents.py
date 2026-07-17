@@ -6,8 +6,9 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.content import ContentCreate, ContentRead, ContentViewEvent
+from app.schemas.content import ContentCreate, ContentRead, ContentShareCreate, ContentViewEvent
 from app.services.content_service import ContentService
+from app.services.share_intake_service import ShareIntakeService
 
 router = APIRouter()
 
@@ -19,6 +20,20 @@ async def create_content(
     current_user_id: CurrentUserId,
 ) -> ContentRead:
     return await _build_content_service(db).create_content(
+        user_id=current_user_id,
+        payload=payload,
+    )
+
+
+@router.post("/share", response_model=ContentRead, status_code=status.HTTP_201_CREATED)
+async def create_content_from_share(
+    payload: ContentShareCreate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await ShareIntakeService(
+        content_service=_build_content_service(db),
+    ).create_instagram_content(
         user_id=current_user_id,
         payload=payload,
     )

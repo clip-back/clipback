@@ -30,6 +30,24 @@ class ContentCreate(BaseModel):
     is_favorite: bool = False
 
 
+class ShareAttachment(BaseModel):
+    filename: str | None = Field(default=None, max_length=255)
+    mime_type: str | None = Field(default=None, max_length=120)
+    uri: str | None = Field(default=None, max_length=2048)
+    size_bytes: int | None = Field(default=None, ge=0)
+
+
+class ContentShareCreate(BaseModel):
+    url: str | None = Field(default=None, max_length=2048)
+    raw_text: str | None = Field(default=None, max_length=5000)
+    mime_type: str | None = Field(default=None, max_length=120)
+    source_app: str | None = Field(default=None, max_length=120)
+    platform: str | None = Field(default=None, max_length=40)
+    attachments: list[ShareAttachment] = Field(default_factory=list)
+    category_ids: list[int] = Field(default_factory=list)
+    is_favorite: bool = False
+
+
 class ContentRead(BaseModel):
     id: int
     categories: list[CategoryRead] = Field(default_factory=list)
