@@ -40,6 +40,8 @@ class _ShareReceiverPageState extends State<ShareReceiverPage> {
 
   SharePayload _payload = SharePayload.empty();
   String _resultText = '';
+  String? _accessToken;
+  String? _authenticatedBaseUrl;
   bool _sending = false;
 
   @override
@@ -117,8 +119,18 @@ class _ShareReceiverPageState extends State<ShareReceiverPage> {
     final client = HttpClient();
 
     try {
+      final accessToken =
+          _accessToken != null && _authenticatedBaseUrl == baseUrl
+          ? _accessToken!
+          : await _createGuestAccessToken(client, baseUrl);
+      _accessToken = accessToken;
+      _authenticatedBaseUrl = baseUrl;
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer $accessToken',
+      );
       request.write(jsonEncode(_payload.toBackendJson()));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
@@ -126,6 +138,28 @@ class _ShareReceiverPageState extends State<ShareReceiverPage> {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<String> _createGuestAccessToken(
+    HttpClient client,
+    String baseUrl,
+  ) async {
+    final request = await client.postUrl(
+      Uri.parse('$baseUrl/api/v1/auth/guest'),
+    );
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+    if (response.statusCode != HttpStatus.created) {
+      throw HttpException(
+        'Guest auth failed: HTTP ${response.statusCode} $body',
+      );
+    }
+
+    final decoded = jsonDecode(body);
+    if (decoded is! Map || decoded['access_token'] is! String) {
+      throw const FormatException('Guest auth response has no access_token');
+    }
+    return decoded['access_token'] as String;
   }
 
   @override
@@ -136,7 +170,8 @@ class _ShareReceiverPageState extends State<ShareReceiverPage> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            'Instagram 공유 payload를 확인하고 backend /api/v1/contents/share로 전송합니다.',
+            'Instagram 공유 payload를 확인하고 guest token을 자동 발급한 뒤 '
+            'backend /api/v1/contents/share로 전송합니다.',
           ),
           const SizedBox(height: 16),
           TextField(

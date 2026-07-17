@@ -5,7 +5,6 @@ from app.api.deps import CurrentUserId, DatabaseSession
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
-from app.repositories.user_repository import UserRepository
 from app.schemas.content import ContentCreate, ContentRead, ContentShareCreate, ContentViewEvent
 from app.services.content_service import ContentService
 from app.services.share_intake_service import ShareIntakeService
@@ -72,5 +71,4 @@ def _build_content_service(db: AsyncSession) -> ContentService:
         content_repository=ContentRepository(db),
         category_repository=CategoryRepository(db),
         event_repository=EventRepository(db),
-        user_repository=UserRepository(db),
     )

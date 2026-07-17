@@ -114,31 +114,20 @@ class FakeEventRepository:
         return event
 
 
-class FakeUserRepository:
-    def __init__(self) -> None:
-        self.ensured_user_ids: list[int] = []
-
-    async def ensure_guest_user(self, user_id: int) -> SimpleNamespace:
-        self.ensured_user_ids.append(user_id)
-        return SimpleNamespace(id=user_id, display_name="Guest")
-
-
 def build_service(
     *,
     categories: list[SimpleNamespace] | None = None,
     uncategorized: SimpleNamespace | None = None,
     contents: list[SimpleNamespace] | None = None,
-) -> tuple[ContentService, FakeContentRepository, FakeEventRepository, FakeUserRepository]:
+) -> tuple[ContentService, FakeContentRepository, FakeEventRepository]:
     content_repository = FakeContentRepository(contents)
     event_repository = FakeEventRepository()
-    user_repository = FakeUserRepository()
     service = ContentService(
         content_repository=content_repository,
         category_repository=FakeCategoryRepository(categories or [], uncategorized),
         event_repository=event_repository,
-        user_repository=user_repository,
     )
-    return service, content_repository, event_repository, user_repository
+    return service, content_repository, event_repository
 
 
 def category(
@@ -168,7 +157,7 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_create_content_links_available_categories_and_records_event() -> None:
-    service, content_repository, event_repository, user_repository = build_service(
+    service, content_repository, event_repository = build_service(
         categories=[category(1, "취업", is_default=True), category(2, "여행")]
     )
 
@@ -187,7 +176,6 @@ async def test_create_content_links_available_categories_and_records_event() -> 
     assert result.summary == "링크 요약"
     assert [category.id for category in content_repository.created_categories] == [2, 1]
     assert [category.id for category in result.categories] == [1, 2]
-    assert user_repository.ensured_user_ids == [1]
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
     assert content_repository.session.committed is True
 
@@ -195,7 +183,7 @@ async def test_create_content_links_available_categories_and_records_event() -> 
 @pytest.mark.asyncio
 async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -> None:
     uncategorized = category(9, "미분류", is_default=True)
-    service, content_repository, _, _ = build_service(uncategorized=uncategorized)
+    service, content_repository, _ = build_service(uncategorized=uncategorized)
 
     result = await service.create_content(
         user_id=1,
@@ -209,7 +197,7 @@ async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -
 
 @pytest.mark.asyncio
 async def test_create_content_records_event_metadata_json() -> None:
-    service, _, event_repository, _ = build_service(
+    service, _, event_repository = build_service(
         categories=[category(1, "취업", is_default=True)]
     )
 
@@ -227,7 +215,7 @@ async def test_create_content_records_event_metadata_json() -> None:
 
 @pytest.mark.asyncio
 async def test_create_content_rejects_inaccessible_categories() -> None:
-    service, content_repository, _, _ = build_service(
+    service, content_repository, _ = build_service(
         categories=[category(1, "취업", is_default=True)]
     )
 
@@ -245,7 +233,7 @@ async def test_create_content_rejects_inaccessible_categories() -> None:
 
 @pytest.mark.asyncio
 async def test_create_link_content_requires_original_url() -> None:
-    service, _, _, _ = build_service(uncategorized=category(9, "미분류", is_default=True))
+    service, _, _ = build_service(uncategorized=category(9, "미분류", is_default=True))
 
     with pytest.raises(HTTPException) as exc_info:
         await service.create_content(
@@ -258,7 +246,7 @@ async def test_create_link_content_requires_original_url() -> None:
 
 @pytest.mark.asyncio
 async def test_read_content_rejects_other_user_content() -> None:
-    service, _, _, _ = build_service(contents=[content(1, user_id=2)])
+    service, _, _ = build_service(contents=[content(1, user_id=2)])
 
     with pytest.raises(NotFoundError):
         await service.read_content(user_id=1, content_id=1)
@@ -266,7 +254,7 @@ async def test_read_content_rejects_other_user_content() -> None:
 
 @pytest.mark.asyncio
 async def test_record_view_updates_content_and_records_event() -> None:
-    service, content_repository, event_repository, _ = build_service(contents=[content(1)])
+    service, content_repository, event_repository = build_service(contents=[content(1)])
 
     result = await service.record_view(user_id=1, content_id=1)
 
@@ -279,7 +267,7 @@ async def test_record_view_updates_content_and_records_event() -> None:
 
 @pytest.mark.asyncio
 async def test_record_view_rejects_other_user_content() -> None:
-    service, _, _, _ = build_service(contents=[content(1, user_id=2)])
+    service, _, _ = build_service(contents=[content(1, user_id=2)])
 
     with pytest.raises(NotFoundError):
         await service.record_view(user_id=1, content_id=1)

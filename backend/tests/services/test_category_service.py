@@ -46,15 +46,6 @@ class FakeCategoryRepository:
         return category
 
 
-class FakeUserRepository:
-    def __init__(self) -> None:
-        self.ensured_user_ids: list[int] = []
-
-    async def ensure_guest_user(self, user_id: int) -> SimpleNamespace:
-        self.ensured_user_ids.append(user_id)
-        return SimpleNamespace(id=user_id, display_name="Guest")
-
-
 @pytest.mark.asyncio
 async def test_list_categories_returns_available_categories() -> None:
     category_repository = FakeCategoryRepository(
@@ -65,7 +56,6 @@ async def test_list_categories_returns_available_categories() -> None:
     )
     service = CategoryService(
         category_repository=category_repository,
-        user_repository=FakeUserRepository(),
     )
 
     categories = await service.list_categories(user_id=1)
@@ -76,10 +66,8 @@ async def test_list_categories_returns_available_categories() -> None:
 @pytest.mark.asyncio
 async def test_create_category_trims_name_and_commits() -> None:
     category_repository = FakeCategoryRepository()
-    user_repository = FakeUserRepository()
     service = CategoryService(
         category_repository=category_repository,
-        user_repository=user_repository,
     )
 
     category = await service.create_category(
@@ -90,7 +78,6 @@ async def test_create_category_trims_name_and_commits() -> None:
     assert category.name == "여행"
     assert category.color == "#0891B2"
     assert category.is_default is False
-    assert user_repository.ensured_user_ids == [1]
     assert category_repository.session.committed is True
 
 
@@ -101,7 +88,6 @@ async def test_create_category_rejects_duplicate_names() -> None:
     )
     service = CategoryService(
         category_repository=category_repository,
-        user_repository=FakeUserRepository(),
     )
 
     with pytest.raises(InvalidStateError):

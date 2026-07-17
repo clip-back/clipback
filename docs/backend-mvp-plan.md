@@ -54,7 +54,7 @@ URL 요청, AI, OCR과 파일 저장에는 timeout, 응답 크기 제한과 실�
 | 홈 피드 | 완료 | 최신순, 카테고리 필터, cursor pagination | 권한·필터 이벤트 통합 테스트 |
 | 콘텐츠 상세 | 완료 | 사용자 소유 콘텐츠 상세 조회 | 스크린샷 자산 접근 정보와 원본 링크 이벤트 |
 | 재열람 기록 | 부분 완료 | 콘텐츠 view 이벤트와 `last_viewed_at` 기록 | 중복 정책과 지표 정의 정리 |
-| 게스트 인증 | 임시 구현 | 고정 토큰과 사용자 ID `1` 사용 | 실제 사용자 생성, JWT 검증, `/users/me` 구현 |
+| 게스트 인증 | 완료 | 실제 사용자 생성, JWT·refresh 회전, 세션 폐기, `/users/me` 구현 | 향후 정식 계정 전환 연동 |
 | 링크 정보 추출 | 임시 구현 | 제목과 설명을 반환하지 않음 | 안전한 HTTP metadata 추출과 fallback |
 | AI 처리 | 임시 구현 | 단순 문자열 자르기, 카테고리 미추천 | 구조화된 제목·요약·카테고리 추천 연동 |
 | 스크린샷 업로드 | 임시 구현 | 파일 정보를 응답할 뿐 저장하지 않음 | 검증, 저장, 콘텐츠·자산 생성, OCR 연결 |
@@ -358,8 +358,10 @@ cd backend
 
 | Method | Path | 목적 | 상태 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/auth/guest` | 게스트 생성과 JWT 발급 | 임시 구현 |
-| `GET` | `/api/v1/users/me` | 현재 사용자 조회 | 임시 구현 |
+| `POST` | `/api/v1/auth/guest` | 게스트 생성과 JWT 발급 | 구현 |
+| `POST` | `/api/v1/auth/refresh` | refresh token 회전 | 구현 |
+| `POST` | `/api/v1/auth/logout` | 인증 세션 폐기 | 구현 |
+| `GET` | `/api/v1/users/me` | 현재 사용자 조회 | 구현 |
 | `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록 | 구현 |
 | `POST` | `/api/v1/categories` | 사용자 카테고리 생성 | 구현 |
 | `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 부분 구현 |
