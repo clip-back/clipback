@@ -53,6 +53,27 @@ API docs will be available at:
 http://127.0.0.1:8000/docs
 ```
 
+## Guest Authentication
+
+Create a guest session with `POST /api/v1/auth/guest`. The response contains a
+7-day access token and a rotating 90-day refresh token.
+
+Send the access token to protected endpoints:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+Use `POST /api/v1/auth/refresh` to rotate the refresh token and issue a new token
+pair. Use `POST /api/v1/auth/logout` to revoke the refresh session and all access
+tokens issued for that session.
+
+The root, health, OpenAPI, and authentication endpoints are public. User, content,
+category, feed, upload, and metric endpoints require Bearer authentication.
+
+Production must set `APP_ENVIRONMENT=production` and replace the example
+`SECRET_KEY`; startup validation rejects the default production secret.
+
 ## Structure
 
 ```text

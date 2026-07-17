@@ -10,7 +10,6 @@ from app.models.content_event import ContentEventType
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
-from app.repositories.user_repository import UserRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
     ContentCreate,
@@ -49,12 +48,10 @@ class ContentService:
         content_repository: ContentRepository,
         category_repository: CategoryRepository,
         event_repository: EventRepository,
-        user_repository: UserRepository,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
         self.event_repository = event_repository
-        self.user_repository = user_repository
 
     async def create_content(
         self,
@@ -83,8 +80,6 @@ class ContentService:
             if uncategorized is None:
                 raise NotFoundError("Uncategorized category not found")
             categories = [uncategorized]
-
-        await self.user_repository.ensure_guest_user(user_id=user_id)
 
         try:
             content = await self.content_repository.create(

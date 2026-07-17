@@ -2,7 +2,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import InvalidStateError
 from app.repositories.category_repository import CategoryRepository
-from app.repositories.user_repository import UserRepository
 from app.schemas.category import CategoryCreate, CategoryRead
 
 
@@ -10,10 +9,8 @@ class CategoryService:
     def __init__(
         self,
         category_repository: CategoryRepository,
-        user_repository: UserRepository,
     ) -> None:
         self.category_repository = category_repository
-        self.user_repository = user_repository
 
     async def list_categories(self, user_id: int) -> list[CategoryRead]:
         categories = await self.category_repository.list_available(user_id=user_id)
@@ -26,8 +23,6 @@ class CategoryService:
         )
         if existing_category is not None:
             raise InvalidStateError("Category already exists")
-
-        await self.user_repository.ensure_guest_user(user_id=user_id)
 
         try:
             category = await self.category_repository.create(user_id=user_id, payload=payload)
