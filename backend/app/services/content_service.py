@@ -1,6 +1,8 @@
+import json
+
 from fastapi import HTTPException
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, SystemConfigurationError
 from app.models.content import (
     Content,
     ContentSource as ModelContentSource,
@@ -18,10 +20,17 @@ from app.schemas.content import (
     ContentType,
     ContentViewEvent,
 )
+from app.services.category_recommendation_service import (
+    CategoryAssignmentMethod,
+    CategoryRecommendationFailureReason,
+    CategoryRecommendationResult,
+    CategoryRecommendationService,
+)
 
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
+MAX_EVENT_METADATA_LENGTH = 1000
 
 
 def content_to_read(content: Content) -> ContentRead:
@@ -48,16 +57,19 @@ class ContentService:
         content_repository: ContentRepository,
         category_repository: CategoryRepository,
         event_repository: EventRepository,
+        category_recommendation_service: CategoryRecommendationService | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
         self.event_repository = event_repository
+        self.category_recommendation_service = category_recommendation_service
 
     async def create_content(
         self,
         user_id: int,
         payload: ContentCreate,
         event_metadata_json: str | None = None,
+        recommendation_shared_text: str | None = None,
     ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
@@ -75,11 +87,43 @@ class ContentService:
                 raise NotFoundError("Category not found")
             category_by_id = {category.id: category for category in categories}
             categories = [category_by_id[category_id] for category_id in category_ids]
+            recommendation = CategoryRecommendationResult(
+                category_id=None,
+                assignment_method=CategoryAssignmentMethod.USER,
+                failure_reason=None,
+            )
+        elif payload.content_type == ContentType.LINK:
+            recommendation = await self._recommend_category(
+                user_id=user_id,
+                payload=payload,
+                shared_text=recommendation_shared_text,
+            )
+            categories = []
+            if recommendation.category_id is not None:
+                categories = await self.category_repository.list_available_by_ids(
+                    user_id=user_id,
+                    category_ids=[recommendation.category_id],
+                )
+                if not categories:
+                    recommendation = CategoryRecommendationResult(
+                        category_id=recommendation.category_id,
+                        assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+                        failure_reason=CategoryRecommendationFailureReason.ERROR,
+                    )
+            if not categories:
+                categories = [await self._get_uncategorized()]
         else:
-            uncategorized = await self.category_repository.get_uncategorized()
-            if uncategorized is None:
-                raise NotFoundError("Uncategorized category not found")
-            categories = [uncategorized]
+            categories = [await self._get_uncategorized()]
+            recommendation = CategoryRecommendationResult(
+                category_id=None,
+                assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+                failure_reason=None,
+            )
+
+        event_metadata_json = self._build_event_metadata_json(
+            event_metadata_json,
+            recommendation,
+        )
 
         try:
             content = await self.content_repository.create(
@@ -139,6 +183,64 @@ class ContentService:
             content_id=content.id,
             event_type=ContentEventType.CONTENT_REOPENED.value,
         )
+
+    async def _recommend_category(
+        self,
+        *,
+        user_id: int,
+        payload: ContentCreate,
+        shared_text: str | None,
+    ) -> CategoryRecommendationResult:
+        if self.category_recommendation_service is None:
+            return CategoryRecommendationResult(
+                category_id=None,
+                assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+                failure_reason=CategoryRecommendationFailureReason.ERROR,
+            )
+        return await self.category_recommendation_service.recommend(
+            user_id=user_id,
+            payload=payload,
+            shared_text=shared_text,
+        )
+
+    async def _get_uncategorized(self):
+        uncategorized = await self.category_repository.get_uncategorized()
+        if uncategorized is None:
+            raise SystemConfigurationError("Uncategorized category is not configured")
+        return uncategorized
+
+    @staticmethod
+    def _build_event_metadata_json(
+        base_json: str | None,
+        recommendation: CategoryRecommendationResult,
+    ) -> str:
+        metadata: dict[str, object] = {}
+        if base_json:
+            parsed = json.loads(base_json)
+            if isinstance(parsed, dict):
+                metadata.update(parsed)
+        metadata.update(
+            category_assignment_method=recommendation.assignment_method.value,
+            recommended_category_id=recommendation.category_id,
+            category_recommendation_failure_reason=(
+                recommendation.failure_reason.value if recommendation.failure_reason else None
+            ),
+        )
+
+        serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+        while len(serialized) > MAX_EVENT_METADATA_LENGTH:
+            string_fields = {
+                key: value
+                for key, value in metadata.items()
+                if isinstance(value, str) and value
+            }
+            if not string_fields:
+                break
+            key = max(string_fields, key=lambda item: len(string_fields[item]))
+            overflow = len(serialized) - MAX_EVENT_METADATA_LENGTH
+            metadata[key] = string_fields[key][: max(0, len(string_fields[key]) - overflow)]
+            serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+        return serialized
 
     @staticmethod
     def _deduplicate_ids(category_ids: list[int]) -> list[int]:
