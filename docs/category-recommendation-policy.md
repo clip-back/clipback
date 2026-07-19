@@ -248,6 +248,17 @@ AI에게 전달하는 핵심 지침은 다음과 같다.
 - 추천 결과와 fallback 사유를 원문 없이 추적할 수 있다.
 - 정상, fallback, 권한, 회귀 테스트가 모두 통과한다.
 
+### 구현 상태
+
+2026-07-19 기준 MVP 자동 추천 구현을 완료했다.
+
+- 운영 모델: `gpt-5.4-nano-2026-03-17`
+- 호출 방식: 비동기 OpenAI Responses API와 Pydantic Structured Outputs
+- 운영 제한: timeout 2초, 재시도 없음, reasoning effort `none`, 최대 출력 64토큰, `store=false`
+- 추천 범위: `미분류`를 제외한 기본 카테고리와 현재 사용자의 카테고리
+- fallback: `no_match`, `insufficient_input`, `timeout`, `invalid_response`, `error`
+- 검증: 자동·회귀 테스트, Alembic check, 실제 PostgreSQL 저장·사용자 격리·강제 실패 fallback 확인
+
 ## 14. 확정 사항과 후속 검토
 
 ### 확정 사항

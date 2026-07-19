@@ -19,6 +19,20 @@ class CategoryRepository:
         )
         return list(result)
 
+    async def list_recommendation_candidates(self, user_id: int) -> list[Category]:
+        result = await self.session.scalars(
+            select(Category)
+            .where(
+                or_(
+                    (Category.user_id.is_(None) & Category.is_default.is_(True)),
+                    Category.user_id == user_id,
+                ),
+                Category.name != "미분류",
+            )
+            .order_by(Category.is_default.desc(), Category.id.asc())
+        )
+        return list(result)
+
     async def find_available_by_name(self, user_id: int, name: str) -> Category | None:
         result = await self.session.scalars(
             select(Category).where(

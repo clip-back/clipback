@@ -31,6 +31,7 @@ class FakeContentService:
         user_id: int,
         payload: ContentCreate,
         event_metadata_json: str | None = None,
+        recommendation_shared_text: str | None = None,
     ) -> ContentRead:
         self.requests.append((payload, event_metadata_json))
         return ContentRead(

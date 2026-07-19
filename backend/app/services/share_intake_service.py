@@ -58,6 +58,7 @@ class ShareIntakeService:
             user_id=user_id,
             payload=enriched_payload,
             event_metadata_json=metadata_json,
+            recommendation_shared_text=payload.raw_text,
         )
 
     def _select_url(self, payload: ContentShareCreate) -> tuple[str, str]:

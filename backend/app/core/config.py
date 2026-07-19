@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,11 +22,20 @@ class Settings(BaseSettings):
     metadata_max_redirects: int = Field(default=3, ge=0)
     metadata_max_response_bytes: int = Field(default=1_000_000, gt=0)
     metadata_user_agent: str = "ClipbackBot/0.1"
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-5.4-nano-2026-03-17"
+    ai_timeout_seconds: float = Field(default=2.0, gt=0)
+    ai_max_output_tokens: int = Field(default=64, gt=0)
+    ai_reasoning_effort: Literal["none"] = "none"
 
     @model_validator(mode="after")
     def reject_default_production_secret(self) -> "Settings":
         if self.app_environment == "production" and self.secret_key == "change-this-in-production":
             raise ValueError("SECRET_KEY must be changed in production")
+        if self.app_environment == "production" and (
+            self.openai_api_key is None or not self.openai_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("OPENAI_API_KEY is required in production")
         return self
 
 

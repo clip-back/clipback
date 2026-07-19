@@ -23,16 +23,19 @@ class FakeContentService:
         self.user_id: int | None = None
         self.payload: ContentCreate | None = None
         self.event_metadata_json: str | None = None
+        self.recommendation_shared_text: str | None = None
 
     async def create_content(
         self,
         user_id: int,
         payload: ContentCreate,
         event_metadata_json: str | None = None,
+        recommendation_shared_text: str | None = None,
     ) -> ContentRead:
         self.user_id = user_id
         self.payload = payload
         self.event_metadata_json = event_metadata_json
+        self.recommendation_shared_text = recommendation_shared_text
 
         return ContentRead(
             id=1,
@@ -112,6 +115,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
         "resolved_url": "https://www.instagram.com/reel/SHORTCODE/",
     }
     assert "raw text should not be persisted" not in content_service.event_metadata_json
+    assert content_service.recommendation_shared_text == "raw text should not be persisted"
 
 
 @pytest.mark.asyncio
