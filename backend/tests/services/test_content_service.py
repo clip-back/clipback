@@ -7,7 +7,7 @@ import pytest
 
 from app.core.exceptions import NotFoundError, SystemConfigurationError
 from app.models.content_event import ContentEventType
-from app.schemas.content import ContentCreate, ContentSource, ContentType
+from app.schemas.content import ContentCategoryUpdate, ContentCreate, ContentSource, ContentType
 from app.services.content_service import ContentService
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
@@ -71,6 +71,15 @@ class FakeContentRepository:
 
     async def mark_viewed(self, content: SimpleNamespace) -> SimpleNamespace:
         content.last_viewed_at = datetime.now(UTC)
+        return content
+
+    async def replace_categories(
+        self,
+        *,
+        content: SimpleNamespace,
+        categories: list[SimpleNamespace],
+    ) -> SimpleNamespace:
+        content.categories = categories
         return content
 
 
@@ -407,6 +416,170 @@ async def test_read_content_rejects_other_user_content() -> None:
 
     with pytest.raises(NotFoundError):
         await service.read_content(user_id=1, content_id=1)
+
+
+@pytest.mark.asyncio
+async def test_update_categories_replaces_categories_and_records_event() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(3, "공부")],
+        contents=[content(1)],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[3, 2, 3]),
+    )
+
+    assert [item.id for item in result.categories] == [2, 3]
+    assert [item.id for item in content_repository.contents[1].categories] == [3, 2]
+    assert event_repository.events[0].event_type == ContentEventType.CATEGORY_CHANGED
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "before_category_ids": [1],
+        "after_category_ids": [2, 3],
+    }
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_update_categories_uses_uncategorized_for_empty_ids() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    service, content_repository, event_repository = build_service(
+        uncategorized=uncategorized,
+        contents=[content(1)],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[]),
+    )
+
+    assert [item.id for item in result.categories] == [9]
+    assert content_repository.session.committed is True
+    assert event_repository.events[0].event_type == ContentEventType.CATEGORY_CHANGED
+
+
+@pytest.mark.asyncio
+async def test_update_categories_skips_unchanged_set() -> None:
+    existing_content = content(1)
+    existing_content.categories = [category(2, "여행"), category(3, "공부")]
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(3, "공부")],
+        contents=[existing_content],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[3, 2, 3]),
+    )
+
+    assert [item.id for item in result.categories] == [2, 3]
+    assert event_repository.events == []
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rejects_uncategorized_with_other_categories() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[
+            category(2, "여행"),
+            category(9, "미분류", is_default=True),
+        ],
+        contents=[content(1)],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[9, 2]),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rejects_inaccessible_category() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1)],
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2, 99]),
+        )
+
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rejects_other_user_content() -> None:
+    service, _, _ = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1, user_id=2)],
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rolls_back_when_replacement_fails() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1)],
+    )
+
+    async def fail_replacement(*, content, categories):
+        raise RuntimeError("replacement failed")
+
+    content_repository.replace_categories = fail_replacement
+
+    with pytest.raises(RuntimeError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rolls_back_when_event_creation_fails() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1)],
+    )
+
+    async def fail_event_creation(**kwargs):
+        raise RuntimeError("event creation failed")
+
+    event_repository.create = fail_event_creation
+
+    with pytest.raises(RuntimeError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@ from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
+    ContentCategoryUpdate,
     ContentCreate,
     ContentRead,
     ContentSource,
@@ -161,6 +162,78 @@ class ContentService:
         if content is None:
             raise NotFoundError("Content not found")
         return content_to_read(content)
+
+    async def update_categories(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        payload: ContentCategoryUpdate,
+    ) -> ContentRead:
+        content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if content is None:
+            raise NotFoundError("Content not found")
+
+        category_ids = self._deduplicate_ids(payload.category_ids)
+        if category_ids:
+            categories = await self.category_repository.list_available_by_ids(
+                user_id=user_id,
+                category_ids=category_ids,
+            )
+            if len(categories) != len(category_ids):
+                raise NotFoundError("Category not found")
+            category_by_id = {category.id: category for category in categories}
+            categories = [category_by_id[category_id] for category_id in category_ids]
+            if len(categories) > 1 and any(
+                category.name == "미분류" and category.is_default for category in categories
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Uncategorized category cannot be combined with other categories",
+                )
+        else:
+            categories = [await self._get_uncategorized()]
+
+        before_category_ids = sorted(category.id for category in content.categories)
+        after_category_ids = sorted(category.id for category in categories)
+        if before_category_ids == after_category_ids:
+            return content_to_read(content)
+
+        metadata_json = json.dumps(
+            {
+                "before_category_ids": before_category_ids,
+                "after_category_ids": after_category_ids,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+        try:
+            await self.content_repository.replace_categories(
+                content=content,
+                categories=categories,
+            )
+            await self.event_repository.create(
+                user_id=user_id,
+                content_id=content.id,
+                event_type=ContentEventType.CATEGORY_CHANGED,
+                metadata_json=metadata_json,
+            )
+            await self.content_repository.session.commit()
+        except Exception:
+            await self.content_repository.session.rollback()
+            raise
+
+        updated_content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if updated_content is None:
+            raise NotFoundError("Content not found")
+        return content_to_read(updated_content)
 
     async def record_view(self, user_id: int, content_id: int) -> ContentViewEvent:
         content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)

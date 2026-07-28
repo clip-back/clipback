@@ -49,8 +49,8 @@ URL 요청, AI, OCR과 파일 저장에는 timeout, 응답 크기 제한과 실�
 | DB 및 마이그레이션 | 기반 완료 | 사용자, 콘텐츠, 카테고리, 자산, 이벤트 테이블 존재 | 후속 모델 변경 시 마이그레이션 추가 |
 | Instagram 공유 저장 | 완료 | 게시글과 Reel URL 정규화 후 공통 enrichment·카테고리 추천 파이프라인으로 저장 | 운영 성공률 관찰 |
 | 링크 직접 입력 | 완료 | 안전한 metadata 추출 후 AI 추천 또는 `미분류` fallback 저장 | 운영 성공률 관찰 |
-| 콘텐츠 저장 | 완료 | 콘텐츠·카테고리·할당 metadata 생성 이벤트를 트랜잭션으로 저장 | 카테고리 변경 이력 연결 |
-| 카테고리 | 부분 완료 | 기본·사용자 카테고리 추천, 직접 선택 우선, `미분류` fallback | 카테고리 변경 API |
+| 콘텐츠 저장 | 완료 | 콘텐츠·카테고리·할당 metadata 생성 이벤트를 트랜잭션으로 저장 | 운영 정합성 관찰 |
+| 카테고리 | 완료 | 기본·사용자 카테고리 추천, 직접 선택 우선, `미분류` fallback과 콘텐츠 카테고리 변경 | 운영 변경 이력 관찰 |
 | 홈 피드 | 완료 | 최신순, 카테고리 필터, cursor pagination | 권한·필터 이벤트 통합 테스트 |
 | 콘텐츠 상세 | 완료 | 사용자 소유 콘텐츠 상세 조회 | 스크린샷 자산 접근 정보와 원본 링크 이벤트 |
 | 재열람 기록 | 부분 완료 | 콘텐츠 view 이벤트와 `last_viewed_at` 기록 | 중복 정책과 지표 정의 정리 |
@@ -234,6 +234,12 @@ PUT /api/v1/contents/{content_id}/categories
 - 다른 사용자의 콘텐츠나 카테고리를 사용할 수 없다.
 - 변경은 콘텐츠 관계와 이벤트 기록을 하나의 트랜잭션으로 처리한다.
 
+### 구현 결과
+
+- 콘텐츠의 전체 카테고리 집합을 교체하는 API를 제공한다.
+- 빈 카테고리 목록은 `미분류`로 전환하고 `미분류`와 다른 카테고리의 혼합은 거부한다.
+- 실제 변경이 있을 때만 변경 전·후 category ID를 `category_changed` 이벤트로 기록한다.
+
 ### 권장 브랜치
 
 `feature/backend-content-category-update`
@@ -384,7 +390,7 @@ cd backend
 | `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 부분 구현 |
 | `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram 구현 |
 | `GET` | `/api/v1/contents/{id}` | 콘텐츠 상세 조회 | 구현 |
-| `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 추가 필요 |
+| `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 구현 |
 | `POST` | `/api/v1/contents/{id}/view` | 재열람 기록 | 구현 |
 | `GET` | `/api/v1/feed` | 최신순 피드와 카테고리 필터 | 구현 |
 | `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 임시 구현 |

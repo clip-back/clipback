@@ -11,6 +11,7 @@ from app.db.types import enum_values
 class ContentEventType(StrEnum):
     CONTENT_CREATED = "content_created"
     CONTENT_REOPENED = "content_reopened"
+    CATEGORY_CHANGED = "category_changed"
     CATEGORY_FILTER_USED = "category_filter_used"
     CARD_CLICKED = "card_clicked"
     ORIGINAL_LINK_OPENED = "original_link_opened"
