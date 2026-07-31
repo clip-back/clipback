@@ -30,6 +30,10 @@ class ContentCreate(BaseModel):
     is_favorite: bool = False
 
 
+class ContentCategoryUpdate(BaseModel):
+    category_ids: list[int] = Field(default_factory=list)
+
+
 class ShareAttachment(BaseModel):
     filename: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=120)

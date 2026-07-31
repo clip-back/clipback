@@ -80,3 +80,13 @@ class ContentRepository:
         content.last_viewed_at = datetime.now(UTC)
         await self.session.flush()
         return content
+
+    async def replace_categories(
+        self,
+        *,
+        content: Content,
+        categories: Sequence[Category],
+    ) -> Content:
+        content.categories = list(categories)
+        await self.session.flush()
+        return content

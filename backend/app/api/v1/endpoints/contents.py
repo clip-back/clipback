@@ -7,6 +7,7 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.content import (
+    ContentCategoryUpdate,
     ContentCreate,
     ContentRead,
     ContentShareCreate,
@@ -66,6 +67,20 @@ async def read_content(
     return await _build_content_service(db).read_content(
         user_id=current_user_id,
         content_id=content_id,
+    )
+
+
+@router.put("/{content_id}/categories", response_model=ContentRead)
+async def update_content_categories(
+    content_id: int,
+    payload: ContentCategoryUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_categories(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
     )
 
 
