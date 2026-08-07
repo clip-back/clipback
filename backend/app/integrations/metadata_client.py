@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from html import unescape
-import ipaddress
-import socket
 from urllib.parse import urljoin, urlparse, urlunparse
 
-from bs4 import BeautifulSoup
 import httpx
-
+from bs4 import BeautifulSoup
 
 HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}

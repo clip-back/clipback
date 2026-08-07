@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 
@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
 from app.schemas.content import ContentCreate, ContentSource
 from app.services.link_url import infer_content_source, is_instagram_url, normalize_instagram_url
-
 
 MAX_EVENT_METADATA_LENGTH = 1000
 

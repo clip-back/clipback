@@ -15,7 +15,6 @@ from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.link_url import URL_TRAILING_CHARS, normalize_instagram_url
 
-
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
 
 

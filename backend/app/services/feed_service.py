@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 
-from app.schemas.feed import FeedResponse
 from app.repositories.content_repository import ContentRepository
+from app.schemas.feed import FeedResponse
 from app.services.content_service import content_to_read
 
 

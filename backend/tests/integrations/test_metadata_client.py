@@ -63,7 +63,8 @@ async def test_extract_prefers_open_graph_and_normalizes_text() -> None:
     ("html", "expected_title", "expected_description"),
     [
         (
-            '<meta name="twitter:title" content="Twitter"><meta name="twitter:description" content="설명">',
+            '<meta name="twitter:title" content="Twitter">'
+            '<meta name="twitter:description" content="설명">',
             "Twitter",
             "설명",
         ),

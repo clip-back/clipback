@@ -53,6 +53,21 @@ API docs will be available at:
 http://127.0.0.1:8000/docs
 ```
 
+## Validation
+
+The backend supports Python 3.11 and 3.12. Run the same checks used by CI from the
+`backend` directory:
+
+```bash
+ruff check app alembic tests
+pytest -q
+python -m compileall app alembic tests
+alembic upgrade head
+alembic check
+```
+
+The migration checks require PostgreSQL and a valid `DATABASE_URL`.
+
 ## Guest Authentication
 
 Create a guest session with `POST /api/v1/auth/guest`. The response contains a

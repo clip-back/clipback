@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
 from urllib.parse import urlsplit, urlunsplit
 
 from app.integrations.ai_client import (
@@ -13,7 +13,6 @@ from app.integrations.ai_client import (
 )
 from app.repositories.category_repository import CategoryRepository
 from app.schemas.content import ContentCreate
-
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
