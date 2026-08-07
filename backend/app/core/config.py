@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     ocr_model: str = "gpt-5.4-nano-2026-03-17"
     ocr_timeout_seconds: float = Field(default=5.0, gt=0)
     ocr_max_output_tokens: int = Field(default=4096, gt=0)
+    google_client_ids: list[str] = Field(default_factory=list)
+    kakao_rest_api_key: SecretStr | None = None
+    social_auth_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_root: Path = Path("storage")
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
@@ -42,6 +45,15 @@ class Settings(BaseSettings):
             self.openai_api_key is None or not self.openai_api_key.get_secret_value().strip()
         ):
             raise ValueError("OPENAI_API_KEY is required in production")
+        if self.app_environment == "production" and not any(
+            client_id.strip() for client_id in self.google_client_ids
+        ):
+            raise ValueError("GOOGLE_CLIENT_IDS is required in production")
+        if self.app_environment == "production" and (
+            self.kakao_rest_api_key is None
+            or not self.kakao_rest_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("KAKAO_REST_API_KEY is required in production")
         return self
 
 

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import auth as auth_endpoints
 from app.core.exceptions import AuthenticationError
 from app.core.security import create_access_token
+from app.models.social_identity import SocialProvider
 from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import TokenResponse
@@ -37,6 +38,36 @@ class FakeAuthService:
 
     async def logout(self, refresh_token: str) -> None:
         self.logout_tokens.append(refresh_token)
+
+    async def social_login(self, *, provider: SocialProvider, token: str) -> TokenResponse:
+        assert provider == SocialProvider.GOOGLE
+        assert token == "provider-token"
+        return self._social_response(is_new_user=True)
+
+    async def upgrade_guest_with_social(
+        self,
+        *,
+        user_id: int,
+        provider: SocialProvider,
+        token: str,
+    ) -> TokenResponse:
+        assert user_id == 3
+        assert provider == SocialProvider.KAKAO
+        assert token == "provider-token"
+        return self._social_response(is_new_user=False)
+
+    @staticmethod
+    def _social_response(*, is_new_user: bool):
+        from app.schemas.auth import SocialTokenResponse
+
+        return SocialTokenResponse(
+            access_token="social-access-token",
+            refresh_token="social-refresh-token",
+            token_type="bearer",
+            expires_in=604800,
+            refresh_expires_in=7776000,
+            is_new_user=is_new_user,
+        )
 
 
 @pytest.fixture
@@ -146,3 +177,87 @@ def test_upload_and_metrics_endpoints_require_authentication(client: TestClient)
 
     assert upload_response.status_code == 401
     assert metrics_response.status_code == 401
+
+
+def test_social_login_contract(client: TestClient, fake_auth_service: FakeAuthService) -> None:
+    response = client.post(
+        "/api/v1/auth/social/google",
+        json={"token": "provider-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "access_token": "social-access-token",
+        "refresh_token": "social-refresh-token",
+        "token_type": "bearer",
+        "expires_in": 604800,
+        "refresh_expires_in": 7776000,
+        "is_new_user": True,
+    }
+    assert "provider-token" not in response.text
+
+
+def test_social_login_rejects_unknown_provider_and_extra_fields(
+    client: TestClient,
+    fake_auth_service: FakeAuthService,
+) -> None:
+    unknown = client.post(
+        "/api/v1/auth/social/unknown",
+        json={"token": "provider-token"},
+    )
+    extra = client.post(
+        "/api/v1/auth/social/google",
+        json={"token": "provider-token", "email": "spoofed@example.com"},
+    )
+
+    assert unknown.status_code == 422
+    assert extra.status_code == 422
+
+
+@pytest.mark.parametrize("token", ["", "   ", "secret-token-" + "x" * 8192])
+def test_social_login_rejects_invalid_token_without_echoing_it(
+    client: TestClient,
+    fake_auth_service: FakeAuthService,
+    token: str,
+) -> None:
+    response = client.post(
+        "/api/v1/auth/social/google",
+        json={"token": token},
+    )
+
+    assert response.status_code == 422
+    assert token not in response.text or not token
+
+
+def test_social_upgrade_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/social/kakao/upgrade",
+        json={"token": "provider-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_social_upgrade_contract(
+    client: TestClient,
+    fake_auth_service: FakeAuthService,
+    monkeypatch,
+) -> None:
+    async def get_active(self, *, session_id: int, user_id: int):
+        return SimpleNamespace(id=session_id, user_id=user_id)
+
+    async def get_user(self, user_id: int):
+        return SimpleNamespace(id=user_id)
+
+    monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
+    monkeypatch.setattr(UserRepository, "get", get_user)
+    access_token = create_access_token(user_id=3, session_id=5)
+
+    response = client.post(
+        "/api/v1/auth/social/kakao/upgrade",
+        json={"token": "provider-token"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_new_user"] is False
