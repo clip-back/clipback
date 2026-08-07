@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.schemas.content import ContentSource, ContentType
 from app.services.feed_service import FeedService
@@ -66,6 +66,7 @@ def content(
         original_url="https://example.com/original",
         is_favorite=False,
         categories=categories,
+        assets=[],
         saved_at=saved_at,
         last_viewed_at=None,
     )

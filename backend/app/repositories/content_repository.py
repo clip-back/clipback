@@ -45,7 +45,7 @@ class ContentRepository:
     async def get_owned(self, *, user_id: int, content_id: int) -> Content | None:
         result = await self.session.scalars(
             select(Content)
-            .options(selectinload(Content.categories))
+            .options(selectinload(Content.categories), selectinload(Content.assets))
             .where(Content.id == content_id, Content.user_id == user_id)
         )
         return result.first()
@@ -58,8 +58,10 @@ class ContentRepository:
         cursor_id: int | None,
         limit: int,
     ) -> list[Content]:
-        statement = select(Content).options(selectinload(Content.categories)).where(
-            Content.user_id == user_id
+        statement = (
+            select(Content)
+            .options(selectinload(Content.categories), selectinload(Content.assets))
+            .where(Content.user_id == user_id)
         )
 
         if category_id is not None:

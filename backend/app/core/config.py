@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = Field(default=2.0, gt=0)
     ai_max_output_tokens: int = Field(default=64, gt=0)
     ai_reasoning_effort: Literal["none"] = "none"
+    storage_root: Path = Path("storage")
+    screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     @model_validator(mode="after")
     def reject_default_production_secret(self) -> "Settings":

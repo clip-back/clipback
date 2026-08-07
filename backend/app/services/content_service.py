@@ -1,19 +1,25 @@
 import json
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 
+from app.core.config import settings
 from app.core.exceptions import NotFoundError, SystemConfigurationError
 from app.models.content import (
     Content,
     ContentSource as ModelContentSource,
     ContentType as ModelContentType,
 )
+from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
 from app.repositories.category_repository import CategoryRepository
+from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
+    ContentAssetRead,
+    ContentAssetType,
     ContentCategoryUpdate,
     ContentCreate,
     ContentRead,
@@ -28,10 +34,16 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationService,
 )
 
-
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
 MAX_EVENT_METADATA_LENGTH = 1000
+
+
+@dataclass(frozen=True)
+class PendingContentAsset:
+    asset_type: AssetType
+    storage_key: str
+    mime_type: str | None
 
 
 def content_to_read(content: Content) -> ContentRead:
@@ -40,6 +52,15 @@ def content_to_read(content: Content) -> ContentRead:
         categories=[
             CategoryRead.model_validate(category)
             for category in sorted(content.categories, key=lambda item: item.id)
+        ],
+        assets=[
+            ContentAssetRead(
+                id=asset.id,
+                asset_type=ContentAssetType(asset.asset_type.value),
+                mime_type=asset.mime_type,
+                download_url=f"{settings.api_v1_prefix}/uploads/assets/{asset.id}",
+            )
+            for asset in sorted(content.assets, key=lambda item: item.id)
         ],
         content_type=ContentType(content.content_type.value),
         source=ContentSource(content.source.value),
@@ -58,11 +79,13 @@ class ContentService:
         content_repository: ContentRepository,
         category_repository: CategoryRepository,
         event_repository: EventRepository,
+        content_asset_repository: ContentAssetRepository | None = None,
         category_recommendation_service: CategoryRecommendationService | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
         self.event_repository = event_repository
+        self.content_asset_repository = content_asset_repository
         self.category_recommendation_service = category_recommendation_service
 
     async def create_content(
@@ -71,6 +94,7 @@ class ContentService:
         payload: ContentCreate,
         event_metadata_json: str | None = None,
         recommendation_shared_text: str | None = None,
+        asset: PendingContentAsset | None = None,
     ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
@@ -126,6 +150,9 @@ class ContentService:
             recommendation,
         )
 
+        if asset is not None and self.content_asset_repository is None:
+            raise SystemConfigurationError("Content asset repository is not configured")
+
         try:
             content = await self.content_repository.create(
                 user_id=user_id,
@@ -137,25 +164,32 @@ class ContentService:
                 is_favorite=payload.is_favorite,
                 categories=categories,
             )
+            if asset is not None:
+                await self.content_asset_repository.create(
+                    content_id=content.id,
+                    asset_type=asset.asset_type,
+                    storage_key=asset.storage_key,
+                    mime_type=asset.mime_type,
+                )
             await self.event_repository.create(
                 user_id=user_id,
                 content_id=content.id,
                 event_type=ContentEventType.CONTENT_CREATED,
                 metadata_json=event_metadata_json,
             )
-            content_id = content.id
+            created_content = await self.content_repository.get_owned(
+                user_id=user_id,
+                content_id=content.id,
+            )
+            if created_content is None:
+                raise NotFoundError("Content not found")
+            response = content_to_read(created_content)
             await self.content_repository.session.commit()
         except Exception:
             await self.content_repository.session.rollback()
             raise
 
-        created_content = await self.content_repository.get_owned(
-            user_id=user_id,
-            content_id=content_id,
-        )
-        if created_content is None:
-            raise NotFoundError("Content not found")
-        return content_to_read(created_content)
+        return response
 
     async def read_content(self, user_id: int, content_id: int) -> ContentRead:
         content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)

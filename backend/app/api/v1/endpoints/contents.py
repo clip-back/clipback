@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUserId, DatabaseSession
 from app.integrations.ai_client import get_ai_client
 from app.repositories.category_repository import CategoryRepository
+from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.content import (
@@ -14,8 +15,8 @@ from app.schemas.content import (
     ContentType,
     ContentViewEvent,
 )
-from app.services.content_service import ContentService
 from app.services.category_recommendation_service import CategoryRecommendationService
+from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
@@ -106,6 +107,7 @@ def _build_content_service(db: AsyncSession) -> ContentService:
         content_repository=ContentRepository(db),
         category_repository=category_repository,
         event_repository=EventRepository(db),
+        content_asset_repository=ContentAssetRepository(db),
         category_recommendation_service=CategoryRecommendationService(
             category_repository=category_repository,
             ai_client=get_ai_client(),

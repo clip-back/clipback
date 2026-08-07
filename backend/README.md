@@ -74,6 +74,15 @@ category, feed, upload, and metric endpoints require Bearer authentication.
 Production must set `APP_ENVIRONMENT=production` and replace the example
 `SECRET_KEY`; startup validation rejects the default production secret.
 
+## Screenshot Storage
+
+`POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
+10MB as multipart form data and returns the saved content with its asset metadata.
+Set `STORAGE_ROOT` to change the local filesystem storage directory.
+
+Saved images are private. Use the Bearer-authenticated asset URL returned in
+`ContentRead.assets` to download an image.
+
 ## Structure
 
 ```text
