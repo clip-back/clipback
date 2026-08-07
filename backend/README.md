@@ -83,8 +83,17 @@ Use `POST /api/v1/auth/refresh` to rotate the refresh token and issue a new toke
 pair. Use `POST /api/v1/auth/logout` to revoke the refresh session and all access
 tokens issued for that session.
 
-The root, health, OpenAPI, and authentication endpoints are public. User, content,
-category, feed, upload, and metric endpoints require Bearer authentication.
+Social sign-in uses credentials obtained by the Flutter provider SDKs. Send a Google
+or Kakao ID token, or a Naver access token, to `POST /api/v1/auth/social/{provider}`.
+The response uses the same Clipback access and refresh tokens and adds `is_new_user`.
+An authenticated guest can preserve existing data by calling
+`POST /api/v1/auth/social/{provider}/upgrade`; the previous guest sessions are revoked
+after a successful upgrade. Provider tokens are verified for the request and are not
+stored.
+
+The root, health, OpenAPI, and authentication endpoints are public except for guest
+social upgrades. User, content, category, feed, upload, and metric endpoints require
+Bearer authentication.
 
 Production must set `APP_ENVIRONMENT=production` and replace the example
 `SECRET_KEY`; startup validation rejects the default production secret.

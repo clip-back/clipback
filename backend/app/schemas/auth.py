@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TokenResponse(BaseModel):
@@ -7,6 +7,16 @@ class TokenResponse(BaseModel):
     token_type: str
     expires_in: int
     refresh_expires_in: int
+
+
+class SocialTokenResponse(TokenResponse):
+    is_new_user: bool
+
+
+class SocialTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
 
 
 class RefreshTokenRequest(BaseModel):

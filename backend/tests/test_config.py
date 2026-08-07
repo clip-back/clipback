@@ -38,10 +38,57 @@ def test_production_accepts_openai_api_key() -> None:
         app_environment="production",
         secret_key="production-secret",
         openai_api_key="test-key",
+        google_client_ids=["google-client-id"],
+        kakao_rest_api_key="kakao-key",
         _env_file=None,
     )
 
     assert settings.openai_model == "gpt-5.4-nano-2026-03-17"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("google_client_ids", [], "GOOGLE_CLIENT_IDS"),
+        ("kakao_rest_api_key", None, "KAKAO_REST_API_KEY"),
+    ],
+)
+def test_production_requires_social_auth_settings(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    values = {
+        "app_environment": "production",
+        "secret_key": "production-secret",
+        "openai_api_key": "test-key",
+        "google_client_ids": ["google-client-id"],
+        "kakao_rest_api_key": "kakao-key",
+        field: value,
+    }
+
+    with pytest.raises(ValidationError, match=message):
+        Settings(**values, _env_file=None)
+
+
+def test_social_auth_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in (
+        "GOOGLE_CLIENT_IDS",
+        "KAKAO_REST_API_KEY",
+        "SOCIAL_AUTH_TIMEOUT_SECONDS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.google_client_ids == []
+    assert settings.kakao_rest_api_key is None
+    assert settings.social_auth_timeout_seconds == 5
+
+
+def test_social_auth_timeout_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        Settings(social_auth_timeout_seconds=0, _env_file=None)
 
 
 def test_screenshot_storage_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
