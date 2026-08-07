@@ -42,3 +42,15 @@ def test_production_accepts_openai_api_key() -> None:
     )
 
     assert settings.openai_model == "gpt-5.4-nano-2026-03-17"
+
+
+def test_screenshot_storage_defaults() -> None:
+    settings = Settings(_env_file=None)
+
+    assert str(settings.storage_root) == "storage"
+    assert settings.screenshot_max_bytes == 10 * 1024 * 1024
+
+
+def test_screenshot_max_bytes_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        Settings(screenshot_max_bytes=0, _env_file=None)

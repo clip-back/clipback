@@ -52,14 +52,14 @@ URL 요청, AI, OCR과 파일 저장에는 timeout, 응답 크기 제한과 실�
 | 콘텐츠 저장 | 완료 | 콘텐츠·카테고리·할당 metadata 생성 이벤트를 트랜잭션으로 저장 | 운영 정합성 관찰 |
 | 카테고리 | 완료 | 기본·사용자 카테고리 추천, 직접 선택 우선, `미분류` fallback과 콘텐츠 카테고리 변경 | 운영 변경 이력 관찰 |
 | 홈 피드 | 완료 | 최신순, 카테고리 필터, cursor pagination | 권한·필터 이벤트 통합 테스트 |
-| 콘텐츠 상세 | 완료 | 사용자 소유 콘텐츠 상세 조회 | 스크린샷 자산 접근 정보와 원본 링크 이벤트 |
+| 콘텐츠 상세 | 완료 | 사용자 소유 콘텐츠와 인증된 스크린샷 자산 조회 | 원본 링크 이벤트 |
 | 재열람 기록 | 부분 완료 | 콘텐츠 view 이벤트와 `last_viewed_at` 기록 | 중복 정책과 지표 정의 정리 |
 | 게스트 인증 | 완료 | 실제 사용자 생성, JWT·refresh 회전, 세션 폐기, `/users/me` 구현 | 향후 정식 계정 전환 연동 |
 | 링크 정보 추출 | 완료 | SSRF 방어, 수동 redirect 검증, Open Graph·HTML metadata 추출과 fallback | 운영 환경 추출 성공률 관찰 |
 | AI 처리 | 카테고리 추천 완료 | `gpt-5.4-nano-2026-03-17` Structured Outputs로 후보 중 하나를 추천하고 실패 시 `미분류` 처리 | AI 요약은 후속 범위 |
-| 스크린샷 업로드 | 임시 구현 | 파일 정보를 응답할 뿐 저장하지 않음 | 검증, 저장, 콘텐츠·자산 생성, OCR 연결 |
+| 스크린샷 업로드 | 저장 완료 | PNG·JPEG·WebP 검증, 로컬 저장, 콘텐츠·자산 생성 | OCR 연결 |
 | OCR | 임시 구현 | 빈 문자열 반환 | OCR 공급자 또는 로컬 구현 연결 |
-| 파일 저장 | 임시 구현 | storage key 문자열만 반환 | 실제 저장소와 안전한 조회 방식 구현 |
+| 파일 저장 | 로컬 구현 완료 | 경로 격리, atomic write, 소유권 기반 인증 조회 | 운영 object storage 구현 |
 | 지표 API | 임시 구현 | 고정 ID 이벤트 반환 | DB 저장, 사용자·콘텐츠 권한 검증 |
 | API 통합 테스트 | 부족 | 서비스 단위 테스트 중심 | 인증 포함 HTTP API와 DB 통합 테스트 |
 | CI·운영 | 미구현 | 로컬 테스트만 수행 | GitHub Actions, migration 검사, 운영 설정 |
@@ -268,6 +268,14 @@ PRD 핵심 범위인 사진 기반 콘텐츠를 실제 콘텐츠로 저장하고
 - 사용자는 자신의 이미지 자산만 조회할 수 있다.
 - DB 실패 시 불필요한 파일이 남지 않고, 파일 실패 시 콘텐츠가 생성되지 않는다.
 
+### 구현 결과
+
+- PNG, JPEG와 WebP 이미지를 최대 10MB까지 실제 내용 기준으로 검증한다.
+- UUID 기반 key로 로컬 filesystem에 저장하고 콘텐츠·자산·생성 이벤트를 함께 기록한다.
+- DB 실패 시 파일을 보상 삭제하고 파일 저장 실패 시 DB 작업을 시작하지 않는다.
+- 콘텐츠 응답에 내부 storage key를 제외한 asset 정보를 포함하고 소유자만 이미지를 조회한다.
+- 기존 자산 스키마를 사용하므로 추가 migration은 필요하지 않다.
+
 ### 권장 브랜치
 
 `feature/backend-screenshot-storage`
@@ -393,7 +401,8 @@ cd backend
 | `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 구현 |
 | `POST` | `/api/v1/contents/{id}/view` | 재열람 기록 | 구현 |
 | `GET` | `/api/v1/feed` | 최신순 피드와 카테고리 필터 | 구현 |
-| `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 임시 구현 |
+| `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 구현 |
+| `GET` | `/api/v1/uploads/assets/{id}` | 인증된 스크린샷 자산 조회 | 구현 |
 | `POST` | `/api/v1/metrics/events` | 사용자 행동 이벤트 기록 | 임시 구현 |
 
 실제 endpoint 추가 또는 변경 시 프론트 담당자에게 OpenAPI 변경 내용과 예제 요청·응답을 공유한다.

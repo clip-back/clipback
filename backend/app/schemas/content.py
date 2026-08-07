@@ -20,6 +20,12 @@ class ContentSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ContentAssetType(StrEnum):
+    SCREENSHOT = "screenshot"
+    THUMBNAIL = "thumbnail"
+    OCR_TEXT = "ocr_text"
+
+
 class ContentCreate(BaseModel):
     content_type: ContentType = ContentType.LINK
     category_ids: list[int] = Field(default_factory=list)
@@ -52,9 +58,17 @@ class ContentShareCreate(BaseModel):
     is_favorite: bool = False
 
 
+class ContentAssetRead(BaseModel):
+    id: int
+    asset_type: ContentAssetType
+    mime_type: str | None = None
+    download_url: str
+
+
 class ContentRead(BaseModel):
     id: int
     categories: list[CategoryRead] = Field(default_factory=list)
+    assets: list[ContentAssetRead] = Field(default_factory=list)
     content_type: ContentType
     source: ContentSource
     title: str

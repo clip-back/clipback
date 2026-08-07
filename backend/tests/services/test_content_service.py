@@ -1,19 +1,20 @@
-from datetime import UTC, datetime
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.core.exceptions import NotFoundError, SystemConfigurationError
+from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
 from app.schemas.content import ContentCategoryUpdate, ContentCreate, ContentSource, ContentType
-from app.services.content_service import ContentService
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
     CategoryRecommendationFailureReason,
     CategoryRecommendationResult,
 )
+from app.services.content_service import ContentService, PendingContentAsset
 
 
 class FakeSession:
@@ -33,6 +34,7 @@ class FakeContentRepository:
         self.session = FakeSession()
         self.contents = {content.id: content for content in contents or []}
         self.created_categories: list[SimpleNamespace] = []
+        self.created_assets: list[SimpleNamespace] = []
 
     async def create(
         self,
@@ -56,6 +58,7 @@ class FakeContentRepository:
             original_url=original_url,
             is_favorite=is_favorite,
             categories=categories,
+            assets=[],
             saved_at=datetime.now(UTC),
             last_viewed_at=None,
         )
@@ -81,6 +84,30 @@ class FakeContentRepository:
     ) -> SimpleNamespace:
         content.categories = categories
         return content
+
+
+class FakeContentAssetRepository:
+    def __init__(self, content_repository: FakeContentRepository) -> None:
+        self.content_repository = content_repository
+
+    async def create(
+        self,
+        *,
+        content_id: int,
+        asset_type: AssetType,
+        storage_key: str,
+        mime_type: str | None,
+    ) -> SimpleNamespace:
+        asset = SimpleNamespace(
+            id=len(self.content_repository.created_assets) + 1,
+            content_id=content_id,
+            asset_type=asset_type,
+            storage_key=storage_key,
+            mime_type=mime_type,
+        )
+        self.content_repository.created_assets.append(asset)
+        self.content_repository.contents[content_id].assets.append(asset)
+        return asset
 
 
 class FakeCategoryRepository:
@@ -154,6 +181,7 @@ def build_service(
         content_repository=content_repository,
         category_repository=FakeCategoryRepository(categories or [], uncategorized),
         event_repository=event_repository,
+        content_asset_repository=FakeContentAssetRepository(content_repository),
         category_recommendation_service=recommendation_service,
     )
     return service, content_repository, event_repository
@@ -179,6 +207,7 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
         original_url="https://example.com/original",
         is_favorite=False,
         categories=[category(1, "취업", is_default=True)],
+        assets=[],
         saved_at=datetime.now(UTC),
         last_viewed_at=None,
     )
@@ -363,6 +392,33 @@ async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
     metadata = json.loads(event_repository.events[0].metadata_json)
     assert metadata["category_assignment_method"] == "uncategorized"
     assert metadata["category_recommendation_failure_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")]
+    )
+
+    result = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            source=ContentSource.SCREENSHOT,
+            category_ids=[2],
+        ),
+        asset=PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key="screenshots/1/image.png",
+            mime_type="image/png",
+        ),
+    )
+
+    assert result.assets[0].download_url == "/api/v1/uploads/assets/1"
+    assert result.assets[0].mime_type == "image/png"
+    assert content_repository.created_assets[0].storage_key == "screenshots/1/image.png"
+    assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
+    assert content_repository.session.committed is True
 
 
 @pytest.mark.asyncio
