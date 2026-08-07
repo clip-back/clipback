@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = Field(default=2.0, gt=0)
     ai_max_output_tokens: int = Field(default=64, gt=0)
     ai_reasoning_effort: Literal["none"] = "none"
+    ocr_model: str = "gpt-5.4-nano-2026-03-17"
+    ocr_timeout_seconds: float = Field(default=5.0, gt=0)
+    ocr_max_output_tokens: int = Field(default=4096, gt=0)
     storage_root: Path = Path("storage")
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 

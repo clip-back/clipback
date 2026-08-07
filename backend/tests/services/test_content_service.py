@@ -395,6 +395,73 @@ async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_screenshot_uses_ai_recommendation_when_ocr_text_is_available() -> None:
+    recommended = category(2, "취업")
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        categories=[recommended],
+        uncategorized=category(9, "미분류", is_default=True),
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            source=ContentSource.SCREENSHOT,
+            title="백엔드 채용 공고",
+            summary="백엔드 개발자를 모집합니다.",
+        ),
+        event_metadata_json='{"ocr_status":"success","ocr_failure_reason":null}',
+        recommendation_shared_text="채용 공고\n백엔드 엔지니어",
+    )
+
+    assert content_repository.created_categories == [recommended]
+    assert recommendation_service.calls == 1
+    assert recommendation_service.shared_text == "채용 공고\n백엔드 엔지니어"
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["ocr_status"] == "success"
+    assert metadata["ocr_failure_reason"] is None
+    assert metadata["category_assignment_method"] == "ai"
+    assert metadata["recommended_category_id"] == 2
+    assert "채용 공고" not in event_repository.events[0].metadata_json
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_user_category_wins_over_ocr_recommendation() -> None:
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    selected = category(3, "공부")
+    service, content_repository, _ = build_service(
+        categories=[selected],
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            category_ids=[3],
+        ),
+        recommendation_shared_text="OCR 원문",
+    )
+
+    assert content_repository.created_categories == [selected]
+    assert recommendation_service.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
     service, content_repository, event_repository = build_service(
         categories=[category(2, "여행")]

@@ -117,7 +117,10 @@ class ContentService:
                 assignment_method=CategoryAssignmentMethod.USER,
                 failure_reason=None,
             )
-        elif payload.content_type == ContentType.LINK:
+        elif (
+            payload.content_type == ContentType.LINK
+            or recommendation_shared_text is not None
+        ):
             recommendation = await self._recommend_category(
                 user_id=user_id,
                 payload=payload,

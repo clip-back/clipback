@@ -6,12 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.integrations.ai_client import close_ai_client
+from app.integrations.ocr_client import close_ocr_client
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     yield
     await close_ai_client()
+    await close_ocr_client()
 
 
 def create_app() -> FastAPI:

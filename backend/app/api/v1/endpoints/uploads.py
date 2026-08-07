@@ -3,12 +3,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession
 from app.core.config import settings
+from app.integrations.ai_client import get_ai_client
+from app.integrations.ocr_client import get_ocr_client
 from app.integrations.storage_client import LocalStorageClient
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.content import ContentRead
+from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
 from app.services.upload_service import UploadService
 
@@ -63,13 +66,19 @@ async def read_asset(
 
 def _build_upload_service(db: AsyncSession) -> UploadService:
     content_asset_repository = ContentAssetRepository(db)
+    category_repository = CategoryRepository(db)
     return UploadService(
         content_service=ContentService(
             content_repository=ContentRepository(db),
-            category_repository=CategoryRepository(db),
+            category_repository=category_repository,
             event_repository=EventRepository(db),
             content_asset_repository=content_asset_repository,
+            category_recommendation_service=CategoryRecommendationService(
+                category_repository=category_repository,
+                ai_client=get_ai_client(),
+            ),
         ),
         content_asset_repository=content_asset_repository,
         storage_client=LocalStorageClient(settings.storage_root),
+        ocr_client=get_ocr_client(),
     )
