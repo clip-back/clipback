@@ -15,11 +15,13 @@ class EventRepository:
         user_id: int,
         event_type: ContentEventType,
         content_id: int | None = None,
+        category_id: int | None = None,
         metadata_json: str | None = None,
     ) -> ContentEvent:
         event = ContentEvent(
             user_id=user_id,
             content_id=content_id,
+            category_id=category_id,
             event_type=event_type,
             metadata_json=metadata_json,
         )
