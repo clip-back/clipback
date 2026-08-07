@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "FastAPI backend for the Clipback personal content archive MVP."
 requires-python = ">=3.11"
 dependencies = [
-    "alembic>=1.13.2",
+    "alembic>=1.13.2,<1.19",
     "asyncpg>=0.30.0",
     "beautifulsoup4>=4.12.3",
     "email-validator>=2.2.0",
@@ -28,6 +28,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.2",
     "pytest-asyncio>=0.24.0",
+    "ruff==0.16.1",
 ]
 
 [tool.pytest.ini_options]
@@ -36,6 +37,13 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-third-party = ["alembic"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

@@ -10,7 +10,6 @@ from app.db.session import get_db
 from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.user_repository import UserRepository
 
-
 bearer_scheme = HTTPBearer(auto_error=False)
 
 

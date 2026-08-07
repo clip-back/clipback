@@ -1,7 +1,7 @@
 import json
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.integrations.metadata_client import MetadataResult, UnsafeUrlError
 from app.schemas.content import ContentCreate, ContentSource
@@ -9,7 +9,11 @@ from app.services.extraction_service import ExtractionResult, ExtractionService
 
 
 class FakeMetadataClient:
-    def __init__(self, result: MetadataResult | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        result: MetadataResult | None = None,
+        error: Exception | None = None,
+    ) -> None:
         self.result = result
         self.error = error
         self.requested_url: str | None = None

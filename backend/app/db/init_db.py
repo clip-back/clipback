@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.db.base import Base
 import app.models  # noqa: F401
+from app.db.base import Base
 
 
 async def init_db(engine: AsyncEngine) -> None:

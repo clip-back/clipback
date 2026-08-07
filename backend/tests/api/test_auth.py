@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import auth as auth_endpoints
 from app.core.exceptions import AuthenticationError

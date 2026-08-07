@@ -22,7 +22,11 @@ class ContentEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    content_id: Mapped[int | None] = mapped_column(ForeignKey("contents.id"), nullable=True, index=True)
+    content_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contents.id"),
+        nullable=True,
+        index=True,
+    )
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id", ondelete="SET NULL"),
         nullable=True,

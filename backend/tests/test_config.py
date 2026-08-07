@@ -44,7 +44,16 @@ def test_production_accepts_openai_api_key() -> None:
     assert settings.openai_model == "gpt-5.4-nano-2026-03-17"
 
 
-def test_screenshot_storage_defaults() -> None:
+def test_screenshot_storage_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in (
+        "STORAGE_ROOT",
+        "SCREENSHOT_MAX_BYTES",
+        "OCR_MODEL",
+        "OCR_TIMEOUT_SECONDS",
+        "OCR_MAX_OUTPUT_TOKENS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
     settings = Settings(_env_file=None)
 
     assert str(settings.storage_root) == "storage"

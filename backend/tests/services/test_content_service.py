@@ -11,7 +11,6 @@ from app.models.content_event import ContentEventType
 from app.schemas.content import ContentCategoryUpdate, ContentCreate, ContentSource, ContentType
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
-    CategoryRecommendationFailureReason,
     CategoryRecommendationResult,
 )
 from app.services.content_service import ContentService, PendingContentAsset

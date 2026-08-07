@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-from jose import jwt
 import pytest
+from jose import jwt
 
 from app.core.config import settings
 from app.core.exceptions import AuthenticationError

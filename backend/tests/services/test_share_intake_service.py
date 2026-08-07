@@ -1,10 +1,10 @@
 import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
+from app.integrations.metadata_client import MetadataResult
 from app.schemas.content import (
     ContentCreate,
     ContentRead,
@@ -13,7 +13,6 @@ from app.schemas.content import (
     ContentType,
     ShareAttachment,
 )
-from app.integrations.metadata_client import MetadataResult
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
