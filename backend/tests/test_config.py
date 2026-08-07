@@ -49,8 +49,23 @@ def test_screenshot_storage_defaults() -> None:
 
     assert str(settings.storage_root) == "storage"
     assert settings.screenshot_max_bytes == 10 * 1024 * 1024
+    assert settings.ocr_model == "gpt-5.4-nano-2026-03-17"
+    assert settings.ocr_timeout_seconds == 5
+    assert settings.ocr_max_output_tokens == 4096
 
 
 def test_screenshot_max_bytes_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         Settings(screenshot_max_bytes=0, _env_file=None)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("ocr_timeout_seconds", 0),
+        ("ocr_max_output_tokens", 0),
+    ],
+)
+def test_ocr_numeric_settings_must_be_positive(field: str, value: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(**{field: value}, _env_file=None)
