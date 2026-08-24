@@ -1,6 +1,9 @@
 import 'dart:ui' show PointerDeviceKind;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 void main() {
@@ -19,6 +22,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   AppRoute _previousRoute = AppRoute.home;
   int _archiveTab = 0;
   bool _bookmarkedFirst = false;
+  bool _archiveCardView = false;
   String? _activeCategoryName;
   ContentItem? _selectedContent;
   String _searchQuery = '';
@@ -234,7 +238,6 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onContinue: () => _go(AppRoute.onboarding),
         ),
         AppRoute.onboarding => OnboardingScreen(
-          onBack: () => _go(AppRoute.login),
           onDone: () => _go(AppRoute.interests),
         ),
         AppRoute.interests => InterestSelectionScreen(
@@ -263,17 +266,22 @@ class _ClipbackAppState extends State<ClipbackApp> {
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           bookmarkedFirst: _bookmarkedFirst,
+          cardView: _archiveCardView,
           activeCategoryName: _activeCategoryName,
           onTabChanged: (value) => setState(() => _archiveTab = value),
           onSortChanged: (value) => setState(() => _bookmarkedFirst = value),
+          onViewChanged: (value) => setState(() => _archiveCardView = value),
           onClearCategory: () => setState(() => _activeCategoryName = null),
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
           onAddCategory: _addCategory,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
           onOpenCategory: (category) => setState(() {
             _activeCategoryName = category.name;
             _archiveTab = 0;
+            _archiveCardView = false;
           }),
           onTab: _selectRootTab,
         ),
@@ -282,9 +290,12 @@ class _ClipbackAppState extends State<ClipbackApp> {
               .where((content) => _bookmarkedIds.contains(content.id))
               .toList(),
           bookmarkedIds: _bookmarkedIds,
+          categories: _categories,
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
           onTab: _selectRootTab,
         ),
         AppRoute.search => SearchScreen(
@@ -308,9 +319,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onDeleteContent: _deleteContent,
           onOpenAdjacent: _openAdjacentContent,
           onOpenContent: _openDetail,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
           onTab: _selectRootTab,
         ),
-        AppRoute.my => MyScreen(onTab: _selectRootTab),
+        AppRoute.my => MyScreen(
+          categories: _categories,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
+          onTab: _selectRootTab,
+        ),
       },
     );
   }
@@ -348,6 +366,13 @@ class AppColors {
 class Assets {
   static const logo = 'assets/figma/hutureu-logo.svg';
   static const appIcon = 'assets/figma/app-icon.svg';
+  static const entryLogo = 'assets/figma/entry-logo.svg';
+  static const kakaoLogin = 'assets/figma/kakao-login.png';
+  static const naverLogin = 'assets/figma/naver-login.png';
+  static const googleLogin = 'assets/figma/google-login.png';
+  static const statusCellular = 'assets/figma/status-cellular.svg';
+  static const statusWifi = 'assets/figma/status-wifi.svg';
+  static const statusBattery = 'assets/figma/status-battery.svg';
   static const onboarding1 = 'assets/figma/onboarding-1.svg';
   static const onboarding2 = 'assets/figma/onboarding-2.svg';
   static const onboarding3 = 'assets/figma/onboarding-3.svg';
@@ -363,6 +388,7 @@ class Assets {
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';
   static const star = 'assets/icons/star.svg';
+  static const starFilled = 'assets/icons/star-filled.svg';
   static const account = 'assets/icons/account.svg';
   static const plus = 'assets/icons/plus.svg';
   static const search = 'assets/icons/search.svg';
@@ -370,12 +396,15 @@ class Assets {
   static const chevronRight = 'assets/icons/chevron-right.svg';
   static const chevronDown = 'assets/icons/chevron-down.svg';
   static const arrowRight = 'assets/icons/arrow-right.svg';
+  static const link = 'assets/icons/link-icon.svg';
   static const back = 'assets/icons/back.svg';
   static const more = 'assets/icons/more-vertical.svg';
   static const moreHorizontal = 'assets/icons/more-horizontal.svg';
   static const folderPlus = 'assets/icons/folder-plus.svg';
   static const clock = 'assets/icons/clock.svg';
   static const close = 'assets/icons/x.svg';
+  static const check = 'assets/icons/check.svg';
+  static const xCircle = 'assets/icons/x-circle.svg';
   static const instagram = 'assets/icons/instagram.svg';
 }
 
@@ -437,6 +466,168 @@ class PhoneFrame extends StatelessWidget {
   }
 }
 
+class EntrySurface extends StatelessWidget {
+  const EntrySurface({
+    required this.backgroundColor,
+    required this.children,
+    super.key,
+  });
+
+  final Color backgroundColor;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        body: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minWidth: phoneWidth,
+            maxWidth: phoneWidth,
+            minHeight: phoneHeight,
+            maxHeight: phoneHeight,
+            child: SizedBox(
+              width: phoneWidth,
+              height: phoneHeight,
+              child: Stack(
+                children: [
+                  const EntryStatusBar(),
+                  const EntryHomeIndicator(),
+                  ...children,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class EntryStatusBar extends StatelessWidget {
+  const EntryStatusBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Positioned(left: 0, top: 0, child: DesignStatusBar());
+  }
+}
+
+class DesignStatusBar extends StatelessWidget {
+  const DesignStatusBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: phoneWidth,
+      height: 50,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 21),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(
+              width: 125,
+              height: 22,
+              child: Center(
+                child: Text(
+                  '9:41',
+                  style: TextStyle(
+                    color: Color(0xFF1D2734),
+                    fontFamily: 'SF Pro',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    height: 22 / 17,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 124, height: 10),
+            SizedBox(
+              width: 126,
+              height: 22,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SvgPicture.asset(
+                    Assets.statusCellular,
+                    width: 19.2,
+                    height: 12.226,
+                    fit: BoxFit.fill,
+                  ),
+                  const SizedBox(width: 7),
+                  SvgPicture.asset(
+                    Assets.statusWifi,
+                    width: 17.142,
+                    height: 12.328,
+                    fit: BoxFit.fill,
+                  ),
+                  const SizedBox(width: 7),
+                  SvgPicture.asset(
+                    Assets.statusBattery,
+                    width: 27.328,
+                    height: 13,
+                    fit: BoxFit.fill,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EntryHomeIndicator extends StatelessWidget {
+  const EntryHomeIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 116,
+      bottom: 8,
+      width: 144,
+      height: 5,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.text,
+          borderRadius: BorderRadius.circular(100),
+        ),
+      ),
+    );
+  }
+}
+
+class EntryTagline extends StatelessWidget {
+  const EntryTagline({required this.color, super.key});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        '저장한 정보를 다시 볼 순간으로',
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        softWrap: false,
+        style: TextStyle(
+          color: color,
+          fontFamily: 'RiaSans',
+          fontFamilyFallback: const ['Pretendard'],
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          height: 23 / 16,
+        ),
+      ),
+    );
+  }
+}
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({required this.onDone, super.key});
 
@@ -457,40 +648,35 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PhoneFrame(
-      child: Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SvgPicture.asset(Assets.logo, width: 149, fit: BoxFit.contain),
-                const SizedBox(height: 16),
-                const Text(
-                  '저장한 정보를 다시 볼 순간으로',
-                  style: TextStyle(
-                    color: AppColors.subtle,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+    return EntrySurface(
+      backgroundColor: AppColors.main,
+      children: [
+        Positioned(
+          left: 72,
+          top: 346,
+          width: 232,
+          height: 91,
+          child: Column(
+            children: [
+              SvgPicture.asset(
+                Assets.entryLogo,
+                width: 148.771,
+                height: 50,
+                fit: BoxFit.fill,
+              ),
+              const SizedBox(height: 16),
+              const EntryTagline(color: AppColors.mainDeep),
+            ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({
-    required this.onBack,
-    required this.onDone,
-    super.key,
-  });
+  const OnboardingScreen({required this.onDone, super.key});
 
-  final VoidCallback onBack;
   final VoidCallback onDone;
 
   @override
@@ -536,17 +722,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  void _back() {
-    if (_page == 0) {
-      widget.onBack();
-      return;
-    }
-    _controller.previousPage(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return PhoneFrame(
@@ -561,26 +736,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 itemBuilder: (context, index) =>
                     _OnboardingPage(data: _pages[index]),
               ),
-              if (_page > 0)
-                Positioned(
-                  left: 6,
-                  top: 8,
-                  child: SvgIconButton(
-                    asset: Assets.back,
-                    onPressed: _back,
-                    size: 24,
-                  ),
-                ),
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 96,
+                bottom: 128,
                 child: PageDots(count: _pages.length, activeIndex: _page),
               ),
               Positioned(
                 left: 16,
                 right: 16,
-                bottom: 16,
+                bottom: 40,
                 child: PrimaryButton(
                   label: _page == _pages.length - 1 ? '시작하기' : '다음',
                   onPressed: _next,
@@ -606,10 +771,28 @@ class _OnboardingPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 80),
-          Text(data.title, style: AppText.title24),
+          const SizedBox(height: 104),
+          Text(
+            data.title,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 26,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+              letterSpacing: -0.65,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text(data.body, style: AppText.body16Subtle),
+          Text(
+            data.body,
+            style: const TextStyle(
+              color: AppColors.subtle,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              height: 1.5,
+              letterSpacing: -0.4,
+            ),
+          ),
           const Spacer(),
           Center(
             child: Image.asset(
@@ -633,48 +816,74 @@ class LoginScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PhoneFrame(
-      child: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                const Spacer(flex: 5),
-                SvgPicture.asset(Assets.logo, width: 182, fit: BoxFit.contain),
-                const SizedBox(height: 14),
-                const Text('저장한 정보를 다시 볼 순간으로', style: AppText.body16Subtle),
-                const Spacer(flex: 6),
-                SocialButton(
-                  label: '카카오로 계속하기',
-                  color: const Color(0xFFFDDC3F),
-                  foreground: AppColors.text,
-                  mark: 'K',
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 8),
-                SocialButton(
-                  label: '네이버로 계속하기',
-                  color: const Color(0xFF00BF18),
-                  foreground: Colors.white,
-                  mark: 'N',
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 8),
-                SocialButton(
-                  label: '구글로 계속하기',
-                  color: Colors.white,
-                  foreground: AppColors.text,
-                  mark: 'G',
-                  borderColor: AppColors.subtler,
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
+    return EntrySurface(
+      backgroundColor: AppColors.bg,
+      children: [
+        Positioned(
+          left: 98,
+          top: 245,
+          width: 179,
+          height: 99,
+          child: Column(
+            children: [
+              SvgPicture.asset(
+                Assets.entryLogo,
+                width: 178.525,
+                height: 60,
+                fit: BoxFit.fill,
+              ),
+              const SizedBox(height: 16),
+              const EntryTagline(color: AppColors.subtle),
+            ],
           ),
         ),
-      ),
+        Positioned(
+          left: 16,
+          top: 590,
+          width: 343,
+          child: SocialButton(
+            label: '카카오로 계속하기',
+            color: const Color(0xFFFDDC3F),
+            foreground: AppColors.text,
+            iconAsset: Assets.kakaoLogin,
+            iconLeft: 8,
+            iconTop: 7,
+            iconSize: 38,
+            onPressed: onContinue,
+          ),
+        ),
+        Positioned(
+          left: 16,
+          top: 650,
+          width: 343,
+          child: SocialButton(
+            label: '네이버로 계속하기',
+            color: const Color(0xFF00BF18),
+            foreground: Colors.white,
+            iconAsset: Assets.naverLogin,
+            iconLeft: 13,
+            iconTop: 12,
+            iconSize: 28,
+            onPressed: onContinue,
+          ),
+        ),
+        Positioned(
+          left: 16,
+          top: 710,
+          width: 343,
+          child: SocialButton(
+            label: '구글로 계속하기',
+            color: Colors.white,
+            foreground: AppColors.text,
+            iconAsset: Assets.googleLogin,
+            iconLeft: 18,
+            iconTop: 17,
+            iconSize: 18,
+            borderColor: AppColors.subtler,
+            onPressed: onContinue,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -861,54 +1070,36 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasSavedContent = contents.isNotEmpty;
     void showAddContentSheet() {
-      showModalBottomSheet<void>(
+      showContentSaveScreen(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => AddContentSheet(
-          categories: categories,
-          onAddLink: onAddLink,
-          onAddScreenshot: onAddScreenshot,
-        ),
+        categories: categories,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
       );
     }
 
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Stack(
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
             children: [
-              Positioned.fill(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Column(
-                    children: [
-                      HomeHero(
-                        hasSavedContent: hasSavedContent,
-                        onSearch: onSearch,
-                        onOpenToday: hasSavedContent
-                            ? onOpenToday
-                            : showAddContentSheet,
-                      ),
-                      HomeContentPanel(
-                        hasSavedContent: hasSavedContent,
-                        contents: contents,
-                        categories: categories,
-                        bookmarkedIds: bookmarkedIds,
-                        onOpenArchive: onOpenArchive,
-                        onOpenCategories: onOpenCategories,
-                        onOpenContent: onOpenContent,
-                        onToggleBookmark: onToggleBookmark,
-                      ),
-                    ],
-                  ),
-                ),
+              HomeHero(
+                hasSavedContent: hasSavedContent,
+                onSearch: onSearch,
+                onOpenToday: hasSavedContent
+                    ? onOpenToday
+                    : showAddContentSheet,
               ),
-              Positioned(
-                right: 16,
-                bottom: 113,
-                child: FloatingAddButton(onPressed: showAddContentSheet),
+              HomeContentPanel(
+                hasSavedContent: hasSavedContent,
+                contents: contents,
+                categories: categories,
+                bookmarkedIds: bookmarkedIds,
+                onOpenArchive: onOpenArchive,
+                onOpenCategories: onOpenCategories,
+                onOpenContent: onOpenContent,
+                onToggleBookmark: onToggleBookmark,
               ),
             ],
           ),
@@ -916,6 +1107,7 @@ class HomeScreen extends StatelessWidget {
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 0,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -940,27 +1132,39 @@ class HomeHero extends StatelessWidget {
       height: 254,
       child: Stack(
         children: [
+          const Positioned(left: 0, top: 0, child: DesignStatusBar()),
           Positioned(
             left: 16,
-            right: 16,
-            top: 8,
+            top: 58,
+            width: 343,
+            height: 56,
             child: Row(
               children: [
                 SvgPicture.asset(
-                  Assets.logo,
-                  width: 72,
+                  Assets.entryLogo,
+                  width: 71.41,
                   height: 24,
-                  fit: BoxFit.contain,
+                  fit: BoxFit.fill,
                 ),
                 const Spacer(),
-                SvgIconButton(asset: Assets.search, onPressed: onSearch),
-                const SizedBox(width: 16),
                 SvgIconButton(
-                  asset: Assets.bell,
-                  onPressed: () => showModalBottomSheet<void>(
-                    context: context,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => const NotificationSheet(),
+                  asset: Assets.search,
+                  onPressed: onSearch,
+                  size: 24,
+                  hitSize: 24,
+                ),
+                const SizedBox(width: 16),
+                Transform.translate(
+                  offset: const Offset(0, 1),
+                  child: SvgIconButton(
+                    asset: Assets.bell,
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => const NotificationSheet(),
+                    ),
+                    size: 24,
+                    hitSize: 24,
                   ),
                 ),
               ],
@@ -968,8 +1172,8 @@ class HomeHero extends StatelessWidget {
           ),
           Positioned(
             left: 24,
-            top: 72,
-            width: 180,
+            top: 122,
+            width: 168,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -977,15 +1181,26 @@ class HomeHero extends StatelessWidget {
                   hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
                   style: const TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     height: 1.6,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                Text(
-                  hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
+                SizedBox(
+                  width: 168,
+                  child: FittedBox(
+                    alignment: Alignment.centerLeft,
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.45,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1004,8 +1219,10 @@ class HomeHero extends StatelessWidget {
                       hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
                       style: const TextStyle(
                         color: AppColors.main,
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        height: 1.4,
+                        letterSpacing: -0.35,
                       ),
                     ),
                   ),
@@ -1014,8 +1231,8 @@ class HomeHero extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 20,
-            top: 64,
+            left: hasSavedContent ? 252 : 264,
+            top: 114,
             child: Image.asset(
               hasSavedContent ? Assets.homeCharacter : Assets.character2Png,
               width: hasSavedContent ? 99 : 81,
@@ -1079,6 +1296,16 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
       ),
       child: Column(
         children: [
+          const SizedBox(height: 16),
+          if (widget.hasSavedContent) ...[
+            SectionHeader(
+              title: '이번주 허투루 픽 🎯',
+              onTap: widget.onOpenCategories,
+            ),
+            const SizedBox(height: 8),
+            WeeklyPickRail(onOpenCategory: widget.onOpenCategories),
+            const SizedBox(height: 32),
+          ],
           SectionHeader(title: '최근 저장한 콘텐츠', onTap: widget.onOpenArchive),
           CategoryChips(
             categories: ['전체보기', ...widget.categories.map((item) => item.name)],
@@ -1114,17 +1341,19 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
             )
           else
             const EmptyHomeContent(),
-          const SizedBox(height: 22),
-          SectionHeader(title: '최근 카테고리', onTap: widget.onOpenArchive),
-          const SizedBox(height: 8),
-          for (final category in widget.categories.take(2))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: CategoryHomeRow(
-                category: category,
-                onTap: widget.onOpenCategories,
+          const SizedBox(height: 32),
+          if (!widget.hasSavedContent) ...[
+            SectionHeader(title: '최근 카테고리', onTap: widget.onOpenCategories),
+            const SizedBox(height: 8),
+            for (final category in widget.categories.take(2))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: CategoryHomeRow(
+                  category: category,
+                  onTap: widget.onOpenCategories,
+                ),
               ),
-            ),
+          ],
         ],
       ),
     );
@@ -1197,6 +1426,71 @@ class HomeFilteredEmptyContent extends StatelessWidget {
   }
 }
 
+class WeeklyPickRail extends StatelessWidget {
+  const WeeklyPickRail({required this.onOpenCategory, super.key});
+
+  final VoidCallback onOpenCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final picks = [
+      ('많이 저장한', '일본 여행을\n준비 중이라면?', false),
+      ('자주 본', '평생의 숙제\n다이어트', false),
+      ('공지사항', '허투루\n100% 활용법', true),
+    ];
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: picks.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final pick = picks[index];
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onOpenCategory,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 133,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: pick.$3 ? AppColors.main : AppColors.surface,
+                  border: pick.$3 ? null : Border.all(color: AppColors.faint),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      pick.$1,
+                      style: const TextStyle(
+                        color: AppColors.middle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      pick.$2,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class ArchiveScreen extends StatelessWidget {
   const ArchiveScreen({
     required this.activeTab,
@@ -1204,14 +1498,18 @@ class ArchiveScreen extends StatelessWidget {
     required this.categories,
     required this.bookmarkedIds,
     required this.bookmarkedFirst,
+    required this.cardView,
     required this.activeCategoryName,
     required this.onTabChanged,
     required this.onSortChanged,
+    required this.onViewChanged,
     required this.onClearCategory,
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
     required this.onAddCategory,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onOpenCategory,
     required this.onTab,
     super.key,
@@ -1222,56 +1520,77 @@ class ArchiveScreen extends StatelessWidget {
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final bool bookmarkedFirst;
+  final bool cardView;
   final String? activeCategoryName;
   final ValueChanged<int> onTabChanged;
   final ValueChanged<bool> onSortChanged;
+  final ValueChanged<bool> onViewChanged;
   final VoidCallback onClearCategory;
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
   final ValueChanged<CategoryItem> onAddCategory;
+  final void Function({required String url, required CategoryItem category})
+  onAddLink;
+  final VoidCallback onAddScreenshot;
   final ValueChanged<CategoryItem> onOpenCategory;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        categories: categories,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              AppTopBar(
-                title: '아카이브',
-                onBack: () => onTab(AppRoute.home),
-                onSearch: onSearch,
-              ),
-              ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
-              Expanded(
-                child: activeTab == 0
-                    ? ContentListView(
-                        contents: contents,
-                        bookmarkedIds: bookmarkedIds,
-                        bookmarkedFirst: bookmarkedFirst,
-                        activeCategoryName: activeCategoryName,
-                        onSortChanged: onSortChanged,
-                        onClearCategory: onClearCategory,
-                        onOpenContent: onOpenContent,
-                        onToggleBookmark: onToggleBookmark,
-                        onGoHome: () => onTab(AppRoute.home),
-                      )
-                    : CategoryArchiveView(
-                        categories: categories,
-                        onAddCategory: onAddCategory,
-                        onOpenCategory: onOpenCategory,
-                      ),
-              ),
-            ],
-          ),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            if (activeCategoryName == null)
+              AppTopBar(title: '아카이브', onSearch: onSearch)
+            else
+              CategoryTopBar(title: activeCategoryName!, onSearch: onSearch),
+            const SizedBox(height: 8),
+            if (activeCategoryName == null)
+              ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged)
+            else
+              CategoryViewTabs(cardView: cardView, onChanged: onViewChanged),
+            Expanded(
+              child: activeTab == 0
+                  ? ContentListView(
+                      contents: contents,
+                      bookmarkedIds: bookmarkedIds,
+                      bookmarkedFirst: bookmarkedFirst,
+                      cardView: cardView,
+                      activeCategoryName: activeCategoryName,
+                      onSortChanged: onSortChanged,
+                      onClearCategory: onClearCategory,
+                      onOpenContent: onOpenContent,
+                      onToggleBookmark: onToggleBookmark,
+                      onGoHome: () => onTab(AppRoute.home),
+                    )
+                  : CategoryArchiveView(
+                      categories: categories,
+                      contents: contents,
+                      bookmarkedIds: bookmarkedIds,
+                      bookmarkedFirst: bookmarkedFirst,
+                      onSortChanged: onSortChanged,
+                      onAddCategory: onAddCategory,
+                      onOpenCategory: onOpenCategory,
+                    ),
+            ),
+          ],
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 1,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -1282,22 +1601,38 @@ class BookmarkScreen extends StatelessWidget {
   const BookmarkScreen({
     required this.contents,
     required this.bookmarkedIds,
+    required this.categories,
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onTab,
     super.key,
   });
 
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
+  final List<CategoryItem> categories;
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function({required String url, required CategoryItem category})
+  onAddLink;
+  final VoidCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        categories: categories,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
         body: SafeArea(
@@ -1339,6 +1674,7 @@ class BookmarkScreen extends StatelessWidget {
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 2,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -1579,6 +1915,8 @@ class DetailScreen extends StatefulWidget {
     required this.onDeleteContent,
     required this.onOpenAdjacent,
     required this.onOpenContent,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onTab,
     super.key,
   });
@@ -1594,6 +1932,9 @@ class DetailScreen extends StatefulWidget {
   final ValueChanged<ContentItem> onDeleteContent;
   final ValueChanged<int> onOpenAdjacent;
   final ValueChanged<ContentItem> onOpenContent;
+  final void Function({required String url, required CategoryItem category})
+  onAddLink;
+  final VoidCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -1602,14 +1943,10 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   final _relatedKey = GlobalKey();
+  bool _showFullText = false;
 
   void _showOriginal() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => OriginalContentSheet(content: widget.content),
-    );
+    setState(() => _showFullText = !_showFullText);
   }
 
   void _scrollToRelated() {
@@ -1636,103 +1973,192 @@ class _DetailScreenState extends State<DetailScreen> {
         )
         .toList();
 
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        categories: widget.categories,
+        onAddLink: widget.onAddLink,
+        onAddScreenshot: widget.onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Stack(
-            children: [
-              ListView(
-                padding: const EdgeInsets.fromLTRB(16, 64, 16, 128),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            const SizedBox(height: 8),
+            DetailTopBar(
+              content: content,
+              categories: widget.categories,
+              bookmarked: widget.bookmarked,
+              onBack: widget.onBack,
+              onToggleBookmark: () => widget.onToggleBookmark(content),
+              onChangeCategory: (category) =>
+                  widget.onChangeCategory(content, category),
+              onDeleteContent: () => widget.onDeleteContent(content),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: CategoryBadge(category: content.category),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    content.title.replaceFirst(' ', '\n'),
-                    style: AppText.title24,
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      SvgPicture.asset(Assets.instagram, width: 16, height: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        content.source,
-                        style: const TextStyle(
-                          color: AppColors.subtle,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '저장일시 | ${content.savedAtFullShort}',
-                        style: const TextStyle(
-                          color: AppColors.subtle,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 26),
-                  const Text(
-                    '핵심 요약',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      height: 1.6,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: CategoryBadge(category: content.category),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    content.summary,
-                    style: const TextStyle(fontSize: 15, height: 1.6),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Text(
+                      content.title,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        height: 1.5,
+                        letterSpacing: -0.6,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  const Divider(color: AppColors.faint),
-                  InkWell(
-                    onTap: _showOriginal,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
                     child: SizedBox(
-                      height: 54,
+                      height: 32,
                       child: Row(
                         children: [
-                          const Text(
-                            '전문 보기',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                          Text(
+                            '${content.savedAtFull} 저장',
+                            style: const TextStyle(
+                              color: AppColors.subtle,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                              letterSpacing: -0.35,
                             ),
                           ),
                           const Spacer(),
-                          SvgIcon(asset: Assets.chevronDown),
+                          SvgIconButton(
+                            asset: Assets.link,
+                            onPressed: () {},
+                            size: 32,
+                            hitSize: 32,
+                            color: AppColors.subtle,
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const Divider(color: AppColors.faint),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      '요약',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        height: 19 / 16,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: SizedBox(
+                      height: 72,
+                      child: Text(
+                        content.summary,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.middle,
+                          fontSize: 15,
+                          height: 1.6,
+                          letterSpacing: -0.375,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.faint,
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  InkWell(
+                    onTap: _showOriginal,
+                    child: SizedBox(
+                      height: 24,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '전문 보기',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            const Spacer(),
+                            Transform.rotate(
+                              angle: _showFullText ? 3.14159 : 0,
+                              child: const SvgIcon(
+                                asset: Assets.chevronDown,
+                                size: 24,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_showFullText) ...[
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: FullContentPreview(content: content),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.faint,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Padding(
-                          padding: EdgeInsets.only(top: 3),
+                          padding: EdgeInsets.only(left: 8),
                           child: Text(
                             '태그',
                             style: TextStyle(
                               color: AppColors.middle,
                               fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: -0.4,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
                         Expanded(
                           child: Wrap(
+                            alignment: WrapAlignment.end,
                             spacing: 4,
-                            runSpacing: 6,
+                            runSpacing: 4,
                             children: content.tags
                                 .map((tag) => TagChip(label: '#$tag'))
                                 .toList(),
@@ -1741,19 +2167,36 @@ class _DetailScreenState extends State<DetailScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  SectionHeader(
+                  const SizedBox(height: 32),
+                  InkWell(
                     key: _relatedKey,
-                    title: '비슷한 정보 보러가기',
                     onTap: _scrollToRelated,
-                    horizontalPadding: 0,
-                    iconAsset: Assets.arrowRight,
+                    child: SizedBox(
+                      height: 40,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: const [
+                            Text(
+                              '비슷한 태그를 가진 정보',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            Spacer(),
+                            SvgIcon(asset: Assets.chevronRight, size: 24),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 9),
+                  const SizedBox(height: 8),
                   if (relatedContents.isNotEmpty)
                     for (final related in relatedContents)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         child: RelatedContentTile(
                           category: related.category,
                           title: related.title,
@@ -1763,48 +2206,86 @@ class _DetailScreenState extends State<DetailScreen> {
                   else
                     const SizedBox.shrink(),
                   const SizedBox(height: 18),
-                  DetailPager(
-                    currentIndex: currentIndex == -1 ? 0 : currentIndex,
-                    totalCount: widget.contents.length,
-                    onPrevious: () => widget.onOpenAdjacent(-1),
-                    onNext: () => widget.onOpenAdjacent(1),
-                  ),
                 ],
               ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: DetailTopBar(
-                  content: content,
-                  categories: widget.categories,
-                  bookmarked: widget.bookmarked,
-                  onBack: widget.onBack,
-                  onToggleBookmark: () => widget.onToggleBookmark(content),
-                  onChangeCategory: (category) =>
-                      widget.onChangeCategory(content, category),
-                  onDeleteContent: () => widget.onDeleteContent(content),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-        bottomNavigationBar: ClipbackNavigationBar(
-          activeIndex: 1,
-          onTap: widget.onTab,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DetailPager(
+              currentIndex: currentIndex == -1 ? 0 : currentIndex,
+              totalCount: widget.contents.length,
+              onPrevious: () => widget.onOpenAdjacent(-1),
+              onNext: () => widget.onOpenAdjacent(1),
+            ),
+            ClipbackNavigationBar(
+              activeIndex: 1,
+              onTap: widget.onTab,
+              onAdd: showAddContentSheet,
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class MyScreen extends StatelessWidget {
-  const MyScreen({required this.onTab, super.key});
+class FullContentPreview extends StatelessWidget {
+  const FullContentPreview({required this.content, super.key});
 
+  final ContentItem content;
+
+  @override
+  Widget build(BuildContext context) {
+    final originalText = content.originalText.isEmpty
+        ? content.summary
+        : content.originalText;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          originalText,
+          style: const TextStyle(
+            color: AppColors.middle,
+            fontSize: 14,
+            height: 1.6,
+            letterSpacing: -0.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class MyScreen extends StatelessWidget {
+  const MyScreen({
+    required this.categories,
+    required this.onAddLink,
+    required this.onAddScreenshot,
+    required this.onTab,
+    super.key,
+  });
+
+  final List<CategoryItem> categories;
+  final void Function({required String url, required CategoryItem category})
+  onAddLink;
+  final VoidCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        categories: categories,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
         body: SafeArea(
@@ -1900,6 +2381,7 @@ class MyScreen extends StatelessWidget {
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 3,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -1939,7 +2421,8 @@ class MyProfileRow extends StatelessWidget {
                 user.name,
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.4,
                 ),
               ),
               const SizedBox(width: 8),
@@ -2278,18 +2761,22 @@ class AppTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 72,
+      height: 64,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            if (onBack == null)
-              const SizedBox(width: 44, height: 44)
-            else
+            if (onBack != null) ...[
               SvgIconButton(asset: Assets.back, onPressed: onBack!, size: 24),
+              const SizedBox(width: 8),
+            ],
             Text(
               title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
             ),
             const Spacer(),
             if (onSearch != null)
@@ -2298,6 +2785,54 @@ class AppTopBar extends StatelessWidget {
                 onPressed: onSearch!,
                 size: 24,
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryTopBar extends StatelessWidget {
+  const CategoryTopBar({
+    required this.title,
+    required this.onSearch,
+    this.onMore,
+    super.key,
+  });
+
+  final String title;
+  final VoidCallback onSearch;
+  final VoidCallback? onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 189.5,
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.45,
+                ),
+              ),
+            ),
+            const Spacer(),
+            SvgIconButton(asset: Assets.search, onPressed: onSearch, size: 24),
+            const SizedBox(width: 16),
+            SvgIconButton(
+              asset: Assets.more,
+              onPressed: onMore ?? () {},
+              size: 24,
+            ),
           ],
         ),
       ),
@@ -2338,8 +2873,10 @@ class DetailTopBar extends StatelessWidget {
           BookmarkActionButton(
             initialActive: bookmarked,
             onToggle: onToggleBookmark,
+            size: 24,
+            hitSize: 24,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           SvgIconButton(
             asset: Assets.more,
             onPressed: () => showModalBottomSheet<void>(
@@ -2353,6 +2890,7 @@ class DetailTopBar extends StatelessWidget {
               ),
             ),
             size: 24,
+            hitSize: 24,
           ),
         ],
       ),
@@ -2365,12 +2903,14 @@ class BookmarkActionButton extends StatefulWidget {
     this.initialActive = false,
     this.onToggle,
     this.size = 28,
+    this.hitSize = 44,
     super.key,
   });
 
   final bool initialActive;
   final VoidCallback? onToggle;
   final double size;
+  final double hitSize;
 
   @override
   State<BookmarkActionButton> createState() => _BookmarkActionButtonState();
@@ -2396,7 +2936,7 @@ class _BookmarkActionButtonState extends State<BookmarkActionButton> {
   @override
   Widget build(BuildContext context) {
     return SvgIconButton(
-      asset: Assets.star,
+      asset: _active ? Assets.starFilled : Assets.star,
       onPressed: () {
         widget.onToggle?.call();
         if (widget.onToggle == null) {
@@ -2404,7 +2944,8 @@ class _BookmarkActionButtonState extends State<BookmarkActionButton> {
         }
       },
       size: widget.size,
-      color: _active ? AppColors.text : AppColors.subtler,
+      hitSize: widget.hitSize,
+      color: _active ? AppColors.main : AppColors.subtler,
     );
   }
 }
@@ -2467,7 +3008,7 @@ class CategoryChips extends StatelessWidget {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: SizedBox(
-        height: 40,
+        height: 35,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
@@ -2476,7 +3017,8 @@ class CategoryChips extends StatelessWidget {
             final label = categories[index];
             final active = label == activeLabel;
             return SizedBox(
-              height: 40,
+              width: 70,
+              height: 35,
               child: Material(
                 color: active ? AppColors.faint : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
@@ -2484,16 +3026,15 @@ class CategoryChips extends StatelessWidget {
                   onTap: onSelected == null ? null : () => onSelected!(label),
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    constraints: const BoxConstraints(minWidth: 70),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     alignment: Alignment.center,
                     child: Text(
                       label,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: active ? AppColors.middle : AppColors.subtle,
-                        fontSize: 14,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 15,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                        letterSpacing: -0.375,
                       ),
                     ),
                   ),
@@ -2595,6 +3136,7 @@ class HomeContentCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: 298,
+        height: 186,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -2652,6 +3194,7 @@ class ContentListView extends StatelessWidget {
     required this.contents,
     required this.bookmarkedIds,
     required this.bookmarkedFirst,
+    required this.cardView,
     required this.activeCategoryName,
     required this.onSortChanged,
     required this.onClearCategory,
@@ -2664,6 +3207,7 @@ class ContentListView extends StatelessWidget {
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
   final bool bookmarkedFirst;
+  final bool cardView;
   final String? activeCategoryName;
   final ValueChanged<bool> onSortChanged;
   final VoidCallback onClearCategory;
@@ -2695,8 +3239,6 @@ class ContentListView extends StatelessWidget {
           sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
           onSortChanged: onSortChanged,
         ),
-        if (activeCategoryName != null)
-          ActiveFilterBar(label: activeCategoryName!, onClear: onClearCategory),
         Expanded(
           child: visibleContents.isEmpty
               ? EmptyStatePanel(
@@ -2710,6 +3252,14 @@ class ContentListView extends StatelessWidget {
                   onAction: activeCategoryName == null
                       ? onGoHome
                       : onClearCategory,
+                )
+              : activeCategoryName != null && cardView
+              ? CategoryCardPager(
+                  contents: visibleContents,
+                  categoryName: activeCategoryName!,
+                  bookmarkedIds: bookmarkedIds,
+                  onOpenContent: onOpenContent,
+                  onToggleBookmark: onToggleBookmark,
                 )
               : ListView.separated(
                   padding: EdgeInsets.zero,
@@ -2752,56 +3302,344 @@ class ContentListCard extends StatelessWidget {
       color: AppColors.surface,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: SizedBox(
+          width: double.infinity,
+          height: 173,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CategoryBadge(category: content.category),
-                  const Spacer(),
-                  BookmarkActionButton(
-                    key: ValueKey('list-bookmark-${content.title}'),
-                    initialActive: bookmarked,
-                    onToggle: onToggleBookmark,
-                    size: 24,
+              Positioned(
+                top: 16,
+                left: 16,
+                child: CategoryBadge(category: content.category),
+              ),
+              Positioned(
+                top: 13,
+                right: 16,
+                child: BookmarkActionButton(
+                  key: ValueKey('list-bookmark-${content.title}'),
+                  initialActive: bookmarked,
+                  hitSize: 28,
+                  onToggle: onToggleBookmark,
+                ),
+              ),
+              Positioned(
+                top: 46,
+                left: 20,
+                right: 20,
+                height: 22.4,
+                child: Text(
+                  content.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    letterSpacing: -0.4,
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                content.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  height: 1.45,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                content.summary,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.subtle,
-                  fontSize: 14,
-                  height: 1.55,
+              Positioned(
+                top: 72.4,
+                left: 20,
+                right: 20,
+                height: 48,
+                child: ClipRect(
+                  child: Text(
+                    content.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.middle,
+                      fontSize: 15,
+                      height: 1.6,
+                      letterSpacing: -0.375,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                content.savedAt,
-                style: const TextStyle(
-                  color: AppColors.subSubtle,
-                  fontSize: 13,
+              const Positioned(
+                top: 128,
+                left: 20,
+                right: 20,
+                child: Divider(height: 1, thickness: 1, color: AppColors.faint),
+              ),
+              Positioned(
+                bottom: 16,
+                left: 20,
+                right: 20,
+                child: Text(
+                  content.savedAt,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFA9A9A9),
+                    fontSize: 14,
+                    letterSpacing: -0.35,
+                  ),
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryFeaturedCard extends StatelessWidget {
+  const CategoryFeaturedCard({
+    required this.content,
+    required this.bookmarked,
+    required this.onTap,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final ContentItem content;
+  final bool bookmarked;
+  final VoidCallback onTap;
+  final VoidCallback onToggleBookmark;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 319,
+        height: 435,
+        padding: const EdgeInsets.fromLTRB(16, 21, 16, 21),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x3D767676),
+              blurRadius: 8,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CategoryBadge(category: content.category),
+                const Spacer(),
+                BookmarkActionButton(
+                  initialActive: bookmarked,
+                  hitSize: 28,
+                  onToggle: onToggleBookmark,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              content.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+                letterSpacing: -0.45,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Text(
+                content.originalText.isNotEmpty
+                    ? content.originalText
+                    : content.summary,
+                maxLines: 13,
+                overflow: TextOverflow.clip,
+                style: const TextStyle(
+                  color: AppColors.middle,
+                  fontSize: 14,
+                  height: 1.6,
+                  letterSpacing: -0.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryCardPager extends StatefulWidget {
+  const CategoryCardPager({
+    required this.contents,
+    required this.categoryName,
+    required this.bookmarkedIds,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final List<ContentItem> contents;
+  final String categoryName;
+  final Set<String> bookmarkedIds;
+  final ValueChanged<ContentItem> onOpenContent;
+  final ValueChanged<ContentItem> onToggleBookmark;
+
+  @override
+  State<CategoryCardPager> createState() => _CategoryCardPagerState();
+}
+
+class _CategoryCardPagerState extends State<CategoryCardPager> {
+  late final PageController _pageController;
+  var _activeIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayCount = widget.contents.length.clamp(1, 5);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '딱 5개만 다시 확인해볼까요?',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const FolderGlyph(color: AppColors.main, size: 28),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.categoryName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              CardPagerProgress(activeIndex: _activeIndex, count: displayCount),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.contents.length,
+            onPageChanged: (index) => setState(() => _activeIndex = index),
+            itemBuilder: (context, index) {
+              final content = widget.contents[index];
+              return Center(
+                child: CategoryFeaturedCard(
+                  content: content,
+                  bookmarked: widget.bookmarkedIds.contains(content.id),
+                  onTap: () => widget.onOpenContent(content),
+                  onToggleBookmark: () => widget.onToggleBookmark(content),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class CardPagerProgress extends StatelessWidget {
+  const CardPagerProgress({
+    required this.activeIndex,
+    required this.count,
+    super.key,
+  });
+
+  final int activeIndex;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 16,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(height: 8, color: AppColors.faint),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(count, (index) {
+              final active = index == activeIndex;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: active ? 16 : 8,
+                height: active ? 16 : 8,
+                decoration: BoxDecoration(
+                  color: active ? AppColors.main : AppColors.subtler,
+                  shape: BoxShape.circle,
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryViewTabs extends StatelessWidget {
+  const CategoryViewTabs({
+    required this.cardView,
+    required this.onChanged,
+    super.key,
+  });
+
+  final bool cardView;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.faint,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: ArchiveTabButton(
+                label: '리스트 보기',
+                active: !cardView,
+                onTap: () => onChanged(false),
+              ),
+            ),
+            Expanded(
+              child: ArchiveTabButton(
+                label: '하나씩 보기',
+                active: cardView,
+                onTap: () => onChanged(true),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2821,8 +3659,8 @@ class ArchiveTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: AppColors.faint,
@@ -2832,16 +3670,16 @@ class ArchiveTabs extends StatelessWidget {
           children: [
             Expanded(
               child: ArchiveTabButton(
-                label: '전체보기',
-                active: activeTab == 0,
-                onTap: () => onChanged(0),
+                label: '카테고리',
+                active: activeTab == 1,
+                onTap: () => onChanged(1),
               ),
             ),
             Expanded(
               child: ArchiveTabButton(
-                label: '카테고리',
-                active: activeTab == 1,
-                onTap: () => onChanged(1),
+                label: '전체보기',
+                active: activeTab == 0,
+                onTap: () => onChanged(0),
               ),
             ),
           ],
@@ -2878,8 +3716,9 @@ class ArchiveTabButton extends StatelessWidget {
               label,
               style: TextStyle(
                 color: active ? AppColors.text : AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
               ),
             ),
           ),
@@ -2904,29 +3743,15 @@ class ArchiveToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 52,
+      height: 56,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            Text(
-              sortLabel,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            ),
-            IconButton(
-              onPressed: () => showModalBottomSheet<void>(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => SortSheet(
-                  activeBookmarkedFirst: sortLabel == '북마크 우선',
-                  onSelect: onSortChanged ?? (_) {},
-                ),
-              ),
-              icon: const SvgIcon(
-                asset: Assets.chevronDown,
-                size: 16,
-                color: AppColors.subtle,
-              ),
+            ArchiveSortButton(
+              label: sortLabel,
+              bookmarkedFirst: sortLabel == '북마크 우선',
+              onSelected: onSortChanged ?? (_) {},
             ),
             const Spacer(),
             Text(
@@ -2944,42 +3769,129 @@ class ArchiveToolbar extends StatelessWidget {
   }
 }
 
-class CategoryArchiveToolbar extends StatelessWidget {
-  const CategoryArchiveToolbar({required this.onAddCategory, super.key});
+class ArchiveSortButton extends StatelessWidget {
+  const ArchiveSortButton({
+    required this.label,
+    required this.bookmarkedFirst,
+    required this.onSelected,
+    super.key,
+  });
 
+  final String label;
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<bool>(
+      onSelected: onSelected,
+      padding: EdgeInsets.zero,
+      tooltip: '',
+      offset: const Offset(0, 32),
+      color: AppColors.surface,
+      elevation: 1,
+      shadowColor: const Color(0x1F000000),
+      menuPadding: const EdgeInsets.all(4),
+      constraints: const BoxConstraints.tightFor(width: 128),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: AppColors.faint),
+      ),
+      itemBuilder: (context) => [
+        PopupMenuItem<bool>(
+          value: false,
+          height: 40,
+          padding: EdgeInsets.zero,
+          child: _ArchiveSortOption(label: '최신순', selected: !bookmarkedFirst),
+        ),
+        PopupMenuItem<bool>(
+          value: true,
+          height: 40,
+          padding: EdgeInsets.zero,
+          child: _ArchiveSortOption(label: '북마크 우선', selected: bookmarkedFirst),
+        ),
+      ],
+      child: SizedBox(
+        height: 32,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const SvgIcon(
+              asset: Assets.chevronDown,
+              size: 16,
+              color: AppColors.subtle,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArchiveSortOption extends StatelessWidget {
+  const _ArchiveSortOption({required this.label, required this.selected});
+
+  final String label;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppColors.text : AppColors.middle,
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              letterSpacing: -0.35,
+            ),
+          ),
+          const Spacer(),
+          if (selected)
+            const Icon(Icons.check, size: 16, color: AppColors.mainDeep),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryArchiveToolbar extends StatelessWidget {
+  const CategoryArchiveToolbar({
+    required this.bookmarkedFirst,
+    required this.onSortChanged,
+    required this.onAddCategory,
+    super.key,
+  });
+
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSortChanged;
   final VoidCallback onAddCategory;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: 56,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            TextButton.icon(
-              onPressed: () => showModalBottomSheet<void>(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) =>
-                    SortSheet(activeBookmarkedFirst: false, onSelect: (_) {}),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.subtle,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(67, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              label: const Text(
-                '최신순',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              iconAlignment: IconAlignment.end,
-              icon: const SvgIcon(
-                asset: Assets.chevronDown,
-                size: 16,
-                color: AppColors.subtle,
-              ),
+            ArchiveSortButton(
+              label: bookmarkedFirst ? '북마크 우선' : '최신순',
+              bookmarkedFirst: bookmarkedFirst,
+              onSelected: onSortChanged,
             ),
             const Spacer(),
             SvgIconButton(
@@ -2998,20 +3910,47 @@ class CategoryArchiveToolbar extends StatelessWidget {
 class CategoryArchiveView extends StatelessWidget {
   const CategoryArchiveView({
     required this.categories,
+    required this.contents,
+    required this.bookmarkedIds,
+    required this.bookmarkedFirst,
+    required this.onSortChanged,
     required this.onAddCategory,
     required this.onOpenCategory,
     super.key,
   });
 
   final List<CategoryItem> categories;
+  final List<ContentItem> contents;
+  final Set<String> bookmarkedIds;
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
   final ValueChanged<CategoryItem> onOpenCategory;
 
   @override
   Widget build(BuildContext context) {
+    final visibleCategories = List.of(categories);
+    if (bookmarkedFirst) {
+      visibleCategories.sort((a, b) {
+        final aHasBookmarked = contents.any(
+          (content) =>
+              content.category.name == a.name &&
+              bookmarkedIds.contains(content.id),
+        );
+        final bHasBookmarked = contents.any(
+          (content) =>
+              content.category.name == b.name &&
+              bookmarkedIds.contains(content.id),
+        );
+        return (aHasBookmarked ? 0 : 1).compareTo(bHasBookmarked ? 0 : 1);
+      });
+    }
+
     return Column(
       children: [
         CategoryArchiveToolbar(
+          bookmarkedFirst: bookmarkedFirst,
+          onSortChanged: onSortChanged,
           onAddCategory: () => showModalBottomSheet<void>(
             context: context,
             isScrollControlled: true,
@@ -3019,21 +3958,89 @@ class CategoryArchiveView extends StatelessWidget {
             builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),
           ),
         ),
+        UnclassifiedCategoryRow(onTap: () => onOpenCategory(catUncategorized)),
+        const SizedBox(height: 16),
         Expanded(
           child: ListView.separated(
             padding: EdgeInsets.zero,
             itemBuilder: (context, index) {
-              final category = categories[index];
+              final category = visibleCategories[index];
               return CategoryRow(
                 category: category,
                 onTap: () => onOpenCategory(category),
               );
             },
             separatorBuilder: (context, index) => const SizedBox(height: 16),
-            itemCount: categories.length,
+            itemCount: visibleCategories.length,
           ),
         ),
       ],
+    );
+  }
+}
+
+class UnclassifiedCategoryRow extends StatelessWidget {
+  const UnclassifiedCategoryRow({required this.onTap, super.key});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Material(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  const SvgIcon(
+                    asset: Assets.star,
+                    size: 20,
+                    color: AppColors.main,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '분류가 필요한 콘텐츠',
+                    style: TextStyle(
+                      color: AppColors.main,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.mainSubtle,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: const Text(
+                      '14',
+                      style: TextStyle(fontSize: 14, letterSpacing: -0.35),
+                    ),
+                  ),
+                  const SvgIcon(
+                    asset: Assets.chevronRight,
+                    size: 24,
+                    color: AppColors.main,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3248,7 +4255,7 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
                 onChanged: (color) => setState(() => _selectedColor = color),
               ),
               const SizedBox(height: 24),
-              PrimaryButton(label: '저장하기', onPressed: _save, height: 52),
+              PrimaryButton(label: '카테고리 생성', onPressed: _save, height: 52),
             ],
           ),
         ),
@@ -3257,7 +4264,27 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
   }
 }
 
-class AddContentSheet extends StatelessWidget {
+Future<void> showContentSaveScreen({
+  required BuildContext context,
+  required List<CategoryItem> categories,
+  required void Function({required String url, required CategoryItem category})
+  onAddLink,
+  required VoidCallback onAddScreenshot,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.transparent,
+    transitionDuration: Duration.zero,
+    pageBuilder: (context, _, _) => AddContentSheet(
+      categories: categories,
+      onAddLink: onAddLink,
+      onAddScreenshot: onAddScreenshot,
+    ),
+  );
+}
+
+class AddContentSheet extends StatefulWidget {
   const AddContentSheet({
     required this.categories,
     required this.onAddLink,
@@ -3271,32 +4298,984 @@ class AddContentSheet extends StatelessWidget {
   final VoidCallback onAddScreenshot;
 
   @override
+  State<AddContentSheet> createState() => _AddContentSheetState();
+}
+
+class _AddContentSheetState extends State<AddContentSheet> {
+  final _urlController = TextEditingController();
+  Timer? _validationTimer;
+  Timer? _extractionTimer;
+  var _activeTab = 0;
+  var _linkStage = SaveFlowStage.editing;
+  var _photoStage = SaveFlowStage.editing;
+  var _selectedCategory = catToWatch;
+
+  @override
+  void dispose() {
+    _validationTimer?.cancel();
+    _extractionTimer?.cancel();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted || data?.text == null || data!.text!.trim().isEmpty) return;
+    _urlController.text = data.text!.trim();
+    _validateLink(_urlController.text);
+  }
+
+  void _validateLink(String value) {
+    _validationTimer?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _linkStage = SaveFlowStage.editing);
+      return;
+    }
+    setState(() => _linkStage = SaveFlowStage.editing);
+    _validationTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      final uri = Uri.tryParse(trimmed);
+      final valid =
+          uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.contains('.');
+      setState(
+        () => _linkStage = valid ? SaveFlowStage.valid : SaveFlowStage.invalid,
+      );
+    });
+  }
+
+  void _clearLink() {
+    _validationTimer?.cancel();
+    _urlController.clear();
+    setState(() => _linkStage = SaveFlowStage.editing);
+  }
+
+  void _changeTab(int tab) {
+    final stage = _activeTab == 0 ? _linkStage : _photoStage;
+    if (stage == SaveFlowStage.extracting) return;
+    setState(() => _activeTab = tab);
+  }
+
+  void _submit() {
+    final isLink = _activeTab == 0;
+    final stage = isLink ? _linkStage : _photoStage;
+    if (stage == SaveFlowStage.extracted) {
+      Navigator.pop(context);
+      if (isLink) {
+        widget.onAddLink(
+          url: _urlController.text.trim(),
+          category: _selectedCategory,
+        );
+      } else {
+        widget.onAddScreenshot();
+      }
+      return;
+    }
+    if (stage != SaveFlowStage.valid) return;
+
+    setState(() {
+      if (isLink) {
+        _linkStage = SaveFlowStage.extracting;
+      } else {
+        _photoStage = SaveFlowStage.extracting;
+      }
+    });
+    _extractionTimer?.cancel();
+    _extractionTimer = Timer(const Duration(milliseconds: 1100), () {
+      if (!mounted) return;
+      setState(() {
+        if (isLink) {
+          _linkStage = SaveFlowStage.extracted;
+        } else {
+          _photoStage = SaveFlowStage.extracted;
+        }
+      });
+    });
+  }
+
+  void _selectPhoto() {
+    if (_photoStage == SaveFlowStage.extracting) return;
+    setState(() => _photoStage = SaveFlowStage.valid);
+  }
+
+  void _changeExtractedCategory() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CategoryChangeSheet(
+        current: _selectedCategory,
+        categories: widget.categories,
+        onChange: (category) => setState(() => _selectedCategory = category),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AppSheet(
-      title: '콘텐츠 추가',
-      children: [
-        SheetActionTile(
-          icon: Assets.plus,
-          title: '링크 추가',
-          description: 'SNS나 웹에서 발견한 링크를 저장해요.',
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) =>
-                LinkAddSheet(categories: categories, onSave: onAddLink),
+    final stage = _activeTab == 0 ? _linkStage : _photoStage;
+    final enabled =
+        stage == SaveFlowStage.valid || stage == SaveFlowStage.extracted;
+    final extractionStarted =
+        stage == SaveFlowStage.extracting || stage == SaveFlowStage.extracted;
+    final label = extractionStarted ? '완료' : '허투루에 저장하기';
+
+    return ColoredBox(
+      color: AppColors.bg,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: phoneWidth),
+          child: SizedBox.expand(
+            child: Material(
+              color: AppColors.bg,
+              child: Column(
+                children: [
+                  const DesignStatusBar(),
+                  SaveContentTopBar(onClose: () => Navigator.pop(context)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SaveTab(
+                          label: '링크 첨부',
+                          active: _activeTab == 0,
+                          onTap: () => _changeTab(0),
+                        ),
+                      ),
+                      Expanded(
+                        child: _SaveTab(
+                          label: '사진 첨부',
+                          active: _activeTab == 1,
+                          onTap: () => _changeTab(1),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          bottom: 90,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
+                            child: _activeTab == 0
+                                ? LinkSaveBody(
+                                    controller: _urlController,
+                                    stage: _linkStage,
+                                    onChanged: _validateLink,
+                                    onClear: _clearLink,
+                                    onPaste: _paste,
+                                    selectedCategory: _selectedCategory,
+                                    onChangeCategory: _changeExtractedCategory,
+                                  )
+                                : PhotoSaveBody(
+                                    stage: _photoStage,
+                                    onSelect: _selectPhoto,
+                                  ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 16,
+                          right: 16,
+                          bottom: stage == SaveFlowStage.extracting ? 38 : 66,
+                          height: 56,
+                          child: SaveFlowButton(
+                            label: label,
+                            enabled: enabled,
+                            loading: false,
+                            onPressed: _submit,
+                          ),
+                        ),
+                        const Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 34,
+                          child: Center(child: _SaveHomeIndicator()),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-        SheetActionTile(
-          icon: Assets.archive,
-          title: '스크린샷 첨부',
-          description: '이미지로 저장한 정보를 허투루에 모아요.',
-          onTap: () {
-            onAddScreenshot();
-            Navigator.pop(context);
-          },
+      ),
+    );
+  }
+}
+
+class _SaveTab extends StatelessWidget {
+  const _SaveTab({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        height: 56,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? AppColors.text : AppColors.subtler,
+              width: active ? 2 : 1,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? AppColors.text : AppColors.subtler,
+            fontSize: 16,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum SaveFlowStage { editing, invalid, valid, extracting, extracted }
+
+class SaveContentTopBar extends StatelessWidget {
+  const SaveContentTopBar({required this.onClose, super.key});
+
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            SvgIconButton(
+              asset: Assets.close,
+              onPressed: onClose,
+              size: 24,
+              hitSize: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              '콘텐츠 저장하기',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LinkSaveBody extends StatelessWidget {
+  const LinkSaveBody({
+    required this.controller,
+    required this.stage,
+    required this.onChanged,
+    required this.onClear,
+    required this.onPaste,
+    required this.selectedCategory,
+    required this.onChangeCategory,
+    super.key,
+  });
+
+  final TextEditingController controller;
+  final SaveFlowStage stage;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onPaste;
+  final CategoryItem selectedCategory;
+  final VoidCallback onChangeCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final locked =
+        stage == SaveFlowStage.extracting || stage == SaveFlowStage.extracted;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 링크',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 44,
+                child: TextField(
+                  controller: controller,
+                  readOnly: locked,
+                  keyboardType: TextInputType.url,
+                  onChanged: onChanged,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.35,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'https://',
+                    hintStyle: const TextStyle(color: AppColors.subtler),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    contentPadding: const EdgeInsets.only(left: 8),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 34,
+                      minHeight: 18,
+                    ),
+                    suffixIcon: controller.text.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: locked ? null : onClear,
+                            padding: const EdgeInsets.only(right: 8),
+                            constraints: const BoxConstraints(
+                              minWidth: 26,
+                              minHeight: 18,
+                            ),
+                            icon: SvgPicture.asset(
+                              Assets.xCircle,
+                              width: 18,
+                              height: 18,
+                            ),
+                          ),
+                    border: const OutlineInputBorder(
+                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.all(Radius.circular(4)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 64,
+              height: 44,
+              child: TextButton(
+                onPressed: locked ? null : onPaste,
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: AppColors.mainSubtle,
+                  foregroundColor: AppColors.mainDeep,
+                  disabledBackgroundColor: AppColors.mainSubtle,
+                  disabledForegroundColor: AppColors.mainDeep,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+                child: const Text('붙여넣기'),
+              ),
+            ),
+          ],
+        ),
+        if (stage == SaveFlowStage.invalid || stage == SaveFlowStage.valid) ...[
+          const SizedBox(height: 5),
+          ValidationMessage(valid: stage == SaveFlowStage.valid),
+        ],
+        if (stage == SaveFlowStage.extracting) ...[
+          const SizedBox(height: 32),
+          const LinkExtractionPreview(loading: true),
+        ],
+        if (stage == SaveFlowStage.extracted) ...[
+          const SizedBox(height: 32),
+          LinkExtractionPreview(
+            loading: false,
+            category: selectedCategory,
+            onChangeCategory: onChangeCategory,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class ValidationMessage extends StatelessWidget {
+  const ValidationMessage({required this.valid, super.key});
+
+  final bool valid;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SvgIcon(
+          asset: valid ? Assets.check : Assets.close,
+          size: 24,
+          color: AppColors.subSubtle,
+        ),
+        Text(
+          valid ? '유효한 링크예요!' : '유효하지 않은 링크예요.',
+          style: const TextStyle(
+            color: AppColors.subSubtle,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            letterSpacing: -0.35,
+          ),
         ),
       ],
+    );
+  }
+}
+
+class PhotoSaveBody extends StatelessWidget {
+  const PhotoSaveBody({required this.stage, required this.onSelect, super.key});
+
+  final SaveFlowStage stage;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = stage != SaveFlowStage.editing;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 사진',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Material(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(4),
+          child: InkWell(
+            onTap: stage == SaveFlowStage.extracting ? null : onSelect,
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: double.infinity,
+              height: 120,
+              child: selected
+                  ? const SelectedPhotoStrip()
+                  : const PhotoEmptyPrompt(),
+            ),
+          ),
+        ),
+        if (stage == SaveFlowStage.extracting) ...[
+          const SizedBox(height: 40),
+          const ExtractionLoading(kind: '사진'),
+        ],
+        if (stage == SaveFlowStage.extracted) ...[
+          const SizedBox(height: 24),
+          const ExtractedContentPreview(isPhoto: true),
+        ],
+      ],
+    );
+  }
+}
+
+class PhotoEmptyPrompt extends StatelessWidget {
+  const PhotoEmptyPrompt({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SvgIcon(asset: Assets.plus, size: 48, color: AppColors.subSubtle),
+        SizedBox(width: 16),
+        Flexible(
+          child: Text(
+            '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
+            style: TextStyle(
+              color: AppColors.subtle,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.35,
+            ),
+          ),
+        ),
+        SizedBox(width: 16),
+      ],
+    );
+  }
+}
+
+class SelectedPhotoStrip extends StatelessWidget {
+  const SelectedPhotoStrip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final assets = [
+      Assets.onboarding1Png,
+      Assets.onboarding2Png,
+      Assets.onboarding3Png,
+    ];
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          for (var index = 0; index < assets.length; index++) ...[
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.asset(
+                  assets[index],
+                  height: 88,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            if (index < assets.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class ExtractionLoading extends StatelessWidget {
+  const ExtractionLoading({required this.kind, super.key});
+
+  final String kind;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 180,
+      width: double.infinity,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(
+              color: AppColors.text,
+              strokeWidth: 3,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '$kind에서 정보를 추출하고 있어요.',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '잠시만 기다려 주세요.',
+            style: TextStyle(
+              color: AppColors.subtle,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LinkExtractionPreview extends StatelessWidget {
+  const LinkExtractionPreview({
+    required this.loading,
+    this.category = catToWatch,
+    this.onChangeCategory,
+    super.key,
+  });
+
+  final bool loading;
+  final CategoryItem category;
+  final VoidCallback? onChangeCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '미리보기',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        loading ? const ExtractionPreviewSkeleton() : const LinkPreviewCard(),
+        const SizedBox(height: 32),
+        Row(
+          children: [
+            const Text(
+              '카테고리',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                loading ? '허투루가 분류하고 있어요.' : '허투루가 자동으로 분류했어요!',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.subtle,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        loading
+            ? const CategoryExtractionSkeleton()
+            : ExtractedCategoryTile(
+                category: category,
+                onChange: onChangeCategory!,
+              ),
+        if (loading) ...[
+          const SizedBox(height: 68),
+          const Center(
+            child: Text(
+              '허투루가 정보를 추출 중입니다...',
+              style: TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class ExtractionPreviewSkeleton extends StatelessWidget {
+  const ExtractionPreviewSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 116,
+      padding: const EdgeInsets.all(8),
+      color: AppColors.surface,
+      child: Row(
+        children: [
+          Container(width: 164, color: AppColors.faint),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SkeletonBar(width: double.infinity),
+                SizedBox(height: 8),
+                _SkeletonBar(width: 108),
+                Spacer(),
+                _SkeletonBar(width: 108),
+                SizedBox(height: 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LinkPreviewCard extends StatelessWidget {
+  const LinkPreviewCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 116,
+      padding: const EdgeInsets.all(8),
+      color: AppColors.surface,
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Image.network(
+              'https://img.youtube.com/vi/fn8n_k8bwX0/hqdefault.jpg',
+              width: 164,
+              height: 100,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                width: 164,
+                height: 100,
+                color: AppColors.faint,
+                alignment: Alignment.center,
+                child: const SvgIcon(
+                  asset: Assets.link,
+                  size: 28,
+                  color: AppColors.subtle,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "'주술회전(呪術廻戦)'\n초반 1~10권 감상회",
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    height: 1.5,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+                Spacer(),
+                Text(
+                  'Youtube',
+                  style: TextStyle(
+                    color: AppColors.subtle,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+                SizedBox(height: 6),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryExtractionSkeleton extends StatelessWidget {
+  const CategoryExtractionSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      width: double.infinity,
+      color: AppColors.surface,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: const _SkeletonBar(width: 166),
+    );
+  }
+}
+
+class ExtractedCategoryTile extends StatelessWidget {
+  const ExtractedCategoryTile({
+    required this.category,
+    required this.onChange,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final VoidCallback onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      color: AppColors.surface,
+      child: Row(
+        children: [
+          FolderGlyph(color: category.color, size: 32),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              category.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+            ),
+          ),
+          OutlinedButton(
+            onPressed: onChange,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(48, 32),
+              padding: EdgeInsets.zero,
+              foregroundColor: AppColors.subtle,
+              side: const BorderSide(color: AppColors.subtle),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+            child: const Text('변경'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonBar extends StatelessWidget {
+  const _SkeletonBar({required this.width});
+
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: 18,
+      decoration: BoxDecoration(
+        color: AppColors.faint,
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
+  }
+}
+
+class ExtractedContentPreview extends StatelessWidget {
+  const ExtractedContentPreview({required this.isPhoto, super.key});
+
+  final bool isPhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '정보 추출이 완료됐어요!',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          CategoryBadge(category: catJob),
+          const SizedBox(height: 12),
+          Text(
+            isPhoto ? '스크린샷에서 발견한 생활 정보' : '링크에서 확인한 핵심 정보',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              height: 1.5,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isPhoto
+                ? '사진 속 문장을 읽어 필요한 내용을 정리했어요. 완료를 누르면 허투루에 저장됩니다.'
+                : '링크의 제목과 본문을 읽어 핵심 내용을 정리했어요. 완료를 누르면 허투루에 저장됩니다.',
+            style: const TextStyle(
+              color: AppColors.middle,
+              fontSize: 14,
+              height: 1.6,
+              letterSpacing: -0.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SaveFlowButton extends StatelessWidget {
+  const SaveFlowButton({
+    required this.label,
+    required this.enabled,
+    required this.loading,
+    required this.onPressed,
+    super.key,
+  });
+
+  final String label;
+  final bool enabled;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: enabled ? onPressed : null,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppColors.text,
+        disabledBackgroundColor: AppColors.subtler,
+        foregroundColor: AppColors.main,
+        disabledForegroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        textStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.4,
+        ),
+      ),
+      child: loading
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                color: AppColors.surface,
+                strokeWidth: 2.5,
+              ),
+            )
+          : Text(label),
+    );
+  }
+}
+
+class _SaveHomeIndicator extends StatelessWidget {
+  const _SaveHomeIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 144,
+      height: 5,
+      decoration: BoxDecoration(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(100),
+      ),
     );
   }
 }
@@ -3958,49 +5937,141 @@ class ClipbackNavigationBar extends StatelessWidget {
   const ClipbackNavigationBar({
     required this.activeIndex,
     required this.onTap,
+    this.onAdd,
     super.key,
   });
 
   final int activeIndex;
   final ValueChanged<AppRoute> onTap;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     final items = [
-      NavSpec(Assets.home, '홈', AppRoute.home),
-      NavSpec(Assets.archive, '아카이브', AppRoute.archive),
-      NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark),
-      NavSpec(Assets.account, '마이', AppRoute.my),
+      NavSpec(Assets.home, '홈', AppRoute.home, 0),
+      NavSpec(Assets.archive, '아카이브', AppRoute.archive, 1),
+      NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark, 2),
+      NavSpec(Assets.account, '마이', AppRoute.my, 3),
     ];
 
     return Container(
-      height: 97,
+      height: 96,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [BoxShadow(color: Color(0x1F000000), blurRadius: 16)],
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            SizedBox(
-              height: 56,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var index = 0; index < items.length; index++)
-                    SizedBox(
-                      width: 80,
-                      child: _NavItem(
-                        spec: items[index],
-                        active: activeIndex == index,
-                        onTap: () => onTap(items[index].route),
-                      ),
-                    ),
-                ],
-              ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 64,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: 16,
+                  top: 0,
+                  child: _NavItem(
+                    spec: items[0],
+                    active: activeIndex == items[0].activeIndex,
+                    onTap: () => onTap(items[0].route),
+                  ),
+                ),
+                Positioned(
+                  left: 84,
+                  top: 0,
+                  child: _NavItem(
+                    spec: items[1],
+                    active: activeIndex == items[1].activeIndex,
+                    onTap: () => onTap(items[1].route),
+                  ),
+                ),
+                Positioned(
+                  left: 151.5,
+                  top: -22,
+                  child: NavAddButton(onTap: onAdd),
+                ),
+                Positioned(
+                  left: 235,
+                  top: 0,
+                  child: _NavItem(
+                    spec: items[2],
+                    active: activeIndex == items[2].activeIndex,
+                    onTap: () => onTap(items[2].route),
+                  ),
+                ),
+                Positioned(
+                  left: 303,
+                  top: 0,
+                  child: _NavItem(
+                    spec: items[3],
+                    active: activeIndex == items[3].activeIndex,
+                    onTap: () => onTap(items[3].route),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: NavigationHomeIndicator(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NavAddButton extends StatelessWidget {
+  const NavAddButton({required this.onTap, super.key});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          color: AppColors.main,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.surface, width: 4),
+        ),
+        child: Center(
+          child: SvgIcon(asset: Assets.plus, size: 38.5, color: AppColors.text),
+        ),
+      ),
+    );
+  }
+}
+
+class NavigationHomeIndicator extends StatelessWidget {
+  const NavigationHomeIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: phoneWidth,
+      height: 34,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Container(
+            width: 144,
+            height: 5,
+            decoration: BoxDecoration(
+              color: AppColors.text,
+              borderRadius: BorderRadius.circular(100),
+            ),
+          ),
         ),
       ),
     );
@@ -4021,7 +6092,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 80,
+      width: 56,
       height: 56,
       child: InkWell(
         onTap: onTap,
@@ -4030,7 +6101,7 @@ class _NavItem extends StatelessWidget {
           children: [
             SvgIcon(
               asset: spec.asset,
-              size: spec.label == '마이' ? 24 : 28,
+              size: 28,
               color: active ? AppColors.text : AppColors.subtler,
             ),
             const SizedBox(height: 3),
@@ -4040,6 +6111,7 @@ class _NavItem extends StatelessWidget {
                 color: active ? AppColors.text : AppColors.subtler,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
+                letterSpacing: -0.3,
               ),
             ),
           ],
@@ -4050,11 +6122,12 @@ class _NavItem extends StatelessWidget {
 }
 
 class NavSpec {
-  const NavSpec(this.asset, this.label, this.route);
+  const NavSpec(this.asset, this.label, this.route, this.activeIndex);
 
   final String asset;
   final String label;
   final AppRoute route;
+  final int activeIndex;
 }
 
 class DetailPager extends StatelessWidget {
@@ -4078,9 +6151,15 @@ class DetailPager extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          RoundIconButton(asset: Assets.back, onPressed: onPrevious),
+          RoundIconButton(
+            asset: Assets.arrowRight,
+            rotate: true,
+            onPressed: onPrevious,
+          ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            width: 61,
+            height: 35,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.45),
               borderRadius: BorderRadius.circular(28),
@@ -4089,8 +6168,9 @@ class DetailPager extends StatelessWidget {
               '${currentIndex + 1} / $totalCount',
               style: const TextStyle(
                 color: AppColors.subtle,
-                fontSize: 18,
+                fontSize: 14,
                 fontWeight: FontWeight.w500,
+                height: 19 / 14,
               ),
             ),
           ),
@@ -4117,30 +6197,27 @@ class RelatedContentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            CategoryBadge(category: category),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+      child: SizedBox(
+        height: 48,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              CategoryBadge(category: category),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -4394,7 +6471,10 @@ class SocialButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.foreground,
-    required this.mark,
+    required this.iconAsset,
+    required this.iconLeft,
+    required this.iconTop,
+    required this.iconSize,
     required this.onPressed,
     this.borderColor,
     super.key,
@@ -4403,7 +6483,10 @@ class SocialButton extends StatelessWidget {
   final String label;
   final Color color;
   final Color foreground;
-  final String mark;
+  final String iconAsset;
+  final double iconLeft;
+  final double iconTop;
+  final double iconSize;
   final VoidCallback onPressed;
   final Color? borderColor;
 
@@ -4429,16 +6512,15 @@ class SocialButton extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 Positioned(
-                  left: 18,
-                  child: Text(
-                    mark,
-                    style: TextStyle(
-                      color: foreground == Colors.white
-                          ? Colors.white
-                          : AppColors.text,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  left: iconLeft,
+                  top: iconTop,
+                  width: iconSize,
+                  height: iconSize,
+                  child: Image.asset(
+                    iconAsset,
+                    width: iconSize,
+                    height: iconSize,
+                    fit: BoxFit.cover,
                   ),
                 ),
                 Text(
@@ -4446,7 +6528,8 @@ class SocialButton extends StatelessWidget {
                   style: TextStyle(
                     color: foreground,
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.35,
                   ),
                 ),
               ],
@@ -4505,7 +6588,7 @@ class RoundIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = SvgIcon(asset: asset, size: 32);
+    final icon = SvgIcon(asset: asset, size: 28);
     return InkWell(
       onTap: onPressed,
       customBorder: const CircleBorder(),
@@ -4604,8 +6687,8 @@ class PageDots extends StatelessWidget {
         for (var index = 0; index < count; index++)
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: activeIndex == index ? 13.3 : 6,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            width: activeIndex == index ? 10 : 6,
             height: 6,
             decoration: BoxDecoration(
               color: activeIndex == index ? AppColors.text : AppColors.subtler,
@@ -4799,6 +6882,12 @@ const catLifeInfo = CategoryItem(
   tint: Color(0xFFFFE0E4),
   deep: Color(0xFFBC4858),
 );
+const catToWatch = CategoryItem(
+  name: '봐야할 것',
+  color: Color(0xFFFF5F78),
+  tint: Color(0xFFFFE0E4),
+  deep: Color(0xFFBC4858),
+);
 const catDiet = CategoryItem(
   name: '다이어트',
   color: Color(0xFFFFD75C),
@@ -4845,6 +6934,7 @@ const initialCategories = [
   catEconomy,
   catLife,
   catLifeInfo,
+  catToWatch,
   catDiet,
   catProduct,
   catUncategorized,
