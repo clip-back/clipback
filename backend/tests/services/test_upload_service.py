@@ -177,7 +177,12 @@ async def test_upload_screenshot_stores_supported_image_using_detected_format(
     service, storage, content_service, ocr_client = build_service(max_bytes=10_000)
     file = FakeUploadFile(make_image(image_format))
 
-    result = await service.upload_screenshot(user_id=3, file=file, category_ids=[2])
+    result = await service.upload_screenshot(
+        user_id=3,
+        file=file,
+        category_ids=[2],
+        tag_names=["Flutter", "백엔드"],
+    )
 
     storage_key = next(iter(storage.files))
     call = content_service.calls[0]
@@ -188,6 +193,7 @@ async def test_upload_screenshot_stores_supported_image_using_detected_format(
     assert payload.content_type == ContentType.SCREENSHOT
     assert payload.source == ContentSource.SCREENSHOT
     assert payload.category_ids == [2]
+    assert payload.tag_names == ["Flutter", "백엔드"]
     assert asset.mime_type == expected_mime_type
     assert file.content_type == "application/pdf"
     assert result.assets[0].mime_type == expected_mime_type

@@ -1,4 +1,6 @@
 from fastapi import APIRouter, File, Form, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession
@@ -10,7 +12,9 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.tag_repository import TagRepository
 from app.schemas.content import ContentRead
+from app.schemas.tag import TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
 from app.services.upload_service import UploadService
@@ -24,11 +28,17 @@ async def upload_screenshot(
     current_user_id: CurrentUserId,
     file: UploadFile = File(...),
     category_ids: list[int] = Form(default_factory=list),
+    tag_names: list[str] = Form(default_factory=list),
 ) -> ContentRead:
+    try:
+        normalized_tag_names = TagNamesPayload(tag_names=tag_names).tag_names
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
     return await _build_upload_service(db).upload_screenshot(
         user_id=current_user_id,
         file=file,
         category_ids=category_ids,
+        tag_names=normalized_tag_names,
     )
 
 
@@ -77,6 +87,7 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
             ),
+            tag_repository=TagRepository(db),
         ),
         content_asset_repository=content_asset_repository,
         storage_client=LocalStorageClient(settings.storage_root),

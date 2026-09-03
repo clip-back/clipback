@@ -84,6 +84,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
             platform="android",
             attachments=[ShareAttachment(filename="preview.jpg", mime_type="image/jpeg")],
             category_ids=[2, 3],
+            tag_names=[" Flutter ", "#flutter", "백엔드"],
             is_favorite=True,
         ),
     )
@@ -98,6 +99,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
     assert content_service.payload.summary == "Instagram 설명"
     assert str(content_service.payload.original_url) == "https://www.instagram.com/reel/SHORTCODE/"
     assert content_service.payload.category_ids == [2, 3]
+    assert content_service.payload.tag_names == ["Flutter", "백엔드"]
     assert content_service.payload.is_favorite is True
 
     assert content_service.event_metadata_json is not None

@@ -40,6 +40,7 @@ class ShareIntakeService:
             source=ContentSource.INSTAGRAM,
             original_url=normalized_url,
             category_ids=payload.category_ids,
+            tag_names=payload.tag_names,
             is_favorite=payload.is_favorite,
         )
         extraction = await self.extraction_service.enrich_link(content_payload)

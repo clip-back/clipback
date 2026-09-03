@@ -66,6 +66,7 @@ def content(
         original_url="https://example.com/original",
         is_favorite=False,
         categories=categories,
+        tags=[],
         assets=[],
         saved_at=saved_at,
         last_viewed_at=None,

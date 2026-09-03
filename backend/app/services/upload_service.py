@@ -75,6 +75,7 @@ class UploadService:
         user_id: int,
         file: UploadFile,
         category_ids: list[int],
+        tag_names: list[str] | None = None,
     ) -> ContentRead:
         content = await file.read(self.max_bytes + 1)
         if not content:
@@ -103,6 +104,7 @@ class UploadService:
                     content_type=ContentType.SCREENSHOT,
                     source=ContentSource.SCREENSHOT,
                     category_ids=category_ids,
+                    tag_names=tag_names or [],
                     title=ocr_result.title or None,
                     summary=ocr_result.summary or None,
                 ),

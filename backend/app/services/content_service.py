@@ -12,10 +12,12 @@ from app.models.content import (
 )
 from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
+from app.models.tag import Tag
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.tag_repository import TagRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
     ContentAssetRead,
@@ -24,9 +26,11 @@ from app.schemas.content import (
     ContentCreate,
     ContentRead,
     ContentSource,
+    ContentTagUpdate,
     ContentType,
     ContentViewEvent,
 )
+from app.schemas.tag import TagRead
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
     CategoryRecommendationFailureReason,
@@ -52,6 +56,10 @@ def content_to_read(content: Content) -> ContentRead:
         categories=[
             CategoryRead.model_validate(category)
             for category in sorted(content.categories, key=lambda item: item.id)
+        ],
+        tags=[
+            TagRead.model_validate(tag)
+            for tag in sorted(content.tags, key=lambda item: item.id)
         ],
         assets=[
             ContentAssetRead(
@@ -81,12 +89,14 @@ class ContentService:
         event_repository: EventRepository,
         content_asset_repository: ContentAssetRepository | None = None,
         category_recommendation_service: CategoryRecommendationService | None = None,
+        tag_repository: TagRepository | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
         self.event_repository = event_repository
         self.content_asset_repository = content_asset_repository
         self.category_recommendation_service = category_recommendation_service
+        self.tag_repository = tag_repository
 
     async def create_content(
         self,
@@ -157,6 +167,7 @@ class ContentService:
             raise SystemConfigurationError("Content asset repository is not configured")
 
         try:
+            tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
             content = await self.content_repository.create(
                 user_id=user_id,
                 content_type=ModelContentType(payload.content_type.value),
@@ -166,6 +177,7 @@ class ContentService:
                 original_url=str(payload.original_url) if payload.original_url else None,
                 is_favorite=payload.is_favorite,
                 categories=categories,
+                tags=tags,
             )
             if asset is not None:
                 await self.content_asset_repository.create(
@@ -272,6 +284,38 @@ class ContentService:
             raise NotFoundError("Content not found")
         return content_to_read(updated_content)
 
+    async def update_tags(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        payload: ContentTagUpdate,
+    ) -> ContentRead:
+        content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if content is None:
+            raise NotFoundError("Content not found")
+
+        try:
+            tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
+            if sorted(tag.id for tag in content.tags) == sorted(tag.id for tag in tags):
+                return content_to_read(content)
+            await self.content_repository.replace_tags(content=content, tags=tags)
+            await self.content_repository.session.commit()
+        except Exception:
+            await self.content_repository.session.rollback()
+            raise
+
+        updated_content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if updated_content is None:
+            raise NotFoundError("Content not found")
+        return content_to_read(updated_content)
+
     async def record_view(self, user_id: int, content_id: int) -> ContentViewEvent:
         content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)
         if content is None:
@@ -312,6 +356,13 @@ class ContentService:
             payload=payload,
             shared_text=shared_text,
         )
+
+    async def _resolve_tags(self, *, user_id: int, tag_names: list[str]) -> list[Tag]:
+        if not tag_names:
+            return []
+        if self.tag_repository is None:
+            raise SystemConfigurationError("Tag repository is not configured")
+        return await self.tag_repository.get_or_create_many(user_id=user_id, names=tag_names)
 
     async def _get_uncategorized(self):
         uncategorized = await self.category_repository.get_uncategorized()

@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, HttpUrl
 
 from app.schemas.category import CategoryRead
+from app.schemas.tag import TagNamesPayload, TagRead
 
 
 class ContentType(StrEnum):
@@ -26,7 +27,7 @@ class ContentAssetType(StrEnum):
     OCR_TEXT = "ocr_text"
 
 
-class ContentCreate(BaseModel):
+class ContentCreate(TagNamesPayload):
     content_type: ContentType = ContentType.LINK
     category_ids: list[int] = Field(default_factory=list)
     original_url: HttpUrl | None = None
@@ -40,6 +41,10 @@ class ContentCategoryUpdate(BaseModel):
     category_ids: list[int] = Field(default_factory=list)
 
 
+class ContentTagUpdate(TagNamesPayload):
+    pass
+
+
 class ShareAttachment(BaseModel):
     filename: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=120)
@@ -47,7 +52,7 @@ class ShareAttachment(BaseModel):
     size_bytes: int | None = Field(default=None, ge=0)
 
 
-class ContentShareCreate(BaseModel):
+class ContentShareCreate(TagNamesPayload):
     url: str | None = Field(default=None, max_length=2048)
     raw_text: str | None = Field(default=None, max_length=5000)
     mime_type: str | None = Field(default=None, max_length=120)
@@ -68,6 +73,7 @@ class ContentAssetRead(BaseModel):
 class ContentRead(BaseModel):
     id: int
     categories: list[CategoryRead] = Field(default_factory=list)
+    tags: list[TagRead] = Field(default_factory=list)
     assets: list[ContentAssetRead] = Field(default_factory=list)
     content_type: ContentType
     source: ContentSource

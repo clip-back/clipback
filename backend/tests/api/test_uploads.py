@@ -15,18 +15,27 @@ from app.schemas.content import (
     ContentSource,
     ContentType,
 )
+from app.schemas.tag import TagRead
 from app.services.upload_service import StoredAssetFile
 
 
 class FakeUploadService:
     def __init__(self) -> None:
-        self.uploads: list[tuple[int, list[int]]] = []
+        self.uploads: list[tuple[int, list[int], list[str]]] = []
 
-    async def upload_screenshot(self, *, user_id: int, file, category_ids: list[int]):
-        self.uploads.append((user_id, category_ids))
+    async def upload_screenshot(
+        self,
+        *,
+        user_id: int,
+        file,
+        category_ids: list[int],
+        tag_names: list[str],
+    ):
+        self.uploads.append((user_id, category_ids, tag_names))
         return ContentRead(
             id=11,
             categories=[],
+            tags=[TagRead(id=index, name=name) for index, name in enumerate(tag_names, 1)],
             assets=[
                 ContentAssetRead(
                     id=7,
@@ -72,11 +81,12 @@ def test_upload_screenshot_returns_content_with_private_asset_url(
         "/api/v1/uploads/screenshots",
         headers=authenticate(monkeypatch),
         files={"file": ("screenshot.png", b"image", "application/octet-stream")},
-        data={"category_ids": "2"},
+        data={"category_ids": "2", "tag_names": "Flutter"},
     )
 
     assert response.status_code == 201
     assert response.json()["content_type"] == "screenshot"
+    assert response.json()["tags"] == [{"id": 1, "name": "Flutter"}]
     assert response.json()["assets"] == [
         {
             "id": 7,
@@ -86,7 +96,25 @@ def test_upload_screenshot_returns_content_with_private_asset_url(
         }
     ]
     assert "storage_key" not in response.text
-    assert service.uploads == [(3, [2])]
+    assert service.uploads == [(3, [2], ["Flutter"])]
+
+
+def test_upload_screenshot_rejects_invalid_tag_names_before_service_call(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    service = FakeUploadService()
+    monkeypatch.setattr(upload_endpoints, "_build_upload_service", lambda db: service)
+
+    response = client.post(
+        "/api/v1/uploads/screenshots",
+        headers=authenticate(monkeypatch),
+        files={"file": ("screenshot.png", b"image", "application/octet-stream")},
+        data={"tag_names": "#"},
+    )
+
+    assert response.status_code == 422
+    assert service.uploads == []
 
 
 def test_read_asset_returns_inline_image(client: TestClient, monkeypatch) -> None:
