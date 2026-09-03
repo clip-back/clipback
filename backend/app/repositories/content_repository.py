@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
+from app.models.tag import Tag
 
 
 class ContentRepository:
@@ -27,6 +28,7 @@ class ContentRepository:
         original_url: str | None,
         is_favorite: bool,
         categories: Sequence[Category],
+        tags: Sequence[Tag],
     ) -> Content:
         content = Content(
             user_id=user_id,
@@ -38,6 +40,7 @@ class ContentRepository:
             is_favorite=is_favorite,
         )
         content.categories = list(categories)
+        content.tags = list(tags)
         self.session.add(content)
         await self.session.flush()
         return content
@@ -45,7 +48,11 @@ class ContentRepository:
     async def get_owned(self, *, user_id: int, content_id: int) -> Content | None:
         result = await self.session.scalars(
             select(Content)
-            .options(selectinload(Content.categories), selectinload(Content.assets))
+            .options(
+                selectinload(Content.categories),
+                selectinload(Content.tags),
+                selectinload(Content.assets),
+            )
             .where(Content.id == content_id, Content.user_id == user_id)
         )
         return result.first()
@@ -60,7 +67,11 @@ class ContentRepository:
     ) -> list[Content]:
         statement = (
             select(Content)
-            .options(selectinload(Content.categories), selectinload(Content.assets))
+            .options(
+                selectinload(Content.categories),
+                selectinload(Content.tags),
+                selectinload(Content.assets),
+            )
             .where(Content.user_id == user_id)
         )
 
@@ -90,5 +101,15 @@ class ContentRepository:
         categories: Sequence[Category],
     ) -> Content:
         content.categories = list(categories)
+        await self.session.flush()
+        return content
+
+    async def replace_tags(
+        self,
+        *,
+        content: Content,
+        tags: Sequence[Tag],
+    ) -> Content:
+        content.tags = list(tags)
         await self.session.flush()
         return content

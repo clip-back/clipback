@@ -8,7 +8,13 @@ from fastapi import HTTPException
 from app.core.exceptions import NotFoundError, SystemConfigurationError
 from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
-from app.schemas.content import ContentCategoryUpdate, ContentCreate, ContentSource, ContentType
+from app.schemas.content import (
+    ContentCategoryUpdate,
+    ContentCreate,
+    ContentSource,
+    ContentTagUpdate,
+    ContentType,
+)
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
     CategoryRecommendationResult,
@@ -33,6 +39,7 @@ class FakeContentRepository:
         self.session = FakeSession()
         self.contents = {content.id: content for content in contents or []}
         self.created_categories: list[SimpleNamespace] = []
+        self.created_tags: list[SimpleNamespace] = []
         self.created_assets: list[SimpleNamespace] = []
 
     async def create(
@@ -46,6 +53,7 @@ class FakeContentRepository:
         original_url: str | None,
         is_favorite: bool,
         categories: list[SimpleNamespace],
+        tags: list[SimpleNamespace],
     ) -> SimpleNamespace:
         content = SimpleNamespace(
             id=max(self.contents, default=0) + 1,
@@ -57,12 +65,14 @@ class FakeContentRepository:
             original_url=original_url,
             is_favorite=is_favorite,
             categories=categories,
+            tags=tags,
             assets=[],
             saved_at=datetime.now(UTC),
             last_viewed_at=None,
         )
         self.contents[content.id] = content
         self.created_categories = categories
+        self.created_tags = tags
         return content
 
     async def get_owned(self, *, user_id: int, content_id: int) -> SimpleNamespace | None:
@@ -82,6 +92,15 @@ class FakeContentRepository:
         categories: list[SimpleNamespace],
     ) -> SimpleNamespace:
         content.categories = categories
+        return content
+
+    async def replace_tags(
+        self,
+        *,
+        content: SimpleNamespace,
+        tags: list[SimpleNamespace],
+    ) -> SimpleNamespace:
+        content.tags = tags
         return content
 
 
@@ -155,6 +174,30 @@ class FakeEventRepository:
         return event
 
 
+class FakeTagRepository:
+    def __init__(self) -> None:
+        self.tags: dict[tuple[int, str], SimpleNamespace] = {}
+
+    async def get_or_create_many(
+        self,
+        *,
+        user_id: int,
+        names: list[str],
+    ) -> list[SimpleNamespace]:
+        resolved: list[SimpleNamespace] = []
+        for name in names:
+            key = (user_id, name.casefold())
+            if key not in self.tags:
+                self.tags[key] = SimpleNamespace(
+                    id=len(self.tags) + 1,
+                    user_id=user_id,
+                    name=name,
+                    normalized_name=name.casefold(),
+                )
+            resolved.append(self.tags[key])
+        return resolved
+
+
 class FakeRecommendationService:
     def __init__(self, result: CategoryRecommendationResult) -> None:
         self.result = result
@@ -182,6 +225,7 @@ def build_service(
         event_repository=event_repository,
         content_asset_repository=FakeContentAssetRepository(content_repository),
         category_recommendation_service=recommendation_service,
+        tag_repository=FakeTagRepository(),
     )
     return service, content_repository, event_repository
 
@@ -206,6 +250,7 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
         original_url="https://example.com/original",
         is_favorite=False,
         categories=[category(1, "취업", is_default=True)],
+        tags=[],
         assets=[],
         saved_at=datetime.now(UTC),
         last_viewed_at=None,
@@ -240,6 +285,77 @@ async def test_create_content_links_available_categories_and_records_event() -> 
         "category_recommendation_failure_reason": None,
     }
     assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_create_content_creates_normalized_tags_in_same_transaction() -> None:
+    service, content_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True)]
+    )
+
+    result = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/post",
+            category_ids=[1],
+            tag_names=[" Flutter ", "#flutter", "백   엔드"],
+        ),
+    )
+
+    assert [tag.name for tag in content_repository.created_tags] == ["Flutter", "백 엔드"]
+    assert [tag.name for tag in result.tags] == ["Flutter", "백 엔드"]
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_create_content_scopes_same_tag_name_to_each_user() -> None:
+    service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
+
+    first = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/first",
+            category_ids=[1],
+            tag_names=["Flutter"],
+        ),
+    )
+    second = await service.create_content(
+        user_id=2,
+        payload=ContentCreate(
+            original_url="https://example.com/second",
+            category_ids=[1],
+            tag_names=["flutter"],
+        ),
+    )
+
+    assert first.tags[0].id != second.tags[0].id
+    assert first.tags[0].name == "Flutter"
+    assert second.tags[0].name == "flutter"
+
+
+@pytest.mark.asyncio
+async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> None:
+    service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
+
+    first = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/first",
+            category_ids=[1],
+            tag_names=["Flutter"],
+        ),
+    )
+    second = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/second",
+            category_ids=[1],
+            tag_names=["flutter"],
+        ),
+    )
+
+    assert first.tags[0].id == second.tags[0].id
+    assert second.tags[0].name == "Flutter"
 
 
 @pytest.mark.asyncio
@@ -698,6 +814,113 @@ async def test_update_categories_rolls_back_when_event_creation_fails() -> None:
             user_id=1,
             content_id=1,
             payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_tags_replaces_tags() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=9, name="기존", normalized_name="기존")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=[" Flutter ", "#백엔드"]),
+    )
+
+    assert [tag.name for tag in result.tags] == ["Flutter", "백엔드"]
+    assert [tag.name for tag in content_repository.contents[1].tags] == ["Flutter", "백엔드"]
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_update_tags_removes_all_links_but_keeps_tags() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=9, name="기존", normalized_name="기존")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=[]),
+    )
+
+    assert result.tags == []
+    assert content_repository.contents[1].tags == []
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_update_tags_skips_unchanged_set() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=1, name="Flutter", normalized_name="flutter")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=["#flutter"]),
+    )
+
+    assert [tag.name for tag in result.tags] == ["Flutter"]
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_tags_rejects_other_user_content() -> None:
+    service, _, _ = build_service(contents=[content(1, user_id=2)])
+
+    with pytest.raises(NotFoundError):
+        await service.update_tags(
+            user_id=1,
+            content_id=1,
+            payload=ContentTagUpdate(tag_names=["Flutter"]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_tags_rolls_back_when_replacement_fails() -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail_replacement(*, content, tags):
+        raise RuntimeError("replacement failed")
+
+    content_repository.replace_tags = fail_replacement
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        await service.update_tags(
+            user_id=1,
+            content_id=1,
+            payload=ContentTagUpdate(tag_names=["Flutter"]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_create_content_rolls_back_when_write_fails_after_resolving_tags() -> None:
+    service, content_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True)]
+    )
+
+    async def fail_create(**kwargs):
+        raise RuntimeError("database unavailable")
+
+    content_repository.create = fail_create
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                original_url="https://example.com/post",
+                category_ids=[1],
+                tag_names=["Flutter"],
+            ),
         )
 
     assert content_repository.session.rolled_back is True

@@ -7,11 +7,13 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.tag_repository import TagRepository
 from app.schemas.content import (
     ContentCategoryUpdate,
     ContentCreate,
     ContentRead,
     ContentShareCreate,
+    ContentTagUpdate,
     ContentType,
     ContentViewEvent,
 )
@@ -85,6 +87,20 @@ async def update_content_categories(
     )
 
 
+@router.put("/{content_id}/tags", response_model=ContentRead)
+async def update_content_tags(
+    content_id: int,
+    payload: ContentTagUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_tags(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
+    )
+
+
 @router.post(
     "/{content_id}/view",
     response_model=ContentViewEvent,
@@ -112,4 +128,5 @@ def _build_content_service(db: AsyncSession) -> ContentService:
             category_repository=category_repository,
             ai_client=get_ai_client(),
         ),
+        tag_repository=TagRepository(db),
     )

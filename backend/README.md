@@ -7,6 +7,7 @@ FastAPI backend scaffold for the Clipback MVP.
 - Save link-based content from share flow or direct input.
 - Upload screenshot-based content.
 - Require category selection at save time.
+- Save user-owned free-form tags with content and replace them later.
 - Provide a latest-first home feed with category filtering.
 - Provide content detail and original link access metadata.
 - Track product metrics such as re-open events and category filter usage.
