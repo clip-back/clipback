@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -9,6 +9,8 @@ from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
 from app.models.tag import Tag
+
+SEARCH_PATTERN_ESCAPE = "\\"
 
 
 class ContentRepository:
@@ -65,6 +67,7 @@ class ContentRepository:
         cursor_id: int | None,
         limit: int,
         is_favorite: bool | None = None,
+        search_query: str | None = None,
     ) -> list[Content]:
         statement = (
             select(Content)
@@ -85,6 +88,22 @@ class ContentRepository:
         if is_favorite is not None:
             statement = statement.where(Content.is_favorite == is_favorite)
 
+        if search_query is not None:
+            pattern = self._build_search_pattern(search_query)
+            tag_pattern = self._build_search_pattern(search_query.casefold())
+            statement = statement.where(
+                or_(
+                    Content.title.ilike(pattern, escape=SEARCH_PATTERN_ESCAPE),
+                    Content.summary.ilike(pattern, escape=SEARCH_PATTERN_ESCAPE),
+                    Content.tags.any(
+                        Tag.normalized_name.ilike(
+                            tag_pattern,
+                            escape=SEARCH_PATTERN_ESCAPE,
+                        )
+                    ),
+                )
+            )
+
         if cursor_id is not None:
             statement = statement.where(Content.id < cursor_id)
 
@@ -92,6 +111,12 @@ class ContentRepository:
 
         result = await self.session.scalars(statement)
         return list(result)
+
+    @staticmethod
+    def _build_search_pattern(search_query: str) -> str:
+        escaped = search_query.replace(SEARCH_PATTERN_ESCAPE, "\\\\")
+        escaped = escaped.replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
 
     async def mark_viewed(self, content: Content) -> Content:
         content.last_viewed_at = datetime.now(UTC)

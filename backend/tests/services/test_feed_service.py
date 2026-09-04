@@ -11,7 +11,7 @@ from app.services.feed_service import FeedService
 class FakeContentRepository:
     def __init__(self, contents: list[SimpleNamespace]) -> None:
         self.contents = contents
-        self.calls: list[dict[str, int | None]] = []
+        self.calls: list[dict[str, bool | int | str | None]] = []
 
     async def list_feed(
         self,
@@ -21,12 +21,14 @@ class FakeContentRepository:
         cursor_id: int | None,
         limit: int,
         is_favorite: bool | None = None,
+        search_query: str | None = None,
     ) -> list[SimpleNamespace]:
         self.calls.append(
             {
                 "user_id": user_id,
                 "category_id": category_id,
                 "is_favorite": is_favorite,
+                "search_query": search_query,
                 "cursor_id": cursor_id,
                 "limit": limit,
             }
@@ -43,6 +45,15 @@ class FakeContentRepository:
             contents = [
                 content for content in contents if content.is_favorite == is_favorite
             ]
+        if search_query is not None:
+            folded_query = search_query.casefold()
+            contents = [
+                content
+                for content in contents
+                if folded_query in content.title.casefold()
+                or folded_query in content.summary.casefold()
+                or any(folded_query in tag.normalized_name for tag in content.tags)
+            ]
         if cursor_id is not None:
             contents = [content for content in contents if content.id < cursor_id]
 
@@ -55,6 +66,10 @@ def category(category_id: int, name: str) -> SimpleNamespace:
     return SimpleNamespace(id=category_id, name=name, color=None, is_default=True)
 
 
+def tag(tag_id: int, name: str) -> SimpleNamespace:
+    return SimpleNamespace(id=tag_id, name=name, normalized_name=name.casefold())
+
+
 def content(
     content_id: int,
     *,
@@ -62,18 +77,21 @@ def content(
     categories: list[SimpleNamespace],
     user_id: int = 1,
     is_favorite: bool = False,
+    title: str | None = None,
+    summary: str = "요약",
+    tags: list[SimpleNamespace] | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=content_id,
         user_id=user_id,
         content_type=ContentType.LINK,
         source=ContentSource.WEB,
-        title=f"콘텐츠 {content_id}",
-        summary="요약",
+        title=title or f"콘텐츠 {content_id}",
+        summary=summary,
         original_url="https://example.com/original",
         is_favorite=is_favorite,
         categories=categories,
-        tags=[],
+        tags=tags or [],
         assets=[],
         saved_at=saved_at,
         last_viewed_at=None,
@@ -112,6 +130,7 @@ async def test_read_feed_returns_latest_contents_with_category_filter_and_cursor
         "user_id": 1,
         "category_id": 1,
         "is_favorite": None,
+        "search_query": None,
         "cursor_id": None,
         "limit": 2,
     }
@@ -164,6 +183,7 @@ async def test_read_feed_filters_favorites_with_category_and_cursor() -> None:
         user_id=1,
         category_id=1,
         is_favorite=True,
+        query="콘텐츠",
         limit=1,
         cursor=None,
     )
@@ -171,6 +191,7 @@ async def test_read_feed_filters_favorites_with_category_and_cursor() -> None:
         user_id=1,
         category_id=1,
         is_favorite=True,
+        query="콘텐츠",
         limit=1,
         cursor=first_page.next_cursor,
     )
@@ -183,6 +204,7 @@ async def test_read_feed_filters_favorites_with_category_and_cursor() -> None:
         "user_id": 1,
         "category_id": 1,
         "is_favorite": True,
+        "search_query": "콘텐츠",
         "cursor_id": None,
         "limit": 2,
     }
@@ -211,6 +233,82 @@ async def test_read_feed_filters_non_favorites() -> None:
 
     assert [item.id for item in result.items] == [2]
     assert result.next_cursor is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "expected_id"),
+    [
+        ("backend", 1),
+        ("FLUTTER", 2),
+        ("ＰＹＴＨＯＮ", 3),
+    ],
+)
+async def test_read_feed_searches_title_summary_and_tags(
+    query: str,
+    expected_id: int,
+) -> None:
+    now = datetime.now(UTC)
+    work = category(1, "업무 팁")
+    repository = FakeContentRepository(
+        [
+            content(
+                1,
+                saved_at=now,
+                categories=[work],
+                title="FastAPI Backend Guide",
+            ),
+            content(
+                2,
+                saved_at=now,
+                categories=[work],
+                summary="Flutter 상태 관리",
+            ),
+            content(
+                3,
+                saved_at=now,
+                categories=[work],
+                tags=[tag(1, "Python")],
+            ),
+            content(
+                4,
+                saved_at=now,
+                categories=[work],
+                user_id=2,
+                title=f"다른 사용자 {query}",
+            ),
+        ]
+    )
+    service = FeedService(content_repository=repository)
+
+    result = await service.read_feed(
+        user_id=1,
+        category_id=None,
+        query=query,
+        limit=20,
+        cursor=None,
+    )
+
+    assert [item.id for item in result.items] == [expected_id]
+
+
+@pytest.mark.asyncio
+async def test_read_feed_treats_blank_search_query_as_unfiltered() -> None:
+    now = datetime.now(UTC)
+    work = category(1, "업무 팁")
+    repository = FakeContentRepository([content(1, saved_at=now, categories=[work])])
+    service = FeedService(content_repository=repository)
+
+    result = await service.read_feed(
+        user_id=1,
+        category_id=None,
+        query="   ",
+        limit=20,
+        cursor=None,
+    )
+
+    assert [item.id for item in result.items] == [1]
+    assert repository.calls[0]["search_query"] is None
 
 
 @pytest.mark.asyncio

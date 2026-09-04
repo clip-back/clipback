@@ -18,6 +18,7 @@ class FakeFeedService:
         self,
         *,
         user_id: int,
+        query: str | None,
         category_id: int | None,
         is_favorite: bool | None,
         limit: int,
@@ -26,6 +27,7 @@ class FakeFeedService:
         self.calls.append(
             {
                 "user_id": user_id,
+                "query": query,
                 "category_id": category_id,
                 "is_favorite": is_favorite,
                 "limit": limit,
@@ -66,7 +68,10 @@ def test_read_feed_passes_favorite_filter_with_existing_parameters(
     )
 
     response = client.get(
-        f"/api/v1/feed?is_favorite={query_value}&category_id=3&limit=10&cursor=42",
+        (
+            "/api/v1/feed?q=백엔드"
+            f"&is_favorite={query_value}&category_id=3&limit=10&cursor=42"
+        ),
         headers=authorize(monkeypatch),
     )
 
@@ -75,6 +80,7 @@ def test_read_feed_passes_favorite_filter_with_existing_parameters(
     assert service.calls == [
         {
             "user_id": 7,
+            "query": "백엔드",
             "category_id": 3,
             "is_favorite": expected,
             "limit": 10,
@@ -101,6 +107,7 @@ def test_read_feed_keeps_favorite_filter_optional(
 
     assert response.status_code == 200
     assert service.calls[0]["is_favorite"] is None
+    assert service.calls[0]["query"] is None
 
 
 def test_read_feed_rejects_invalid_favorite_filter(
@@ -121,3 +128,32 @@ def test_read_feed_rejects_invalid_favorite_filter(
 
     assert response.status_code == 422
     assert service.calls == []
+
+
+def test_read_feed_validates_search_query_length(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    service = FakeFeedService()
+    monkeypatch.setattr(
+        feed_endpoints,
+        "FeedService",
+        lambda *, content_repository: service,
+    )
+    headers = authorize(monkeypatch)
+
+    accepted = client.get(
+        "/api/v1/feed",
+        params={"q": "가" * 100},
+        headers=headers,
+    )
+    rejected = client.get(
+        "/api/v1/feed",
+        params={"q": "가" * 101},
+        headers=headers,
+    )
+
+    assert accepted.status_code == 200
+    assert service.calls[0]["query"] == "가" * 100
+    assert rejected.status_code == 422
+    assert len(service.calls) == 1
