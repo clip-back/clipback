@@ -64,6 +64,7 @@ class ContentRepository:
         category_id: int | None,
         cursor_id: int | None,
         limit: int,
+        is_favorite: bool | None = None,
     ) -> list[Content]:
         statement = (
             select(Content)
@@ -80,6 +81,9 @@ class ContentRepository:
                 content_categories,
                 Content.id == content_categories.c.content_id,
             ).where(content_categories.c.category_id == category_id)
+
+        if is_favorite is not None:
+            statement = statement.where(Content.is_favorite == is_favorite)
 
         if cursor_id is not None:
             statement = statement.where(Content.id < cursor_id)

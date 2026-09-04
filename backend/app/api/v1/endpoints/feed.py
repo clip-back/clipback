@@ -13,12 +13,14 @@ async def read_feed(
     db: DatabaseSession,
     current_user_id: CurrentUserId,
     category_id: int | None = Query(default=None),
+    is_favorite: bool | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
 ) -> FeedResponse:
     return await FeedService(content_repository=ContentRepository(db)).read_feed(
         user_id=current_user_id,
         category_id=category_id,
+        is_favorite=is_favorite,
         limit=limit,
         cursor=cursor,
     )

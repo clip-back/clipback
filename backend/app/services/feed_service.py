@@ -15,11 +15,13 @@ class FeedService:
         category_id: int | None,
         limit: int,
         cursor: str | None,
+        is_favorite: bool | None = None,
     ) -> FeedResponse:
         cursor_id = self._parse_cursor(cursor)
         contents = await self.content_repository.list_feed(
             user_id=user_id,
             category_id=category_id,
+            is_favorite=is_favorite,
             cursor_id=cursor_id,
             limit=limit + 1,
         )
