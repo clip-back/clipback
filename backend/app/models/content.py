@@ -64,5 +64,14 @@ class Content(Base):
     user = relationship("User", back_populates="contents")
     categories = relationship("Category", secondary=content_categories, back_populates="contents")
     tags = relationship("Tag", secondary=content_tags, back_populates="contents")
-    assets = relationship("ContentAsset", back_populates="content", cascade="all, delete-orphan")
-    events = relationship("ContentEvent", back_populates="content", cascade="all, delete-orphan")
+    assets = relationship(
+        "ContentAsset",
+        back_populates="content",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    events = relationship(
+        "ContentEvent",
+        back_populates="content",
+        passive_deletes=True,
+    )

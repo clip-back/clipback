@@ -45,6 +45,10 @@ class ContentTagUpdate(TagNamesPayload):
     pass
 
 
+class ContentFavoriteUpdate(BaseModel):
+    is_favorite: bool
+
+
 class ShareAttachment(BaseModel):
     filename: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=120)

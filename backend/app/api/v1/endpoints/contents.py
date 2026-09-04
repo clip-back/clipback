@@ -1,8 +1,10 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession
+from app.core.config import settings
 from app.integrations.ai_client import get_ai_client
+from app.integrations.storage_client import LocalStorageClient
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
@@ -11,6 +13,7 @@ from app.repositories.tag_repository import TagRepository
 from app.schemas.content import (
     ContentCategoryUpdate,
     ContentCreate,
+    ContentFavoriteUpdate,
     ContentRead,
     ContentShareCreate,
     ContentTagUpdate,
@@ -101,6 +104,33 @@ async def update_content_tags(
     )
 
 
+@router.put("/{content_id}/favorite", response_model=ContentRead)
+async def update_content_favorite(
+    content_id: int,
+    payload: ContentFavoriteUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_favorite(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
+    )
+
+
+@router.delete("/{content_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_content(
+    content_id: int,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> Response:
+    await _build_content_service(db).delete_content(
+        user_id=current_user_id,
+        content_id=content_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/{content_id}/view",
     response_model=ContentViewEvent,
@@ -129,4 +159,5 @@ def _build_content_service(db: AsyncSession) -> ContentService:
             ai_client=get_ai_client(),
         ),
         tag_repository=TagRepository(db),
+        storage_client=LocalStorageClient(settings.storage_root),
     )

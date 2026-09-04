@@ -53,7 +53,7 @@ URL 요청, AI, OCR과 파일 저장에는 timeout, 응답 크기 제한과 실�
 | 카테고리 | 완료 | 기본·사용자 카테고리 추천, 직접 선택 우선, `미분류` fallback과 콘텐츠 카테고리 변경 | 운영 변경 이력 관찰 |
 | 태그 | 완료 | 사용자별 자유 입력 태그 저장·재사용, 콘텐츠별 복수 태그와 전체 교체 | 검색·AI 자동 생성은 후속 범위 |
 | 홈 피드 | 완료 | 최신순, 카테고리 필터, cursor pagination | 권한·필터 이벤트 통합 테스트 |
-| 콘텐츠 상세 | 완료 | 사용자 소유 콘텐츠와 인증된 스크린샷 자산 조회 | 원본 링크 이벤트 |
+| 콘텐츠 상세 | 완료 | 소유 콘텐츠·스크린샷 자산 조회, 카테고리·태그·즐겨찾기 변경과 영구 삭제 | 검색·유사 콘텐츠 조회 |
 | 재열람 기록 | 부분 완료 | 콘텐츠 view 이벤트와 `last_viewed_at` 기록 | 중복 정책과 지표 정의 정리 |
 | 게스트 인증 | 완료 | 실제 사용자 생성, JWT·refresh 회전, 세션 폐기, `/users/me` 구현 | 향후 정식 계정 전환 연동 |
 | 링크 정보 추출 | 완료 | SSRF 방어, 수동 redirect 검증, Open Graph·HTML metadata 추출과 fallback | 운영 환경 추출 성공률 관찰 |
@@ -401,6 +401,8 @@ cd backend
 | `GET` | `/api/v1/contents/{id}` | 콘텐츠 상세 조회 | 구현 |
 | `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 구현 |
 | `PUT` | `/api/v1/contents/{id}/tags` | 콘텐츠 태그 전체 교체 | 구현 |
+| `PUT` | `/api/v1/contents/{id}/favorite` | 콘텐츠 즐겨찾기 상태 지정 | 구현 |
+| `DELETE` | `/api/v1/contents/{id}` | 콘텐츠 영구 삭제 | 구현 |
 | `POST` | `/api/v1/contents/{id}/view` | 재열람 기록 | 구현 |
 | `GET` | `/api/v1/feed` | 최신순 피드와 카테고리 필터 | 구현 |
 | `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 구현 |

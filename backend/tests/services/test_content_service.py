@@ -11,6 +11,7 @@ from app.models.content_event import ContentEventType
 from app.schemas.content import (
     ContentCategoryUpdate,
     ContentCreate,
+    ContentFavoriteUpdate,
     ContentSource,
     ContentTagUpdate,
     ContentType,
@@ -41,6 +42,7 @@ class FakeContentRepository:
         self.created_categories: list[SimpleNamespace] = []
         self.created_tags: list[SimpleNamespace] = []
         self.created_assets: list[SimpleNamespace] = []
+        self.deleted_content_ids: list[int] = []
 
     async def create(
         self,
@@ -85,6 +87,19 @@ class FakeContentRepository:
         content.last_viewed_at = datetime.now(UTC)
         return content
 
+    async def set_favorite(
+        self,
+        *,
+        content: SimpleNamespace,
+        is_favorite: bool,
+    ) -> SimpleNamespace:
+        content.is_favorite = is_favorite
+        return content
+
+    async def delete(self, content: SimpleNamespace) -> None:
+        self.deleted_content_ids.append(content.id)
+        self.contents.pop(content.id)
+
     async def replace_categories(
         self,
         *,
@@ -126,6 +141,17 @@ class FakeContentAssetRepository:
         self.content_repository.created_assets.append(asset)
         self.content_repository.contents[content_id].assets.append(asset)
         return asset
+
+
+class FakeStorageClient:
+    def __init__(self, *, fail_keys: set[str] | None = None) -> None:
+        self.fail_keys = fail_keys or set()
+        self.deleted_keys: list[str] = []
+
+    async def delete_file(self, storage_key: str) -> None:
+        self.deleted_keys.append(storage_key)
+        if storage_key in self.fail_keys:
+            raise OSError("storage unavailable")
 
 
 class FakeCategoryRepository:
@@ -216,6 +242,7 @@ def build_service(
     uncategorized: SimpleNamespace | None = None,
     contents: list[SimpleNamespace] | None = None,
     recommendation_service: FakeRecommendationService | None = None,
+    storage_client: FakeStorageClient | None = None,
 ) -> tuple[ContentService, FakeContentRepository, FakeEventRepository]:
     content_repository = FakeContentRepository(contents)
     event_repository = FakeEventRepository()
@@ -226,6 +253,7 @@ def build_service(
         content_asset_repository=FakeContentAssetRepository(content_repository),
         category_recommendation_service=recommendation_service,
         tag_repository=FakeTagRepository(),
+        storage_client=storage_client,
     )
     return service, content_repository, event_repository
 
@@ -925,6 +953,167 @@ async def test_create_content_rolls_back_when_write_fails_after_resolving_tags()
 
     assert content_repository.session.rolled_back is True
     assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_sets_requested_state() -> None:
+    service, content_repository, event_repository = build_service(contents=[content(1)])
+
+    result = await service.update_favorite(
+        user_id=1,
+        content_id=1,
+        payload=ContentFavoriteUpdate(is_favorite=True),
+    )
+
+    assert result.is_favorite is True
+    assert content_repository.contents[1].is_favorite is True
+    assert content_repository.session.committed is True
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_skips_unchanged_state() -> None:
+    existing_content = content(1)
+    existing_content.is_favorite = True
+    service, content_repository, event_repository = build_service(contents=[existing_content])
+
+    result = await service.update_favorite(
+        user_id=1,
+        content_id=1,
+        payload=ContentFavoriteUpdate(is_favorite=True),
+    )
+
+    assert result.is_favorite is True
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_rejects_other_user_content() -> None:
+    service, content_repository, _ = build_service(contents=[content(1, user_id=2)])
+
+    with pytest.raises(NotFoundError):
+        await service.update_favorite(
+            user_id=1,
+            content_id=1,
+            payload=ContentFavoriteUpdate(is_favorite=True),
+        )
+
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_rolls_back_when_write_fails() -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail_update(*, content, is_favorite):
+        raise RuntimeError("favorite update failed")
+
+    content_repository.set_favorite = fail_update
+
+    with pytest.raises(RuntimeError, match="favorite update failed"):
+        await service.update_favorite(
+            user_id=1,
+            content_id=1,
+            payload=ContentFavoriteUpdate(is_favorite=True),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_delete_content_removes_link_content_without_storage_access() -> None:
+    service, content_repository, event_repository = build_service(contents=[content(1)])
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.deleted_content_ids == [1]
+    assert content_repository.contents == {}
+    assert content_repository.session.committed is True
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_delete_content_removes_all_asset_files_after_database_commit() -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/first.png"),
+        SimpleNamespace(id=11, storage_key="screenshots/1/second.png"),
+    ]
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.committed is True
+    assert storage_client.deleted_keys == [
+        "screenshots/1/first.png",
+        "screenshots/1/second.png",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_content_rolls_back_without_deleting_files_when_database_fails() -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+    ]
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    async def fail_delete(content):
+        raise RuntimeError("content delete failed")
+
+    content_repository.delete = fail_delete
+
+    with pytest.raises(RuntimeError, match="content delete failed"):
+        await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+    assert storage_client.deleted_keys == []
+
+
+@pytest.mark.asyncio
+async def test_delete_content_logs_file_failure_and_keeps_successful_response(caplog) -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+    ]
+    storage_client = FakeStorageClient(fail_keys={"screenshots/1/image.png"})
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.committed is True
+    assert storage_client.deleted_keys == ["screenshots/1/image.png"]
+    assert "Failed to delete content asset file" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_delete_content_rejects_other_user_content() -> None:
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[content(1, user_id=2)],
+        storage_client=storage_client,
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.deleted_content_ids == []
+    assert content_repository.session.committed is False
+    assert storage_client.deleted_keys == []
 
 
 @pytest.mark.asyncio

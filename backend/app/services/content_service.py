@@ -1,10 +1,12 @@
 import json
+import logging
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundError, SystemConfigurationError
+from app.integrations.storage_client import StorageClient
 from app.models.content import (
     Content,
     ContentSource as ModelContentSource,
@@ -24,6 +26,7 @@ from app.schemas.content import (
     ContentAssetType,
     ContentCategoryUpdate,
     ContentCreate,
+    ContentFavoriteUpdate,
     ContentRead,
     ContentSource,
     ContentTagUpdate,
@@ -41,6 +44,8 @@ from app.services.category_recommendation_service import (
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
 MAX_EVENT_METADATA_LENGTH = 1000
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,7 @@ class ContentService:
         content_asset_repository: ContentAssetRepository | None = None,
         category_recommendation_service: CategoryRecommendationService | None = None,
         tag_repository: TagRepository | None = None,
+        storage_client: StorageClient | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -97,6 +103,7 @@ class ContentService:
         self.content_asset_repository = content_asset_repository
         self.category_recommendation_service = category_recommendation_service
         self.tag_repository = tag_repository
+        self.storage_client = storage_client
 
     async def create_content(
         self,
@@ -211,6 +218,70 @@ class ContentService:
         if content is None:
             raise NotFoundError("Content not found")
         return content_to_read(content)
+
+    async def update_favorite(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        payload: ContentFavoriteUpdate,
+    ) -> ContentRead:
+        content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if content is None:
+            raise NotFoundError("Content not found")
+        if content.is_favorite == payload.is_favorite:
+            return content_to_read(content)
+
+        try:
+            await self.content_repository.set_favorite(
+                content=content,
+                is_favorite=payload.is_favorite,
+            )
+            await self.content_repository.session.commit()
+        except Exception:
+            await self.content_repository.session.rollback()
+            raise
+
+        updated_content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if updated_content is None:
+            raise NotFoundError("Content not found")
+        return content_to_read(updated_content)
+
+    async def delete_content(self, *, user_id: int, content_id: int) -> None:
+        content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content_id,
+        )
+        if content is None:
+            raise NotFoundError("Content not found")
+
+        assets = [(asset.id, asset.storage_key) for asset in content.assets]
+        if assets and self.storage_client is None:
+            raise SystemConfigurationError("Storage client is not configured")
+
+        try:
+            await self.content_repository.delete(content)
+            await self.content_repository.session.commit()
+        except Exception:
+            await self.content_repository.session.rollback()
+            raise
+
+        if self.storage_client is None:
+            return
+        for asset_id, storage_key in assets:
+            try:
+                await self.storage_client.delete_file(storage_key)
+            except Exception:
+                logger.exception(
+                    "Failed to delete content asset file after database commit: asset_id=%s",
+                    asset_id,
+                )
 
     async def update_categories(
         self,
