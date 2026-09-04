@@ -94,6 +94,15 @@ class ContentRepository:
         await self.session.flush()
         return content
 
+    async def set_favorite(self, *, content: Content, is_favorite: bool) -> Content:
+        content.is_favorite = is_favorite
+        await self.session.flush()
+        return content
+
+    async def delete(self, content: Content) -> None:
+        await self.session.delete(content)
+        await self.session.flush()
+
     async def replace_categories(
         self,
         *,

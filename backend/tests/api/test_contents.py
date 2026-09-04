@@ -11,6 +11,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.content import (
     ContentCategoryUpdate,
     ContentCreate,
+    ContentFavoriteUpdate,
     ContentRead,
     ContentSource,
     ContentTagUpdate,
@@ -35,6 +36,8 @@ class FakeContentService:
         self.requests: list[tuple[ContentCreate, str | None]] = []
         self.category_update_requests: list[tuple[int, int, ContentCategoryUpdate]] = []
         self.tag_update_requests: list[tuple[int, int, ContentTagUpdate]] = []
+        self.favorite_update_requests: list[tuple[int, int, ContentFavoriteUpdate]] = []
+        self.delete_requests: list[tuple[int, int]] = []
 
     async def create_content(
         self,
@@ -95,6 +98,29 @@ class FakeContentService:
             original_url="https://example.com/original",
             saved_at=datetime.now(UTC),
         )
+
+    async def update_favorite(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        payload: ContentFavoriteUpdate,
+    ) -> ContentRead:
+        self.favorite_update_requests.append((user_id, content_id, payload))
+        return ContentRead(
+            id=content_id,
+            categories=[],
+            content_type=ContentType.LINK,
+            source=ContentSource.WEB,
+            title="저장한 콘텐츠",
+            summary="요약",
+            original_url="https://example.com/original",
+            is_favorite=payload.is_favorite,
+            saved_at=datetime.now(UTC),
+        )
+
+    async def delete_content(self, *, user_id: int, content_id: int) -> None:
+        self.delete_requests.append((user_id, content_id))
 
 
 def test_direct_and_share_routes_use_same_enrichment_pipeline(
@@ -208,6 +234,85 @@ def test_update_content_tags_route_uses_authenticated_user(
     assert request[0] == 7
     assert request[1] == 42
     assert request[2].tag_names == ["Flutter", "백엔드"]
+
+
+def test_update_content_favorite_route_uses_authenticated_user(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    async def get_active(self, *, session_id: int, user_id: int):
+        return SimpleNamespace(id=session_id, user_id=user_id)
+
+    async def get_user(self, user_id: int):
+        return SimpleNamespace(id=user_id)
+
+    content_service = FakeContentService()
+    monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
+    monkeypatch.setattr(UserRepository, "get", get_user)
+    monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
+    token = create_access_token(user_id=7, session_id=3)
+
+    response = client.put(
+        "/api/v1/contents/42/favorite",
+        json={"is_favorite": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_favorite"] is True
+    request = content_service.favorite_update_requests[0]
+    assert request[0] == 7
+    assert request[1] == 42
+    assert request[2].is_favorite is True
+
+
+def test_update_content_favorite_rejects_missing_state(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    async def get_active(self, *, session_id: int, user_id: int):
+        return SimpleNamespace(id=session_id, user_id=user_id)
+
+    async def get_user(self, user_id: int):
+        return SimpleNamespace(id=user_id)
+
+    monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
+    monkeypatch.setattr(UserRepository, "get", get_user)
+    token = create_access_token(user_id=7, session_id=3)
+
+    response = client.put(
+        "/api/v1/contents/42/favorite",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_delete_content_route_uses_authenticated_user(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    async def get_active(self, *, session_id: int, user_id: int):
+        return SimpleNamespace(id=session_id, user_id=user_id)
+
+    async def get_user(self, user_id: int):
+        return SimpleNamespace(id=user_id)
+
+    content_service = FakeContentService()
+    monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
+    monkeypatch.setattr(UserRepository, "get", get_user)
+    monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
+    token = create_access_token(user_id=7, session_id=3)
+
+    response = client.delete(
+        "/api/v1/contents/42",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert content_service.delete_requests == [(7, 42)]
 
 
 def test_create_content_rejects_invalid_tag_names(client: TestClient, monkeypatch) -> None:
