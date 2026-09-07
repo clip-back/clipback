@@ -2,7 +2,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import InvalidStateError
 from app.repositories.category_repository import CategoryRepository
-from app.schemas.category import CategoryCreate, CategoryRead
+from app.schemas.category import CategoryCreate, CategoryRead, CategorySummaryRead
 
 
 class CategoryService:
@@ -12,9 +12,13 @@ class CategoryService:
     ) -> None:
         self.category_repository = category_repository
 
-    async def list_categories(self, user_id: int) -> list[CategoryRead]:
-        categories = await self.category_repository.list_available(user_id=user_id)
-        return [CategoryRead.model_validate(category) for category in categories]
+    async def list_categories(self, user_id: int) -> list[CategorySummaryRead]:
+        categories = await self.category_repository.list_summaries(user_id=user_id)
+        return [CategorySummaryRead.model_validate(category) for category in categories]
+
+    async def list_recent_categories(self, user_id: int, limit: int) -> list[CategorySummaryRead]:
+        categories = await self.category_repository.list_recent(user_id=user_id, limit=limit)
+        return [CategorySummaryRead.model_validate(category) for category in categories]
 
     async def create_category(self, user_id: int, payload: CategoryCreate) -> CategoryRead:
         existing_category = await self.category_repository.find_available_by_name(
