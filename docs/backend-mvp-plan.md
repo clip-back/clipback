@@ -398,6 +398,8 @@ cd backend
 | `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
 | `GET` | `/api/v1/categories/recent` | 내 콘텐츠 저장순 최근 카테고리, 미분류·빈 카테고리 제외 | 구현 |
 | `POST` | `/api/v1/categories` | 사용자 카테고리 생성 | 구현 |
+| `PATCH` | `/api/v1/categories/{id}` | 개인화된 기본·사용자 카테고리 이름·색상 수정 | 구현 |
+| `DELETE` | `/api/v1/categories/{id}` | 카테고리 삭제, 콘텐츠 보존 및 필요 시 미분류 이동 | 구현 |
 | `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 부분 구현 |
 | `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram 구현 |
 | `GET` | `/api/v1/contents/{id}` | 콘텐츠 상세 조회 | 구현 |

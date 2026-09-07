@@ -8,8 +8,8 @@ from sqlalchemy import delete, event, insert, select
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
-from app.models.user import User
 from app.repositories.category_repository import CategoryRepository
+from app.repositories.user_repository import UserRepository
 
 SAVED_AT = datetime(2026, 9, 7, 3, tzinfo=UTC)
 
@@ -17,19 +17,23 @@ SAVED_AT = datetime(2026, 9, 7, 3, tzinfo=UTC)
 @pytest_asyncio.fixture
 async def category_data(database_session):
     session = database_session
-    user = User(display_name="Category test user")
-    other_user = User(display_name="Other category test user")
-    session.add_all([user, other_user])
-    await session.flush()
+    user = await UserRepository(session).create_guest()
+    other_user = await UserRepository(session).create_guest()
     default = await session.scalar(
         select(Category)
         .where(
-            Category.user_id.is_(None),
+            Category.user_id == user.id,
             Category.is_default.is_(True),
             Category.name != "미분류",
         )
         .order_by(Category.id)
         .limit(1)
+    )
+    other_default = await session.scalar(
+        select(Category).where(
+            Category.user_id == other_user.id,
+            Category.name == default.name,
+        )
     )
     repository = CategoryRepository(session)
     uncategorized = await repository.get_uncategorized()
@@ -43,6 +47,7 @@ async def category_data(database_session):
         user=user,
         other_user=other_user,
         default=default,
+        other_default=other_default,
         uncategorized=uncategorized,
         personal=personal,
         empty=empty,
@@ -106,7 +111,7 @@ async def test_summaries_isolate_users_and_count_each_category_once(
     await save_content(
         database_session,
         user_id=data.other_user.id,
-        categories=[data.default, data.other],
+        categories=[data.other_default, data.other, data.uncategorized],
         saved_at=SAVED_AT + timedelta(days=2),
     )
 
@@ -128,8 +133,8 @@ async def test_summaries_isolate_users_and_count_each_category_once(
     other_rows = {
         row["id"]: row for row in await data.repository.list_summaries(data.other_user.id)
     }
-    assert other_rows[data.default.id]["content_count"] == 1
-    assert other_rows[data.default.id]["last_saved_at"] == SAVED_AT + timedelta(days=2)
+    assert other_rows[data.other_default.id]["content_count"] == 1
+    assert other_rows[data.other_default.id]["last_saved_at"] == SAVED_AT + timedelta(days=2)
     assert data.personal.id not in other_rows
 
 

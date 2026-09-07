@@ -47,7 +47,22 @@ class ContentRepository:
         await self.session.flush()
         return content
 
-    async def get_owned(self, *, user_id: int, content_id: int) -> Content | None:
+    async def get_owned(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        for_update: bool = False,
+    ) -> Content | None:
+        if for_update:
+            await self.session.execute(
+                select(Content.id)
+                .where(
+                    Content.id == content_id,
+                    Content.user_id == user_id,
+                )
+                .with_for_update()
+            )
         result = await self.session.scalars(
             select(Content)
             .options(
@@ -56,6 +71,7 @@ class ContentRepository:
                 selectinload(Content.assets),
             )
             .where(Content.id == content_id, Content.user_id == user_id)
+            .execution_options(populate_existing=True)
         )
         return result.first()
 
@@ -151,3 +167,16 @@ class ContentRepository:
         content.tags = list(tags)
         await self.session.flush()
         return content
+
+    async def lock_category_contents(self, user_id: int, category_id: int) -> list[int]:
+        result = await self.session.scalars(
+            select(Content.id)
+            .join(content_categories)
+            .where(
+                Content.user_id == user_id,
+                content_categories.c.category_id == category_id,
+            )
+            .order_by(Content.id)
+            .with_for_update(of=Content)
+        )
+        return list(result)

@@ -1,11 +1,12 @@
 from collections.abc import Sequence
 
-from sqlalchemy import RowMapping, Select, func, or_, select
+from sqlalchemy import RowMapping, Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
 from app.models.content import Content
 from app.models.content_category import content_categories
+from app.models.user import User
 from app.schemas.category import CategoryCreate
 
 
@@ -59,28 +60,31 @@ class CategoryRepository:
                 counts.c.last_saved_at,
             )
             .outerjoin(counts, counts.c.category_id == Category.id)
-            .where(or_(Category.user_id.is_(None), Category.user_id == user_id))
+            .where(CategoryRepository.available_to(user_id))
         )
 
     async def list_recommendation_candidates(self, user_id: int) -> list[Category]:
         result = await self.session.scalars(
             select(Category)
             .where(
-                or_(
-                    (Category.user_id.is_(None) & Category.is_default.is_(True)),
-                    Category.user_id == user_id,
-                ),
+                Category.user_id == user_id,
                 Category.name != "미분류",
             )
             .order_by(Category.is_default.desc(), Category.id.asc())
         )
         return list(result)
 
-    async def find_available_by_name(self, user_id: int, name: str) -> Category | None:
+    async def find_available_by_name(
+        self,
+        user_id: int,
+        name: str,
+        exclude_id: int | None = None,
+    ) -> Category | None:
         result = await self.session.scalars(
             select(Category).where(
-                or_(Category.user_id.is_(None), Category.user_id == user_id),
+                CategoryRepository.available_to(user_id),
                 func.lower(Category.name) == name.lower(),
+                Category.id != exclude_id if exclude_id is not None else True,
             )
         )
         return result.first()
@@ -97,7 +101,7 @@ class CategoryRepository:
             select(Category)
             .where(
                 Category.id.in_(category_ids),
-                or_(Category.user_id.is_(None), Category.user_id == user_id),
+                CategoryRepository.available_to(user_id),
             )
             .order_by(Category.id.asc())
         )
@@ -126,3 +130,46 @@ class CategoryRepository:
         await self.session.flush()
         await self.session.refresh(category)
         return category
+
+    @staticmethod
+    def available_to(user_id: int):
+        return or_(
+            Category.user_id == user_id,
+            Category.user_id.is_(None)
+            & Category.is_default.is_(True)
+            & (Category.name == "미분류"),
+        )
+
+    async def seed_for_user(self, user_id: int) -> None:
+        templates = await self.session.scalars(
+            select(Category)
+            .where(
+                Category.user_id.is_(None),
+                Category.is_default.is_(True),
+                Category.name != "미분류",
+            )
+            .order_by(Category.id)
+        )
+        self.session.add_all(
+            [
+                Category(user_id=user_id, name=item.name, color=item.color, is_default=True)
+                for item in templates
+            ]
+        )
+        await self.session.flush()
+
+    async def lock_user(self, user_id: int) -> None:
+        # NO KEY UPDATE serializes names without blocking event/content FK inserts.
+        await self.session.execute(
+            select(User.id).where(User.id == user_id).with_for_update(key_share=True)
+        )
+
+    async def get_owned(self, user_id: int, category_id: int) -> Category | None:
+        return await self.session.scalar(
+            select(Category).where(Category.id == category_id, Category.user_id == user_id)
+        )
+
+    async def delete_owned(self, user_id: int, category_id: int) -> None:
+        await self.session.execute(
+            delete(Category).where(Category.id == category_id, Category.user_id == user_id)
+        )

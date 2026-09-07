@@ -293,6 +293,7 @@ class ContentService:
         content = await self.content_repository.get_owned(
             user_id=user_id,
             content_id=content_id,
+            for_update=True,
         )
         if content is None:
             raise NotFoundError("Content not found")

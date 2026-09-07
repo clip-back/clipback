@@ -41,6 +41,15 @@ class FakeCategoryService:
         self.calls.append((user_id, limit))
         return self.categories[:1]
 
+    async def update_category(self, user_id, category_id, payload):
+        self.calls.append((user_id, category_id))
+        return CategoryRead(
+            id=category_id, name=payload.name or "여행", color=payload.color, is_default=True
+        )
+
+    async def delete_category(self, user_id, category_id):
+        self.calls.append((user_id, category_id))
+
     async def create_category(self, user_id: int, payload):
         self.calls.append((user_id, None))
         return CategoryRead(id=5, name=payload.name, color=payload.color, is_default=False)
@@ -160,3 +169,103 @@ def test_openapi_limits_statistics_to_category_lists(client: TestClient) -> None
     assert limit["schema"]["default"] == 2
     assert limit["schema"]["minimum"] == 1
     assert limit["schema"]["maximum"] == 20
+
+
+def test_update_and_delete_contract(client, category_service, auth_headers):
+    response = client.patch(
+        "/api/v1/categories/5", json={"name": "  여행 준비  "}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": 5,
+        "name": "여행 준비",
+        "color": None,
+        "is_default": True,
+    }
+    response = client.delete("/api/v1/categories/5", headers=auth_headers)
+    assert response.status_code == 204
+    assert response.content == b""
+    assert category_service.calls == [(7, 5), (7, 5)]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"name": None},
+        {"name": ""},
+        {"name": "   "},
+        {"name": "x" * 41},
+        {"color": "x" * 21},
+        {"unknown": 1},
+        {"name": "여행", "is_default": False},
+    ],
+)
+def test_update_validation(client, category_service, auth_headers, payload):
+    response = client.patch("/api/v1/categories/5", json=payload, headers=auth_headers)
+    assert response.status_code == 422
+    assert category_service.calls == []
+
+
+@pytest.mark.parametrize("method", ["patch", "delete"])
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer invalid"}])
+def test_mutations_require_auth(client, category_service, method, headers):
+    assert (
+        client.request(
+            method, "/api/v1/categories/5", headers=headers, json={"color": None}
+        ).status_code
+        == 401
+    )
+    assert category_service.calls == []
+
+
+def test_update_openapi(client):
+    document = client.get("/api/v1/openapi.json").json()
+    path = document["paths"]["/api/v1/categories/{category_id}"]
+    assert "204" in path["delete"]["responses"]
+    assert path["patch"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/CategoryRead",
+    }
+    assert document["components"]["schemas"]["CategoryUpdate"]["additionalProperties"] is False
+
+
+def test_update_openapi_name_is_optional_but_not_nullable(client):
+    schema = client.get("/api/v1/openapi.json").json()["components"]["schemas"]["CategoryUpdate"]
+    assert schema["minProperties"] == 1
+    assert schema["properties"]["name"]["type"] == "string"
+    assert "name" not in schema.get("required", [])
+    assert {"type": "null"} in schema["properties"]["color"]["anyOf"]
+
+
+@pytest.mark.parametrize("method", ["patch", "delete"])
+def test_mutations_reject_revoked_sessions(
+    client, category_service, auth_headers, monkeypatch, method
+):
+    async def revoked(self, **kwargs):
+        return None
+
+    monkeypatch.setattr(AuthSessionRepository, "get_active", revoked)
+    response = client.request(
+        method, "/api/v1/categories/5", headers=auth_headers, json={"color": None}
+    )
+    assert response.status_code == 401
+    assert category_service.calls == []
+
+
+@pytest.mark.parametrize("method", ["patch", "delete"])
+@pytest.mark.parametrize("status_code", [404, 409])
+def test_mutation_error_responses(client, category_service, auth_headers, method, status_code):
+    from app.core.exceptions import InvalidStateError, NotFoundError
+
+    async def fail(*args, **kwargs):
+        raise (
+            NotFoundError("Category not found")
+            if status_code == 404
+            else InvalidStateError("Conflict")
+        )
+
+    setattr(category_service, "update_category" if method == "patch" else "delete_category", fail)
+    response = client.request(
+        method, "/api/v1/categories/5", headers=auth_headers, json={"color": None}
+    )
+    assert response.status_code == status_code

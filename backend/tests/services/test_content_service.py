@@ -77,7 +77,9 @@ class FakeContentRepository:
         self.created_tags = tags
         return content
 
-    async def get_owned(self, *, user_id: int, content_id: int) -> SimpleNamespace | None:
+    async def get_owned(
+        self, *, user_id: int, content_id: int, for_update: bool = False,
+    ) -> SimpleNamespace | None:
         content = self.contents.get(content_id)
         if content is None or content.user_id != user_id:
             return None
