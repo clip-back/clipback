@@ -394,7 +394,8 @@ cd backend
 | `POST` | `/api/v1/auth/refresh` | refresh token 회전 | 구현 |
 | `POST` | `/api/v1/auth/logout` | 인증 세션 폐기 | 구현 |
 | `GET` | `/api/v1/users/me` | 현재 사용자 조회 | 구현 |
-| `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록 | 구현 |
+| `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
+| `GET` | `/api/v1/categories/recent` | 내 콘텐츠 저장순 최근 카테고리, 미분류·빈 카테고리 제외 | 구현 |
 | `POST` | `/api/v1/categories` | 사용자 카테고리 생성 | 구현 |
 | `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 부분 구현 |
 | `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram 구현 |

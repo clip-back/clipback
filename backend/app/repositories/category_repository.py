@@ -1,9 +1,11 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import RowMapping, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
+from app.models.content import Content
+from app.models.content_category import content_categories
 from app.schemas.category import CategoryCreate
 
 
@@ -11,13 +13,54 @@ class CategoryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def list_available(self, user_id: int) -> list[Category]:
-        result = await self.session.scalars(
-            select(Category)
-            .where(or_(Category.user_id.is_(None), Category.user_id == user_id))
-            .order_by(Category.is_default.desc(), Category.id.asc())
+    async def list_summaries(self, user_id: int) -> list[RowMapping]:
+        result = await self.session.execute(
+            self._summary_statement(user_id).order_by(Category.is_default.desc(), Category.id.asc())
         )
-        return list(result)
+        return list(result.mappings())
+
+    async def list_recent(self, user_id: int, limit: int) -> list[RowMapping]:
+        statement = self._summary_statement(user_id)
+        result = await self.session.execute(
+            statement.where(
+                statement.selected_columns.content_count > 0,
+                ~(
+                    Category.user_id.is_(None)
+                    & Category.is_default.is_(True)
+                    & (Category.name == "미분류")
+                ),
+            )
+            .order_by(statement.selected_columns.last_saved_at.desc(), Category.id.asc())
+            .limit(limit)
+        )
+        return list(result.mappings())
+
+    @staticmethod
+    def _summary_statement(user_id: int) -> Select:
+        counts = (
+            select(
+                content_categories.c.category_id,
+                func.count(Content.id).label("content_count"),
+                func.max(Content.saved_at).label("last_saved_at"),
+            )
+            .select_from(Content)
+            .join(content_categories, content_categories.c.content_id == Content.id)
+            .where(Content.user_id == user_id)
+            .group_by(content_categories.c.category_id)
+            .subquery()
+        )
+        return (
+            select(
+                Category.id,
+                Category.name,
+                Category.color,
+                Category.is_default,
+                func.coalesce(counts.c.content_count, 0).label("content_count"),
+                counts.c.last_saved_at,
+            )
+            .outerjoin(counts, counts.c.category_id == Category.id)
+            .where(or_(Category.user_id.is_(None), Category.user_id == user_id))
+        )
 
     async def list_recommendation_candidates(self, user_id: int) -> list[Category]:
         result = await self.session.scalars(

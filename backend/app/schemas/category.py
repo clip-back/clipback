@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -21,3 +23,8 @@ class CategoryRead(BaseModel):
     name: str
     color: str | None = None
     is_default: bool = False
+
+
+class CategorySummaryRead(CategoryRead):
+    content_count: int
+    last_saved_at: datetime | None

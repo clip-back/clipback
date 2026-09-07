@@ -70,6 +70,17 @@ alembic check
 
 The migration checks require PostgreSQL and a valid `DATABASE_URL`.
 
+Category repository tests additionally require an explicit `TEST_DATABASE_URL` pointing
+to a dedicated PostgreSQL test database with migrations applied. They roll back each
+test's transaction and are skipped locally when the variable is not set. CI runs them
+against its PostgreSQL service after applying migrations.
+
+```bash
+export TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/clipback_test
+DATABASE_URL="$TEST_DATABASE_URL" alembic upgrade head
+pytest -q tests/repositories/test_category_repository.py
+```
+
 ## Guest Authentication
 
 Create a guest session with `POST /api/v1/auth/guest`. The response contains a
@@ -99,6 +110,45 @@ Bearer authentication.
 
 Production must set `APP_ENVIRONMENT=production` and replace the example
 `SECRET_KEY`; startup validation rejects the default production secret.
+
+## Category Summaries
+
+Both category list endpoints require Bearer authentication and return arrays of
+`CategorySummaryRead` objects:
+
+- `GET /api/v1/categories` keeps the existing default-first, category-ID ascending
+  order and includes empty categories and the shared default `미분류` category.
+- `GET /api/v1/categories/recent?limit=2` returns categories with saved content,
+  excluding `미분류`. The default limit is 2, valid values are 1 through 20, and
+  invalid values return `422`. Results sort by `last_saved_at` descending, then
+  category ID ascending. There is no pagination; no matching categories returns `[]`.
+
+```json
+[
+  {
+    "id": 3,
+    "name": "여행",
+    "color": "#0891B2",
+    "is_default": false,
+    "content_count": 5,
+    "last_saved_at": "2026-09-07T03:00:00Z"
+  }
+]
+```
+
+`content_count` counts only the current user's content currently assigned to each
+category. `last_saved_at` is the maximum original content `saved_at`, not a category
+creation, move, or view time. Both fields are always present; an empty category has
+`content_count: 0` and `last_saved_at: null`.
+
+Links and screenshots count regardless of favorite state. A content item assigned
+to multiple categories counts once in each, so summing category counts may exceed
+the user's total content count. Deletion and category moves affect the next query;
+moving older content preserves its original save time. No counters or event history
+are used, and no migration is required.
+
+Category creation responses and categories nested inside content responses continue
+to use `CategoryRead` without these aggregate fields.
 
 ## Screenshot Storage
 
