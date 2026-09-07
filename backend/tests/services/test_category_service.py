@@ -13,6 +13,9 @@ class FakeSession:
         self.committed = False
         self.rolled_back = False
 
+    async def flush(self) -> None:
+        pass
+
     async def commit(self) -> None:
         self.committed = True
 
@@ -26,6 +29,14 @@ class FakeCategoryRepository:
         self.session = FakeSession()
         self.calls: list[tuple[int, int | None]] = []
 
+    async def lock_user(self, user_id: int) -> None:
+        pass
+
+    async def get_owned(self, user_id: int, category_id: int):
+        return next(
+            (c for c in self.categories if c.id == category_id and c.user_id == user_id), None
+        )
+
     async def list_summaries(self, user_id: int) -> list[SimpleNamespace]:
         self.calls.append((user_id, None))
         return self.categories
@@ -34,10 +45,12 @@ class FakeCategoryRepository:
         self.calls.append((user_id, limit))
         return self.categories
 
-    async def find_available_by_name(self, user_id: int, name: str) -> SimpleNamespace | None:
+    async def find_available_by_name(
+        self, user_id: int, name: str, exclude_id=None
+    ) -> SimpleNamespace | None:
         normalized_name = name.lower()
         for category in self.categories:
-            if category.name.lower() == normalized_name:
+            if category.name.lower() == normalized_name and category.id != exclude_id:
                 return category
         return None
 
@@ -156,3 +169,61 @@ async def test_create_category_rejects_duplicate_names() -> None:
 
     with pytest.raises(InvalidStateError):
         await service.create_category(user_id=1, payload=CategoryCreate(name="취업"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes,expected",
+    [
+        ({"name": "  Trip  "}, ("Trip", "red")),
+        ({"color": None}, ("여행", None)),
+        ({"color": "blue"}, ("여행", "blue")),
+        ({"name": "Trip", "color": "blue"}, ("Trip", "blue")),
+        ({"name": "여행", "color": "red"}, ("여행", "red")),
+    ],
+)
+async def test_update_personal_default(changes, expected):
+    from app.schemas.category import CategoryUpdate
+
+    repository = FakeCategoryRepository(
+        [
+            SimpleNamespace(id=1, user_id=7, name="여행", color="red", is_default=True),
+        ]
+    )
+    result = await CategoryService(repository).update_category(7, 1, CategoryUpdate(**changes))
+    assert (result.name, result.color) == expected
+    assert result.is_default is True
+    assert repository.session.committed
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_duplicate_and_allows_self_case_change():
+    from app.schemas.category import CategoryUpdate
+
+    repository = FakeCategoryRepository(
+        [
+            SimpleNamespace(id=1, user_id=7, name="Trip", color=None, is_default=True),
+            SimpleNamespace(id=2, user_id=7, name="Study", color=None, is_default=False),
+        ]
+    )
+    service = CategoryService(repository)
+    with pytest.raises(InvalidStateError):
+        await service.update_category(7, 1, CategoryUpdate(name="STUDY"))
+    result = await service.update_category(7, 1, CategoryUpdate(name="TRIP"))
+    assert result.name == "TRIP"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", [None, 8])
+async def test_update_rejects_non_owned_categories(owner):
+    from app.core.exceptions import NotFoundError
+    from app.schemas.category import CategoryUpdate
+
+    repository = FakeCategoryRepository(
+        [
+            SimpleNamespace(id=1, user_id=owner, name="미분류", color=None, is_default=True),
+        ]
+    )
+    with pytest.raises(NotFoundError):
+        await CategoryService(repository).update_category(7, 1, CategoryUpdate(color=None))
+    assert repository.session.rolled_back

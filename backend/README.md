@@ -194,10 +194,64 @@ Links and screenshots count regardless of favorite state. A content item assigne
 to multiple categories counts once in each, so summing category counts may exceed
 the user's total content count. Deletion and category moves affect the next query;
 moving older content preserves its original save time. No counters or event history
-are used, and no migration is required.
+are used. The summaries themselves require no schema changes.
 
 Category creation responses and categories nested inside content responses continue
 to use `CategoryRead` without these aggregate fields.
+
+## Personal Categories: Update and Delete
+
+Default categories are copied into each user's ownership at initial guest or social
+signup. `is_default: true` marks a provided category; it does not prevent editing.
+Only the global `미분류` remains shared and immutable. Existing global defaults stay
+in the database as hidden signup templates, never as selectable category IDs.
+Login and guest-to-social promotion do not recreate deleted categories.
+
+`PATCH /api/v1/categories/{category_id}` accepts a partial object:
+
+```json
+{"name": "여행 준비", "color": "#0891B2"}
+```
+
+- Only supplied fields change. `color: null` removes the color; omitted color stays.
+- Name is trimmed, nonblank, at most 40 characters, and cannot be null. Color keeps
+  the existing maximum of 20 characters. Empty objects and unknown fields return `422`.
+- A case-insensitive duplicate among other visible categories returns `409`.
+  The target is excluded, allowing case changes and identical-value requests.
+- Success returns `200` with `CategoryRead` (`id`, `name`, `color`, `is_default`).
+  Renaming or recoloring does not create content events.
+
+`DELETE /api/v1/categories/{category_id}` has no request body and returns `204`
+with no response body. Deleting an empty category is allowed. A repeated delete
+returns `404`. Both mutations require Bearer authentication (`401` on failure).
+Unknown IDs, another user's categories, shared templates and `미분류` return `404`.
+
+Deletion removes only that category's links. Other categories remain; content with
+no remaining category receives `미분류`. Content, images, tags, favorite state and
+original save times remain. Each changed content records `category_changed` with
+`before_category_ids` and `after_category_ids`; past events remain and their deleted
+`category_id` becomes null. Cumulative saves/views do not change. Missing `미분류`
+when needed rolls back everything with `500`; a concurrent new reference that
+prevents deletion rolls back everything with `409`. No automatic retry is performed.
+
+Frontend: allow both provided and custom categories to be edited/deleted, but disable
+these actions for the shared `미분류`. After success, refetch category lists and affected
+content; counts and recent categories reflect the current relationships immediately.
+
+### Deploying existing data
+
+Migration `202609070010` creates personal defaults for existing users and moves
+content links and event `category_id` references by owner. If a user already has a
+case-insensitive matching name, that personal category is reused (smallest ID if
+legacy case variants exist), retaining its name, color and `is_default` value.
+Historical event JSON snapshots are retained unchanged. There are no new columns.
+
+Stop application writes, back up the database, apply `alembic upgrade head`, and
+start the new backend together. Do not run old writers against the migrated database.
+Clients must discard cached category IDs and refetch the category list. Personal
+edits/deletions cannot be losslessly merged back into shared categories, so downgrade
+is explicitly refused; rollback requires restoring the pre-migration backup and old
+application together. Validate this data migration on a backup before production.
 
 ## Screenshot Storage
 

@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.repositories.category_repository import CategoryRepository
 
 
 class UserRepository:
@@ -22,6 +23,7 @@ class UserRepository:
         self.session.add(user)
         await self.session.flush()
         await self.session.refresh(user)
+        await CategoryRepository(self.session).seed_for_user(user.id)
         return user
 
     async def create_social(self, *, email: str | None, display_name: str) -> User:
@@ -32,6 +34,7 @@ class UserRepository:
         )
         self.session.add(user)
         await self.session.flush()
+        await CategoryRepository(self.session).seed_for_user(user.id)
         return user
 
     async def promote_guest(
