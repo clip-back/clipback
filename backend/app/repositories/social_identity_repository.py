@@ -8,6 +8,14 @@ class SocialIdentityRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def list_providers(self, user_id: int) -> list[SocialProvider]:
+        result = await self.session.scalars(
+            select(SocialIdentity.provider)
+            .where(SocialIdentity.user_id == user_id)
+            .order_by(SocialIdentity.provider.asc())
+        )
+        return list(result)
+
     async def get_by_provider_subject(
         self,
         *,

@@ -103,5 +103,5 @@ jobs:
         run: alembic upgrade head
       - name: Check migration state
         run: alembic check
-      - name: Test PostgreSQL category queries
-        run: pytest -q tests/repositories/test_category_repository.py
+      - name: Test PostgreSQL repository queries
+        run: pytest -q tests/repositories

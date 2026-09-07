@@ -1,3 +1,4 @@
+from sqlalchemy import RowMapping, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content_event import ContentEvent, ContentEventType
@@ -8,6 +9,19 @@ class EventRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def read_user_stats(self, user_id: int) -> RowMapping:
+        result = await self.session.execute(
+            select(
+                func.count(ContentEvent.id)
+                .filter(ContentEvent.event_type == ContentEventType.CONTENT_CREATED)
+                .label("saved_count"),
+                func.count(ContentEvent.id)
+                .filter(ContentEvent.event_type == ContentEventType.CONTENT_REOPENED)
+                .label("reopened_count"),
+            ).where(ContentEvent.user_id == user_id)
+        )
+        return result.mappings().one()
 
     async def create(
         self,
