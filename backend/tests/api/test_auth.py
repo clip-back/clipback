@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,7 @@ from app.core.exceptions import AuthenticationError
 from app.core.security import create_access_token
 from app.models.social_identity import SocialProvider
 from app.repositories.auth_session_repository import AuthSessionRepository
+from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import TokenResponse
 
@@ -132,10 +134,15 @@ def test_access_token_returns_current_guest_user(
             email=None,
             display_name="Guest",
             is_guest=True,
+            created_at=datetime(2026, 9, 7, 3, tzinfo=UTC),
         )
+
+    async def list_providers(self, user_id: int):
+        return []
 
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
+    monkeypatch.setattr(SocialIdentityRepository, "list_providers", list_providers)
     token = create_access_token(user_id=3, session_id=5)
 
     response = client.get(
@@ -149,6 +156,8 @@ def test_access_token_returns_current_guest_user(
         "email": None,
         "display_name": "Guest",
         "is_guest": True,
+        "created_at": "2026-09-07T03:00:00Z",
+        "linked_providers": [],
     }
 
 

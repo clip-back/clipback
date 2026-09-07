@@ -70,7 +70,7 @@ alembic check
 
 The migration checks require PostgreSQL and a valid `DATABASE_URL`.
 
-Category repository tests additionally require an explicit `TEST_DATABASE_URL` pointing
+PostgreSQL repository tests additionally require an explicit `TEST_DATABASE_URL` pointing
 to a dedicated PostgreSQL test database with migrations applied. They roll back each
 test's transaction and are skipped locally when the variable is not set. CI runs them
 against its PostgreSQL service after applying migrations.
@@ -78,7 +78,7 @@ against its PostgreSQL service after applying migrations.
 ```bash
 export TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/clipback_test
 DATABASE_URL="$TEST_DATABASE_URL" alembic upgrade head
-pytest -q tests/repositories/test_category_repository.py
+pytest -q tests/repositories
 ```
 
 ## Guest Authentication
@@ -110,6 +110,55 @@ Bearer authentication.
 
 Production must set `APP_ENVIRONMENT=production` and replace the example
 `SECRET_KEY`; startup validation rejects the default production secret.
+
+## My Page Account and Statistics
+
+`GET /api/v1/users/me` requires Bearer authentication and returns the existing account
+fields plus its creation time and linked social providers:
+
+```json
+{
+  "id": 7,
+  "email": null,
+  "display_name": "사용자",
+  "is_guest": false,
+  "created_at": "2026-09-07T03:00:00Z",
+  "linked_providers": ["kakao"]
+}
+```
+
+`created_at` is the original account creation timestamp, including a timezone. The
+frontend formats the displayed date. `linked_providers` contains only provider names
+(`google`, `kakao`, `naver`) sorted alphabetically, or `[]` without linked identities.
+Provider subjects and authentication tokens are never included; this endpoint reads
+the database without contacting social providers.
+
+`GET /api/v1/users/me/stats` uses the same authentication and returns lifetime event counts:
+
+```json
+{
+  "saved_count": 218,
+  "reopened_count": 72
+}
+```
+
+- `saved_count` counts the current user's recorded `content_created` events.
+- `reopened_count` counts their recorded `content_reopened` events, including repeat
+  views of the same content. It can exceed the save count.
+- Deleting content preserves these counts: its events remain with a null `content_id`.
+- No recorded events returns `0` for both fields. Other event types do not count.
+- Reading content detail does not record a view. A successful
+  `POST /api/v1/contents/{id}/view` records one; separately recorded retries count too.
+- Historical content without recorded events is not backfilled or estimated. There
+  are no period, category, favorite, or pagination parameters.
+
+Frontend integration should label these values **누적 저장 / 누적 열람**. They are event
+counts, not counts of distinct or currently retained content. Reading either My Page
+endpoint does not create events.
+
+Existing guest accounts and authentication endpoints remain supported. Social-only
+sign-up is a separate follow-up; this change does not remove guest data or require a
+migration.
 
 ## Category Summaries
 
