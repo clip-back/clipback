@@ -38,6 +38,8 @@ def test_production_accepts_openai_api_key() -> None:
         app_environment="production",
         secret_key="production-secret",
         openai_api_key="test-key",
+        database_url="postgresql+asyncpg://user:password@db/app",
+        storage_root="/data/screenshots",
         google_client_ids=["google-client-id"],
         kakao_rest_api_key="kakao-key",
         _env_file=None,
@@ -125,3 +127,41 @@ def test_screenshot_max_bytes_must_be_positive() -> None:
 def test_ocr_numeric_settings_must_be_positive(field: str, value: int) -> None:
     with pytest.raises(ValidationError):
         Settings(**{field: value}, _env_file=None)
+
+
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql", "postgresql+asyncpg"])
+def test_database_url_preserves_encoded_credentials(scheme):
+    suffix = "user:p%25a%40ss@db:5432/app?application_name=clip%20back"
+    config = Settings(database_url=f"{scheme}://{suffix}", _env_file=None)
+    assert config.database_url == f"postgresql+asyncpg://{suffix}"
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("database_url", "postgresql://postgres:postgres@localhost:5433/clipback", "DATABASE_URL"),
+        ("storage_root", "storage", "STORAGE_ROOT"),
+    ],
+)
+def test_production_rejects_development_storage(field, value, message):
+    values = dict(
+        app_environment="production",
+        secret_key="test-secret",
+        openai_api_key="test-key",
+        google_client_ids=["test-id"],
+        kakao_rest_api_key="test-key",
+        database_url="postgresql://u:p@db/app",
+        storage_root="/data/screenshots",
+    )
+    values[field] = value
+    with pytest.raises(ValidationError, match=message):
+        Settings(**values, _env_file=None)
+
+
+def test_alembic_percent_escape_round_trip():
+    from alembic.config import Config
+
+    url = Settings(database_url="postgres://u:p%25%40@db/app", _env_file=None).database_url
+    config = Config()
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    assert config.get_main_option("sqlalchemy.url") == url

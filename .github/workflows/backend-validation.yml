@@ -105,3 +105,19 @@ jobs:
         run: alembic check
       - name: Test PostgreSQL repositories and API integration
         run: pytest -q tests/repositories tests/integration
+
+
+  deployment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build runtime image
+        run: docker build -t clipback-backend:check .
+      - name: Pull PostgreSQL
+        run: docker pull postgres:16
+      - name: Check container persistence and paired restore
+        run: python scripts/check_deployment.py --image clipback-backend:check
