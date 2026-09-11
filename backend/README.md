@@ -275,3 +275,37 @@ app/services     Business logic layer.
 app/integrations External systems such as AI, OCR, metadata, and storage.
 tests            API, service, and repository tests.
 ```
+
+
+## MVP API integration tests
+
+`tests/integration` exercises HTTP routes, real authentication, services, PostgreSQL
+repositories, and local image storage together. Only social-provider verification,
+web metadata, AI recommendations, and OCR responses are replaced with deterministic
+results. Unexpected external HTTP requests fail the test, even when caught by an
+application fallback. No external credentials are required.
+
+Use a dedicated test database, never an application database:
+
+```sh
+DATABASE_URL="$TEST_DATABASE_URL" .venv/bin/alembic upgrade head
+.venv/bin/pytest -q tests/repositories tests/integration
+```
+
+Set `TEST_DATABASE_URL` explicitly to a PostgreSQL asyncpg URL before running these
+commands. Without it, DB tests skip; an invalid connection or missing migrations
+fails. The CI PostgreSQL job applies migrations and runs both suites as required
+checks. Existing Python 3.11/3.12 jobs continue running tests without a database.
+
+Each integration test opens an outer transaction. Every sequential HTTP request
+uses a new session and savepoint, allowing actual application commits and rollbacks
+while rolling back the entire test at teardown. This is not a concurrency harness;
+existing separate-connection repository tests cover concurrency. Each test uses a
+fresh app and temporary storage directory; settings and client replacements are
+restored afterward.
+
+Scenarios cover guest/social login and promotion, token refresh/logout, direct and
+shared link saving, category personalization/deletion, feed filters and pagination,
+cumulative view statistics, screenshot download/deletion, cross-user isolation, and
+DB failure compensation that removes an already-written image. These tests do not
+validate live provider credentials, external service quality, deployment, or load.
