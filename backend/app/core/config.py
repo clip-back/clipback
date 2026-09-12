@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     storage_root: Path = Path("storage")
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
+
     @model_validator(mode="after")
     def reject_default_production_secret(self) -> "Settings":
         if self.app_environment == "production" and self.secret_key == "change-this-in-production":
@@ -54,6 +62,11 @@ class Settings(BaseSettings):
             or not self.kakao_rest_api_key.get_secret_value().strip()
         ):
             raise ValueError("KAKAO_REST_API_KEY is required in production")
+        if self.app_environment == "production":
+            if self.database_url == Settings.model_fields["database_url"].default:
+                raise ValueError("DATABASE_URL must be configured in production")
+            if not self.storage_root.is_absolute():
+                raise ValueError("STORAGE_ROOT must be absolute in production")
         return self
 
 

@@ -309,3 +309,16 @@ shared link saving, category personalization/deletion, feed filters and paginati
 cumulative view statistics, screenshot download/deletion, cross-user isolation, and
 DB failure compensation that removes an already-written image. These tests do not
 validate live provider credentials, external service quality, deployment, or load.
+
+## Railway deployment
+
+The runtime image uses Python 3.12, one Uvicorn worker, and `${PORT:-8000}`.
+Set the Railway service root to `/backend`, attach a volume at `/data`, set
+`STORAGE_ROOT=/data/screenshots`, and run `alembic upgrade head` as the pre-deploy
+command. `/api/v1/health/ready` checks PostgreSQL and writable storage with a
+three-second timeout; `/api/v1/health` retains its existing liveness contract.
+
+See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)
+for all required variables, dashboard settings, Docker persistence checks, and
+recovery instructions. Actual Railway provisioning and deployment are separate
+from these repository changes.
