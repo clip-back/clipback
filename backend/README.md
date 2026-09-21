@@ -1,12 +1,17 @@
 # Clipback Backend
 
-FastAPI backend scaffold for the Clipback MVP.
+FastAPI backend for the Clipback MVP.
+
+Implementation status and remaining scope decisions are tracked in the
+[MVP status document](../docs/backend-mvp-plan.md).
 
 ## MVP Scope
 
 - Save link-based content from share flow or direct input.
 - Upload screenshot-based content.
-- Require category selection at save time.
+- Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
+- Personalize default categories and support category editing, deletion, summaries, and recent lists.
+- Support guest/social authentication and My Page account information and lifetime statistics.
 - Save user-owned free-form tags with content and replace them later.
 - Update favorite state and permanently delete owned content.
 - Provide a latest-first home feed with text search plus category and favorite filters.
@@ -258,6 +263,9 @@ application together. Validate this data migration on a backup before production
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
 10MB as multipart form data and returns the saved content with its asset metadata.
 Set `STORAGE_ROOT` to change the local filesystem storage directory.
+OpenAI OCR extracts text, title, and summary and feeds category recommendation.
+OCR failure preserves image saving with fallback content; valid manual category
+selection remains authoritative. Railway mounts persistent storage at `/data`.
 
 Saved images are private. Use the Bearer-authenticated asset URL returned in
 `ContentRead.assets` to download an image.
@@ -320,5 +328,6 @@ three-second timeout; `/api/v1/health` retains its existing liveness contract.
 
 See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)
 for all required variables, dashboard settings, Docker persistence checks, and
-recovery instructions. Actual Railway provisioning and deployment are separate
-from these repository changes.
+recovery instructions. The user has reported Railway deployment. Live connectivity, provider login, backups,
+and real-device persistence still require separate verification; this documentation
+update did not inspect the deployed environment.
