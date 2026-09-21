@@ -1,14 +1,30 @@
 import 'dart:ui' show PointerDeviceKind;
 
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import 'clipback_api.dart';
+
 void main() {
   runApp(const ClipbackApp());
 }
+
+typedef SaveLinkCallback =
+    Future<void> Function({
+      required String url,
+      required CategoryItem category,
+    });
+typedef SaveScreenshotCallback =
+    Future<void> Function({
+      required Uint8List bytes,
+      required String filename,
+      required CategoryItem category,
+    });
 
 class ClipbackApp extends StatefulWidget {
   const ClipbackApp({super.key});
@@ -18,17 +34,23 @@ class ClipbackApp extends StatefulWidget {
 }
 
 class _ClipbackAppState extends State<ClipbackApp> {
+  final _api = ClipbackApi();
+  final _sessionStorage = ApiSessionStorage();
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   AppRoute _route = AppRoute.splash;
   AppRoute _previousRoute = AppRoute.home;
   int _archiveTab = 0;
   bool _bookmarkedFirst = false;
-  bool _archiveCardView = false;
+  bool _randomViewing = false;
   String? _activeCategoryName;
   ContentItem? _selectedContent;
   String _searchQuery = '';
   late final List<CategoryItem> _categories;
   late final List<ContentItem> _contents;
   late final Set<String> _bookmarkedIds;
+  AppUser _user = defaultUser;
+  bool _sessionReady = false;
+  String? _apiConnectionError;
 
   @override
   void initState() {
@@ -36,20 +58,223 @@ class _ClipbackAppState extends State<ClipbackApp> {
     _categories = List.of(initialCategories);
     _contents = List.of(initialContents);
     _bookmarkedIds = {
-      for (final content in initialContents.where((item) => item.bookmarked))
-        content.id,
+      for (final content in _contents)
+        if (content.bookmarked) content.id,
     };
+    unawaited(_restoreSession());
+  }
+
+  Future<void> _restoreSession() async {
+    try {
+      final session = await _sessionStorage.read();
+      if (session != null) {
+        _api.restoreSession(session);
+        try {
+          await _loadRemoteData();
+          return;
+        } catch (_) {
+          _api.clearSession();
+          await _sessionStorage.clear();
+        }
+      }
+      final guestSession = await _api.createGuestSession();
+      try {
+        await _sessionStorage.write(guestSession);
+      } catch (_) {
+        // Continue with the in-memory guest session when persistence is unavailable.
+      }
+      await _loadRemoteData();
+    } catch (error) {
+      _api.clearSession();
+      await _sessionStorage.clear();
+      if (mounted) {
+        setState(() {
+          _categories.clear();
+          _contents.clear();
+          _bookmarkedIds.clear();
+          _apiConnectionError = _apiErrorMessage(error);
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sessionReady = true);
+        if (_route == AppRoute.splash) _finishSplash();
+        final errorMessage = _apiConnectionError;
+        if (errorMessage != null) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _showError(errorMessage),
+          );
+        }
+      }
+    }
+  }
+
+  String _apiErrorMessage(Object error) {
+    if (error is ClipbackApiException) return error.message;
+    return '게스트 데이터를 불러오지 못했어요. 네트워크 연결을 확인해 주세요.';
+  }
+
+  void _finishSplash() {
+    if (!_sessionReady) return;
+    _go(AppRoute.home);
+  }
+
+  Future<void> _continueAsGuest() async {
+    try {
+      final session = await _api.createGuestSession();
+      await _sessionStorage.write(session);
+      await _loadRemoteData();
+      if (mounted) _go(AppRoute.onboarding);
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }
+
+  Future<void> _loadRemoteData() async {
+    final apiCategories = await _api.listCategories();
+    final feed = await _api.readFeed();
+    final session = _api.session;
+    if (session != null) {
+      try {
+        await _sessionStorage.write(session);
+      } catch (_) {
+        // The current session remains usable even when local persistence fails.
+      }
+    }
+    if (!mounted) return;
+
+    final categories = apiCategories.map(_categoryFromApi).toList();
+    final categoryById = {
+      for (final category in categories) category.id!: category,
+    };
+    final contents = feed.items
+        .map((content) => _contentFromApi(content, categoryById))
+        .toList();
+    AppUser? remoteUser;
+    try {
+      final user = await _api.readMe();
+      final stats = await _api.readStats();
+      remoteUser = _userFromApi(user, stats);
+    } catch (_) {
+      // Categories and saved content remain available without profile statistics.
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _categories
+        ..clear()
+        ..addAll(categories);
+      _contents
+        ..clear()
+        ..addAll(contents);
+      _bookmarkedIds
+        ..clear()
+        ..addAll(
+          contents
+              .where((content) => content.bookmarked)
+              .map((content) => content.id),
+        );
+      if (remoteUser != null) _user = remoteUser;
+      _apiConnectionError = null;
+    });
+  }
+
+  CategoryItem _categoryFromApi(ApiCategory category) {
+    final color = _colorFromHex(category.color) ?? AppColors.subSubtle;
+    return CategoryItem(
+      id: category.id,
+      name: category.name == '미분류' ? catUncategorized.name : category.name,
+      color: color,
+      tint: color.withValues(alpha: 0.2),
+      deep: _deepCategoryColor(color),
+      lastSavedAt: category.lastSavedAt == null
+          ? null
+          : _formatSavedAt(category.lastSavedAt!),
+    );
+  }
+
+  ContentItem _contentFromApi(
+    ApiContent content,
+    Map<int, CategoryItem> categoryById,
+  ) {
+    final category = content.categories.isEmpty
+        ? catUncategorized
+        : categoryById[content.categories.first.id] ??
+              _categoryFromApi(content.categories.first);
+    return ContentItem(
+      id: 'api-${content.id}',
+      apiId: content.id,
+      title: content.title.isEmpty ? '제목을 추출하지 못한 링크' : content.title,
+      summary: content.summary,
+      category: category,
+      savedAt: _formatShortDate(content.savedAt),
+      savedAtFull: _formatSavedAt(content.savedAt),
+      savedAtFullShort: _formatSavedAtShort(content.savedAt),
+      tags: content.tags,
+      source: _sourceLabel(content.source),
+      originalUrl: content.originalUrl ?? '',
+      originalText: content.summary,
+      bookmarked: content.isFavorite,
+      isScreenshot: content.contentType == 'screenshot',
+    );
+  }
+
+  AppUser _userFromApi(ApiUser user, ApiUserStats stats) {
+    final provider = user.isGuest
+        ? '게스트 계정'
+        : user.linkedProviders.isEmpty
+        ? '연동된 계정 없음'
+        : '${user.linkedProviders.join(', ')} 계정 연동 중';
+    return AppUser(
+      name: user.displayName,
+      providerLabel: provider,
+      joinedAt: _formatJoinedAt(user.createdAt),
+      savedContentCount: stats.savedCount,
+      revisitedContentCount: stats.reopenedCount,
+      appVersion: defaultUser.appVersion,
+    );
+  }
+
+  void _showError(String message) {
+    _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   bool _isBookmarked(ContentItem content) =>
       _bookmarkedIds.contains(content.id);
 
   void _toggleBookmark(ContentItem content) {
+    final apiId = content.apiId;
+    if (apiId == null) return;
+    final wasBookmarked = _bookmarkedIds.contains(content.id);
     setState(() {
       if (!_bookmarkedIds.remove(content.id)) {
         _bookmarkedIds.add(content.id);
       }
     });
+    unawaited(_saveBookmark(content, !wasBookmarked));
+  }
+
+  Future<void> _saveBookmark(ContentItem content, bool isFavorite) async {
+    try {
+      final updated = await _api.updateContentFavorite(
+        content.apiId!,
+        isFavorite,
+      );
+      _replaceContent(_contentFromApi(updated, _categoryById));
+      await _refreshStats();
+    } on ClipbackApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        if (isFavorite) {
+          _bookmarkedIds.remove(content.id);
+        } else {
+          _bookmarkedIds.add(content.id);
+        }
+      });
+      _showError(error.message);
+    }
   }
 
   void _addContent(ContentItem content) {
@@ -61,61 +286,194 @@ class _ClipbackAppState extends State<ClipbackApp> {
     });
   }
 
-  void _addLinkContent({required String url, required CategoryItem category}) {
-    final count = _contents.length + 1;
-    _addContent(
-      ContentItem(
-        id: 'mock-link-$count',
-        title: '새로 저장한 링크 요약',
-        summary:
-            '입력한 링크에서 제목과 설명을 추출한 목데이터입니다. 실제 API 연결 전까지 저장 완료, 자동 분류, 상세 확인 흐름을 검증할 수 있어요.',
-        category: category,
-        savedAt: '26.07.23',
-        savedAtFull: '2026. 07. 23 오후 09:58',
-        savedAtFullShort: '2026. 07. 23 21:58',
-        tags: ['링크저장', category.name, '자동분류'],
-        source: '직접 입력',
+  Future<void> _addLinkContent({
+    required String url,
+    required CategoryItem category,
+  }) async {
+    try {
+      final content = await _api.createContent(
         originalUrl: url,
-        originalText: '사용자가 입력한 링크: $url',
-      ),
-    );
+        categoryIds: category.id == null ? const [] : [category.id!],
+        tagNames: [category.name],
+      );
+      final item = _contentFromApi(content, _categoryById);
+      if (!mounted) return;
+      _addContent(item);
+      await _refreshRemoteAfterContentChange();
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+      rethrow;
+    }
   }
 
-  void _addScreenshotContent() {
-    final category = _categories.firstWhere(
-      (item) => item.name == '생활정보',
-      orElse: () => _categories.first,
-    );
-    _addContent(
-      ContentItem(
-        id: 'mock-screenshot-${_contents.length + 1}',
-        title: '스크린샷으로 저장한 레시피 메모',
-        summary:
-            '갤러리에서 선택한 이미지를 OCR로 읽어 제목과 요약을 만든 목데이터입니다. OCR 실패 시에도 미분류로 저장되는 기획 흐름을 화면에서 확인할 수 있어요.',
-        category: category,
-        savedAt: '26.07.23',
-        savedAtFull: '2026. 07. 23 오후 10:01',
-        savedAtFullShort: '2026. 07. 23 22:01',
-        tags: ['스크린샷', 'OCR', '생활정보'],
-        source: '스크린샷',
-        originalUrl: '',
-        originalText: '이미지 OCR 목데이터: 토마토, 달걀, 올리브오일을 사용한 간단한 아침 레시피',
-        isScreenshot: true,
-      ),
-    );
+  Future<void> _addScreenshotContent({
+    required Uint8List bytes,
+    required String filename,
+    required CategoryItem category,
+  }) async {
+    try {
+      final content = await _api.uploadScreenshot(
+        bytes: bytes,
+        filename: filename,
+        categoryIds: category.id == null ? const [] : [category.id!],
+        tagNames: [category.name],
+      );
+      final item = _contentFromApi(content, _categoryById);
+      if (!mounted) return;
+      _addContent(item);
+      await _refreshRemoteAfterContentChange();
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+      rethrow;
+    }
   }
 
   void _addCategory(CategoryItem category) {
+    unawaited(_createCategory(category));
+  }
+
+  Future<void> _createCategory(CategoryItem category) async {
+    try {
+      final created = await _api.createCategory(
+        name: category.name,
+        color: _hexFromColor(category.color),
+      );
+      if (!mounted) return;
+      setState(() {
+        _categories.insert(0, _categoryFromApi(created));
+      });
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    }
+  }
+
+  void _updateCategory(CategoryItem original, CategoryItem updated) {
+    final categoryId = original.id;
+    if (categoryId == null) return;
+    _replaceCategoryLocally(original, updated);
+    unawaited(_saveCategoryUpdate(original, updated));
+  }
+
+  void _replaceCategoryLocally(CategoryItem original, CategoryItem updated) {
     setState(() {
-      _categories.insert(0, category);
-      _archiveTab = 1;
-      _activeCategoryName = null;
-      _route = AppRoute.archive;
-      _previousRoute = AppRoute.archive;
+      final categoryIndex = _categories.indexWhere(
+        (category) => category.id == original.id,
+      );
+      if (categoryIndex != -1) _categories[categoryIndex] = updated;
+      for (var index = 0; index < _contents.length; index++) {
+        if (_contents[index].category.id == original.id) {
+          _contents[index] = _contents[index].copyWith(category: updated);
+        }
+      }
+      if (_selectedContent?.category.id == original.id) {
+        _selectedContent = _selectedContent!.copyWith(category: updated);
+      }
     });
   }
 
+  Future<void> _saveCategoryUpdate(
+    CategoryItem original,
+    CategoryItem updated,
+  ) async {
+    try {
+      final saved = await _api.updateCategory(
+        categoryId: original.id!,
+        name: updated.name,
+        color: _hexFromColor(updated.color),
+      );
+      if (!mounted) return;
+      _replaceCategoryLocally(updated, _categoryFromApi(saved));
+    } on ClipbackApiException catch (error) {
+      if (mounted) _replaceCategoryLocally(updated, original);
+      _showError(error.message);
+    }
+  }
+
+  void _deleteCategory(CategoryItem category) {
+    final categoryId = category.id;
+    if (categoryId == null) return;
+    final categoryIndex = _categories.indexWhere(
+      (item) => item.id == categoryId,
+    );
+    final removedContents = _contents
+        .where((content) => content.category.id == categoryId)
+        .toList();
+    setState(() {
+      _categories.removeWhere((item) => item.id == categoryId);
+      _contents.removeWhere((content) => content.category.id == categoryId);
+      _bookmarkedIds.removeWhere(
+        (id) => removedContents.any((content) => content.id == id),
+      );
+    });
+    unawaited(_removeCategory(category, categoryIndex, removedContents));
+  }
+
+  Future<void> _removeCategory(
+    CategoryItem category,
+    int categoryIndex,
+    List<ContentItem> removedContents,
+  ) async {
+    try {
+      await _api.deleteCategory(category.id!);
+      await _refreshRemoteAfterContentChange();
+    } on ClipbackApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _categories.insert(
+          categoryIndex.clamp(0, _categories.length),
+          category,
+        );
+        _contents.addAll(removedContents);
+        _bookmarkedIds.addAll(
+          removedContents
+              .where((content) => content.bookmarked)
+              .map((content) => content.id),
+        );
+      });
+      _showError(error.message);
+    }
+  }
+
+  Future<List<ContentItem>> _searchContents(String query) async {
+    final feed = await _api.readFeed(query: query);
+    return feed.items
+        .map((content) => _contentFromApi(content, _categoryById))
+        .toList();
+  }
+
+  Future<void> _logout() async {
+    try {
+      await _api.logout();
+      await _sessionStorage.clear();
+      if (!mounted) return;
+      setState(() {
+        _categories
+          ..clear()
+          ..addAll(initialCategories);
+        _contents
+          ..clear()
+          ..addAll(initialContents);
+        _bookmarkedIds
+          ..clear()
+          ..addAll(
+            _contents
+                .where((content) => content.bookmarked)
+                .map((content) => content.id),
+          );
+        _user = defaultUser;
+        _selectedContent = null;
+        _previousRoute = AppRoute.home;
+        _route = AppRoute.home;
+      });
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    }
+  }
+
   void _changeContentCategory(ContentItem content, CategoryItem category) {
+    final apiId = content.apiId;
+    final categoryId = category.id;
+    if (apiId == null || categoryId == null) return;
     setState(() {
       final index = _contents.indexWhere((item) => item.id == content.id);
       if (index == -1) return;
@@ -125,17 +483,98 @@ class _ClipbackAppState extends State<ClipbackApp> {
         _selectedContent = updated;
       }
     });
+    unawaited(_saveContentCategory(content, category));
+  }
+
+  Future<void> _saveContentCategory(
+    ContentItem original,
+    CategoryItem category,
+  ) async {
+    try {
+      final updated = await _api.updateContentCategories(original.apiId!, [
+        category.id!,
+      ]);
+      _replaceContent(_contentFromApi(updated, _categoryById));
+      await _refreshRemoteAfterContentChange();
+    } on ClipbackApiException catch (error) {
+      if (!mounted) return;
+      final index = _contents.indexWhere((item) => item.id == original.id);
+      if (index != -1) {
+        setState(() => _contents[index] = original);
+      }
+      _showError(error.message);
+    }
   }
 
   void _deleteContent(ContentItem content) {
+    final apiId = content.apiId;
+    if (apiId == null) return;
+    final index = _contents.indexWhere((item) => item.id == content.id);
     setState(() {
+      final deletingOpenDetail =
+          _route == AppRoute.detail && _selectedContent?.id == content.id;
       _contents.removeWhere((item) => item.id == content.id);
       _bookmarkedIds.remove(content.id);
-      _selectedContent = null;
-      _route = _previousRoute == AppRoute.detail
-          ? AppRoute.home
-          : _previousRoute;
+      if (deletingOpenDetail) {
+        _selectedContent = null;
+        _route = _previousRoute == AppRoute.detail
+            ? AppRoute.home
+            : _previousRoute;
+      }
     });
+    unawaited(_removeContent(content, index));
+  }
+
+  Future<void> _removeContent(ContentItem content, int index) async {
+    try {
+      await _api.deleteContent(content.apiId!);
+      await _refreshRemoteAfterContentChange();
+    } on ClipbackApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _contents.insert(index.clamp(0, _contents.length), content);
+        if (content.bookmarked) _bookmarkedIds.add(content.id);
+      });
+      _showError(error.message);
+    }
+  }
+
+  Map<int, CategoryItem> get _categoryById => {
+    for (final category in _categories)
+      if (category.id != null) category.id!: category,
+  };
+
+  void _replaceContent(ContentItem updated) {
+    if (!mounted) return;
+    final index = _contents.indexWhere((content) => content.id == updated.id);
+    if (index == -1) return;
+    setState(() {
+      _contents[index] = updated;
+      if (updated.bookmarked) {
+        _bookmarkedIds.add(updated.id);
+      } else {
+        _bookmarkedIds.remove(updated.id);
+      }
+      if (_selectedContent?.id == updated.id) _selectedContent = updated;
+    });
+  }
+
+  Future<void> _refreshStats() async {
+    try {
+      final stats = await _api.readStats();
+      final user = await _api.readMe();
+      if (mounted) setState(() => _user = _userFromApi(user, stats));
+    } on ClipbackApiException {
+      // The content action has already completed; the next screen load retries stats.
+    }
+  }
+
+  Future<void> _refreshRemoteAfterContentChange() async {
+    try {
+      await _loadRemoteData();
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    }
   }
 
   void _openAdjacentContent(int delta) {
@@ -204,6 +643,25 @@ class _ClipbackAppState extends State<ClipbackApp> {
       _selectedContent = content;
       _route = AppRoute.detail;
     });
+    if (content.apiId != null) {
+      unawaited(_refreshContentDetail(content.apiId!));
+      unawaited(_api.recordContentView(content.apiId!));
+      unawaited(
+        _api.createCardClickEvent(
+          contentId: content.apiId!,
+          categoryId: content.category.id,
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshContentDetail(int contentId) async {
+    try {
+      final content = await _api.readContent(contentId);
+      _replaceContent(_contentFromApi(content, _categoryById));
+    } on ClipbackApiException {
+      // Feed data is still enough to keep the detail screen usable.
+    }
   }
 
   void _backFromDetail() {
@@ -217,11 +675,15 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
+        bottomSheetTheme: const BottomSheetThemeData(
+          constraints: BoxConstraints(maxWidth: phoneWidth),
+        ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.main,
           surface: AppColors.bg,
@@ -233,10 +695,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
       ),
       home: switch (_route) {
-        AppRoute.splash => SplashScreen(onDone: () => _go(AppRoute.login)),
-        AppRoute.login => LoginScreen(
-          onContinue: () => _go(AppRoute.onboarding),
-        ),
+        AppRoute.splash => SplashScreen(onDone: _finishSplash),
+        AppRoute.login => LoginScreen(onContinue: _continueAsGuest),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),
         ),
@@ -266,23 +726,37 @@ class _ClipbackAppState extends State<ClipbackApp> {
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           bookmarkedFirst: _bookmarkedFirst,
-          cardView: _archiveCardView,
+          randomViewing: _randomViewing,
           activeCategoryName: _activeCategoryName,
           onTabChanged: (value) => setState(() => _archiveTab = value),
           onSortChanged: (value) => setState(() => _bookmarkedFirst = value),
-          onViewChanged: (value) => setState(() => _archiveCardView = value),
-          onClearCategory: () => setState(() => _activeCategoryName = null),
+          onOpenRandomView: () => setState(() => _randomViewing = true),
+          onExitRandomView: () => setState(() => _randomViewing = false),
+          onClearCategory: () => setState(() {
+            _activeCategoryName = null;
+            _archiveTab = 1;
+            _randomViewing = false;
+          }),
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
           onAddCategory: _addCategory,
+          onUpdateCategory: _updateCategory,
+          onDeleteCategory: _deleteCategory,
           onAddLink: _addLinkContent,
           onAddScreenshot: _addScreenshotContent,
-          onOpenCategory: (category) => setState(() {
-            _activeCategoryName = category.name;
-            _archiveTab = 0;
-            _archiveCardView = false;
-          }),
+          onOpenCategory: (category) {
+            setState(() {
+              _activeCategoryName = category.name;
+              _archiveTab = 0;
+              _randomViewing = false;
+            });
+            if (category.id != null) {
+              unawaited(_api.createCategoryFilterEvent(category.id!));
+            }
+          },
           onTab: _selectRootTab,
         ),
         AppRoute.bookmark => BookmarkScreen(
@@ -294,6 +768,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
           onAddLink: _addLinkContent,
           onAddScreenshot: _addScreenshotContent,
           onTab: _selectRootTab,
@@ -302,10 +778,14 @@ class _ClipbackAppState extends State<ClipbackApp> {
           initialQuery: _searchQuery,
           contents: _contents,
           bookmarkedIds: _bookmarkedIds,
+          categories: _categories,
+          onSearch: _searchContents,
           onQueryChanged: (value) => _searchQuery = value,
           onClose: () => _go(_previousRoute),
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
           onOpenArchive: () => _openArchive(),
         ),
         AppRoute.detail => DetailScreen(
@@ -317,6 +797,12 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onToggleBookmark: _toggleBookmark,
           onChangeCategory: _changeContentCategory,
           onDeleteContent: _deleteContent,
+          onOpenOriginalLink: () {
+            final contentId = _selectedContent?.apiId;
+            if (contentId != null) {
+              unawaited(_api.createOriginalLinkOpenedEvent(contentId));
+            }
+          },
           onOpenAdjacent: _openAdjacentContent,
           onOpenContent: _openDetail,
           onAddLink: _addLinkContent,
@@ -324,10 +810,26 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onTab: _selectRootTab,
         ),
         AppRoute.my => MyScreen(
+          user: _user,
           categories: _categories,
           onAddLink: _addLinkContent,
           onAddScreenshot: _addScreenshotContent,
+          onOpenAccount: () => _go(AppRoute.account),
+          onOpenCategoryManagement: () => _go(AppRoute.categoryManagement),
           onTab: _selectRootTab,
+        ),
+        AppRoute.account => AccountManagementScreen(
+          user: _user,
+          onBack: () => _go(AppRoute.my),
+          onLogout: _logout,
+        ),
+        AppRoute.categoryManagement => CategoryManagementScreen(
+          categories: _categories,
+          contents: _contents,
+          onBack: () => _go(AppRoute.my),
+          onAddCategory: _addCategory,
+          onUpdateCategory: _updateCategory,
+          onDeleteCategory: _deleteCategory,
         ),
       },
     );
@@ -345,6 +847,8 @@ enum AppRoute {
   search,
   detail,
   my,
+  account,
+  categoryManagement,
 }
 
 class AppColors {
@@ -405,6 +909,13 @@ class Assets {
   static const close = 'assets/icons/x.svg';
   static const check = 'assets/icons/check.svg';
   static const xCircle = 'assets/icons/x-circle.svg';
+  static const photoSelect = 'assets/icons/photo-select.svg';
+  static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';
+  static const savedPhotoPreview = 'assets/figma/saved-photo-preview.png';
+  static const categoryCardFolder = 'assets/icons/category-card-folder.svg';
+  static const categoryCardStar = 'assets/icons/category-card-star.svg';
+  static const categoryCardStarSmall =
+      'assets/icons/category-card-star-small.svg';
   static const instagram = 'assets/icons/instagram.svg';
 }
 
@@ -444,19 +955,16 @@ class PhoneFrame extends StatelessWidget {
       color: AppColors.bg,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth <= 480) {
-            return child;
-          }
-
-          final previewHeight = constraints.maxHeight < phoneHeight
+          final contentWidth = math.min(phoneWidth, constraints.maxWidth);
+          final contentHeight = constraints.hasBoundedHeight
               ? constraints.maxHeight
               : phoneHeight;
 
           return Align(
             alignment: Alignment.topCenter,
             child: SizedBox(
-              width: phoneWidth,
-              height: previewHeight,
+              width: contentWidth,
+              height: contentHeight,
               child: child,
             ),
           );
@@ -481,13 +989,9 @@ class EntrySurface extends StatelessWidget {
     return PhoneFrame(
       child: Scaffold(
         backgroundColor: backgroundColor,
-        body: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.topCenter,
-            minWidth: phoneWidth,
-            maxWidth: phoneWidth,
-            minHeight: phoneHeight,
-            maxHeight: phoneHeight,
+        body: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
             child: SizedBox(
               width: phoneWidth,
               height: phoneHeight,
@@ -511,7 +1015,12 @@ class EntryStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Positioned(left: 0, top: 0, child: DesignStatusBar());
+    return const Positioned(
+      left: 0,
+      right: 0,
+      top: 0,
+      child: DesignStatusBar(),
+    );
   }
 }
 
@@ -521,16 +1030,14 @@ class DesignStatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: phoneWidth,
+      width: double.infinity,
       height: 50,
       child: Padding(
         padding: const EdgeInsets.only(top: 21),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(
-              width: 125,
-              height: 22,
+            const Expanded(
               child: Center(
                 child: Text(
                   '9:41',
@@ -545,9 +1052,7 @@ class DesignStatusBar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 124, height: 10),
-            SizedBox(
-              width: 126,
-              height: 22,
+            Expanded(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -812,7 +1317,7 @@ class _OnboardingPage extends StatelessWidget {
 class LoginScreen extends StatelessWidget {
   const LoginScreen({required this.onContinue, super.key});
 
-  final VoidCallback onContinue;
+  final Future<void> Function() onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -1061,9 +1566,8 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onOpenToday;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -1129,14 +1633,14 @@ class HomeHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 254,
+      height: hasSavedContent ? 254 : 286,
       child: Stack(
         children: [
-          const Positioned(left: 0, top: 0, child: DesignStatusBar()),
+          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
           Positioned(
             left: 16,
+            right: 16,
             top: 58,
-            width: 343,
             height: 56,
             child: Row(
               children: [
@@ -1231,7 +1735,7 @@ class HomeHero extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: hasSavedContent ? 252 : 264,
+            right: hasSavedContent ? 24 : 30,
             top: 114,
             child: Image.asset(
               hasSavedContent ? Assets.homeCharacter : Assets.character2Png,
@@ -1498,16 +2002,21 @@ class ArchiveScreen extends StatelessWidget {
     required this.categories,
     required this.bookmarkedIds,
     required this.bookmarkedFirst,
-    required this.cardView,
+    required this.randomViewing,
     required this.activeCategoryName,
     required this.onTabChanged,
     required this.onSortChanged,
-    required this.onViewChanged,
+    required this.onOpenRandomView,
+    required this.onExitRandomView,
     required this.onClearCategory,
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onOpenCategory,
@@ -1520,19 +2029,25 @@ class ArchiveScreen extends StatelessWidget {
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final bool bookmarkedFirst;
-  final bool cardView;
+  final bool randomViewing;
   final String? activeCategoryName;
   final ValueChanged<int> onTabChanged;
   final ValueChanged<bool> onSortChanged;
-  final ValueChanged<bool> onViewChanged;
+  final VoidCallback onOpenRandomView;
+  final VoidCallback onExitRandomView;
   final VoidCallback onClearCategory;
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final ValueChanged<CategoryItem> onAddCategory;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<CategoryItem> onOpenCategory;
   final ValueChanged<AppRoute> onTab;
 
@@ -1547,6 +2062,23 @@ class ArchiveScreen extends StatelessWidget {
       );
     }
 
+    if (activeCategoryName != null && randomViewing && activeTab == 0) {
+      final categoryContents = contents
+          .where((content) => content.category.name == activeCategoryName)
+          .toList();
+      categoryContents.shuffle();
+      return PhoneFrame(
+        child: CategoryCardReviewScreen(
+          contents: categoryContents.take(5).toList(),
+          categoryName: activeCategoryName!,
+          bookmarkedIds: bookmarkedIds,
+          onExit: onExitRandomView,
+          onOpenContent: onOpenContent,
+          onToggleBookmark: onToggleBookmark,
+        ),
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
         body: Column(
@@ -1555,25 +2087,55 @@ class ArchiveScreen extends StatelessWidget {
             if (activeCategoryName == null)
               AppTopBar(title: '아카이브', onSearch: onSearch)
             else
-              CategoryTopBar(title: activeCategoryName!, onSearch: onSearch),
+              CategoryTopBar(
+                title: activeCategoryName!,
+                onBack: onClearCategory,
+                onSearch: onSearch,
+                onMore: () => showModalBottomSheet<void>(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => SortSheet(
+                    activeBookmarkedFirst: bookmarkedFirst,
+                    onSelect: onSortChanged,
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             if (activeCategoryName == null)
-              ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged)
-            else
-              CategoryViewTabs(cardView: cardView, onChanged: onViewChanged),
+              ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
             Expanded(
               child: activeTab == 0
-                  ? ContentListView(
-                      contents: contents,
-                      bookmarkedIds: bookmarkedIds,
-                      bookmarkedFirst: bookmarkedFirst,
-                      cardView: cardView,
-                      activeCategoryName: activeCategoryName,
-                      onSortChanged: onSortChanged,
-                      onClearCategory: onClearCategory,
-                      onOpenContent: onOpenContent,
-                      onToggleBookmark: onToggleBookmark,
-                      onGoHome: () => onTab(AppRoute.home),
+                  ? Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ContentListView(
+                            contents: contents,
+                            bookmarkedIds: bookmarkedIds,
+                            bookmarkedFirst: bookmarkedFirst,
+                            activeCategoryName: activeCategoryName,
+                            onSortChanged: onSortChanged,
+                            onClearCategory: onClearCategory,
+                            onOpenContent: onOpenContent,
+                            onToggleBookmark: onToggleBookmark,
+                            categories: categories,
+                            onChangeContentCategory: onChangeContentCategory,
+                            onDeleteContent: onDeleteContent,
+                            onGoHome: () => onTab(AppRoute.home),
+                          ),
+                        ),
+                        if (activeCategoryName != null &&
+                            contents.any(
+                              (content) =>
+                                  content.category.name == activeCategoryName,
+                            ))
+                          Positioned(
+                            right: 16,
+                            bottom: 24,
+                            child: RandomReviewButton(
+                              onPressed: onOpenRandomView,
+                            ),
+                          ),
+                      ],
                     )
                   : CategoryArchiveView(
                       categories: categories,
@@ -1582,6 +2144,8 @@ class ArchiveScreen extends StatelessWidget {
                       bookmarkedFirst: bookmarkedFirst,
                       onSortChanged: onSortChanged,
                       onAddCategory: onAddCategory,
+                      onUpdateCategory: onUpdateCategory,
+                      onDeleteCategory: onDeleteCategory,
                       onOpenCategory: onOpenCategory,
                     ),
             ),
@@ -1605,6 +2169,8 @@ class BookmarkScreen extends StatelessWidget {
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onTab,
@@ -1617,9 +2183,11 @@ class BookmarkScreen extends StatelessWidget {
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -1660,6 +2228,10 @@ class BookmarkScreen extends StatelessWidget {
                             content: content,
                             bookmarked: bookmarkedIds.contains(content.id),
                             onToggleBookmark: () => onToggleBookmark(content),
+                            categories: categories,
+                            onChangeCategory: (category) =>
+                                onChangeContentCategory(content, category),
+                            onDelete: () => onDeleteContent(content),
                             onTap: () => onOpenContent(content),
                           );
                         },
@@ -1686,10 +2258,14 @@ class SearchScreen extends StatefulWidget {
     required this.initialQuery,
     required this.contents,
     required this.bookmarkedIds,
+    required this.categories,
+    required this.onSearch,
     required this.onQueryChanged,
     required this.onClose,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onOpenArchive,
     super.key,
   });
@@ -1697,10 +2273,15 @@ class SearchScreen extends StatefulWidget {
   final String initialQuery;
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
+  final List<CategoryItem> categories;
+  final Future<List<ContentItem>> Function(String query) onSearch;
   final ValueChanged<String> onQueryChanged;
   final VoidCallback onClose;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onOpenArchive;
 
   @override
@@ -1710,6 +2291,8 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   late final TextEditingController _controller;
   late List<String> _terms;
+  List<ContentItem>? _serverResults;
+  var _isSearching = false;
 
   @override
   void initState() {
@@ -1726,7 +2309,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   bool get _hasQuery => _controller.text.trim().isNotEmpty;
 
-  void _submitQuery(String value) {
+  Future<void> _submitQuery(String value) async {
     final term = value.trim();
     if (term.isEmpty) return;
     widget.onQueryChanged(term);
@@ -1738,6 +2321,20 @@ class _SearchScreenState extends State<SearchScreen> {
         _terms = _terms.take(5).toList();
       }
     });
+    setState(() {
+      _isSearching = true;
+      _serverResults = null;
+    });
+    try {
+      final results = await widget.onSearch(term);
+      if (!mounted || _controller.text.trim() != term) return;
+      setState(() {
+        _serverResults = results;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isSearching = false);
+    }
   }
 
   List<ContentItem> get _results {
@@ -1745,6 +2342,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (query.isEmpty) {
       return const [];
     }
+    if (_serverResults != null) return _serverResults!;
     final normalizedQuery = query.toLowerCase();
     return widget.contents.where((content) {
       final searchableText = [
@@ -1792,9 +2390,14 @@ class _SearchScreenState extends State<SearchScreen> {
                                 autofocus: true,
                                 onChanged: (value) {
                                   widget.onQueryChanged(value);
-                                  setState(() {});
+                                  setState(() {
+                                    _serverResults = null;
+                                    _isSearching = false;
+                                  });
                                 },
-                                onSubmitted: _submitQuery,
+                                onSubmitted: (value) {
+                                  unawaited(_submitQuery(value));
+                                },
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
@@ -1816,7 +2419,10 @@ class _SearchScreenState extends State<SearchScreen> {
                                 onTap: () {
                                   _controller.clear();
                                   widget.onQueryChanged('');
-                                  setState(() {});
+                                  setState(() {
+                                    _serverResults = null;
+                                    _isSearching = false;
+                                  });
                                 },
                                 child: const SvgIcon(
                                   asset: Assets.close,
@@ -1869,28 +2475,44 @@ class _SearchScreenState extends State<SearchScreen> {
                           term: term,
                           onTap: () {
                             _controller.text = term;
-                            _submitQuery(term);
+                            unawaited(_submitQuery(term));
                             widget.onQueryChanged(term);
-                            setState(() {});
                           },
                           onRemove: () => setState(() => _terms.remove(term)),
                         ),
                     ] else ...[
-                      for (final content in _results)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: ContentListCard(
-                            content: content,
-                            bookmarked: widget.bookmarkedIds.contains(
-                              content.id,
+                      if (_isSearching)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 72),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: AppColors.mainDeep,
                             ),
-                            onToggleBookmark: () =>
-                                widget.onToggleBookmark(content),
-                            onTap: () => widget.onOpenContent(content),
                           ),
-                        ),
-                      if (_results.isEmpty)
-                        EmptySearchResult(onOpenArchive: widget.onOpenArchive),
+                        )
+                      else ...[
+                        for (final content in _results)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: ContentListCard(
+                              content: content,
+                              bookmarked: widget.bookmarkedIds.contains(
+                                content.id,
+                              ),
+                              onToggleBookmark: () =>
+                                  widget.onToggleBookmark(content),
+                              categories: widget.categories,
+                              onChangeCategory: (category) => widget
+                                  .onChangeContentCategory(content, category),
+                              onDelete: () => widget.onDeleteContent(content),
+                              onTap: () => widget.onOpenContent(content),
+                            ),
+                          ),
+                        if (_results.isEmpty)
+                          EmptySearchResult(
+                            onOpenArchive: widget.onOpenArchive,
+                          ),
+                      ],
                     ],
                   ],
                 ),
@@ -1913,6 +2535,7 @@ class DetailScreen extends StatefulWidget {
     required this.onToggleBookmark,
     required this.onChangeCategory,
     required this.onDeleteContent,
+    required this.onOpenOriginalLink,
     required this.onOpenAdjacent,
     required this.onOpenContent,
     required this.onAddLink,
@@ -1930,11 +2553,11 @@ class DetailScreen extends StatefulWidget {
   final void Function(ContentItem content, CategoryItem category)
   onChangeCategory;
   final ValueChanged<ContentItem> onDeleteContent;
+  final VoidCallback onOpenOriginalLink;
   final ValueChanged<int> onOpenAdjacent;
   final ValueChanged<ContentItem> onOpenContent;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -2042,7 +2665,17 @@ class _DetailScreenState extends State<DetailScreen> {
                           const Spacer(),
                           SvgIconButton(
                             asset: Assets.link,
-                            onPressed: () {},
+                            onPressed: () {
+                              if (content.originalUrl.isNotEmpty) {
+                                widget.onOpenOriginalLink();
+                              }
+                              showModalBottomSheet<void>(
+                                context: context,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) =>
+                                    OriginalContentSheet(content: content),
+                              );
+                            },
                             size: 32,
                             hitSize: 32,
                             color: AppColors.subtle,
@@ -2262,17 +2895,22 @@ class FullContentPreview extends StatelessWidget {
 
 class MyScreen extends StatelessWidget {
   const MyScreen({
+    required this.user,
     required this.categories,
     required this.onAddLink,
     required this.onAddScreenshot,
+    required this.onOpenAccount,
+    required this.onOpenCategoryManagement,
     required this.onTab,
     super.key,
   });
 
+  final AppUser user;
   final List<CategoryItem> categories;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
+  final VoidCallback onOpenAccount;
+  final VoidCallback onOpenCategoryManagement;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -2288,95 +2926,87 @@ class MyScreen extends StatelessWidget {
 
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              AppTopBar(title: '마이', onBack: () => onTab(AppRoute.home)),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
-                  children: [
-                    MyProfileRow(
-                      user: mockUser,
-                      onTap: () => showModalBottomSheet<void>(
-                        context: context,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => const AccountSheet(),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            const SizedBox(height: 8),
+            MyPageTopBar(onMore: onOpenAccount),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+                children: [
+                  MyProfileRow(user: user, onTap: onOpenAccount),
+                  const MySectionHeader(title: '나의 허투루'),
+                  MyStatsStrip(user: user),
+                  const SizedBox(height: 16),
+                  const MySectionHeader(title: '관리'),
+                  MyListGroup(
+                    children: [
+                      MyListTile(
+                        title: '리마인드 설정',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const ReminderSheet(),
+                        ),
                       ),
-                    ),
-                    const MySectionHeader(title: '나의 허투루'),
-                    MyStatsStrip(user: mockUser),
-                    const SizedBox(height: 16),
-                    const MySectionHeader(title: '관리'),
-                    MyListGroup(
-                      children: [
-                        MyListTile(
-                          title: '리마인드 설정',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ReminderSheet(),
-                          ),
+                      MyListTile(
+                        title: '카테고리 관리',
+                        onTap: onOpenCategoryManagement,
+                      ),
+                      MyListTile(
+                        title: '알림 및 앱 권한',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const PermissionSheet(),
                         ),
-                        MyListTile(
-                          title: '카테고리 관리',
-                          onTap: () => onTab(AppRoute.archive),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const MySectionHeader(title: '고객지원'),
+                  MyListGroup(
+                    children: [
+                      MyListTile(
+                        title: '공지사항',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const NoticeSheet(),
                         ),
-                        MyListTile(
-                          title: '알림 및 앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '문의하기',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const ContactSheet(),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const MySectionHeader(title: '고객지원'),
-                    MyListGroup(
-                      children: [
-                        MyListTile(
-                          title: '공지사항',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const NoticeSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '알림 및 앱 권한',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const PermissionSheet(),
                         ),
-                        MyListTile(
-                          title: '문의하기',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ContactSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '앱 버전',
+                        trailingText: user.appVersion,
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const AppVersionSheet(),
                         ),
-                        MyListTile(
-                          title: '알림 및 앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
-                          ),
-                        ),
-                        MyListTile(
-                          title: '앱 버전',
-                          trailingText: mockUser.appVersion,
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const AppVersionSheet(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 3,
@@ -2388,78 +3018,113 @@ class MyScreen extends StatelessWidget {
   }
 }
 
+class MyPageTopBar extends StatelessWidget {
+  const MyPageTopBar({required this.onMore, super.key});
+
+  final VoidCallback onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            const Text(
+              '마이페이지',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
+            ),
+            const Spacer(),
+            SvgIconButton(asset: Assets.more, onPressed: onMore, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class MyProfileRow extends StatelessWidget {
   const MyProfileRow({required this.user, required this.onTap, super.key});
 
-  final MockUser user;
+  final AppUser user;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-      child: InkWell(
-        onTap: onTap,
+      child: Material(
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          height: 78,
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  color: AppColors.main,
-                  shape: BoxShape.circle,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            height: 78,
+            padding: const EdgeInsets.only(left: 16, right: 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(
+                    color: AppColors.main,
+                    shape: BoxShape.circle,
+                  ),
+                  child: ClipOval(
+                    child: Image.asset(Assets.homeCharacter, fit: BoxFit.cover),
+                  ),
                 ),
-                child: ClipOval(
-                  child: Image.asset(Assets.homeCharacter, fit: BoxFit.cover),
+                const SizedBox(width: 8),
+                Text(
+                  user.name,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                user.name,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                height: 18,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.mainSubtle,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'K',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
+                const SizedBox(width: 8),
+                Container(
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDDC3F),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'K',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      user.providerLabel,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                      const SizedBox(width: 2),
+                      Text(
+                        user.providerLabel,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const Spacer(),
-              const SvgIcon(
-                asset: Assets.chevronRight,
-                size: 20,
-                color: AppColors.subtler,
-              ),
-            ],
+                const Spacer(),
+                const SvgIcon(
+                  asset: Assets.chevronRight,
+                  size: 24,
+                  color: AppColors.subtler,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2493,7 +3158,7 @@ class MySectionHeader extends StatelessWidget {
 class MyStatsStrip extends StatelessWidget {
   const MyStatsStrip({required this.user, super.key});
 
-  final MockUser user;
+  final AppUser user;
 
   @override
   Widget build(BuildContext context) {
@@ -2502,7 +3167,7 @@ class MyStatsStrip extends StatelessWidget {
       child: Container(
         height: 80,
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppColors.text,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -2513,7 +3178,11 @@ class MyStatsStrip extends StatelessWidget {
                 value: user.savedContentCount.toString(),
               ),
             ),
-            Container(width: 1, height: 48, color: AppColors.faint),
+            Container(
+              width: 1,
+              height: 48,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
             Expanded(
               child: MyMetric(
                 label: '다시 본 콘텐츠',
@@ -2539,16 +3208,26 @@ class MyMetric extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             label,
-            style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.mainSubtle,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.main,
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -2795,12 +3474,14 @@ class AppTopBar extends StatelessWidget {
 class CategoryTopBar extends StatelessWidget {
   const CategoryTopBar({
     required this.title,
+    required this.onBack,
     required this.onSearch,
     this.onMore,
     super.key,
   });
 
   final String title;
+  final VoidCallback onBack;
   final VoidCallback onSearch;
   final VoidCallback? onMore;
 
@@ -2812,8 +3493,9 @@ class CategoryTopBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            SizedBox(
-              width: 189.5,
+            SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
+            const SizedBox(width: 8),
+            Expanded(
               child: Text(
                 title,
                 maxLines: 1,
@@ -2825,7 +3507,7 @@ class CategoryTopBar extends StatelessWidget {
                 ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 8),
             SvgIconButton(asset: Assets.search, onPressed: onSearch, size: 24),
             const SizedBox(width: 16),
             SvgIconButton(
@@ -3194,12 +3876,14 @@ class ContentListView extends StatelessWidget {
     required this.contents,
     required this.bookmarkedIds,
     required this.bookmarkedFirst,
-    required this.cardView,
     required this.activeCategoryName,
     required this.onSortChanged,
     required this.onClearCategory,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.categories,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onGoHome,
     super.key,
   });
@@ -3207,12 +3891,15 @@ class ContentListView extends StatelessWidget {
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
   final bool bookmarkedFirst;
-  final bool cardView;
   final String? activeCategoryName;
   final ValueChanged<bool> onSortChanged;
   final VoidCallback onClearCategory;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final List<CategoryItem> categories;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onGoHome;
 
   @override
@@ -3231,6 +3918,7 @@ class ContentListView extends StatelessWidget {
         return aMarked.compareTo(bMarked);
       });
     }
+    final isUnclassified = activeCategoryName == catUncategorized.name;
 
     return Column(
       children: [
@@ -3244,6 +3932,8 @@ class ContentListView extends StatelessWidget {
               ? EmptyStatePanel(
                   title: activeCategoryName == null
                       ? '저장한 콘텐츠가 없어요'
+                      : isUnclassified
+                      ? '분류가 필요한 콘텐츠가 없어요'
                       : '$activeCategoryName 콘텐츠가 없어요',
                   body: activeCategoryName == null
                       ? '홈의 + 버튼에서 링크나 스크린샷 목데이터를 추가해 보세요.'
@@ -3253,14 +3943,6 @@ class ContentListView extends StatelessWidget {
                       ? onGoHome
                       : onClearCategory,
                 )
-              : activeCategoryName != null && cardView
-              ? CategoryCardPager(
-                  contents: visibleContents,
-                  categoryName: activeCategoryName!,
-                  bookmarkedIds: bookmarkedIds,
-                  onOpenContent: onOpenContent,
-                  onToggleBookmark: onToggleBookmark,
-                )
               : ListView.separated(
                   padding: EdgeInsets.zero,
                   itemBuilder: (context, index) {
@@ -3269,6 +3951,10 @@ class ContentListView extends StatelessWidget {
                       content: content,
                       bookmarked: bookmarkedIds.contains(content.id),
                       onToggleBookmark: () => onToggleBookmark(content),
+                      categories: categories,
+                      onChangeCategory: (category) =>
+                          onChangeContentCategory(content, category),
+                      onDelete: () => onDeleteContent(content),
                       onTap: () => onOpenContent(content),
                     );
                   },
@@ -3287,6 +3973,9 @@ class ContentListCard extends StatelessWidget {
     required this.content,
     required this.onTap,
     required this.onToggleBookmark,
+    required this.categories,
+    required this.onChangeCategory,
+    required this.onDelete,
     this.bookmarked = false,
     super.key,
   });
@@ -3294,6 +3983,9 @@ class ContentListCard extends StatelessWidget {
   final ContentItem content;
   final VoidCallback onTap;
   final VoidCallback onToggleBookmark;
+  final List<CategoryItem> categories;
+  final ValueChanged<CategoryItem> onChangeCategory;
+  final VoidCallback onDelete;
   final bool bookmarked;
 
   @override
@@ -3315,12 +4007,32 @@ class ContentListCard extends StatelessWidget {
               ),
               Positioned(
                 top: 13,
-                right: 16,
-                child: BookmarkActionButton(
-                  key: ValueKey('list-bookmark-${content.title}'),
-                  initialActive: bookmarked,
-                  hitSize: 28,
-                  onToggle: onToggleBookmark,
+                right: 8,
+                child: Row(
+                  children: [
+                    BookmarkActionButton(
+                      key: ValueKey('list-bookmark-${content.title}'),
+                      initialActive: bookmarked,
+                      hitSize: 28,
+                      onToggle: onToggleBookmark,
+                    ),
+                    const SizedBox(width: 4),
+                    SvgIconButton(
+                      asset: Assets.more,
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => ContentActionSheet(
+                          content: content,
+                          categories: categories,
+                          onChangeCategory: onChangeCategory,
+                          onDelete: onDelete,
+                        ),
+                      ),
+                      size: 24,
+                      hitSize: 28,
+                    ),
+                  ],
                 ),
               ),
               Positioned(
@@ -3564,6 +4276,363 @@ class _CategoryCardPagerState extends State<CategoryCardPager> {
   }
 }
 
+class CategoryCardReviewScreen extends StatefulWidget {
+  const CategoryCardReviewScreen({
+    required this.contents,
+    required this.categoryName,
+    required this.bookmarkedIds,
+    required this.onExit,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final List<ContentItem> contents;
+  final String categoryName;
+  final Set<String> bookmarkedIds;
+  final VoidCallback onExit;
+  final ValueChanged<ContentItem> onOpenContent;
+  final ValueChanged<ContentItem> onToggleBookmark;
+
+  @override
+  State<CategoryCardReviewScreen> createState() =>
+      _CategoryCardReviewScreenState();
+}
+
+class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
+  static const _cardTransitionDuration = Duration(milliseconds: 240);
+
+  var _activeIndex = 0;
+  var _dragOffset = Offset.zero;
+  var _isDragging = false;
+  var _isAdvancing = false;
+  var _isComplete = false;
+
+  ContentItem get _activeContent => widget.contents[_activeIndex];
+
+  void _updateDrag(DragUpdateDetails details) {
+    if (_isAdvancing) return;
+    setState(() {
+      _isDragging = true;
+      _dragOffset += details.delta;
+    });
+  }
+
+  void _finishDrag(DragEndDetails details) {
+    if (_isAdvancing) return;
+    final velocity = details.velocity.pixelsPerSecond;
+    final shouldAdvance = _dragOffset.distance > 72 || velocity.distance > 650;
+    if (!shouldAdvance) {
+      setState(() {
+        _isDragging = false;
+        _dragOffset = Offset.zero;
+      });
+      return;
+    }
+
+    final direction = _dragOffset.distance > 1
+        ? _dragOffset / _dragOffset.distance
+        : velocity / velocity.distance;
+    setState(() {
+      _isDragging = false;
+      _isAdvancing = true;
+      _dragOffset = direction * 620;
+    });
+    Future<void>.delayed(_cardTransitionDuration, () {
+      if (!mounted) return;
+      setState(() {
+        if (_activeIndex == widget.contents.length - 1) {
+          _isComplete = true;
+        } else {
+          _activeIndex += 1;
+        }
+        _dragOffset = Offset.zero;
+        _isAdvancing = false;
+      });
+    });
+  }
+
+  Widget _backgroundCard(int distance, double top) {
+    final content = widget.contents[_activeIndex + distance];
+    final promoting = _isAdvancing && distance == 1;
+    return AnimatedPositioned(
+      key: ValueKey('background-${content.id}-$distance'),
+      top: promoting ? 248 : top,
+      left: 0,
+      right: 0,
+      duration: _cardTransitionDuration,
+      curve: Curves.easeOutCubic,
+      child: IgnorePointer(
+        child: Center(
+          child: AnimatedRotation(
+            alignment: Alignment.topCenter,
+            turns: promoting ? 0.00382 : 0,
+            duration: _cardTransitionDuration,
+            curve: Curves.easeOutCubic,
+            child: AnimatedScale(
+              alignment: Alignment.topCenter,
+              scale: promoting ? 1 : (distance == 1 ? 0.907 : 0.86),
+              duration: _cardTransitionDuration,
+              curve: Curves.easeOutCubic,
+              child: CategoryReviewCard(
+                content: content,
+                bookmarked: widget.bookmarkedIds.contains(content.id),
+                onOpenContent: () {},
+                onToggleBookmark: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.contents.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.bg,
+        body: EmptyStatePanel(
+          title: '다시 볼 콘텐츠가 없어요',
+          body: '카테고리에 콘텐츠를 저장한 뒤 랜덤 보기를 이용해 보세요.',
+          actionLabel: '나가기',
+          onAction: widget.onExit,
+        ),
+      );
+    }
+
+    final remainingCount = widget.contents.length - _activeIndex;
+
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
+          Positioned(
+            top: 50,
+            right: 16,
+            height: 64,
+            child: TextButton(
+              onPressed: widget.onExit,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.text,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(48, 44),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              child: const Text('나가기'),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            top: 114,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '딱 5개만 다시 확인해볼까요?',
+                  style: TextStyle(
+                    color: AppColors.subSubtle,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    SvgPicture.asset(
+                      Assets.categoryCardFolder,
+                      width: 28.235,
+                      height: 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.categoryName,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.6,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            top: 192,
+            child: CardPagerProgress(
+              activeIndex: _activeIndex,
+              count: widget.contents.length,
+            ),
+          ),
+          if (!_isComplete && remainingCount > 2) _backgroundCard(2, 224),
+          if (!_isComplete && remainingCount > 1) _backgroundCard(1, 236),
+          if (!_isComplete)
+            Positioned(
+              top: 248,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: _isAdvancing
+                      ? null
+                      : () => widget.onOpenContent(_activeContent),
+                  onPanUpdate: _updateDrag,
+                  onPanEnd: _finishDrag,
+                  child: AnimatedSlide(
+                    key: ValueKey(_activeContent.id),
+                    offset: Offset(_dragOffset.dx / 343, _dragOffset.dy / 496),
+                    duration: _isDragging
+                        ? Duration.zero
+                        : _cardTransitionDuration,
+                    curve: Curves.easeOutCubic,
+                    child: Transform.rotate(
+                      angle: 0.024 + _dragOffset.dx / 22000,
+                      child: CategoryReviewCard(
+                        content: _activeContent,
+                        bookmarked: widget.bookmarkedIds.contains(
+                          _activeContent.id,
+                        ),
+                        onOpenContent: () =>
+                            widget.onOpenContent(_activeContent),
+                        onToggleBookmark: () =>
+                            widget.onToggleBookmark(_activeContent),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: NavigationHomeIndicator(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryReviewCard extends StatelessWidget {
+  const CategoryReviewCard({
+    required this.content,
+    required this.bookmarked,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    this.compact = false,
+    super.key,
+  });
+
+  final ContentItem content;
+  final bool bookmarked;
+  final VoidCallback onOpenContent;
+  final VoidCallback onToggleBookmark;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = compact ? 311.0 : 343.0;
+    final height = compact ? 449.0 : 496.0;
+    final padding = compact ? 20.0 : 24.0;
+    final titleSize = compact ? 19.614 : 22.0;
+    final bodySize = compact ? 14.264 : 16.0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenContent,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: width,
+          height: height,
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [
+              BoxShadow(color: Color(0x29767676), blurRadius: 8),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CategoryBadge(category: content.category),
+                  const Spacer(),
+                  if (compact)
+                    SvgPicture.asset(
+                      Assets.categoryCardStarSmall,
+                      width: 24.963,
+                      height: 24.963,
+                    )
+                  else
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: InkWell(
+                        onTap: onToggleBookmark,
+                        customBorder: const CircleBorder(),
+                        child: Center(
+                          child: SvgPicture.asset(
+                            bookmarked
+                                ? Assets.starFilled
+                                : Assets.categoryCardStar,
+                            width: 28,
+                            height: 28,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                content.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: titleSize,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
+                  letterSpacing: -titleSize / 40,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Text(
+                  content.originalText.isNotEmpty
+                      ? content.originalText
+                      : content.summary,
+                  maxLines: compact ? 13 : 11,
+                  overflow: TextOverflow.clip,
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: bodySize,
+                    height: 1.6,
+                    letterSpacing: -bodySize / 40,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class CardPagerProgress extends StatelessWidget {
   const CardPagerProgress({
     required this.activeIndex,
@@ -3577,11 +4646,17 @@ class CardPagerProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 16,
+      height: 24,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Container(height: 8, color: AppColors.faint),
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.faint,
+              borderRadius: BorderRadius.circular(100),
+            ),
+          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(count, (index) {
@@ -3591,7 +4666,7 @@ class CardPagerProgress extends StatelessWidget {
                 width: active ? 16 : 8,
                 height: active ? 16 : 8,
                 decoration: BoxDecoration(
-                  color: active ? AppColors.main : AppColors.subtler,
+                  color: active ? AppColors.subtle : AppColors.faint,
                   shape: BoxShape.circle,
                 ),
               );
@@ -3603,43 +4678,42 @@ class CardPagerProgress extends StatelessWidget {
   }
 }
 
-class CategoryViewTabs extends StatelessWidget {
-  const CategoryViewTabs({
-    required this.cardView,
-    required this.onChanged,
-    super.key,
-  });
+class RandomReviewButton extends StatelessWidget {
+  const RandomReviewButton({required this.onPressed, super.key});
 
-  final bool cardView;
-  final ValueChanged<bool> onChanged;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.faint,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: ArchiveTabButton(
-                label: '리스트 보기',
-                active: !cardView,
-                onTap: () => onChanged(false),
-              ),
+    return Material(
+      color: AppColors.main,
+      borderRadius: BorderRadius.circular(24),
+      elevation: 4,
+      shadowColor: const Color(0x33767676),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(24),
+        child: const SizedBox(
+          height: 48,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shuffle_rounded, color: AppColors.text, size: 16),
+                SizedBox(width: 6),
+                Text(
+                  '랜덤 보기',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.375,
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: ArchiveTabButton(
-                label: '하나씩 보기',
-                active: cardView,
-                onTap: () => onChanged(true),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -3907,6 +4981,515 @@ class CategoryArchiveToolbar extends StatelessWidget {
   }
 }
 
+class AccountManagementScreen extends StatelessWidget {
+  const AccountManagementScreen({
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+    super.key,
+  });
+
+  final AppUser user;
+  final VoidCallback onBack;
+  final Future<void> Function() onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  SvgIconButton(
+                    asset: Assets.back,
+                    onPressed: onBack,
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.text,
+                  ),
+                  const Text(
+                    '계정 관리',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 30),
+            Image.asset(Assets.character1Png, width: 140, height: 140),
+            const SizedBox(height: 10),
+            Text(
+              user.name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 30),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '연결된 계정',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AccountManagementTile(
+              leading: user.providerLabel,
+              trailing: '연결됨',
+              onTap: null,
+            ),
+            const SizedBox(height: 24),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '계정',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AccountManagementTile(
+              leading: '로그아웃',
+              onTap: () => unawaited(onLogout()),
+            ),
+            AccountManagementTile(
+              leading: '회원 탈퇴',
+              onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.')),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AccountManagementTile extends StatelessWidget {
+  const AccountManagementTile({
+    required this.leading,
+    required this.onTap,
+    this.trailing,
+    super.key,
+  });
+
+  final String leading;
+  final String? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      leading,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (trailing != null)
+                    Text(
+                      trailing!,
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  const SvgIcon(
+                    asset: Assets.chevronRight,
+                    size: 20,
+                    color: AppColors.text,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryManagementScreen extends StatelessWidget {
+  const CategoryManagementScreen({
+    required this.categories,
+    required this.contents,
+    required this.onBack,
+    required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
+    super.key,
+  });
+
+  final List<CategoryItem> categories;
+  final List<ContentItem> contents;
+  final VoidCallback onBack;
+  final ValueChanged<CategoryItem> onAddCategory;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleCategories = categories
+        .where((category) => category.name != catUncategorized.name)
+        .toList();
+    return PhoneFrame(
+      child: Scaffold(
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  SvgIconButton(
+                    asset: Assets.back,
+                    onPressed: onBack,
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.text,
+                  ),
+                  const Expanded(
+                    child: Text(
+                      '카테고리 관리',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  SvgIconButton(
+                    asset: Assets.folderPlus,
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) =>
+                          CategoryCreateSheet(onCreate: onAddCategory),
+                    ),
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.subtle,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '총 ${visibleCategories.length}개',
+                  style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: visibleCategories.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 16),
+                itemBuilder: (context, index) {
+                  final category = visibleCategories[index];
+                  return CategoryRow(
+                    category: category,
+                    onMore: () => showCategoryActionSheet(
+                      context: context,
+                      category: category,
+                      contentCount: contents
+                          .where(
+                            (content) => content.category.id == category.id,
+                          )
+                          .length,
+                      onUpdate: onUpdateCategory,
+                      onDelete: onDeleteCategory,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void showCategoryActionSheet({
+  required BuildContext context,
+  required CategoryItem category,
+  required int contentCount,
+  required void Function(CategoryItem original, CategoryItem updated) onUpdate,
+  required ValueChanged<CategoryItem> onDelete,
+}) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => CategoryActionSheet(
+      category: category,
+      contentCount: contentCount,
+      onEdit: () {
+        Navigator.pop(sheetContext);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => CategoryEditSheet(
+              category: category,
+              onSave: (updated) => onUpdate(category, updated),
+            ),
+          );
+        });
+      },
+      onDelete: () {
+        Navigator.pop(sheetContext);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          showDialog<void>(
+            context: context,
+            builder: (context) => CategoryDeleteDialog(
+              category: category,
+              onDelete: () {
+                Navigator.pop(context);
+                onDelete(category);
+              },
+            ),
+          );
+        });
+      },
+    ),
+  );
+}
+
+class CategoryActionSheet extends StatelessWidget {
+  const CategoryActionSheet({
+    required this.category,
+    required this.contentCount,
+    required this.onEdit,
+    required this.onDelete,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final int contentCount;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 50,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AppColors.subtler,
+                borderRadius: BorderRadius.circular(100),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                FolderGlyph(color: category.color),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      category.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      '저장된 콘텐츠 $contentCount',
+                      style: const TextStyle(
+                        color: AppColors.subSubtle,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1, color: AppColors.faint),
+            CategoryActionRow(
+              icon: Icons.edit_outlined,
+              title: '카테고리 수정',
+              onTap: onEdit,
+            ),
+            CategoryActionRow(
+              icon: Icons.delete_outline,
+              title: '카테고리 삭제',
+              onTap: onDelete,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryActionRow extends StatelessWidget {
+  const CategoryActionRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          Icon(icon, size: 24, color: AppColors.text),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class CategoryDeleteDialog extends StatelessWidget {
+  const CategoryDeleteDialog({
+    required this.category,
+    required this.onDelete,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                color: AppColors.mainSubtle,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                '!',
+                style: TextStyle(
+                  color: AppColors.mainDeep,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '삭제하기',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${category.name} 카테고리를 삭제하시겠습니까?\n해당 카테고리에 저장된 콘텐츠도 함께 삭제되며,\n삭제된 항목은 복구할 수 없습니다.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      side: const BorderSide(color: AppColors.faint),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('취소'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: onDelete,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      backgroundColor: const Color(0xFFFFD9DC),
+                      foregroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('삭제'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class CategoryArchiveView extends StatelessWidget {
   const CategoryArchiveView({
     required this.categories,
@@ -3915,6 +5498,8 @@ class CategoryArchiveView extends StatelessWidget {
     required this.bookmarkedFirst,
     required this.onSortChanged,
     required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
     required this.onOpenCategory,
     super.key,
   });
@@ -3925,11 +5510,23 @@ class CategoryArchiveView extends StatelessWidget {
   final bool bookmarkedFirst;
   final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
   final ValueChanged<CategoryItem> onOpenCategory;
 
   @override
   Widget build(BuildContext context) {
-    final visibleCategories = List.of(categories);
+    final visibleCategories = categories
+        .where((category) => category.name != catUncategorized.name)
+        .toList();
+    final unclassifiedCategory = categories.firstWhere(
+      (category) => category.name == catUncategorized.name,
+      orElse: () => catUncategorized,
+    );
+    final unclassifiedCount = contents
+        .where((content) => content.category.name == catUncategorized.name)
+        .length;
     if (bookmarkedFirst) {
       visibleCategories.sort((a, b) {
         final aHasBookmarked = contents.any(
@@ -3958,7 +5555,10 @@ class CategoryArchiveView extends StatelessWidget {
             builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),
           ),
         ),
-        UnclassifiedCategoryRow(onTap: () => onOpenCategory(catUncategorized)),
+        UnclassifiedCategoryRow(
+          count: unclassifiedCount,
+          onTap: () => onOpenCategory(unclassifiedCategory),
+        ),
         const SizedBox(height: 16),
         Expanded(
           child: ListView.separated(
@@ -3968,6 +5568,15 @@ class CategoryArchiveView extends StatelessWidget {
               return CategoryRow(
                 category: category,
                 onTap: () => onOpenCategory(category),
+                onMore: () => showCategoryActionSheet(
+                  context: context,
+                  category: category,
+                  contentCount: contents
+                      .where((content) => content.category.id == category.id)
+                      .length,
+                  onUpdate: onUpdateCategory,
+                  onDelete: onDeleteCategory,
+                ),
               );
             },
             separatorBuilder: (context, index) => const SizedBox(height: 16),
@@ -3980,8 +5589,13 @@ class CategoryArchiveView extends StatelessWidget {
 }
 
 class UnclassifiedCategoryRow extends StatelessWidget {
-  const UnclassifiedCategoryRow({required this.onTap, super.key});
+  const UnclassifiedCategoryRow({
+    required this.count,
+    required this.onTap,
+    super.key,
+  });
 
+  final int count;
   final VoidCallback onTap;
 
   @override
@@ -4025,9 +5639,12 @@ class UnclassifiedCategoryRow extends StatelessWidget {
                       color: AppColors.mainSubtle,
                       borderRadius: BorderRadius.circular(100),
                     ),
-                    child: const Text(
-                      '14',
-                      style: TextStyle(fontSize: 14, letterSpacing: -0.35),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        letterSpacing: -0.35,
+                      ),
                     ),
                   ),
                   const SvgIcon(
@@ -4100,10 +5717,16 @@ class CategoryHomeRow extends StatelessWidget {
 }
 
 class CategoryRow extends StatelessWidget {
-  const CategoryRow({required this.category, required this.onTap, super.key});
+  const CategoryRow({
+    required this.category,
+    this.onTap,
+    this.onMore,
+    super.key,
+  });
 
   final CategoryItem category;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -4135,11 +5758,11 @@ class CategoryRow extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        '2020. 3. 10. 오후 11:56',
+                      Text(
+                        category.lastSavedAt ?? '저장된 콘텐츠 없음',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: AppColors.subSubtle,
                           fontSize: 12,
                         ),
@@ -4148,22 +5771,26 @@ class CategoryRow extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Center(
-                    child: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: const BoxDecoration(
-                        color: AppColors.faint,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Center(
-                        child: SvgIcon(
-                          asset: Assets.moreHorizontal,
-                          size: 19.2,
-                          color: AppColors.middle,
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onMore,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                          color: AppColors.faint,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: SvgIcon(
+                            asset: Assets.moreHorizontal,
+                            size: 19.2,
+                            color: AppColors.middle,
+                          ),
                         ),
                       ),
                     ),
@@ -4178,18 +5805,79 @@ class CategoryRow extends StatelessWidget {
   }
 }
 
-class CategoryCreateSheet extends StatefulWidget {
+class CategoryCreateSheet extends StatelessWidget {
   const CategoryCreateSheet({required this.onCreate, super.key});
 
   final ValueChanged<CategoryItem> onCreate;
 
   @override
-  State<CategoryCreateSheet> createState() => _CategoryCreateSheetState();
+  Widget build(BuildContext context) => CategoryFormSheet(
+    actionLabel: '생성하기',
+    onSave: (name, color) => onCreate(
+      CategoryItem(
+        name: name,
+        color: color,
+        tint: color.withValues(alpha: 0.22),
+        deep: color,
+      ),
+    ),
+  );
 }
 
-class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
-  final _controller = TextEditingController();
-  Color _selectedColor = FolderColorPicker.colors.first;
+class CategoryEditSheet extends StatelessWidget {
+  const CategoryEditSheet({
+    required this.category,
+    required this.onSave,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final ValueChanged<CategoryItem> onSave;
+
+  @override
+  Widget build(BuildContext context) => CategoryFormSheet(
+    initialName: category.name,
+    initialColor: category.color,
+    actionLabel: '수정하기',
+    onSave: (name, color) => onSave(
+      category.copyWith(
+        name: name,
+        color: color,
+        tint: color.withValues(alpha: 0.22),
+        deep: _deepCategoryColor(color),
+      ),
+    ),
+  );
+}
+
+class CategoryFormSheet extends StatefulWidget {
+  const CategoryFormSheet({
+    required this.actionLabel,
+    required this.onSave,
+    this.initialName = '',
+    this.initialColor,
+    super.key,
+  });
+
+  final String actionLabel;
+  final void Function(String name, Color color) onSave;
+  final String initialName;
+  final Color? initialColor;
+
+  @override
+  State<CategoryFormSheet> createState() => _CategoryFormSheetState();
+}
+
+class _CategoryFormSheetState extends State<CategoryFormSheet> {
+  late final TextEditingController _controller;
+  late Color _selectedColor;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+    _selectedColor = widget.initialColor ?? FolderColorPicker.colors.first;
+  }
 
   @override
   void dispose() {
@@ -4200,64 +5888,122 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
   void _save() {
     final name = _controller.text.trim();
     if (name.isEmpty) return;
-    widget.onCreate(
-      CategoryItem(
-        name: name,
-        color: _selectedColor,
-        tint: _selectedColor.withValues(alpha: 0.22),
-        deep: _selectedColor,
-      ),
-    );
+    widget.onSave(name, _selectedColor);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.88;
+    final mediaQuery = MediaQuery.of(context);
+    final sheetHeight = math.min(
+      mediaQuery.size.height * 0.87,
+      428 + mediaQuery.viewInsets.bottom,
+    );
+    final canCreate = _controller.text.trim().isNotEmpty;
 
-    return Container(
-      constraints: BoxConstraints(maxHeight: maxSheetHeight),
-      padding: EdgeInsets.fromLTRB(
-        16,
-        18,
-        16,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '카테고리 만들기',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _controller,
-                onSubmitted: (_) => _save(),
-                decoration: const InputDecoration(
-                  hintText: '카테고리 이름',
-                  filled: true,
-                  fillColor: AppColors.bg,
-                  border: OutlineInputBorder(borderSide: BorderSide.none),
+    return SizedBox(
+      height: sheetHeight,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 8,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AppColors.subtler,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              FolderColorPicker(
-                selectedColor: _selectedColor,
-                onChanged: (color) => setState(() => _selectedColor = color),
+            ),
+            Positioned(
+              top: 60,
+              left: 24,
+              right: 24,
+              child: Column(
+                children: [
+                  SvgPicture.asset(
+                    Assets.folderCreatePreview,
+                    width: 121,
+                    height: 103,
+                    colorFilter: ColorFilter.mode(
+                      _selectedColor,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: _controller,
+                    autofocus: true,
+                    textAlign: TextAlign.center,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) {
+                      if (canCreate) _save();
+                    },
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.45,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: '카테고리명을 입력해주세요',
+                      hintStyle: TextStyle(color: AppColors.subtler),
+                      isDense: true,
+                      contentPadding: EdgeInsets.only(bottom: 8),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.subtler),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.text),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  FolderColorPicker(
+                    selectedColor: _selectedColor,
+                    onChanged: (color) =>
+                        setState(() => _selectedColor = color),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-              PrimaryButton(label: '카테고리 생성', onPressed: _save, height: 52),
-            ],
-          ),
+            ),
+            Positioned(
+              top: 348,
+              left: 16,
+              right: 16,
+              height: 48,
+              child: FilledButton(
+                onPressed: canCreate ? _save : null,
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: AppColors.text,
+                  disabledBackgroundColor: AppColors.subtler,
+                  foregroundColor: AppColors.main,
+                  disabledForegroundColor: AppColors.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.375,
+                  ),
+                ),
+                child: Text(widget.actionLabel),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -4267,9 +6013,8 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
 Future<void> showContentSaveScreen({
   required BuildContext context,
   required List<CategoryItem> categories,
-  required void Function({required String url, required CategoryItem category})
-  onAddLink,
-  required VoidCallback onAddScreenshot,
+  required SaveLinkCallback onAddLink,
+  required SaveScreenshotCallback onAddScreenshot,
 }) {
   return showGeneralDialog<void>(
     context: context,
@@ -4293,9 +6038,8 @@ class AddContentSheet extends StatefulWidget {
   });
 
   final List<CategoryItem> categories;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
 
   @override
   State<AddContentSheet> createState() => _AddContentSheetState();
@@ -4303,18 +6047,32 @@ class AddContentSheet extends StatefulWidget {
 
 class _AddContentSheetState extends State<AddContentSheet> {
   final _urlController = TextEditingController();
+  final _bodyScrollController = ScrollController();
   Timer? _validationTimer;
   Timer? _extractionTimer;
   var _activeTab = 0;
   var _linkStage = SaveFlowStage.editing;
   var _photoStage = SaveFlowStage.editing;
-  var _selectedCategory = catToWatch;
+  late CategoryItem _selectedCategory;
+  Uint8List? _selectedPhotoBytes;
+  String? _selectedPhotoFilename;
+  var _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategory = widget.categories.firstWhere(
+      (category) => category.name != catUncategorized.name,
+      orElse: () => catUncategorized,
+    );
+  }
 
   @override
   void dispose() {
     _validationTimer?.cancel();
     _extractionTimer?.cancel();
     _urlController.dispose();
+    _bodyScrollController.dispose();
     super.dispose();
   }
 
@@ -4356,20 +6114,47 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     if (stage == SaveFlowStage.extracting) return;
     setState(() => _activeTab = tab);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+    });
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final isLink = _activeTab == 0;
     final stage = isLink ? _linkStage : _photoStage;
     if (stage == SaveFlowStage.extracted) {
-      Navigator.pop(context);
-      if (isLink) {
-        widget.onAddLink(
-          url: _urlController.text.trim(),
-          category: _selectedCategory,
-        );
-      } else {
-        widget.onAddScreenshot();
+      setState(() => _isSaving = true);
+      try {
+        if (isLink) {
+          await widget.onAddLink(
+            url: _urlController.text.trim(),
+            category: _selectedCategory,
+          );
+        } else {
+          final bytes = _selectedPhotoBytes;
+          final filename = _selectedPhotoFilename;
+          if (bytes == null || filename == null) return;
+          await widget.onAddScreenshot(
+            bytes: bytes,
+            filename: filename,
+            category: _selectedCategory,
+          );
+        }
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      } on ClipbackApiException {
+        if (mounted) {
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('콘텐츠를 저장하지 못했어요. 다시 시도해 주세요.')),
+          );
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('콘텐츠를 저장하지 못했어요. 다시 시도해 주세요.')),
+          );
+        }
       }
       return;
     }
@@ -4395,14 +6180,30 @@ class _AddContentSheetState extends State<AddContentSheet> {
     });
   }
 
-  void _selectPhoto() {
+  Future<void> _selectPhoto() async {
     if (_photoStage == SaveFlowStage.extracting) return;
-    setState(() => _photoStage = SaveFlowStage.valid);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    final photo = result != null && result.files.isNotEmpty
+        ? result.files.first
+        : null;
+    if (!mounted || photo?.bytes == null) return;
+    setState(() {
+      _selectedPhotoBytes = photo!.bytes;
+      _selectedPhotoFilename = photo.name;
+      _photoStage = SaveFlowStage.valid;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+    });
   }
 
   void _changeExtractedCategory() {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => CategoryChangeSheet(
         current: _selectedCategory,
@@ -4416,7 +6217,8 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Widget build(BuildContext context) {
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
-        stage == SaveFlowStage.valid || stage == SaveFlowStage.extracted;
+        !_isSaving &&
+        (stage == SaveFlowStage.valid || stage == SaveFlowStage.extracted);
     final extractionStarted =
         stage == SaveFlowStage.extracting || stage == SaveFlowStage.extracted;
     final label = extractionStarted ? '완료' : '허투루에 저장하기';
@@ -4457,6 +6259,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
                         Positioned.fill(
                           bottom: 90,
                           child: SingleChildScrollView(
+                            controller: _bodyScrollController,
                             padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
                             child: _activeTab == 0
                                 ? LinkSaveBody(
@@ -4471,6 +6274,9 @@ class _AddContentSheetState extends State<AddContentSheet> {
                                 : PhotoSaveBody(
                                     stage: _photoStage,
                                     onSelect: _selectPhoto,
+                                    photoBytes: _selectedPhotoBytes,
+                                    selectedCategory: _selectedCategory,
+                                    onChangeCategory: _changeExtractedCategory,
                                   ),
                           ),
                         ),
@@ -4482,7 +6288,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
                           child: SaveFlowButton(
                             label: label,
                             enabled: enabled,
-                            loading: false,
+                            loading: _isSaving,
                             onPressed: _submit,
                           ),
                         ),
@@ -4521,6 +6327,9 @@ class _SaveTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
+      hoverColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
       child: Container(
         height: 56,
         alignment: Alignment.center,
@@ -4617,7 +6426,7 @@ class LinkSaveBody extends StatelessWidget {
             letterSpacing: -0.4,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
@@ -4698,12 +6507,13 @@ class LinkSaveBody extends StatelessWidget {
         ],
         if (stage == SaveFlowStage.extracting) ...[
           const SizedBox(height: 32),
-          const LinkExtractionPreview(loading: true),
+          LinkExtractionPreview(loading: true, url: controller.text),
         ],
         if (stage == SaveFlowStage.extracted) ...[
           const SizedBox(height: 32),
           LinkExtractionPreview(
             loading: false,
+            url: controller.text,
             category: selectedCategory,
             onChangeCategory: onChangeCategory,
           ),
@@ -4742,10 +6552,20 @@ class ValidationMessage extends StatelessWidget {
 }
 
 class PhotoSaveBody extends StatelessWidget {
-  const PhotoSaveBody({required this.stage, required this.onSelect, super.key});
+  const PhotoSaveBody({
+    required this.stage,
+    required this.onSelect,
+    required this.photoBytes,
+    required this.selectedCategory,
+    required this.onChangeCategory,
+    super.key,
+  });
 
   final SaveFlowStage stage;
-  final VoidCallback onSelect;
+  final Future<void> Function() onSelect;
+  final Uint8List? photoBytes;
+  final CategoryItem selectedCategory;
+  final VoidCallback onChangeCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -4761,21 +6581,13 @@ class PhotoSaveBody extends StatelessWidget {
             letterSpacing: -0.4,
           ),
         ),
-        const SizedBox(height: 12),
-        Material(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(4),
-          child: InkWell(
-            onTap: stage == SaveFlowStage.extracting ? null : onSelect,
-            borderRadius: BorderRadius.circular(4),
-            child: SizedBox(
-              width: double.infinity,
-              height: 120,
-              child: selected
-                  ? const SelectedPhotoStrip()
-                  : const PhotoEmptyPrompt(),
-            ),
-          ),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: stage == SaveFlowStage.extracting ? null : onSelect,
+          borderRadius: BorderRadius.circular(8),
+          child: selected
+              ? SelectedPhotoPreview(photoBytes: photoBytes)
+              : const PhotoEmptyPrompt(),
         ),
         if (stage == SaveFlowStage.extracting) ...[
           const SizedBox(height: 40),
@@ -4783,7 +6595,11 @@ class PhotoSaveBody extends StatelessWidget {
         ],
         if (stage == SaveFlowStage.extracted) ...[
           const SizedBox(height: 24),
-          const ExtractedContentPreview(isPhoto: true),
+          ExtractedContentPreview(
+            isPhoto: true,
+            category: selectedCategory,
+            onChangeCategory: onChangeCategory,
+          ),
         ],
       ],
     );
@@ -4795,56 +6611,137 @@ class PhotoEmptyPrompt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        SvgIcon(asset: Assets.plus, size: 48, color: AppColors.subSubtle),
-        SizedBox(width: 16),
-        Flexible(
-          child: Text(
-            '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
-            style: TextStyle(
-              color: AppColors.subtle,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.35,
-            ),
+    return CustomPaint(
+      foregroundPainter: const _DashedRoundedBorderPainter(
+        color: AppColors.subtler,
+        radius: 8,
+      ),
+      child: SizedBox(
+        height: 89,
+        width: double.infinity,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: SvgPicture.asset(Assets.photoSelect),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '사진 선택',
+                      style: TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.375,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.subSubtle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        SizedBox(width: 16),
-      ],
+      ),
     );
   }
 }
 
-class SelectedPhotoStrip extends StatelessWidget {
-  const SelectedPhotoStrip({super.key});
+class _DashedRoundedBorderPainter extends CustomPainter {
+  const _DashedRoundedBorderPainter({
+    required this.color,
+    required this.radius,
+  });
+
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+      );
+    final metric = path.computeMetrics().first;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    const dash = 4.0;
+    const gap = 4.0;
+    for (var distance = 0.0; distance < metric.length; distance += dash + gap) {
+      canvas.drawPath(
+        metric.extractPath(distance, math.min(distance + dash, metric.length)),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundedBorderPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
+}
+
+class SelectedPhotoPreview extends StatelessWidget {
+  const SelectedPhotoPreview({required this.photoBytes, super.key});
+
+  final Uint8List? photoBytes;
 
   @override
   Widget build(BuildContext context) {
-    final assets = [
-      Assets.onboarding1Png,
-      Assets.onboarding2Png,
-      Assets.onboarding3Png,
-    ];
-    return Padding(
+    return Container(
+      width: double.infinity,
+      height: 437,
       padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          for (var index = 0; index < assets.length; index++) ...[
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.asset(
-                  assets[index],
-                  height: 88,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-            if (index < assets.length - 1) const SizedBox(width: 8),
-          ],
-        ],
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.subtler),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: AppColors.subtler)),
+        child: ClipRect(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: -constraints.maxHeight * 0.4067,
+                    height: constraints.maxHeight * 1.6607,
+                    child: photoBytes == null
+                        ? Image.asset(
+                            Assets.savedPhotoPreview,
+                            fit: BoxFit.fill,
+                          )
+                        : Image.memory(photoBytes!, fit: BoxFit.fill),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -4899,12 +6796,14 @@ class ExtractionLoading extends StatelessWidget {
 class LinkExtractionPreview extends StatelessWidget {
   const LinkExtractionPreview({
     required this.loading,
+    required this.url,
     this.category = catToWatch,
     this.onChangeCategory,
     super.key,
   });
 
   final bool loading;
+  final String url;
   final CategoryItem category;
   final VoidCallback? onChangeCategory;
 
@@ -4922,7 +6821,7 @@ class LinkExtractionPreview extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        loading ? const ExtractionPreviewSkeleton() : const LinkPreviewCard(),
+        loading ? const ExtractionPreviewSkeleton() : LinkPreviewCard(url: url),
         const SizedBox(height: 32),
         Row(
           children: [
@@ -5009,46 +6908,45 @@ class ExtractionPreviewSkeleton extends StatelessWidget {
 }
 
 class LinkPreviewCard extends StatelessWidget {
-  const LinkPreviewCard({super.key});
+  const LinkPreviewCard({required this.url, super.key});
+
+  final String url;
 
   @override
   Widget build(BuildContext context) {
+    final uri = Uri.tryParse(url.trim());
+    final host = uri?.host.isNotEmpty == true ? uri!.host : '저장한 링크';
+    final path = uri?.path.isNotEmpty == true ? uri!.path : '';
     return Container(
       height: 116,
       padding: const EdgeInsets.all(8),
       color: AppColors.surface,
       child: Row(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.network(
-              'https://img.youtube.com/vi/fn8n_k8bwX0/hqdefault.jpg',
-              width: 164,
-              height: 100,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                width: 164,
-                height: 100,
-                color: AppColors.faint,
-                alignment: Alignment.center,
-                child: const SvgIcon(
-                  asset: Assets.link,
-                  size: 28,
-                  color: AppColors.subtle,
-                ),
-              ),
+          Container(
+            width: 164,
+            height: 100,
+            decoration: BoxDecoration(
+              color: AppColors.mainSubtle,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            alignment: Alignment.center,
+            child: const SvgIcon(
+              asset: Assets.link,
+              size: 28,
+              color: AppColors.mainDeep,
             ),
           ),
           const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "'주술회전(呪術廻戦)'\n초반 1~10권 감상회",
+                  path.isEmpty ? host : '$host$path',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     height: 1.5,
@@ -5057,8 +6955,8 @@ class LinkPreviewCard extends StatelessWidget {
                 ),
                 Spacer(),
                 Text(
-                  'Youtube',
-                  style: TextStyle(
+                  host,
+                  style: const TextStyle(
                     color: AppColors.subtle,
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
@@ -5166,9 +7064,16 @@ class _SkeletonBar extends StatelessWidget {
 }
 
 class ExtractedContentPreview extends StatelessWidget {
-  const ExtractedContentPreview({required this.isPhoto, super.key});
+  const ExtractedContentPreview({
+    required this.isPhoto,
+    required this.category,
+    required this.onChangeCategory,
+    super.key,
+  });
 
   final bool isPhoto;
+  final CategoryItem category;
+  final VoidCallback onChangeCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -5191,7 +7096,7 @@ class ExtractedContentPreview extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          CategoryBadge(category: catJob),
+          CategoryBadge(category: category),
           const SizedBox(height: 12),
           Text(
             isPhoto ? '스크린샷에서 발견한 생활 정보' : '링크에서 확인한 핵심 정보',
@@ -5214,6 +7119,8 @@ class ExtractedContentPreview extends StatelessWidget {
               letterSpacing: -0.35,
             ),
           ),
+          const SizedBox(height: 20),
+          ExtractedCategoryTile(category: category, onChange: onChangeCategory),
         ],
       ),
     );
@@ -5447,6 +7354,7 @@ class ContentActionSheet extends StatelessWidget {
             Navigator.pop(context);
             showModalBottomSheet<void>(
               context: context,
+              isScrollControlled: true,
               backgroundColor: Colors.transparent,
               builder: (context) => CategoryChangeSheet(
                 current: content.category,
@@ -5529,16 +7437,18 @@ class OriginalContentSheet extends StatelessWidget {
 }
 
 class AccountSheet extends StatelessWidget {
-  const AccountSheet({super.key});
+  const AccountSheet({required this.user, super.key});
+
+  final AppUser user;
 
   @override
   Widget build(BuildContext context) {
     return AppSheet(
       title: '계정 관리',
       children: [
-        SheetInfoRow(label: '이름', value: mockUser.name),
-        SheetInfoRow(label: '연동 계정', value: mockUser.providerLabel),
-        SheetInfoRow(label: '가입일', value: mockUser.joinedAt),
+        SheetInfoRow(label: '이름', value: user.name),
+        SheetInfoRow(label: '연동 계정', value: user.providerLabel),
+        SheetInfoRow(label: '가입일', value: user.joinedAt),
         const SizedBox(height: 12),
         PrimaryButton(
           label: '확인',
@@ -5870,19 +7780,96 @@ class CategoryChangeSheet extends StatelessWidget {
     return AppSheet(
       title: '카테고리 변경',
       children: [
+        const Text(
+          '저장할 카테고리를 선택해 주세요.',
+          style: TextStyle(
+            color: AppColors.subtle,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 12),
         for (final category in categories)
-          SheetActionTile(
-            icon: Assets.archive,
-            title: category.name,
-            description: category.name == current.name
-                ? '현재 선택된 카테고리입니다.'
-                : '이 카테고리로 콘텐츠를 이동해요.',
+          CategoryChangeTile(
+            category: category,
+            selected: category.id == current.id,
             onTap: () {
               onChange(category);
               Navigator.pop(context);
             },
           ),
       ],
+    );
+  }
+}
+
+class CategoryChangeTile extends StatelessWidget {
+  const CategoryChangeTile({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: selected ? category.tint : AppColors.bg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected ? category.deep : AppColors.faint,
+              ),
+            ),
+            child: Row(
+              children: [
+                FolderGlyph(color: category.color, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    category.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? category.deep : AppColors.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: selected ? category.deep : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: selected
+                        ? null
+                        : Border.all(color: AppColors.subtler),
+                  ),
+                  child: selected
+                      ? const Icon(Icons.check, color: Colors.white, size: 16)
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -5898,37 +7885,123 @@ class FolderColorPicker extends StatelessWidget {
   final ValueChanged<Color> onChanged;
 
   static const colors = [
-    Color(0xFFB48CFF),
-    Color(0xFFFF5F78),
-    Color(0xFF64B5F6),
-    Color(0xFF5BD89D),
+    Color(0xFFFF6277),
+    Color(0xFFFFA24B),
     Color(0xFFFFD75C),
+    Color(0xFF5BD89D),
+    Color(0xFF64B5F6),
+    Color(0xFFB9AAFF),
+    Color(0xFFFFB3C1),
+    Color(0xFF1F5E24),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        for (final color in colors)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => onChanged(color),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final color in colors)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => onChanged(color),
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Center(
+                          child: Container(
+                            width: color == selectedColor ? 36 : 30,
+                            height: color == selectedColor ? 36 : 30,
+                            padding: color == selectedColor
+                                ? const EdgeInsets.all(3)
+                                : EdgeInsets.zero,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: color == selectedColor
+                                  ? Border.all(color: color, width: 1.5)
+                                  : null,
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                              child: color == selectedColor
+                                  ? const Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                      size: 21,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        _CustomFolderColorSwatch(
+          onTap: () => onChanged(const Color(0xFFFF6F61)),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomFolderColorSwatch extends StatelessWidget {
+  const _CustomFolderColorSwatch({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 38,
+      height: 32,
+      child: Row(
+        children: [
+          Container(width: 1, height: 32, color: AppColors.subtler),
+          const SizedBox(width: 7),
+          InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Container(
+              width: 30,
+              height: 30,
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: SweepGradient(
+                  colors: [
+                    Color(0xFFFF0000),
+                    Color(0xFFFFD400),
+                    Color(0xFF37FF00),
+                    Color(0xFF00FFCC),
+                    Color(0xFF0072FF),
+                    Color(0xFF6905FF),
+                    Color(0xFFFF0051),
+                    Color(0xFFFF0000),
+                  ],
+                ),
+              ),
               child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: color,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFF6F61),
                   shape: BoxShape.circle,
-                  border: color == selectedColor
-                      ? Border.all(color: AppColors.text, width: 2)
-                      : null,
                 ),
               ),
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -5968,51 +8041,45 @@ class ClipbackNavigationBar extends StatelessWidget {
             left: 0,
             right: 0,
             height: 64,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned(
-                  left: 16,
-                  top: 0,
-                  child: _NavItem(
-                    spec: items[0],
-                    active: activeIndex == items[0].activeIndex,
-                    onTap: () => onTap(items[0].route),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final horizontalPadding = constraints.maxWidth >= 343
+                    ? 16.0
+                    : 8.0;
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _NavItem(
+                        spec: items[0],
+                        active: activeIndex == items[0].activeIndex,
+                        onTap: () => onTap(items[0].route),
+                      ),
+                      _NavItem(
+                        spec: items[1],
+                        active: activeIndex == items[1].activeIndex,
+                        onTap: () => onTap(items[1].route),
+                      ),
+                      Transform.translate(
+                        offset: const Offset(0, -22),
+                        child: NavAddButton(onTap: onAdd),
+                      ),
+                      _NavItem(
+                        spec: items[2],
+                        active: activeIndex == items[2].activeIndex,
+                        onTap: () => onTap(items[2].route),
+                      ),
+                      _NavItem(
+                        spec: items[3],
+                        active: activeIndex == items[3].activeIndex,
+                        onTap: () => onTap(items[3].route),
+                      ),
+                    ],
                   ),
-                ),
-                Positioned(
-                  left: 84,
-                  top: 0,
-                  child: _NavItem(
-                    spec: items[1],
-                    active: activeIndex == items[1].activeIndex,
-                    onTap: () => onTap(items[1].route),
-                  ),
-                ),
-                Positioned(
-                  left: 151.5,
-                  top: -22,
-                  child: NavAddButton(onTap: onAdd),
-                ),
-                Positioned(
-                  left: 235,
-                  top: 0,
-                  child: _NavItem(
-                    spec: items[2],
-                    active: activeIndex == items[2].activeIndex,
-                    onTap: () => onTap(items[2].route),
-                  ),
-                ),
-                Positioned(
-                  left: 303,
-                  top: 0,
-                  child: _NavItem(
-                    spec: items[3],
-                    active: activeIndex == items[3].activeIndex,
-                    onTap: () => onTap(items[3].route),
-                  ),
-                ),
-              ],
+                );
+              },
             ),
           ),
           const Positioned(
@@ -6058,7 +8125,7 @@ class NavigationHomeIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: phoneWidth,
+      width: double.infinity,
       height: 34,
       child: Align(
         alignment: Alignment.bottomCenter,
@@ -6730,6 +8797,7 @@ class OnboardingData {
 class ContentItem {
   const ContentItem({
     required this.id,
+    this.apiId,
     required this.title,
     required this.summary,
     required this.category,
@@ -6745,6 +8813,7 @@ class ContentItem {
   });
 
   final String id;
+  final int? apiId;
   final String title;
   final String summary;
   final CategoryItem category;
@@ -6761,6 +8830,7 @@ class ContentItem {
   ContentItem copyWith({CategoryItem? category, bool? bookmarked}) {
     return ContentItem(
       id: id,
+      apiId: apiId,
       title: title,
       summary: summary,
       category: category ?? this.category,
@@ -6777,8 +8847,8 @@ class ContentItem {
   }
 }
 
-class MockUser {
-  const MockUser({
+class AppUser {
+  const AppUser({
     required this.name,
     required this.providerLabel,
     required this.joinedAt,
@@ -6802,7 +8872,7 @@ class MockSettingItem {
   final String value;
 }
 
-const mockUser = MockUser(
+const defaultUser = AppUser(
   name: '정지윤',
   providerLabel: '카카오 계정 연동 중',
   joinedAt: '2026. 03. 07',
@@ -6840,17 +8910,95 @@ const mockNotices = [
 
 class CategoryItem {
   const CategoryItem({
+    this.id,
+    this.lastSavedAt,
     required this.name,
     required this.color,
     required this.tint,
     required this.deep,
   });
 
+  final int? id;
+  final String? lastSavedAt;
   final String name;
   final Color color;
   final Color tint;
   final Color deep;
+
+  CategoryItem copyWith({
+    String? name,
+    Color? color,
+    Color? tint,
+    Color? deep,
+  }) => CategoryItem(
+    id: id,
+    lastSavedAt: lastSavedAt,
+    name: name ?? this.name,
+    color: color ?? this.color,
+    tint: tint ?? this.tint,
+    deep: deep ?? this.deep,
+  );
 }
+
+Color? _colorFromHex(String? value) {
+  if (value == null) return null;
+  final hex = value.replaceFirst('#', '');
+  if (hex.length != 6) return null;
+  final parsed = int.tryParse(hex, radix: 16);
+  return parsed == null ? null : Color(0xFF000000 | parsed);
+}
+
+Color _deepCategoryColor(Color color) {
+  return Color.fromARGB(
+    255,
+    (color.r * 0.72).round(),
+    (color.g * 0.72).round(),
+    (color.b * 0.72).round(),
+  );
+}
+
+String _hexFromColor(Color color) {
+  String value(int channel) => channel.toRadixString(16).padLeft(2, '0');
+  final argb = color.toARGB32();
+  return '#${value((argb >> 16) & 0xFF)}'
+      '${value((argb >> 8) & 0xFF)}${value(argb & 0xFF)}';
+}
+
+String _formatShortDate(DateTime dateTime) {
+  final year = (dateTime.year % 100).toString().padLeft(2, '0');
+  final month = dateTime.month.toString().padLeft(2, '0');
+  final day = dateTime.day.toString().padLeft(2, '0');
+  return '$year.$month.$day';
+}
+
+String _formatJoinedAt(DateTime dateTime) {
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')}';
+}
+
+String _formatSavedAt(DateTime dateTime) {
+  final hour = dateTime.hour;
+  final period = hour < 12 ? '오전' : '오후';
+  final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')} $period '
+      '${displayHour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+String _formatSavedAtShort(DateTime dateTime) {
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')} '
+      '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+String _sourceLabel(String source) => switch (source) {
+  'instagram' => '인스타그램',
+  'youtube' => '유튜브',
+  'tiktok' => '틱톡',
+  'screenshot' => '스크린샷',
+  'web' => '웹 링크',
+  _ => '직접 입력',
+};
 
 const catProduct = CategoryItem(
   name: '제품추천',
@@ -6919,7 +9067,7 @@ const catEconomy = CategoryItem(
   deep: Color(0xFF2E817A),
 );
 const catUncategorized = CategoryItem(
-  name: '미분류',
+  name: '분류가 필요한 콘텐츠',
   color: Color(0xFFB5BDC3),
   tint: Color(0xFFE9ECEF),
   deep: Color(0xFF626C73),
