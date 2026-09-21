@@ -264,6 +264,12 @@ application together. Validate this data migration on a backup before production
 10MB as multipart form data and returns the saved content with its asset metadata.
 Set `STORAGE_ROOT` to change the local filesystem storage directory.
 OpenAI OCR extracts text, title, and summary and feeds category recommendation.
+New screenshot summaries are instructed to use concise Korean informational prose
+with noun-ending sentences (for example, `성수동 카페 소개. 대표 메뉴와 영업시간 안내.`),
+without greetings, promotional language, or conversational endings. Facts must come
+from the image. This prompt applies to new uploads; existing saved summaries and
+descriptions extracted from links are unchanged. Actual model adherence requires
+checking real screenshot responses; mocked tests cannot verify writing quality.
 OCR failure preserves image saving with fallback content; valid manual category
 selection remains authoritative. Railway mounts persistent storage at `/data`.
 
