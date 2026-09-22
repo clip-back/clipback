@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import contents as content_endpoints
 from app.core.security import create_access_token
-from app.integrations.metadata_client import MetadataResult
+from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.content import (
@@ -171,6 +173,49 @@ def test_direct_and_share_routes_use_same_enrichment_pipeline(
         ]
     assert content_service.requests[0][0].tag_names == ["Flutter", "백엔드"]
     assert content_service.requests[1][0].tag_names == ["Flutter", "백엔드"]
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_create_routes_reject_unsafe_redirect_without_saving(client, monkeypatch, shared):
+    async def get_active(self, *, session_id: int, user_id: int):
+        return SimpleNamespace(id=session_id, user_id=user_id)
+
+    async def get_user(self, user_id: int):
+        return SimpleNamespace(id=user_id)
+
+    resolutions, requests = [], []
+
+    async def resolver(host, port):
+        resolutions.append(host)
+        return {"93.184.216.34"} if len(resolutions) == 1 else {"127.0.0.1"}
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(302, headers={"location": "/next"})
+
+    content_service = FakeContentService()
+    extraction_service = ExtractionService(
+        metadata_client=MetadataClient(
+            resolver=resolver, http_transport=httpx.MockTransport(handler)
+        )
+    )
+    monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
+    monkeypatch.setattr(UserRepository, "get", get_user)
+    monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
+    monkeypatch.setattr(content_endpoints, "ExtractionService", lambda: extraction_service)
+    token = create_access_token(user_id=1, session_id=1)
+
+    response = client.post(
+        "/api/v1/contents/share" if shared else "/api/v1/contents",
+        json={"url" if shared else "original_url": "https://www.instagram.com/reel/ABC/"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Private or internal network addresses are not supported"
+    assert len(resolutions) == 2
+    assert [request.url.host for request in requests] == ["93.184.216.34"]
+    assert content_service.requests == []
 
 
 def test_update_content_categories_route_uses_authenticated_user(
