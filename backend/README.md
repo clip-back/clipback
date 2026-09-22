@@ -260,6 +260,24 @@ edits/deletions cannot be losslessly merged back into shared categories, so down
 is explicitly refused; rollback requires restoring the pre-migration backup and old
 application together. Validate this data migration on a backup before production.
 
+## Tag Replacement
+
+`PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
+content's entire tag set. Existing tag normalization and deduplication still apply.
+An empty list clears all tag links while preserving reusable tag records. Missing
+and other users' content both return `404`.
+
+Concurrent replacements for the same content are serialized using a PostgreSQL
+row lock acquired before reading its current tags. The last successful transaction
+in lock acquisition order determines the final set, without merging concurrent
+requests. Each success response contains that request's applied tag set even if a
+later writer finishes before the response is returned.
+
+An unchanged tag set skips relationship updates but still ends the transaction and
+releases its lock. Failures roll back both tag creation and relationship changes.
+The lock is per content, not per user; other content can be edited independently.
+No version field, conflict response, or database migration is required.
+
 ## Feed Pagination
 
 `GET /api/v1/feed` returns the authenticated user's content in `saved_at DESC, id DESC`

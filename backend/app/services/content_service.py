@@ -399,30 +399,24 @@ class ContentService:
         content_id: int,
         payload: ContentTagUpdate,
     ) -> ContentRead:
-        content = await self.content_repository.get_owned(
-            user_id=user_id,
-            content_id=content_id,
-        )
-        if content is None:
-            raise NotFoundError("Content not found")
-
         try:
+            content = await self.content_repository.get_owned(
+                user_id=user_id,
+                content_id=content_id,
+                for_update=True,
+            )
+            if content is None:
+                raise NotFoundError("Content not found")
             tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
-            if sorted(tag.id for tag in content.tags) == sorted(tag.id for tag in tags):
-                return content_to_read(content)
-            await self.content_repository.replace_tags(content=content, tags=tags)
+            if sorted(tag.id for tag in content.tags) != sorted(tag.id for tag in tags):
+                await self.content_repository.replace_tags(content=content, tags=tags)
+            response = content_to_read(content)
             await self.content_repository.session.commit()
         except Exception:
             await self.content_repository.session.rollback()
             raise
 
-        updated_content = await self.content_repository.get_owned(
-            user_id=user_id,
-            content_id=content_id,
-        )
-        if updated_content is None:
-            raise NotFoundError("Content not found")
-        return content_to_read(updated_content)
+        return response
 
     async def record_view(self, user_id: int, content_id: int) -> ContentViewEvent:
         content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)
