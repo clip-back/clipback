@@ -157,3 +157,15 @@ def test_read_feed_validates_search_query_length(
     assert service.calls[0]["query"] == "가" * 100
     assert rejected.status_code == 422
     assert len(service.calls) == 1
+
+
+def test_read_feed_limits_cursor_length(client: TestClient, monkeypatch) -> None:
+    service = FakeFeedService()
+    monkeypatch.setattr(feed_endpoints, "FeedService", lambda **kwargs: service)
+    headers = authorize(monkeypatch)
+    accepted = client.get("/api/v1/feed", params={"cursor": "9" * 512}, headers=headers)
+    rejected = client.get("/api/v1/feed", params={"cursor": "9" * 513}, headers=headers)
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 422
+    assert [call["cursor"] for call in service.calls] == ["9" * 512]

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import CurrentUserId, DatabaseSession
 from app.repositories.content_repository import ContentRepository
-from app.schemas.feed import FeedResponse
+from app.schemas.feed import MAX_FEED_CURSOR_LENGTH, FeedResponse
 from app.services.feed_service import FeedService
 
 router = APIRouter()
@@ -16,7 +16,7 @@ async def read_feed(
     category_id: int | None = Query(default=None),
     is_favorite: bool | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
-    cursor: str | None = Query(default=None),
+    cursor: str | None = Query(default=None, max_length=MAX_FEED_CURSOR_LENGTH),
 ) -> FeedResponse:
     return await FeedService(content_repository=ContentRepository(db)).read_feed(
         user_id=current_user_id,
