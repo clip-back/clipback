@@ -43,6 +43,8 @@ class FakeContentRepository:
         self.created_tags: list[SimpleNamespace] = []
         self.created_assets: list[SimpleNamespace] = []
         self.deleted_content_ids: list[int] = []
+        self.owned_requests: list[tuple[int, int, bool]] = []
+        self.tag_replacements = 0
 
     async def create(
         self,
@@ -80,6 +82,7 @@ class FakeContentRepository:
     async def get_owned(
         self, *, user_id: int, content_id: int, for_update: bool = False,
     ) -> SimpleNamespace | None:
+        self.owned_requests.append((user_id, content_id, for_update))
         content = self.contents.get(content_id)
         if content is None or content.user_id != user_id:
             return None
@@ -117,6 +120,7 @@ class FakeContentRepository:
         content: SimpleNamespace,
         tags: list[SimpleNamespace],
     ) -> SimpleNamespace:
+        self.tag_replacements += 1
         content.tags = tags
         return content
 
@@ -865,6 +869,8 @@ async def test_update_tags_replaces_tags() -> None:
     assert [tag.name for tag in result.tags] == ["Flutter", "백엔드"]
     assert [tag.name for tag in content_repository.contents[1].tags] == ["Flutter", "백엔드"]
     assert content_repository.session.committed is True
+    assert content_repository.owned_requests == [(1, 1, True)]
+    assert content_repository.tag_replacements == 1
 
 
 @pytest.mark.asyncio
@@ -897,12 +903,13 @@ async def test_update_tags_skips_unchanged_set() -> None:
     )
 
     assert [tag.name for tag in result.tags] == ["Flutter"]
-    assert content_repository.session.committed is False
+    assert content_repository.session.committed is True
+    assert content_repository.tag_replacements == 0
 
 
 @pytest.mark.asyncio
 async def test_update_tags_rejects_other_user_content() -> None:
-    service, _, _ = build_service(contents=[content(1, user_id=2)])
+    service, content_repository, _ = build_service(contents=[content(1, user_id=2)])
 
     with pytest.raises(NotFoundError):
         await service.update_tags(
@@ -910,6 +917,30 @@ async def test_update_tags_rejects_other_user_content() -> None:
             content_id=1,
             payload=ContentTagUpdate(tag_names=["Flutter"]),
         )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.tag_replacements == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["lookup", "commit"])
+async def test_update_tags_rolls_back_lookup_and_commit_failures(failure_stage) -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail(**kwargs):
+        raise RuntimeError("injected transaction failure")
+
+    if failure_stage == "lookup":
+        content_repository.get_owned = fail
+    else:
+        content_repository.session.commit = fail
+
+    with pytest.raises(RuntimeError, match="injected transaction failure"):
+        await service.update_tags(
+            user_id=1, content_id=1, payload=ContentTagUpdate(tag_names=["Flutter"])
+        )
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
 
 
 @pytest.mark.asyncio
