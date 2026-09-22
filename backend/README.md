@@ -9,7 +9,7 @@ Implementation status and remaining scope decisions are tracked in the
 
 - Save link-based content from share flow or direct input.
 - Save YouTube videos/Shorts immediately and summarize eligible public videos asynchronously.
-  See [YouTube API, worker and rollout guide](../docs/youtube-summary.md); disabled by default.
+  See [YouTube API, worker and rollout guide](../docs/youtube-summary.md); enabled by default; Gemini and YouTube API keys are required.
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.

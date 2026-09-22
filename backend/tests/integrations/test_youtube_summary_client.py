@@ -154,7 +154,12 @@ async def test_timeout():
     assert exc.value.code == "timeout" and exc.value.retryable
 
 
-def test_keys_required_only_when_enabled():
-    assert not Settings(_env_file=None).youtube_summary_enabled
+def test_keys_required_only_when_enabled(monkeypatch):
+    monkeypatch.delenv("YOUTUBE_SUMMARY_ENABLED", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("YOUTUBE_DATA_API_KEY", raising=False)
+    assert not Settings(_env_file=None, youtube_summary_enabled=False).youtube_summary_enabled
     with pytest.raises(ValueError):
-        Settings(_env_file=None, youtube_summary_enabled=True)
+        Settings(_env_file=None)
+    enabled = Settings(_env_file=None, gemini_api_key="test", youtube_data_api_key="test")
+    assert enabled.youtube_summary_enabled

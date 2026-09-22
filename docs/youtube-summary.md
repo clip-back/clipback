@@ -64,13 +64,13 @@ YouTube 조회 10초, Gemini 120초이며 네트워크/시간초과/429/5xx만 3
 기본 배포값:
 
 ```dotenv
-YOUTUBE_SUMMARY_ENABLED=false
+YOUTUBE_SUMMARY_ENABLED=true
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_API_KEY=
 YOUTUBE_DATA_API_KEY=
 ```
 
-활성화할 때 두 키가 없으면 시작을 거부한다. Google 로그인 토큰과 YouTube 서버 키는 별개다.
+기본 활성 상태에서 두 키가 없으면 시작을 거부한다. 키 없이 실행하려면 `YOUTUBE_SUMMARY_ENABLED=false`를 명시한다. 기존 Railway 변수에 `false`가 남아 있으면 기본값보다 우선하므로 `true`로 바꾸거나 제거한다. Google 로그인 토큰과 YouTube 서버 키는 별개다.
 키는 Railway Variables에만 등록하며 저장소/로그에 넣지 않는다. replica=1, uvicorn workers=1 유지.
 비활성 상태에서 신규 저장은 skipped/disabled이며 기존 대기 작업은 남겨 재활성화 후 이어간다.
 비활성 상태에서 저장한 skipped 작업과 과거 콘텐츠는 자동 재처리하지 않는다.
@@ -91,12 +91,12 @@ worker.run_once를 직접 호출하여 반복 루프·실제 유료 호출 없�
 TEST_DATABASE_URL=postgresql+asyncpg://... pytest -q
 ruff check app alembic tests
 python -m compileall -q app alembic tests
-alembic upgrade head
-alembic check
+YOUTUBE_SUMMARY_ENABLED=false alembic upgrade head
+YOUTUBE_SUMMARY_ENABLED=false alembic check
 ```
 
 실제 키 등록·공급자 접근·한국어 일반 영상/Shorts 품질·처리 시간·청구 검증은 별도 운영 단계다.
-먼저 제한된 검증 환경에서 확인한 뒤 운영 플래그를 활성화한다. 자동 테스트 성공을 실제 모델 접근
+운영 배포 전에 두 키를 등록하고 제한된 환경에서 실제 영상을 확인한다. 자동 테스트 성공을 실제 모델 접근
 가능 여부나 영상 요약 정확성 검증으로 간주하지 않는다.
 
 - [Gemini YouTube 입력](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding)

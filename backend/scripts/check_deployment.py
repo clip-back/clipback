@@ -36,6 +36,7 @@ def run(image):
     database_url = f"postgresql://postgres:deployment%25test%40@{db}:5432/clipback"
     environment = [
         "APP_ENVIRONMENT=production",
+        "YOUTUBE_SUMMARY_ENABLED=false",
         "SECRET_KEY=deployment-check-secret",
         "OPENAI_API_KEY=unused-test-key",
         'GOOGLE_CLIENT_IDS=["unused-test-id"]',
