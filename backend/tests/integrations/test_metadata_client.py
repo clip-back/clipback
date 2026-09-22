@@ -26,7 +26,7 @@ def build_client(
         total_timeout_seconds=timeout,
         max_redirects=max_redirects,
         max_response_bytes=max_response_bytes,
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_transport=httpx.MockTransport(handler),
         resolver=resolver,
     )
 
@@ -55,7 +55,6 @@ async def test_extract_prefers_open_graph_and_normalizes_text() -> None:
     assert result.resolved_url == "https://example.com/post"
     assert result.title == "Open & Graph 제목"
     assert result.description == "첫째 줄 둘째 & 줄"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -92,7 +91,6 @@ async def test_extract_uses_twitter_and_html_fallbacks(
 
     assert result.title == expected_title
     assert result.description == expected_description
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -113,13 +111,12 @@ async def test_extract_limits_title_and_description_lengths() -> None:
 
     assert result.title == "가" * 120
     assert result.description == "나" * 500
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
 async def test_extract_follows_safe_redirect_and_returns_final_url() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "short.example.com":
+        if request.headers["host"] == "short.example.com":
             return httpx.Response(302, headers={"location": "https://final.example.com/post#x"})
         return httpx.Response(
             200,
@@ -132,7 +129,6 @@ async def test_extract_follows_safe_redirect_and_returns_final_url() -> None:
 
     assert result.status == "success"
     assert result.resolved_url == "https://final.example.com/post"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -143,8 +139,6 @@ async def test_extract_rejects_unsafe_redirect() -> None:
 
     with pytest.raises(UnsafeUrlError):
         await client.extract_from_url("https://example.com")
-
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -170,8 +164,6 @@ async def test_extract_rejects_internal_or_unsupported_urls(url: str) -> None:
     with pytest.raises(UnsafeUrlError):
         await client.extract_from_url(url)
 
-    await client.http_client.aclose()
-
 
 @pytest.mark.asyncio
 async def test_extract_rejects_hostname_when_any_dns_address_is_private() -> None:
@@ -182,8 +174,6 @@ async def test_extract_rejects_hostname_when_any_dns_address_is_private() -> Non
 
     with pytest.raises(UnsafeUrlError):
         await client.extract_from_url("https://example.com")
-
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -196,7 +186,6 @@ async def test_extract_treats_dns_failure_as_fallback() -> None:
 
     assert result.status == "failed"
     assert result.failure_reason == "dns_failure"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -210,7 +199,6 @@ async def test_extract_treats_timeout_as_fallback() -> None:
 
     assert result.status == "failed"
     assert result.failure_reason == "timeout"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -238,7 +226,6 @@ async def test_extract_treats_response_failures_as_fallback(
 
     assert result.status == "failed"
     assert result.failure_reason == expected_reason
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -253,7 +240,6 @@ async def test_extract_limits_redirect_count() -> None:
     assert result.status == "failed"
     assert result.failure_reason == "redirect_limit"
     assert result.resolved_url == "https://example.com/3"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -270,7 +256,6 @@ async def test_extract_limits_response_body_size() -> None:
 
     assert result.status == "failed"
     assert result.failure_reason == "response_too_large"
-    await client.http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -291,4 +276,3 @@ async def test_extract_treats_parse_error_as_fallback(monkeypatch) -> None:
 
     assert result.status == "failed"
     assert result.failure_reason == "parse_failure"
-    await client.http_client.aclose()

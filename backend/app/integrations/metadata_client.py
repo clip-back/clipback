@@ -36,6 +36,53 @@ class MetadataResult:
 Resolver = Callable[[str, int], Awaitable[set[str]]]
 
 
+@dataclass(frozen=True)
+class _ValidatedUrl:
+    url: str
+    addresses: tuple[str, ...]
+
+
+class _PinnedTransport(httpx.AsyncBaseTransport):
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        # IP-based pooling must not reuse another hostname's TLS connection.
+        self._transport = transport or httpx.AsyncHTTPTransport(
+            trust_env=False,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        )
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        extensions = dict(request.extensions)
+        addresses = extensions.pop("metadata_addresses", ())
+        deadline = extensions.pop("metadata_deadline", None)
+        if not addresses or deadline is None:
+            raise UnsafeUrlError("Validated connection addresses are required")
+
+        headers = request.headers.copy()
+        headers["Host"] = request.url.netloc.decode("ascii")
+        extensions["sni_hostname"] = request.url.raw_host.decode("ascii")
+        for index, address in enumerate(addresses):
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError
+            timeouts = dict(extensions.get("timeout", {}))
+            timeouts["connect"] = remaining / (len(addresses) - index)
+            pinned = httpx.Request(
+                method=request.method,
+                url=request.url.copy_with(host=address),
+                headers=headers,
+                stream=request.stream,
+                extensions={**extensions, "timeout": timeouts},
+            )
+            try:
+                return await self._transport.handle_async_request(pinned)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if index == len(addresses) - 1:
+                    raise
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
 class MetadataClient:
     def __init__(
         self,
@@ -44,34 +91,33 @@ class MetadataClient:
         max_redirects: int = 3,
         max_response_bytes: int = 1_000_000,
         user_agent: str = "ClipbackBot/0.1",
-        http_client: httpx.AsyncClient | None = None,
+        http_transport: httpx.AsyncBaseTransport | None = None,
         resolver: Resolver | None = None,
     ) -> None:
         self.total_timeout_seconds = total_timeout_seconds
         self.max_redirects = max_redirects
         self.max_response_bytes = max_response_bytes
         self.user_agent = user_agent
-        self.http_client = http_client
+        self.http_transport = http_transport
         self.resolver = resolver or self._resolve_host
 
     async def extract_from_url(self, url: str) -> MetadataResult:
         initial_url = self._strip_fragment(url)
         current_url = initial_url
         last_safe_url = [initial_url]
+        deadline = asyncio.get_running_loop().time() + self.total_timeout_seconds
 
         try:
-            async with asyncio.timeout(self.total_timeout_seconds):
-                if self.http_client is not None:
-                    return await self._extract(self.http_client, current_url, last_safe_url)
-
+            async with asyncio.timeout_at(deadline):
                 timeout = httpx.Timeout(self.total_timeout_seconds)
                 async with httpx.AsyncClient(
+                    transport=_PinnedTransport(self.http_transport),
                     follow_redirects=False,
                     timeout=timeout,
                     headers={"User-Agent": self.user_agent},
                     trust_env=False,
                 ) as client:
-                    return await self._extract(client, current_url, last_safe_url)
+                    return await self._extract(client, current_url, last_safe_url, deadline)
         except UnsafeUrlError:
             raise
         except TimeoutError:
@@ -88,17 +134,23 @@ class MetadataClient:
         client: httpx.AsyncClient,
         initial_url: str,
         last_safe_url: list[str],
+        deadline: float,
     ) -> MetadataResult:
         current_url = initial_url
 
         for redirect_count in range(self.max_redirects + 1):
-            current_url = await self._validate_url(current_url)
+            validated = await self._validate_url(current_url)
+            current_url = validated.url
             last_safe_url[0] = current_url
             async with client.stream(
                 "GET",
                 current_url,
                 headers={"User-Agent": self.user_agent},
                 follow_redirects=False,
+                extensions={
+                    "metadata_addresses": validated.addresses,
+                    "metadata_deadline": deadline,
+                },
             ) as response:
                 if response.status_code in REDIRECT_STATUS_CODES:
                     location = response.headers.get("location")
@@ -136,7 +188,7 @@ class MetadataClient:
 
         return self._failure(current_url, "redirect_limit")
 
-    async def _validate_url(self, url: str) -> str:
+    async def _validate_url(self, url: str) -> _ValidatedUrl:
         normalized_url = self._strip_fragment(url)
         try:
             parsed = urlparse(normalized_url)
@@ -169,7 +221,11 @@ class MetadataClient:
         if any(self._is_unsafe_address(address) for address in addresses):
             raise UnsafeUrlError("Private or internal network addresses are not supported")
 
-        return normalized_url
+        ordered_addresses = sorted(
+            {ipaddress.ip_address(address) for address in addresses},
+            key=lambda address: (address.version, int(address)),
+        )
+        return _ValidatedUrl(normalized_url, tuple(str(address) for address in ordered_addresses))
 
     @staticmethod
     async def _resolve_host(hostname: str, port: int) -> set[str]:
