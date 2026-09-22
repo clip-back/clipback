@@ -53,4 +53,4 @@ def test_openapi_summary_contract():
         "failed",
         "skipped",
     ]
-    assert schema["summary_error_code"]["default"] is None
+    assert {"type": "null"} in schema["summary_error_code"]["anyOf"]
