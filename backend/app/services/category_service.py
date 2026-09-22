@@ -98,6 +98,8 @@ class CategoryService:
                     if uncategorized is None:
                         raise SystemConfigurationError("Uncategorized category is missing")
                     remaining = [uncategorized]
+                if content.summary_job is not None:
+                    content.summary_job.apply_category = False
                 await contents.replace_categories(content=content, categories=remaining)
                 await events.create(
                     user_id=user_id,

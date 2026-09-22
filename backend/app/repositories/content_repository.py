@@ -69,6 +69,7 @@ class ContentRepository:
                 selectinload(Content.categories),
                 selectinload(Content.tags),
                 selectinload(Content.assets),
+                selectinload(Content.summary_job),
             )
             .where(Content.id == content_id, Content.user_id == user_id)
             .execution_options(populate_existing=True)
@@ -91,6 +92,7 @@ class ContentRepository:
                 selectinload(Content.categories),
                 selectinload(Content.tags),
                 selectinload(Content.assets),
+                selectinload(Content.summary_job),
             )
             .where(Content.user_id == user_id)
         )

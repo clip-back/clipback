@@ -61,6 +61,10 @@ class Content(Base):
     saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    summary_job = relationship(
+        "SummaryJob", uselist=False, cascade="all, delete-orphan", passive_deletes=True
+    )
+
     user = relationship("User", back_populates="contents")
     categories = relationship("Category", secondary=content_categories, back_populates="contents")
     tags = relationship("Tag", secondary=content_tags, back_populates="contents")

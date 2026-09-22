@@ -1,21 +1,35 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.db.session import AsyncSessionLocal
 from app.integrations.ai_client import close_ai_client
 from app.integrations.ocr_client import close_ocr_client
 from app.integrations.social_auth_client import close_social_auth_client
+from app.integrations.youtube_summary_client import YouTubeSummaryClient
+from app.services.summary_worker import SummaryWorker
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    yield
-    await close_ai_client()
-    await close_ocr_client()
-    await close_social_auth_client()
+    async with httpx.AsyncClient() as http:
+        worker = SummaryWorker(AsyncSessionLocal, YouTubeSummaryClient(settings, http), settings)
+        task = asyncio.create_task(worker.run()) if settings.youtube_summary_enabled else None
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            await close_ai_client()
+            await close_ocr_client()
+            await close_social_auth_client()
 
 
 def create_app() -> FastAPI:

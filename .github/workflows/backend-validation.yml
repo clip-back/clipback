@@ -22,6 +22,7 @@ defaults:
 
 env:
   APP_ENVIRONMENT: test
+  YOUTUBE_SUMMARY_ENABLED: "false"
   SECRET_KEY: ci-backend-validation-secret
   STORAGE_ROOT: /tmp/clipback-storage
 

@@ -84,3 +84,7 @@ API·DB 컨테이너 재생성 후 같은 토큰·콘텐츠 ID·이미지 바이
 CI는 이 검증을 별도 `deployment` job에서 필수 실행한다. 로컬 Docker 검증 성공은 실제 Railway의 변수·볼륨·도메인·백업 설정 완료를 의미하지 않는다.
 
 참고: [Dockerfile](https://docs.railway.com/builds/dockerfiles), [pre-deploy](https://docs.railway.com/deployments/pre-deploy-command), [volumes](https://docs.railway.com/volumes), [healthchecks](https://docs.railway.com/deployments/healthchecks), [backups](https://docs.railway.com/volumes/backups).
+
+## YouTube 비동기 요약 배포
+
+신규 summary_jobs 마이그레이션을 pre-deploy에서 적용한다. 기본 `YOUTUBE_SUMMARY_ENABLED=false`로 배포하며 단일 replica/worker를 유지한다. 키 등록, 작업 복구, 실제 영상 검증 및 활성화 절차는 [YouTube 운영 문서](youtube-summary.md)를 따른다. 기존 Instagram·OCR 설정은 변경하지 않는다.

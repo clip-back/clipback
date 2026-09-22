@@ -14,6 +14,7 @@ from app.schemas.content import (
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.link_url import URL_TRAILING_CHARS, normalize_instagram_url
+from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
 
@@ -34,6 +35,16 @@ class ShareIntakeService:
         payload: ContentShareCreate,
     ) -> ContentRead:
         url, url_source = self._select_url(payload)
+        if is_youtube_url(url):
+            normalized_url, _ = normalize_youtube_url(url)
+            return await self.content_service.create_content(
+                user_id=user_id,
+                payload=ContentCreate(
+                    source=ContentSource.YOUTUBE, original_url=normalized_url,
+                    category_ids=payload.category_ids, tag_names=payload.tag_names,
+                    is_favorite=payload.is_favorite,
+                ),
+            )
         normalized_url = normalize_instagram_url(url)
         content_payload = ContentCreate(
             content_type=ContentType.LINK,

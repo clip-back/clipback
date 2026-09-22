@@ -18,7 +18,7 @@
 | --- | --- |
 | 인증 | 게스트·소셜 가입과 로그인, 게스트 소셜 전환, JWT, refresh 회전, 로그아웃·세션 폐기 |
 | 계정 | 가입일·연동 제공자 조회, 이벤트 기준 누적 저장·열람 통계 |
-| 링크 저장 | 직접 입력과 Instagram 공유 intake, 메타데이터 추출과 실패 fallback |
+| 링크 저장 | 직접 입력·Instagram·YouTube 공유 intake. YouTube 비동기 영상 요약은 기본 비활성, 실제 공급자 검증 후 운영 활성화 |
 | 자동 분류 | 사용자 소유 기본·직접 생성 카테고리 중 AI 1개 추천, 직접 선택 우선, 실패 시 미분류 |
 | 카테고리 관리 | 가입 시 기본 카테고리 개인화, 이름·색상 수정, 삭제와 필요 시 미분류 이동 |
 | 카테고리 조회 | 내 콘텐츠 수·최대 저장일 집계, 최근 카테고리 조회 |
@@ -63,7 +63,7 @@
 | `PATCH` | `/api/v1/categories/{id}` | 개인화된 기본·사용자 카테고리 이름·색상 수정 | 구현 |
 | `DELETE` | `/api/v1/categories/{id}` | 카테고리 삭제, 콘텐츠 보존 및 필요 시 미분류 이동 | 구현 |
 | `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 구현 |
-| `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram 구현 |
+| `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram·YouTube 구현 |
 | `GET` | `/api/v1/contents/{id}` | 콘텐츠 상세 조회 | 구현 |
 | `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 구현 |
 | `PUT` | `/api/v1/contents/{id}/tags` | 콘텐츠 태그 전체 교체 | 구현 |
@@ -103,7 +103,7 @@
 | 계정 수정·탈퇴 | API 없음. MVP 제외 범위이며 데이터·파일·세션 처리 정책을 먼저 정한다. |
 | 태그 목록·독립 필터 | 콘텐츠 태그 저장·교체와 피드 텍스트 검색은 구현. 별도 태그 선택 UI가 필요할 때 추가한다. |
 | 소셜 전용 가입 | 미적용. 기존 게스트 API·데이터를 유지한다. |
-| 공유 플랫폼 확대 | 전용 공유 intake는 Instagram 지원. YouTube·TikTok payload와 정규화는 후속 범위다. |
+| 공유 플랫폼 확대 | Instagram·YouTube 공유 지원. TikTok 전용 intake는 후속 범위다. |
 | 비동기 처리·복수 AI 추천 | 미구현. 실제 지연·추천 품질 검증 후 필요할 때 검토한다. |
 
 최근 검색어, 앱 버전, OS 권한 안내는 현재 요구만으로 서버 API 추가가 필요하지 않다.
@@ -119,3 +119,5 @@
 
 지표 정의와 SQL은 [제품 지표 문서](product-metrics-queries.md), 자동 분류 정책은
 [카테고리 추천 문서](category-recommendation-policy.md)를 따른다.
+
+YouTube의 상태 응답·20분 제한·작업 복구·운영 검증은 [유튜브 요약 문서](youtube-summary.md)를 따른다.

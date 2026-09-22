@@ -24,6 +24,7 @@ from app.services.category_recommendation_service import CategoryRecommendationS
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
+from app.services.youtube_url import is_youtube_url
 
 router = APIRouter()
 
@@ -34,7 +35,9 @@ async def create_content(
     db: DatabaseSession,
     current_user_id: CurrentUserId,
 ) -> ContentRead:
-    if payload.content_type != ContentType.LINK:
+    if payload.content_type != ContentType.LINK or (
+        payload.original_url and is_youtube_url(str(payload.original_url))
+    ):
         return await _build_content_service(db).create_content(
             user_id=current_user_id,
             payload=payload,

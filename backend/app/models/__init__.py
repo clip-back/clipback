@@ -6,6 +6,7 @@ from app.models.content_category import content_categories
 from app.models.content_event import ContentEvent, ContentEventType
 from app.models.content_tag import content_tags
 from app.models.social_identity import SocialIdentity, SocialProvider
+from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
 from app.models.user import User
 
@@ -22,6 +23,7 @@ __all__ = [
     "SocialIdentity",
     "SocialProvider",
     "Tag",
+    "SummaryJob",
     "User",
     "content_categories",
     "content_tags",
