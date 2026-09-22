@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.integrations.metadata_client import MetadataResult
 from app.schemas.content import (
@@ -183,3 +184,16 @@ async def test_create_instagram_content_rejects_unsupported_instagram_path() -> 
         )
 
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_share_does_not_hide_non_url_validation_errors():
+    service, content_service = build_service()
+    payload = ContentShareCreate(url="https://instagram.com/p/ABC/").model_copy(
+        update={"tag_names": ["x" * 41]},
+    )
+
+    with pytest.raises(ValidationError):
+        await service.create_instagram_content(user_id=1, payload=payload)
+
+    assert content_service.payload is None

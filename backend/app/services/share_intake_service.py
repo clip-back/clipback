@@ -3,8 +3,10 @@ from __future__ import annotations
 import re
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.schemas.content import (
+    MAX_CONTENT_URL_LENGTH,
     ContentCreate,
     ContentRead,
     ContentShareCreate,
@@ -35,25 +37,33 @@ class ShareIntakeService:
         payload: ContentShareCreate,
     ) -> ContentRead:
         url, url_source = self._select_url(payload)
-        if is_youtube_url(url):
+        youtube_url = is_youtube_url(url)
+        if youtube_url:
             normalized_url, _ = normalize_youtube_url(url)
+        else:
+            normalized_url = normalize_instagram_url(url)
+        try:
+            content_payload = ContentCreate(
+                content_type=ContentType.LINK,
+                source=ContentSource.YOUTUBE if youtube_url else ContentSource.INSTAGRAM,
+                original_url=normalized_url,
+                category_ids=payload.category_ids,
+                tag_names=payload.tag_names,
+                is_favorite=payload.is_favorite,
+            )
+        except ValidationError as exc:
+            if all(error["loc"] == ("original_url",) for error in exc.errors()):
+                raise HTTPException(
+                    status_code=422,
+                    detail="original_url must be a valid HTTP(S) URL of at most "
+                    f"{MAX_CONTENT_URL_LENGTH} characters after normalization",
+                ) from exc
+            raise
+        if youtube_url:
             return await self.content_service.create_content(
                 user_id=user_id,
-                payload=ContentCreate(
-                    source=ContentSource.YOUTUBE, original_url=normalized_url,
-                    category_ids=payload.category_ids, tag_names=payload.tag_names,
-                    is_favorite=payload.is_favorite,
-                ),
+                payload=content_payload,
             )
-        normalized_url = normalize_instagram_url(url)
-        content_payload = ContentCreate(
-            content_type=ContentType.LINK,
-            source=ContentSource.INSTAGRAM,
-            original_url=normalized_url,
-            category_ids=payload.category_ids,
-            tag_names=payload.tag_names,
-            is_favorite=payload.is_favorite,
-        )
         extraction = await self.extraction_service.enrich_link(content_payload)
         enriched_payload = self.extraction_service.apply_to_payload(content_payload, extraction)
         metadata_json = self.extraction_service.build_event_metadata_json(

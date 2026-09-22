@@ -23,6 +23,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
+    MAX_CONTENT_URL_LENGTH,
     ContentAssetRead,
     ContentAssetType,
     ContentCategoryUpdate,
@@ -133,6 +134,12 @@ class ContentService:
             url, video_id = normalize_youtube_url(str(payload.original_url))
             payload = payload.model_copy(
                 update={"original_url": url, "source": ContentSource.YOUTUBE}
+            )
+        if payload.original_url and len(str(payload.original_url)) > MAX_CONTENT_URL_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"original_url must not exceed {MAX_CONTENT_URL_LENGTH} characters "
+                "after normalization",
             )
         category_ids = self._deduplicate_ids(payload.category_ids)
         if category_ids:

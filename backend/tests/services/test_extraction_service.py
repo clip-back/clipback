@@ -2,6 +2,7 @@ import json
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.integrations.metadata_client import MetadataResult, UnsafeUrlError
 from app.schemas.content import ContentCreate, ContentSource
@@ -189,3 +190,22 @@ def test_build_event_metadata_respects_database_length_limit() -> None:
 
     assert len(metadata_json) <= 1000
     assert json.loads(metadata_json)["metadata_status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "resolved_url", ["https://example.com/post", "https://e.test/" + "x" * 2100],
+)
+def test_apply_to_payload_does_not_hide_non_url_validation_errors(resolved_url):
+    result = ExtractionResult(
+        resolved_url=resolved_url,
+        title="x" * 121,
+        description=None,
+        source=ContentSource.WEB,
+        status="success",
+        failure_reason=None,
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        ExtractionService.apply_to_payload(ContentCreate(original_url="https://e.test"), result)
+
+    assert ("title",) in [error["loc"] for error in exc_info.value.errors()]
