@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -75,6 +76,22 @@ class ContentAssetRead(BaseModel):
 
 
 class ContentRead(BaseModel):
+    summary_status: Literal[
+        "not_requested", "queued", "processing", "completed", "failed", "skipped"
+    ] = "not_requested"
+    summary_error_code: (
+        Literal[
+            "timeout",
+            "provider_error",
+            "invalid_response",
+            "configuration_error",
+            "video_unavailable",
+            "duration_exceeded",
+            "live_not_supported",
+            "disabled",
+        ]
+        | None
+    ) = None
     id: int
     categories: list[CategoryRead] = Field(default_factory=list)
     tags: list[TagRead] = Field(default_factory=list)

@@ -6,7 +6,10 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.main import app
+# Tests drive run_once explicitly and must never start a paid provider worker.
+os.environ["YOUTUBE_SUMMARY_ENABLED"] = "false"
+
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture

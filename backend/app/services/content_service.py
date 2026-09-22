@@ -14,6 +14,7 @@ from app.models.content import (
 )
 from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
+from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
@@ -40,6 +41,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationResult,
     CategoryRecommendationService,
 )
+from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
@@ -56,7 +58,10 @@ class PendingContentAsset:
 
 
 def content_to_read(content: Content) -> ContentRead:
+    job = getattr(content, "summary_job", None)
     return ContentRead(
+        summary_status=job.status if job else "not_requested",
+        summary_error_code=job.error_code if job else None,
         id=content.id,
         categories=[
             CategoryRead.model_validate(category)
@@ -119,6 +124,16 @@ class ContentService:
                 detail="original_url is required for link content",
             )
 
+        video_id = None
+        if (
+            payload.content_type == ContentType.LINK
+            and payload.original_url
+            and is_youtube_url(str(payload.original_url))
+        ):
+            url, video_id = normalize_youtube_url(str(payload.original_url))
+            payload = payload.model_copy(
+                update={"original_url": url, "source": ContentSource.YOUTUBE}
+            )
         category_ids = self._deduplicate_ids(payload.category_ids)
         if category_ids:
             categories = await self.category_repository.list_available_by_ids(
@@ -134,9 +149,8 @@ class ContentService:
                 assignment_method=CategoryAssignmentMethod.USER,
                 failure_reason=None,
             )
-        elif (
-            payload.content_type == ContentType.LINK
-            or recommendation_shared_text is not None
+        elif video_id is None and (
+            payload.content_type == ContentType.LINK or recommendation_shared_text is not None
         ):
             recommendation = await self._recommend_category(
                 user_id=user_id,
@@ -186,6 +200,19 @@ class ContentService:
                 categories=categories,
                 tags=tags,
             )
+            if video_id is not None:
+                self.content_repository.session.add(
+                    SummaryJob(
+                        content_id=content.id,
+                        video_id=video_id,
+                        status="queued" if settings.youtube_summary_enabled else "skipped",
+                        error_code=None if settings.youtube_summary_enabled else "disabled",
+                        model=settings.gemini_model,
+                        apply_title=not bool(payload.title and payload.title.strip()),
+                        apply_summary=not bool(payload.summary and payload.summary.strip()),
+                        apply_category=not bool(payload.category_ids),
+                    )
+                )
             if asset is not None:
                 await self.content_asset_repository.create(
                     content_id=content.id,
@@ -320,7 +347,16 @@ class ContentService:
 
         before_category_ids = sorted(category.id for category in content.categories)
         after_category_ids = sorted(category.id for category in categories)
+        job = getattr(content, "summary_job", None)
+        if job is not None:
+            job.apply_category = False
         if before_category_ids == after_category_ids:
+            if job is not None:
+                try:
+                    await self.content_repository.session.commit()
+                except Exception:
+                    await self.content_repository.session.rollback()
+                    raise
             return content_to_read(content)
 
         metadata_json = json.dumps(

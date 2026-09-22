@@ -9,6 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    youtube_summary_enabled: bool = True
+    gemini_api_key: SecretStr | None = None
+    youtube_data_api_key: SecretStr | None = None
+    gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-zA-Z0-9._-]+$")
+
     project_name: str = "Clipback API"
     app_environment: Literal["local", "test", "production"] = "local"
     api_v1_prefix: str = "/api/v1"
@@ -67,6 +72,13 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be configured in production")
             if not self.storage_root.is_absolute():
                 raise ValueError("STORAGE_ROOT must be absolute in production")
+        if self.youtube_summary_enabled:
+            for key in ("gemini_api_key", "youtube_data_api_key"):
+                value = getattr(self, key)
+                if value is None or not value.get_secret_value().strip():
+                    raise ValueError(
+                        f"{key.upper()} is required when YouTube summaries are enabled"
+                    )
         return self
 
 
