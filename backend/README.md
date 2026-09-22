@@ -260,6 +260,35 @@ edits/deletions cannot be losslessly merged back into shared categories, so down
 is explicitly refused; rollback requires restoring the pre-migration backup and old
 application together. Validate this data migration on a backup before production.
 
+## Feed Pagination
+
+`GET /api/v1/feed` returns the authenticated user's content in `saved_at DESC, id DESC`
+order. Optional `q` (title, summary, and tags), `category_id`, and `is_favorite` filters
+combine with pagination. `limit` defaults to 20 and accepts 1–100.
+
+- The response remains `{ "items": [...], "next_cursor": "..." }`. `next_cursor` is
+  `null` when there is no next page.
+- Pass the returned cursor unchanged in the next request's `cursor` query parameter.
+  New cursors use `v1.` followed by unpadded URL-safe Base64 JSON containing `saved_at`
+  and `id`. The timestamp uses UTC and preserves microseconds. Clients must treat this
+  value as opaque rather than deriving a cursor from an item ID.
+- The next page uses both sort keys, so ID allocation order does not cause missing or
+  repeated items. A new cursor continues to work after its anchor content is deleted.
+  Newly saved content before the cursor is visible on refresh; pagination does not
+  hold a database snapshot across requests.
+- Existing numeric ID cursors are still accepted when the anchor content belongs to
+  the current user and still exists. Only its saved time and ID are looked up; changes
+  to its categories, favorites, or text do not invalidate the anchor. Responses always
+  emit the new format when another page exists.
+- Malformed or unsupported cursors, invalid field types, timezone-less timestamps,
+  IDs outside `1..2147483647`, and cursors longer than 512 characters return `422`.
+  Missing, deleted, and other users' numeric anchors return the same `422` error.
+  Clear the cursor and reload the first page after an invalid cursor response.
+- Reset the cursor whenever the account or search/category/favorite filters change.
+  Every page enforces the authenticated user's ownership filter.
+
+No database migration or new frontend response field is required.
+
 ## Screenshot Storage
 
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to

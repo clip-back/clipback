@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -9,6 +9,7 @@ from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
 from app.models.tag import Tag
+from app.schemas.feed import FeedCursor
 
 SEARCH_PATTERN_ESCAPE = "\\"
 
@@ -76,12 +77,21 @@ class ContentRepository:
         )
         return result.first()
 
+    async def get_feed_cursor(self, *, user_id: int, content_id: int) -> FeedCursor | None:
+        result = await self.session.execute(
+            select(Content.saved_at, Content.id).where(
+                Content.user_id == user_id, Content.id == content_id
+            )
+        )
+        row = result.one_or_none()
+        return FeedCursor(saved_at=row.saved_at, id=row.id) if row is not None else None
+
     async def list_feed(
         self,
         *,
         user_id: int,
         category_id: int | None,
-        cursor_id: int | None,
+        cursor: FeedCursor | None,
         limit: int,
         is_favorite: bool | None = None,
         search_query: str | None = None,
@@ -122,8 +132,13 @@ class ContentRepository:
                 )
             )
 
-        if cursor_id is not None:
-            statement = statement.where(Content.id < cursor_id)
+        if cursor is not None:
+            statement = statement.where(
+                or_(
+                    Content.saved_at < cursor.saved_at,
+                    and_(Content.saved_at == cursor.saved_at, Content.id < cursor.id),
+                )
+            )
 
         statement = statement.order_by(Content.saved_at.desc(), Content.id.desc()).limit(limit)
 
