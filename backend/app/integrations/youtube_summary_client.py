@@ -17,6 +17,9 @@ class SummaryError(Exception):
         self.retryable = retryable
         self.skipped = skipped
         self.usage: dict = {}
+        self.provider: str | None = None
+        self.http_status: int | None = None
+        self.provider_status: str | None = None
 
 
 @dataclass
@@ -32,7 +35,10 @@ class YouTubeSummaryClient:
         self.config = config
         self.http = http
 
-    async def _request(self, method: str, url: str, timeout: float, **kwargs) -> dict:
+    async def _request(
+        self, method: str, url: str, timeout: float, *, provider: str, **kwargs
+    ) -> dict:
+        response = None
         try:
             async with asyncio.timeout(timeout):
                 response = await self.http.request(method, url, timeout=timeout, **kwargs)
@@ -46,12 +52,39 @@ class YouTubeSummaryClient:
             if not isinstance(value, dict):
                 raise SummaryError("invalid_response")
             return value
-        except (TimeoutError, httpx.TimeoutException) as exc:
-            raise SummaryError("timeout", retryable=True) from exc
-        except httpx.TransportError as exc:
-            raise SummaryError("provider_error", retryable=True) from exc
-        except ValueError as exc:
-            raise SummaryError("invalid_response") from exc
+        except (SummaryError, TimeoutError, httpx.TransportError, ValueError) as exc:
+            if isinstance(exc, SummaryError):
+                error = exc
+            elif isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+                error = SummaryError("timeout", retryable=True)
+            elif isinstance(exc, httpx.TransportError):
+                error = SummaryError("provider_error", retryable=True)
+            else:
+                error = SummaryError("invalid_response")
+            error.provider = provider
+            if response is not None:
+                error.http_status = response.status_code
+                try:
+                    status = response.json()["error"]["status"]
+                except (ValueError, KeyError, TypeError):
+                    status = None
+                # Never retain arbitrary messages, bodies, headers, or request URLs.
+                if isinstance(status, str) and status in {
+                    "INVALID_ARGUMENT",
+                    "FAILED_PRECONDITION",
+                    "UNAUTHENTICATED",
+                    "PERMISSION_DENIED",
+                    "NOT_FOUND",
+                    "RESOURCE_EXHAUSTED",
+                    "INTERNAL",
+                    "UNAVAILABLE",
+                    "DEADLINE_EXCEEDED",
+                    "UNIMPLEMENTED",
+                }:
+                    error.provider_status = status
+            if error is exc:
+                raise
+            raise error from exc
 
     async def summarize(self, video_id: str, model: str, categories: list[dict]) -> VideoSummary:
         if not self.config.youtube_data_api_key or not self.config.gemini_api_key:
@@ -60,6 +93,7 @@ class YouTubeSummaryClient:
             "GET",
             "https://www.googleapis.com/youtube/v3/videos",
             10,
+            provider="youtube",
             headers={"x-goog-api-key": self.config.youtube_data_api_key.get_secret_value()},
             params={"part": "snippet,contentDetails,status", "id": video_id},
         )
@@ -111,6 +145,7 @@ class YouTubeSummaryClient:
             "POST",
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             120,
+            provider="gemini",
             headers={"x-goog-api-key": self.config.gemini_api_key.get_secret_value()},
             json={
                 "systemInstruction": {"parts": [{"text": prompt}]},

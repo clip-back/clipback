@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.logging import configure_logging
 from app.db.session import AsyncSessionLocal
 from app.integrations.ai_client import close_ai_client
 from app.integrations.ocr_client import close_ocr_client
@@ -17,6 +18,7 @@ from app.services.summary_worker import SummaryWorker
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_logging()
     async with httpx.AsyncClient() as http:
         worker = SummaryWorker(AsyncSessionLocal, YouTubeSummaryClient(settings, http), settings)
         task = asyncio.create_task(worker.run()) if settings.youtube_summary_enabled else None

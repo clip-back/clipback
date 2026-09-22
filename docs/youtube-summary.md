@@ -102,3 +102,18 @@ YOUTUBE_SUMMARY_ENABLED=false alembic check
 - [Gemini YouTube 입력](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding)
 - [Gemini 구조화 출력](https://ai.google.dev/gemini-api/docs/generate-content/structured-output)
 - [YouTube videos.list](https://developers.google.com/youtube/v3/docs/videos/list)
+
+### Railway 실패 진단 로그
+
+앱 시작 시 `app` 로거의 INFO 출력을 활성화한다. HTTP 라이브러리의 요청 URL 로그는 활성화하지 않는다.
+`youtube_summary_result`의 오류는 WARNING으로 출력하며 콘텐츠 ID, 모델, `provider`
+(`youtube` 또는 `gemini`), `http_status`, 허용된 Google 오류 식별자 `provider_status`,
+`retryable`을 포함한다. 네트워크 오류처럼 HTTP 응답이 없으면 상태 코드는 null이다.
+키·요청 URL·응답 원문·공급자 오류 메시지는 기록하지 않는다.
+
+예를 들어 `provider=gemini`, `http_status=429`, `provider_status=RESOURCE_EXHAUSTED`라면
+Gemini 사용량 제한을 확인한다. `400`이나 `404`만으로 모델·요청·영상 중 원인을 확정하지 않는다.
+`youtube_summary_worker_error`는 예외 종류만 남긴다.
+
+이 로그는 수정 배포 이후 실행에 적용된다. 이미 failed가 된 작업은 자동 재실행하지 않으므로
+동일 링크를 새 콘텐츠로 저장하여 새 ID의 로그를 확인한다. API의 공개 오류 코드는 변경하지 않는다.
