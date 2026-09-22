@@ -97,8 +97,8 @@ class SummaryWorker:
             result = await self.client.summarize(video_id, model, candidates)
         except SummaryError as exc:
             error = exc
-        await self.finish(content_id, user_id, token, result, error)
-        logger.info(
+        logger.log(
+            logging.WARNING if error else logging.INFO,
             json.dumps(
                 {
                     "event": "youtube_summary_result",
@@ -106,10 +106,15 @@ class SummaryWorker:
                     "model": model,
                     "elapsed_seconds": round(time.monotonic() - started, 3),
                     "error_code": error.code if error else None,
+                    "provider": error.provider if error else "gemini",
+                    "http_status": error.http_status if error else None,
+                    "provider_status": error.provider_status if error else None,
+                    "retryable": error.retryable if error else False,
                     "usage": result.usage if result else getattr(error, "usage", {}),
                 }
-            )
+            ),
         )
+        await self.finish(content_id, user_id, token, result, error)
         return True
 
     async def finish(
@@ -185,7 +190,14 @@ class SummaryWorker:
         while True:
             try:
                 await self.run_once()
-            except Exception:
+            except Exception as exc:
                 # Do not log exception text: provider responses may contain sensitive data.
-                logger.error(json.dumps({"event": "youtube_summary_worker_error"}))
+                logger.error(
+                    json.dumps(
+                        {
+                            "event": "youtube_summary_worker_error",
+                            "exception_type": type(exc).__name__,
+                        }
+                    )
+                )
             await asyncio.sleep(2)
