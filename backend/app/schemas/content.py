@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.schemas.category import CategoryRead
 from app.schemas.tag import TagNamesPayload, TagRead
 
+MAX_CONTENT_URL_LENGTH = 2048
+
 
 class ContentType(StrEnum):
     LINK = "link"
@@ -31,7 +33,7 @@ class ContentAssetType(StrEnum):
 class ContentCreate(TagNamesPayload):
     content_type: ContentType = ContentType.LINK
     category_ids: list[int] = Field(default_factory=list)
-    original_url: HttpUrl | None = None
+    original_url: HttpUrl | None = Field(default=None, max_length=MAX_CONTENT_URL_LENGTH)
     source: ContentSource = ContentSource.UNKNOWN
     title: str | None = Field(default=None, max_length=120)
     summary: str | None = None
@@ -58,7 +60,7 @@ class ShareAttachment(BaseModel):
 
 
 class ContentShareCreate(TagNamesPayload):
-    url: str | None = Field(default=None, max_length=2048)
+    url: str | None = Field(default=None, max_length=MAX_CONTENT_URL_LENGTH)
     raw_text: str | None = Field(default=None, max_length=5000)
     mime_type: str | None = Field(default=None, max_length=120)
     source_app: str | None = Field(default=None, max_length=120)

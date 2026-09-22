@@ -1168,3 +1168,29 @@ async def test_record_view_rejects_other_user_content() -> None:
 
     with pytest.raises(NotFoundError):
         await service.record_view(user_id=1, content_id=1)
+
+
+@pytest.mark.asyncio
+async def test_create_content_rechecks_url_from_unvalidated_model_copy():
+    recommendation = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=None,
+            assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+            failure_reason=None,
+        )
+    )
+    service, contents, events = build_service(recommendation_service=recommendation)
+    payload = ContentCreate(original_url="https://example.com/", tag_names=["새 태그"]).model_copy(
+        update={"original_url": "https://example.com/" + "a" * 2050},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_content(user_id=1, payload=payload)
+
+    assert exc_info.value.status_code == 422
+    assert "2048" in exc_info.value.detail
+    assert recommendation.calls == 0
+    assert contents.contents == {}
+    assert service.tag_repository.tags == {}
+    assert events.events == []
+    assert not contents.session.committed

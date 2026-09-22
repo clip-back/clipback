@@ -4,10 +4,11 @@ import json
 from dataclasses import dataclass
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
-from app.schemas.content import ContentCreate, ContentSource
+from app.schemas.content import MAX_CONTENT_URL_LENGTH, ContentCreate, ContentSource
 from app.services.link_url import infer_content_source, is_instagram_url, normalize_instagram_url
 
 MAX_EVENT_METADATA_LENGTH = 1000
@@ -39,6 +40,12 @@ class ExtractionService:
         input_url = str(payload.original_url)
         instagram_url = is_instagram_url(input_url)
         request_url = normalize_instagram_url(input_url) if instagram_url else input_url
+        if len(request_url) > MAX_CONTENT_URL_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"original_url must not exceed {MAX_CONTENT_URL_LENGTH} characters "
+                "after normalization",
+            )
 
         try:
             metadata = await self.metadata_client.extract_from_url(request_url)
@@ -64,7 +71,16 @@ class ExtractionService:
             summary=result.description,
             source=result.source,
         )
-        return ContentCreate.model_validate(values)
+        try:
+            return ContentCreate.model_validate(values)
+        except ValidationError as exc:
+            if all(error["loc"] == ("original_url",) for error in exc.errors()):
+                raise HTTPException(
+                    status_code=422,
+                    detail="original_url must be a valid HTTP(S) URL of at most "
+                    f"{MAX_CONTENT_URL_LENGTH} characters after normalization",
+                ) from exc
+            raise
 
     @staticmethod
     def build_event_metadata_json(

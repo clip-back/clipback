@@ -260,6 +260,35 @@ edits/deletions cannot be losslessly merged back into shared categories, so down
 is explicitly refused; rollback requires restoring the pre-migration backup and old
 application together. Validate this data migration on a backup before production.
 
+## Content URL Length
+
+`POST /api/v1/contents` accepts HTTP(S) URLs up to 2,048 characters in
+`original_url`. The limit applies to the serialized URL after URL encoding and
+normalization, matching `contents.original_url VARCHAR(2048)`. For example, a
+short Korean path can exceed the limit after percent encoding. OpenAPI exposes
+`maxLength: 2048`; oversized input returns `422` before metadata extraction.
+
+Instagram host/path normalization and metadata redirect results are checked too.
+A final URL longer than 2,048 characters returns `422` without creating content,
+tags, events, or a summary job, and without calling category recommendation. URLs
+are never truncated or replaced with the original short redirect URL. Metadata
+extraction failure does not bypass URL validation.
+
+`POST /api/v1/contents/share` keeps the existing limits: `url` accepts up to 2,048
+characters and `raw_text` up to 5,000. A URL extracted from `raw_text` is checked
+after Instagram/YouTube normalization, so a long tracking query can still be
+accepted when the normalized URL fits. Shared `url` input remains subject to its
+input limit even if normalization could shorten it. Screenshots may still omit
+`original_url`. No database migration or response shape change is required.
+
+Local verification on 2026-09-22: 540 tests passed on Python 3.12 with PostgreSQL
+17 (34 added); Ruff, compileall, and empty-database `alembic upgrade head` /
+`alembic check` passed. The existing Starlette/httpx deprecation warning remains.
+The API regression reproduced a `500` for a 2,050-character URL before the fix.
+External metadata was stubbed; live sites, Railway, real devices, and the local
+Docker deployment check were not exercised. Remote CI results are reported on
+the PR separately.
+
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
