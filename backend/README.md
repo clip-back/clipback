@@ -199,12 +199,59 @@ optional JSON body:
   exposure is required, and batch dates do not expire referrals. Successful retries
   do not revalidate changed/deleted categories while the content still exists.
 - Views never record recommendation exposures or update recommendation counters.
-  Recommendation generation and exposure endpoints are separate future stages.
+  Weekly generation and exposure endpoints are separate future stages.
 
 All save routes also record sorted, unique category IDs from the final saved
 content, including the actual `미분류` ID when assigned. Later classification or
 deletion preserves this snapshot. Historical `NULL` means unknown; `[]` means no
 categories at collection. Save-request deduplication is not implemented.
+
+## Today Recommendations
+
+`GET /api/v1/recommendations/today` requires Bearer authentication. Successful
+requests return `200` with `Cache-Control: no-store`. The user, KST date, and maximum
+of five items are determined by the server; there is no refresh or date override.
+
+```json
+{
+  "stage": 0,
+  "recommendation_date": "2026-09-24",
+  "batch_id": null,
+  "generated_at": null,
+  "items": []
+}
+```
+
+Each item contains `recommendation_item_id`, its original `rank`, and `content`
+using the existing `ContentRead` response. Scores are stored internally. Use the
+item ID as `recommendation_item_id` in a detail-entry view request.
+
+- Stage is based on current owned content rows: 0–4 gives Stage 0 (hidden), 5–9
+  Stage 1 (priority ordering), and 10+ Stage 2 (weighted sampling). Summary status
+  does not exclude saved content, and multiple categories do not multiply counts.
+- Stage 1 prefers content without an actual exposure yesterday in KST, then
+  never-viewed content, the oldest last view, and the most recent save. Exact ties
+  are random; yesterday-exposed content fills remaining slots. No time exclusion
+  or category cap applies at Stage 1.
+- Stage 2 applies the agreed view/save/exposure filters, scores, top candidate pool,
+  and weighted sampling without replacement. It first allows at most two per
+  category, including uncategorized, then relaxes that cap within the same pool.
+  The draw order is stored as rank. See the
+  [recommendation plan](../docs/content-recommendation-plan.md) for exact thresholds.
+- The first nonempty result is fixed for that KST date. Zero initial candidates
+  leave `batch_id` null and are reevaluated next time. Once created, the batch,
+  item IDs, ranks, scores, and generation timestamp remain fixed.
+- Deleted items are omitted without replacement or renumbering. Even if all items
+  are deleted, the existing batch metadata remains. Views, favorites, and category
+  changes update card details without reselection. Stage 0 returns empty items
+  while retaining any existing batch metadata; returning to five contents that
+  day reuses that batch. Stage 1/2 transitions also preserve the current batch.
+- First generation serializes per user, locks candidate content while reading its
+  categories, and stores batch and items atomically. After waiting for content
+  locks, it checks the KST date again. Concurrent new saves affect later requests'
+  current Stage, but do not refill an already-fixed result.
+- This GET may create the daily batch. It does not record views or exposures and
+  does not update their counters. Exposure collection is a later stage.
 
 ## Category Summaries
 
