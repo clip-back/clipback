@@ -1,7 +1,19 @@
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,6 +31,10 @@ class ContentEventType(StrEnum):
 
 class ContentEvent(Base):
     __tablename__ = "content_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_event_id", name="uq_content_events_user_client_event"),
+        Index("ix_content_events_user_type_time", "user_id", "event_type", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -44,6 +60,11 @@ class ContentEvent(Base):
     )
     metadata_json: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    client_event_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    category_ids_at_event: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+    recommendation_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recommendation_batch_items.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     content = relationship("Content", back_populates="events")
     category = relationship("Category")

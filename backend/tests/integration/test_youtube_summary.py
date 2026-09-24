@@ -83,7 +83,9 @@ async def test_complete_flow(api, worker, shared, database_connection, external_
     events = (
         (
             await database_connection.execute(
-                select(ContentEvent.event_type).where(ContentEvent.user_id == user["id"])
+                select(ContentEvent.event_type)
+                .where(ContentEvent.user_id == user["id"])
+                .order_by(ContentEvent.id)
             )
         )
         .scalars()
