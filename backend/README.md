@@ -251,7 +251,62 @@ item ID as `recommendation_item_id` in a detail-entry view request.
   locks, it checks the KST date again. Concurrent new saves affect later requests'
   current Stage, but do not refill an already-fixed result.
 - This GET may create the daily batch. It does not record views or exposures and
-  does not update their counters. Exposure collection is a later stage.
+  does not update their counters. Record actual card displays with the exposure POST.
+
+## Recommendation Exposures
+
+`POST /api/v1/recommendations/exposures` requires Bearer authentication and one
+card per request. Send a new UUID for each card displayed on a new home visit;
+reuse that UUID for rerenders and retries within the same visit. Frontend display
+tracking is not connected yet (stage 6).
+
+```json
+{
+  "client_event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "recommendation_item_id": 123
+}
+```
+
+Both fields are required. The item ID must be a JSON integer from 1 through
+2,147,483,647; strings, booleans, fractions, missing/null bodies, and extra fields
+return `422`. User, target, surface, rank, score, and timestamp come from the server.
+
+New events and identical retries return `201` with `Cache-Control: no-store`:
+
+```json
+{
+  "exposure_id": 456,
+  "client_event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "recommendation_item_id": 123,
+  "recommended_at": "2026-09-24T06:00:00Z"
+}
+```
+
+- The server validates the owned batch and live target: Today content or Weekly
+  category only. Missing, inaccessible, or deleted targets return `404`; an
+  accessible item with an invalid type combination returns `422`. Old batches,
+  current Stage 0, and still-owned empty categories remain valid.
+- The same user/UUID/item returns the original response without recounting, even
+  after target deletion. Reusing the UUID for another item returns `409` before
+  target validation. Different users may reuse UUIDs. View and exposure UUIDs
+  have independent namespaces; neither event requires the other first.
+- `recommended_at` is server UTC time captured after target locking. Delayed
+  requests count when processed, not at a client-provided display time.
+- A new content exposure increments `recommendation_count` and sets
+  `last_recommended_at` and `last_recommended_surface` in the same transaction.
+  Category exposures only create history and never mark member content exposed.
+  Views, saved/viewed totals, and existing daily recommendation items are unchanged.
+- Same-user requests serialize with `FOR NO KEY UPDATE`, then lock the actual
+  content for update or category for key share. UUID uniqueness and atomic commit
+  prevent double counting; failures roll back the event and aggregate together.
+- Weekly category collection is supported with existing item IDs; Weekly selection
+  is stage 5. No new migration, frontend integration, or deployment is included.
+
+Local verification on 2026-09-24: Python 3.12.7 / PostgreSQL 17.7, **787 tests
+passed**, including 70 new exposure tests and independent-connection lock checks.
+Ruff, compileall, empty-database upgrade, Alembic check, and Git diff checks passed.
+The existing Starlette/httpx deprecation warning remains. Remote CI, Docker,
+production deployment, and actual frontend visibility tracking were not tested.
 
 ## Category Summaries
 

@@ -2,8 +2,8 @@
 
 - 작성일: 2026-09-24
 - 작업 브랜치: `feature/content-recommendation`
-- 코드 확인 기준: `8caeb67`에서 분기, 2단계 커밋 `545326a` 위에 3단계 구현
-- 현재 상태: 1~3단계 구현 및 로컬 검증 완료, 4~7단계 미착수
+- 코드 확인 기준: `8caeb67`에서 분기, 3단계 커밋 `ebd2bb6` 위에 4단계 구현
+- 현재 상태: 1~4단계 구현 및 로컬 검증 완료, 5~7단계 미착수
 
 ## 1. 목적과 범위
 
@@ -20,8 +20,8 @@
 PUSH 발송, CATEGORY_RANDOM 전용 기능, 관리자 설정 화면, ML 모델, 콘텐츠 상태 체계 신설은 범위에 포함하지 않는다.
 
 2~7절은 합의한 제품 동작이다. 8절의 DB 구조는 1단계, 저장·열람 수집과 view POST 확장은
-2단계에서 구현했다. Today 선정·일별 조회는 3단계에서 구현했으며,
-Weekly 선정·조회, 노출 API와 프론트 연동은 아직 구현 전 설계안이다.
+2단계에서 구현했다. Today 선정·일별 조회는 3단계, 콘텐츠·카테고리 노출 수집은 4단계에서
+구현했다. Weekly 선정·조회와 프론트 연동은 아직 구현 전 설계안이다.
 
 ## 2. 추천 대상과 시간 기준
 
@@ -89,6 +89,9 @@ YouTube 비동기 분류 완료, 사용자 분류 변경, 카테고리 삭제에
 
 따라서 `recommendation_count`는 일별 고유 추천 횟수가 아니라 중복 전송을 제거한 실제 노출 횟수다.
 노출 기록과 집계 필드 변경은 하나의 트랜잭션으로 처리한다.
+노출 시각은 실제 대상 잠금을 얻은 뒤의 서버 UTC 시각이다. 클라이언트 시각은 받지 않으므로
+지연 전송은 서버에서 처리한 시간대에 포함된다. 같은 사용자·UUID·항목의 재시도는 최초 응답을
+반환한다. 대상 삭제 후에도 성공한 재시도는 유지하지만 새 UUID로 삭제된 대상을 기록하면 404다.
 
 ## 4. Today 선정
 
@@ -242,34 +245,46 @@ Weekly의 반환 결과도 노출·열람과 연결하고 서버에서 검증할
 `ShareIntakeService`, `UploadService`, `SummaryWorker`는 공통 수집과 과거 기록 보존을 검증할 경로다.
 
 파일 구성은 다음과 같다. 추천 모델은 1단계, 추천 항목의 소유권 조회는 2단계,
-Today 선정·배치 저장·조회 API는 3단계에 추가했다. Weekly와 노출 처리는 후속 구성안이다.
+Today 선정·배치 저장·조회 API는 3단계, 노출 수집은 4단계에 추가했다. Weekly는 후속 구성안이다.
 
 | 파일 | 역할 |
 | --- | --- |
 | `backend/app/core/recommendation_config.py` | 추천 가중치·기간·개수·시간대 상수 |
 | `backend/app/models/recommendation.py` | 추천 배치·항목·노출 모델 |
-| `backend/app/repositories/recommendation_repository.py` | 항목 소유권·Today 배치·전날 콘텐츠 노출 조회. 후속: 노출 기록·Weekly 집계 |
+| `backend/app/repositories/recommendation_repository.py` | 항목 소유권·Today 배치·전날 콘텐츠 노출 조회·UUID별 노출 삽입/조회. 후속: Weekly 집계 |
 | `backend/app/services/recommendation_selection.py` | 시각·난수를 주입하는 순수 Today 선정·점수 계산 |
-| `backend/app/services/recommendation_service.py` | Today 당일 유지·트랜잭션·최신 카드 조회. 후속: Weekly·노출 처리 |
-| `backend/app/schemas/recommendation.py` | Today 후보·선정 결과·응답. 후속: Weekly 응답·노출 요청 |
-| `backend/app/api/v1/endpoints/recommendations.py` | Today 조회 API. 후속: Weekly 조회·노출 API |
+| `backend/app/services/recommendation_service.py` | Today 당일 유지·최신 카드 조회, 노출 중복 방지·원자적 집계. 후속: Weekly |
+| `backend/app/schemas/recommendation.py` | Today 후보·선정 결과·응답, 노출 요청·응답. 후속: Weekly 응답 |
+| `backend/app/api/v1/endpoints/recommendations.py` | Today 조회·노출 POST API. 후속: Weekly 조회 |
 
 ## 9. API·프론트 연동 계획
 
-Today 조회는 3단계 범위다. Weekly 조회·노출 경로는 후속 구현안이며,
-기존 view POST의 이벤트 ID·추천 유입 확장은 2단계 범위다.
+Today 조회는 3단계, 노출 POST는 4단계에서 구현했다. Weekly 조회는 후속 구현안이며,
+기존 view POST의 이벤트 ID·추천 유입 확장은 2단계에서 구현했다.
 
 | 구분 | API | 계약 |
 | --- | --- | --- |
 | 신규 | `GET /api/v1/recommendations/today` | 현재 Stage, 기준 날짜, 배치 ID, 순서가 있는 콘텐츠 목록. 미생성 빈 결과와 기존 배치의 빈 결과를 구별 |
 | 신규 | `GET /api/v1/recommendations/weekly` | 카드 유형, 카테고리 정보, 추천 결과 식별정보. 0~2개 |
-| 신규 | `POST /api/v1/recommendations/exposures` | 이벤트 ID, 추천 결과·대상 식별정보를 받아 실제 노출 기록 |
+| 신규 | `POST /api/v1/recommendations/exposures` | 필수 UUID와 추천 항목 ID로 노출 기록, 재시도 중복 방지 |
 | 확장 | `POST /api/v1/contents/{id}/view` | 상세 진입 이벤트 ID와 선택적 추천 유입 정보 수신 |
 
 Today 성공 응답은 200과 `Cache-Control: no-store`를 사용한다. 응답은 현재 `stage`,
 KST `recommendation_date`, nullable `batch_id`·`generated_at`, 최대 5개의 `items`다.
 각 항목은 `recommendation_item_id`, 최초 `rank`, 기존 `ContentRead` 형식의 최신 `content`를
 포함하며 점수는 공개하지 않는다. 삭제 후 남은 순위는 다시 매기지 않는다.
+
+노출 POST에는 `client_event_id` UUID와 `recommendation_item_id` JSON 정수(1~2,147,483,647)가
+필수다. 본문 없음·`null`·빈 객체·잘못된 값·미정의 필드는 422다. 인증된 사용자와 실제
+항목→배치에서 대상·추천 위치·순위·점수를 결정하며 클라이언트 시각이나 대상 ID를 받지 않는다.
+신규·재시도 모두 201·`Cache-Control: no-store`와
+`{exposure_id, client_event_id, recommendation_item_id, recommended_at}`을 반환한다.
+
+같은 사용자·UUID·항목은 최초 응답을 반환하고 다른 항목에 UUID를 재사용하면 대상 검증보다
+먼저 409다. UUID는 사용자별·이벤트 테이블별로 독립적이다. 신규 노출은 본인 배치·실제 대상의
+소유권을 확인하고 Today 콘텐츠/Weekly 카테고리 조합만 허용한다. 접근 불가·삭제는 404,
+접근 가능한 항목의 유형 불일치는 422다. 배치 날짜·현재 Stage·빈 카테고리 여부로 만료시키지 않는다.
+열람과 노출은 서로 선행 조건이 없으며 기존 당일 선정 결과를 변경하지 않는다.
 
 사용자는 인증에서 결정한다. 대상 소유권과 추천 결과·대상의 일치를 서버에서 검증한다.
 추천 점수·순위는 클라이언트가 임의 제출한 값을 신뢰하지 않는다.
@@ -308,7 +323,7 @@ Weekly 카테고리는 현재 소속이어야 한다. 접근 불가·삭제 대�
 | 1 | DB·마이그레이션·집계 초기화 | 빈 DB 및 기존 데이터 적용, 기존 열람 수 초기화, 미확인 과거 분류 유지, 제약·삭제 호환 | 완료 — 로컬 검증, 원격 CI 미실행 |
 | 2 | 저장·열람 이벤트 수집 확장 | 모든 저장 경로의 실제 복수 분류, 반복 진입과 재시도 구분, 롤백·누적 통계 유지 | 완료 — 로컬 검증, 원격 CI 미실행 |
 | 3 | Today 선정·일별 배치·조회 API | Stage 경계, 점수·필터·추첨, 일별 유지·삭제·복귀, 동시 배치 생성 | 완료 — 로컬 검증, 원격 CI 미실행 |
-| 4 | 콘텐츠·카테고리 노출 기록 API | 실제 노출만 집계, 재시도·동시 요청 중복 방지, 열람과 분리, 사용자 격리 | 미착수 |
+| 4 | 콘텐츠·카테고리 노출 기록 API | 실제 노출만 집계, 재시도·동시 요청 중복 방지, 열람과 분리, 사용자 격리 | 완료 — 로컬 검증, 원격 CI 미실행 |
 | 5 | Weekly 집계·카드·조회 API | 7일 경계, 고유 열람·분류 이동·삭제, 동점·중복·재발견·빈 결과 | 미착수 |
 | 6 | 프론트 연동 | 실제 표시·진입, 재렌더·재시도, 카드 유형, 당일 삭제·갱신 동작 | 미착수 |
 | 7 | 통합 검증·문서·배포 확인 | 전체 회귀, DB migration·CI, 배포 후 저장·노출·열람 흐름을 각각 확인 | 미착수 |
@@ -371,6 +386,17 @@ Weekly 카테고리는 현재 소속이어야 한다. 접근 불가·삭제 대�
 - 동시성은 실제 DB 잠금 대기를 확인했다. 같은 사용자 배치 하나·다른 사용자 독립 처리, 삭제·열람·분류 변경의 양쪽 잠금 순서, 자정 통과, 선정 이후 신규 저장의 다음 요청 Stage 반영을 검증했다.
 - Python 3.12.7 및 격리 PostgreSQL 17.7에서 전체 **717개 테스트 통과**(88개 추가, DB 테스트 생략 없음). 빈 DB `alembic upgrade head`, `alembic check`, Ruff, compileall, Git diff 검사를 통과했다. 기존 Starlette/httpx 경고 1건은 남아 있다.
 - 신규 마이그레이션·노출 수집·Weekly·프론트 변경은 없다. 노출 기반 선정은 fixture로 검증했으며 실제 노출 수집은 4단계에 구현한다. 원격 CI·Docker·운영 배포·실기기 검증은 실행하지 않았다.
+
+### 4단계 완료 기록 — 2026-09-24
+
+- 인증된 노출 POST에 필수 UUID·추천 항목 ID 검증, 신규/재시도 201 응답과 캐시 금지를 추가했다. 본인 배치·실제 대상 소유권, Today 콘텐츠/Weekly 카테고리 조합을 검증한다.
+- 같은 사용자·UUID·항목은 삭제 후에도 최초 응답을 반환하고 다른 항목이면 409다. 새 UUID로 삭제된 대상은 404다. 과거 배치·Stage 0·빈 카테고리는 현재 대상이 본인 소유로 존재하면 허용한다.
+- 사용자 `FOR NO KEY UPDATE`→콘텐츠 `FOR UPDATE` 또는 카테고리 `FOR KEY SHARE` 순서로 잠근다. 대상 잠금 후 서버 UTC 시각을 확정하고 DB 유일 제약으로 노출을 삽입한다. 신규 콘텐츠 노출만 추천 횟수·시각·위치를 함께 커밋하며 카테고리 노출은 소속 콘텐츠를 잠그거나 갱신하지 않는다.
+- API 통합 43개, 실제 노출 POST→Today 연동 6개, PostgreSQL 독립 연결 동시성 21개를 추가했다. 삭제·분류/이름 변경 후 재시도, DB 충돌 경로, 사용자 격리, 열람 분리, 삽입·집계·커밋 실패 롤백을 검증했다.
+- 실제 DB 잠금 대기로 동일/다른 UUID, 다른 배치의 같은 콘텐츠, 사용자 독립, 삭제·열람·Today의 양쪽 실행 순서, 잠금 이후 시각, 최초 실패 후 대기 요청 성공을 확인했다. Stage 1 전날 경계·Stage 2 72시간 경계/R 점수·카테고리 비영향·당일 배치 유지는 실제 노출 POST로 검증했다.
+- Python 3.12.7 및 격리 PostgreSQL 17.7에서 전체 **787개 테스트 통과**(70개 추가, DB 테스트 생략 없음). Ruff·compileall, 별도 빈 DB `alembic upgrade head`·`alembic check`, Git diff 검사를 통과했다. 기존 Starlette/httpx 경고 1건은 남아 있다.
+- 최초 전체 실행은 별도 동시성 테스트와 DB를 공유해 기존 업로드 테스트의 전역 행 수 검사가 실패했다. 생성 데이터 정리를 확인한 뒤 전체 검증 전용 DB에서 단독 실행해 통과했다. 공용 테이블 초기화나 기존 테스트 변경은 하지 않았다.
+- 신규 마이그레이션·Weekly 선정·프론트 변경은 없다. 카테고리 추천 항목은 fixture로 검증했다. 5~7단계는 미착수이며 원격 CI·Docker·운영 배포·실기기 검증은 실행하지 않았다.
 
 ### 운영 반영 경계
 

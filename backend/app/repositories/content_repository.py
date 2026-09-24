@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
+from app.models.recommendation import RecommendationType
 from app.models.tag import Tag
 from app.schemas.feed import FeedCursor
 from app.schemas.recommendation import TodayCandidate
@@ -210,6 +211,15 @@ class ContentRepository:
     async def mark_viewed(self, content: Content, *, viewed_at: datetime) -> Content:
         content.open_count += 1
         content.last_viewed_at = viewed_at
+        await self.session.flush()
+        return content
+
+    async def mark_recommended(
+        self, content: Content, *, recommended_at: datetime, surface: RecommendationType
+    ) -> Content:
+        content.recommendation_count += 1
+        content.last_recommended_at = recommended_at
+        content.last_recommended_surface = surface
         await self.session.flush()
         return content
 

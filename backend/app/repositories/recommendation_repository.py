@@ -1,6 +1,8 @@
 from datetime import date, datetime
+from uuid import UUID
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
@@ -35,6 +37,36 @@ class RecommendationRepository:
                 RecommendationBatch.type == RecommendationType.TODAY,
                 RecommendationBatch.recommendation_date == recommendation_date,
             )
+        )
+
+    async def get_exposure_by_client_event_id(
+        self, *, user_id: int, client_event_id: UUID
+    ) -> RecommendationExposure | None:
+        return await self.session.scalar(
+            select(RecommendationExposure).where(
+                RecommendationExposure.user_id == user_id,
+                RecommendationExposure.client_event_id == client_event_id,
+            )
+        )
+
+    async def create_exposure_once(
+        self,
+        *,
+        user_id: int,
+        client_event_id: UUID,
+        recommendation_item_id: int,
+        recommended_at: datetime,
+    ) -> RecommendationExposure | None:
+        return await self.session.scalar(
+            insert(RecommendationExposure)
+            .values(
+                user_id=user_id,
+                client_event_id=client_event_id,
+                recommendation_item_id=recommendation_item_id,
+                recommended_at=recommended_at,
+            )
+            .on_conflict_do_nothing(constraint="uq_recommendation_exposures_user_client_event")
+            .returning(RecommendationExposure)
         )
 
     async def list_content_items(

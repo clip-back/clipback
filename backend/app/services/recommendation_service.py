@@ -2,10 +2,24 @@ import random
 from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
 
+from fastapi import HTTPException
+
+from app.core.exceptions import InvalidStateError, NotFoundError
 from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
+from app.models.recommendation import (
+    RecommendationExposure,
+    RecommendationTargetKind,
+    RecommendationType,
+)
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.recommendation_repository import RecommendationRepository
-from app.schemas.recommendation import TodayRecommendationItem, TodayRecommendationResponse
+from app.schemas.recommendation import (
+    RecommendationExposureCreate,
+    RecommendationExposureRead,
+    TodayRecommendationItem,
+    TodayRecommendationResponse,
+)
 from app.services.content_service import content_to_read
 from app.services.recommendation_selection import get_stage, select_today
 
@@ -27,6 +41,85 @@ class RecommendationService:
         self.recommendation_repository = recommendation_repository
         self.clock = clock or utc_now
         self.rng = rng or random.Random()
+
+    async def record_exposure(
+        self, user_id: int, payload: RecommendationExposureCreate
+    ) -> RecommendationExposureRead:
+        repository = self.recommendation_repository
+        try:
+            await repository.lock_user(user_id)
+            exposure = await repository.get_exposure_by_client_event_id(
+                user_id=user_id, client_event_id=payload.client_event_id
+            )
+            if exposure is not None:
+                self._validate_exposure_retry(exposure, payload.recommendation_item_id)
+            else:
+                result = await repository.get_owned_item(
+                    user_id=user_id, item_id=payload.recommendation_item_id
+                )
+                if result is None:
+                    raise NotFoundError("Recommendation item not found")
+                item, batch_type = result
+                if item.content_id is None and item.category_id is None:
+                    raise NotFoundError("Recommendation target not found")
+                if (batch_type, item.target_kind) not in {
+                    (RecommendationType.TODAY, RecommendationTargetKind.CONTENT),
+                    (RecommendationType.WEEKLY_PICK, RecommendationTargetKind.CATEGORY),
+                }:
+                    raise HTTPException(
+                        status_code=422, detail="Invalid recommendation target kind"
+                    )
+
+                # Lock the target before inserting its item's FK, matching deletion's order.
+                content = None
+                if item.target_kind == RecommendationTargetKind.CONTENT:
+                    content = await self.content_repository.get_owned(
+                        user_id=user_id, content_id=item.content_id, for_update=True
+                    )
+                    if content is None:
+                        raise NotFoundError("Recommendation target not found")
+                else:
+                    category = await CategoryRepository(repository.session).get_owned_for_key_share(
+                        user_id, item.category_id
+                    )
+                    if category is None:
+                        raise NotFoundError("Recommendation target not found")
+
+                recommended_at = self.clock().astimezone(UTC)
+                exposure = await repository.create_exposure_once(
+                    user_id=user_id,
+                    client_event_id=payload.client_event_id,
+                    recommendation_item_id=payload.recommendation_item_id,
+                    recommended_at=recommended_at,
+                )
+                if exposure is None:
+                    exposure = await repository.get_exposure_by_client_event_id(
+                        user_id=user_id, client_event_id=payload.client_event_id
+                    )
+                    self._validate_exposure_retry(exposure, payload.recommendation_item_id)
+                elif content is not None:
+                    await self.content_repository.mark_recommended(
+                        content, recommended_at=recommended_at, surface=batch_type
+                    )
+
+            response = RecommendationExposureRead(
+                exposure_id=exposure.id,
+                client_event_id=exposure.client_event_id,
+                recommendation_item_id=exposure.recommendation_item_id,
+                recommended_at=exposure.recommended_at,
+            )
+            await repository.session.commit()
+            return response
+        except Exception:
+            await repository.session.rollback()
+            raise
+
+    @staticmethod
+    def _validate_exposure_retry(
+        exposure: RecommendationExposure | None, recommendation_item_id: int
+    ) -> None:
+        if exposure is None or exposure.recommendation_item_id != recommendation_item_id:
+            raise InvalidStateError("Event ID is already used for a different request")
 
     async def read_today(self, user_id: int) -> TodayRecommendationResponse:
         repository = self.recommendation_repository
