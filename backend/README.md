@@ -155,7 +155,8 @@ the database without contacting social providers.
 - Deleting content preserves these counts: its events remain with a null `content_id`.
 - No recorded events returns `0` for both fields. Other event types do not count.
 - Reading content detail does not record a view. A successful
-  `POST /api/v1/contents/{id}/view` records one; separately recorded retries count too.
+  `POST /api/v1/contents/{id}/view` records one. Requests with the same client event
+  ID count once; legacy requests without a body count on every call.
 - Historical content without recorded events is not backfilled or estimated. There
   are no period, category, favorite, or pagination parameters.
 
@@ -166,6 +167,44 @@ endpoint does not create events.
 Existing guest accounts and authentication endpoints remain supported. Social-only
 sign-up is a separate follow-up; this change does not remove guest data or require a
 migration.
+
+## Content View Events
+
+`POST /api/v1/contents/{id}/view` requires Bearer authentication and accepts an
+optional JSON body:
+
+```json
+{
+  "client_event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "recommendation_item_id": 123
+}
+```
+
+- A supplied object requires a UUID `client_event_id`; `recommendation_item_id`
+  is an optional JSON integer from 1 to 2,147,483,647. Empty objects, invalid values, and unknown
+  fields return `422`. No body or JSON `null` keeps the legacy behavior.
+- Use a new UUID for each real detail entry and reuse it for retries of that entry.
+  The same user, UUID, content, and recommendation item return the same `201`
+  response without changing the event, snapshot, count, or timestamp. Reusing the
+  UUID with different request content returns `409`. Different users may reuse a UUID.
+- The response remains `{"content_id": 123, "event_type": "content_reopened"}`.
+  Deleted or unowned content returns `404`, including retries.
+- New views atomically record all current category IDs, increment `open_count`,
+  and set `last_viewed_at` to the event's UTC timestamp. Legacy calls also collect
+  these values, but cannot distinguish retries from new entries.
+- Recommendation items must belong to the caller's batch and reference an owned
+  live target: a Today content item must match the content; a Weekly category item
+  must match one of its current categories. Missing, inaccessible, or deleted
+  targets return `404`; type or target mismatches return `422`. No previous
+  exposure is required, and batch dates do not expire referrals. Successful retries
+  do not revalidate changed/deleted categories while the content still exists.
+- Views never record recommendation exposures or update recommendation counters.
+  Recommendation generation and exposure endpoints are separate future stages.
+
+All save routes also record sorted, unique category IDs from the final saved
+content, including the actual `미분류` ID when assigned. Later classification or
+deletion preserves this snapshot. Historical `NULL` means unknown; `[]` means no
+categories at collection. Save-request deduplication is not implemented.
 
 ## Category Summaries
 

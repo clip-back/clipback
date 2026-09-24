@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,7 @@ from app.schemas.content import (
     ContentSource,
     ContentTagUpdate,
     ContentType,
+    ContentViewCreate,
 )
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
@@ -73,6 +75,7 @@ class FakeContentRepository:
             assets=[],
             saved_at=datetime.now(UTC),
             last_viewed_at=None,
+            open_count=0,
         )
         self.contents[content.id] = content
         self.created_categories = categories
@@ -88,8 +91,11 @@ class FakeContentRepository:
             return None
         return content
 
-    async def mark_viewed(self, content: SimpleNamespace) -> SimpleNamespace:
-        content.last_viewed_at = datetime.now(UTC)
+    async def mark_viewed(
+        self, content: SimpleNamespace, *, viewed_at: datetime,
+    ) -> SimpleNamespace:
+        content.last_viewed_at = viewed_at
+        content.open_count += 1
         return content
 
     async def set_favorite(
@@ -195,15 +201,61 @@ class FakeEventRepository:
         event_type: ContentEventType,
         content_id: int | None = None,
         metadata_json: str | None = None,
+        client_event_id: UUID | None = None,
+        category_ids_at_event: list[int] | None = None,
+        recommendation_item_id: int | None = None,
+        created_at: datetime | None = None,
     ) -> SimpleNamespace:
         event = SimpleNamespace(
+            id=len(self.events) + 1,
             user_id=user_id,
             event_type=event_type,
             content_id=content_id,
             metadata_json=metadata_json,
+            client_event_id=client_event_id,
+            category_ids_at_event=category_ids_at_event,
+            recommendation_item_id=recommendation_item_id,
+            created_at=created_at or datetime.now(UTC),
         )
         self.events.append(event)
         return event
+
+    async def get_by_client_event_id(
+        self, *, user_id: int, client_event_id: UUID,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                event
+                for event in self.events
+                if event.user_id == user_id and event.client_event_id == client_event_id
+            ),
+            None,
+        )
+
+    async def create_reopened_once(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        client_event_id: UUID,
+        category_ids_at_event: list[int],
+        recommendation_item_id: int | None,
+        created_at: datetime,
+    ) -> SimpleNamespace | None:
+        existing = await self.get_by_client_event_id(
+            user_id=user_id, client_event_id=client_event_id,
+        )
+        if existing is not None:
+            return None
+        return await self.create(
+            user_id=user_id,
+            content_id=content_id,
+            event_type=ContentEventType.CONTENT_REOPENED,
+            client_event_id=client_event_id,
+            category_ids_at_event=category_ids_at_event,
+            recommendation_item_id=recommendation_item_id,
+            created_at=created_at,
+        )
 
 
 class FakeTagRepository:
@@ -288,6 +340,7 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
         assets=[],
         saved_at=datetime.now(UTC),
         last_viewed_at=None,
+        open_count=0,
     )
 
 
@@ -313,6 +366,8 @@ async def test_create_content_links_available_categories_and_records_event() -> 
     assert [category.id for category in content_repository.created_categories] == [2, 1]
     assert [category.id for category in result.categories] == [1, 2]
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
+    assert len(event_repository.events) == 1
+    assert event_repository.events[0].category_ids_at_event == [1, 2]
     assert json.loads(event_repository.events[0].metadata_json) == {
         "category_assignment_method": "user",
         "recommended_category_id": None,
@@ -395,7 +450,7 @@ async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> No
 @pytest.mark.asyncio
 async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -> None:
     uncategorized = category(9, "미분류", is_default=True)
-    service, content_repository, _ = build_service(uncategorized=uncategorized)
+    service, content_repository, event_repository = build_service(uncategorized=uncategorized)
 
     result = await service.create_content(
         user_id=1,
@@ -405,6 +460,7 @@ async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -
     assert [category.name for category in result.categories] == ["미분류"]
     assert content_repository.contents[1].title == "저장한 콘텐츠"
     assert content_repository.contents[1].summary == "요약 정보가 아직 없습니다."
+    assert event_repository.events[0].category_ids_at_event == [uncategorized.id]
 
 
 @pytest.mark.asyncio
@@ -455,6 +511,7 @@ async def test_create_content_uses_ai_recommendation_and_revalidates_category() 
     )
 
     assert content_repository.created_categories == [recommended]
+    assert event_repository.events[0].category_ids_at_event == [recommended.id]
     assert recommendation_service.calls == 1
     assert json.loads(event_repository.events[0].metadata_json) == {
         "category_assignment_method": "ai",
@@ -484,6 +541,7 @@ async def test_create_content_falls_back_when_recommended_category_disappears() 
     )
 
     assert content_repository.created_categories == [uncategorized]
+    assert event_repository.events[0].category_ids_at_event == [uncategorized.id]
     metadata = json.loads(event_repository.events[0].metadata_json)
     assert metadata["category_assignment_method"] == "uncategorized"
     assert metadata["recommended_category_id"] == 2
@@ -634,6 +692,7 @@ async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
     assert result.assets[0].mime_type == "image/png"
     assert content_repository.created_assets[0].storage_key == "screenshots/1/image.png"
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
+    assert event_repository.events[0].category_ids_at_event == [2]
     assert content_repository.session.committed is True
 
 
@@ -1151,15 +1210,65 @@ async def test_delete_content_rejects_other_user_content() -> None:
 
 @pytest.mark.asyncio
 async def test_record_view_updates_content_and_records_event() -> None:
-    service, content_repository, event_repository = build_service(contents=[content(1)])
+    existing = content(1)
+    existing.categories = [category(3, "여행"), category(1, "취업")]
+    service, content_repository, event_repository = build_service(contents=[existing])
 
     result = await service.record_view(user_id=1, content_id=1)
 
     assert result.content_id == 1
     assert result.event_type == ContentEventType.CONTENT_REOPENED.value
-    assert content_repository.contents[1].last_viewed_at is not None
+    assert existing.open_count == 1
+    assert existing.last_viewed_at is not None
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_REOPENED
+    assert event_repository.events[0].category_ids_at_event == [1, 3]
+    assert event_repository.events[0].created_at == existing.last_viewed_at
+    assert (1, 1, True) in content_repository.owned_requests
     assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_views_count_each_entry_and_keep_category_snapshots() -> None:
+    existing = content(1)
+    service, _, events = build_service(contents=[existing])
+
+    await service.record_view(user_id=1, content_id=1)
+    first_time = events.events[0].created_at
+    existing.categories = [category(3, "여행")]
+    await service.record_view(user_id=1, content_id=1)
+
+    assert existing.open_count == 2
+    assert [event.category_ids_at_event for event in events.events] == [[1], [3]]
+    assert events.events[0].created_at == first_time
+    assert existing.last_viewed_at == events.events[1].created_at
+    assert all(event.client_event_id is None for event in events.events)
+
+
+@pytest.mark.asyncio
+async def test_view_retry_preserves_first_snapshot_until_a_new_entry() -> None:
+    existing = content(1)
+    service, _, events = build_service(contents=[existing])
+    payload = ContentViewCreate(client_event_id=uuid4())
+
+    first = await service.record_view(user_id=1, content_id=1, payload=payload)
+    first_time = existing.last_viewed_at
+    existing.categories = [category(3, "여행")]
+    retried = await service.record_view(user_id=1, content_id=1, payload=payload)
+
+    assert retried == first
+    assert existing.open_count == 1
+    assert existing.last_viewed_at == first_time
+    assert len(events.events) == 1
+    assert events.events[0].category_ids_at_event == [1]
+    assert events.events[0].created_at == first_time
+
+    await service.record_view(
+        user_id=1, content_id=1, payload=ContentViewCreate(client_event_id=uuid4()),
+    )
+
+    assert existing.open_count == 2
+    assert [event.category_ids_at_event for event in events.events] == [[1], [3]]
+    assert existing.last_viewed_at == events.events[1].created_at
 
 
 @pytest.mark.asyncio

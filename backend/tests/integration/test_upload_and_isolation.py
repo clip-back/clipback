@@ -13,11 +13,16 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.parametrize("ocr_fails", [False, True])
+@pytest.mark.parametrize("manual_categories", [False, True])
 async def test_image_storage_download_and_delete(
-    api, external_responses, png_bytes, tmp_path, ocr_fails
+    api, external_responses, png_bytes, tmp_path, ocr_fails, manual_categories, database_connection
 ):
-    headers, _, _ = await guest(api)
+    headers, _, user = await guest(api)
     external_responses.ocr_fails = ocr_fails
+    selected_ids = []
+    if manual_categories:
+        categories = await request(api, "GET", "categories", headers=headers)
+        selected_ids = sorted(c["id"] for c in categories if c["name"] != "미분류")[:2]
     content = await request(
         api,
         "POST",
@@ -25,13 +30,25 @@ async def test_image_storage_download_and_delete(
         headers=headers,
         status=201,
         files={"file": ("screen.png", png_bytes, "image/png")},
+        data={"category_ids": selected_ids} if manual_categories else {},
     )
     assert content["title"] == ("저장한 콘텐츠" if ocr_fails else "화면 제목")
     assert content["summary"] == ("요약 정보가 아직 없습니다." if ocr_fails else "화면 요약")
-    if ocr_fails:
+    if manual_categories:
+        assert [c["id"] for c in content["categories"]] == selected_ids
+    elif ocr_fails:
         assert [c["name"] for c in content["categories"]] == ["미분류"]
     else:
         assert content["categories"][0]["name"] != "미분류"
+    saved = (
+        await database_connection.execute(
+            select(ContentEvent.id, ContentEvent.category_ids_at_event).where(
+                ContentEvent.user_id == user["id"],
+                ContentEvent.event_type == "content_created",
+            )
+        )
+    ).one()
+    assert saved.category_ids_at_event == sorted(c["id"] for c in content["categories"])
     asset_url = content["assets"][0]["download_url"]
     downloaded = await api.get(asset_url, headers=headers)
     assert downloaded.status_code == 200 and downloaded.content == png_bytes
@@ -41,6 +58,15 @@ async def test_image_storage_download_and_delete(
     await request(api, "DELETE", f"contents/{content['id']}", headers=headers, status=204)
     assert (await api.get(asset_url, headers=headers)).status_code == 404
     assert not any(p.is_file() for p in tmp_path.rglob("*"))
+    deleted = (
+        await database_connection.execute(
+            select(ContentEvent.content_id, ContentEvent.category_ids_at_event).where(
+                ContentEvent.id == saved.id,
+            )
+        )
+    ).one()
+    assert deleted.content_id is None
+    assert deleted.category_ids_at_event == saved.category_ids_at_event
 
 
 async def test_two_users_cannot_access_or_change_each_others_data(api, png_bytes):

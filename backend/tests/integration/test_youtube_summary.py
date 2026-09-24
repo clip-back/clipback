@@ -81,17 +81,16 @@ async def test_complete_flow(api, worker, shared, database_connection, external_
     page = await request(api, "GET", "feed", headers=headers)
     assert page["items"][0]["summary_status"] == "completed"
     events = (
-        (
-            await database_connection.execute(
-                select(ContentEvent.event_type)
-                .where(ContentEvent.user_id == user["id"])
-                .order_by(ContentEvent.id)
-            )
+        await database_connection.execute(
+            select(ContentEvent.event_type, ContentEvent.category_ids_at_event)
+            .where(ContentEvent.user_id == user["id"])
+            .order_by(ContentEvent.id)
         )
-        .scalars()
-        .all()
-    )
-    assert [e.value for e in events] == ["content_created", "category_changed"]
+    ).all()
+    assert [(kind.value, ids) for kind, ids in events] == [
+        ("content_created", [c["id"] for c in content["categories"]]),
+        ("category_changed", None),
+    ]
     assert not await run.run_once() and state.calls == 1
 
 
@@ -117,9 +116,9 @@ async def test_manual_fields_and_category_noop_are_preserved(api, worker):
     assert result["summary_status"] == "completed"
 
 
-async def test_category_deletion_and_initial_manual_selection(api, worker):
+async def test_category_deletion_and_initial_manual_selection(api, worker, database_connection):
     run, state = worker
-    headers, _, _ = await guest(api)
+    headers, _, user = await guest(api)
     categories = await request(api, "GET", "categories", headers=headers)
     category = next(c for c in categories if c["name"] != "미분류")
     content = await save(api, headers, category_ids=[category["id"]])
@@ -130,6 +129,17 @@ async def test_category_deletion_and_initial_manual_selection(api, worker):
     state.action = delete
     await run.run_once()
     assert (await detail(api, headers, content))["categories"][0]["name"] == "미분류"
+    events = (
+        await database_connection.execute(
+            select(ContentEvent.event_type, ContentEvent.category_ids_at_event)
+            .where(ContentEvent.user_id == user["id"])
+            .order_by(ContentEvent.id)
+        )
+    ).all()
+    assert [(kind.value, ids) for kind, ids in events] == [
+        ("content_created", [category["id"]]),
+        ("category_changed", None),
+    ]
 
 
 async def test_content_deleted_during_processing(api, worker, database_connection):

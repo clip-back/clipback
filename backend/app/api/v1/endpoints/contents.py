@@ -18,6 +18,7 @@ from app.schemas.content import (
     ContentShareCreate,
     ContentTagUpdate,
     ContentType,
+    ContentViewCreate,
     ContentViewEvent,
 )
 from app.services.category_recommendation_service import CategoryRecommendationService
@@ -143,10 +144,12 @@ async def record_content_view(
     content_id: int,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
+    payload: ContentViewCreate | None = None,
 ) -> ContentViewEvent:
     return await _build_content_service(db).record_view(
         user_id=current_user_id,
         content_id=content_id,
+        payload=payload,
     )
 
 

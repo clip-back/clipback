@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,8 +151,9 @@ class ContentRepository:
         escaped = escaped.replace("%", "\\%").replace("_", "\\_")
         return f"%{escaped}%"
 
-    async def mark_viewed(self, content: Content) -> Content:
-        content.last_viewed_at = datetime.now(UTC)
+    async def mark_viewed(self, content: Content, *, viewed_at: datetime) -> Content:
+        content.open_count += 1
+        content.last_viewed_at = viewed_at
         await self.session.flush()
         return content
 
