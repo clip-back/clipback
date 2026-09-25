@@ -1,11 +1,12 @@
 import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError, SystemConfigurationError
+from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
 from app.integrations.storage_client import StorageClient
 from app.models.content import (
     Content,
@@ -13,13 +14,15 @@ from app.models.content import (
     ContentType as ModelContentType,
 )
 from app.models.content_asset import AssetType
-from app.models.content_event import ContentEventType
+from app.models.content_event import ContentEvent, ContentEventType
+from app.models.recommendation import RecommendationTargetKind, RecommendationType
 from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.recommendation_repository import RecommendationRepository
 from app.repositories.tag_repository import TagRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
@@ -33,6 +36,7 @@ from app.schemas.content import (
     ContentSource,
     ContentTagUpdate,
     ContentType,
+    ContentViewCreate,
     ContentViewEvent,
 )
 from app.schemas.tag import TagRead
@@ -102,6 +106,7 @@ class ContentService:
         category_recommendation_service: CategoryRecommendationService | None = None,
         tag_repository: TagRepository | None = None,
         storage_client: StorageClient | None = None,
+        recommendation_repository: RecommendationRepository | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -110,6 +115,9 @@ class ContentService:
         self.category_recommendation_service = category_recommendation_service
         self.tag_repository = tag_repository
         self.storage_client = storage_client
+        self.recommendation_repository = recommendation_repository or RecommendationRepository(
+            content_repository.session
+        )
 
     async def create_content(
         self,
@@ -232,6 +240,7 @@ class ContentService:
                 content_id=content.id,
                 event_type=ContentEventType.CONTENT_CREATED,
                 metadata_json=event_metadata_json,
+                category_ids_at_event=sorted({category.id for category in content.categories}),
             )
             created_content = await self.content_repository.get_owned(
                 user_id=user_id,
@@ -425,27 +434,96 @@ class ContentService:
 
         return response
 
-    async def record_view(self, user_id: int, content_id: int) -> ContentViewEvent:
-        content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)
-        if content is None:
-            raise NotFoundError("Content not found")
-
+    async def record_view(
+        self, user_id: int, content_id: int, payload: ContentViewCreate | None = None
+    ) -> ContentViewEvent:
+        recommendation_item_id = payload.recommendation_item_id if payload else None
         try:
-            await self.content_repository.mark_viewed(content)
-            await self.event_repository.create(
-                user_id=user_id,
-                content_id=content.id,
-                event_type=ContentEventType.CONTENT_REOPENED,
+            content = await self.content_repository.get_owned(
+                user_id=user_id, content_id=content_id, for_update=True
             )
+            if content is None:
+                raise NotFoundError("Content not found")
+            existing = (
+                await self.event_repository.get_by_client_event_id(
+                    user_id=user_id, client_event_id=payload.client_event_id
+                )
+                if payload else None
+            )
+            if existing is not None:
+                self._validate_view_retry(existing, content_id, recommendation_item_id)
+            else:
+                if recommendation_item_id is not None:
+                    await self._validate_view_recommendation(content, recommendation_item_id)
+                viewed_at = datetime.now(UTC)
+                event_values = {
+                    "user_id": user_id,
+                    "content_id": content.id,
+                    "category_ids_at_event": sorted(
+                        {category.id for category in content.categories}
+                    ),
+                    "recommendation_item_id": recommendation_item_id,
+                    "created_at": viewed_at,
+                }
+                if payload is None:
+                    event = await self.event_repository.create(
+                        **event_values, event_type=ContentEventType.CONTENT_REOPENED
+                    )
+                else:
+                    event = await self.event_repository.create_reopened_once(
+                        **event_values, client_event_id=payload.client_event_id
+                    )
+                    if event is None:
+                        existing = await self.event_repository.get_by_client_event_id(
+                            user_id=user_id, client_event_id=payload.client_event_id
+                        )
+                        self._validate_view_retry(existing, content_id, recommendation_item_id)
+                if event is not None:
+                    await self.content_repository.mark_viewed(content, viewed_at=viewed_at)
             await self.content_repository.session.commit()
         except Exception:
             await self.content_repository.session.rollback()
             raise
 
         return ContentViewEvent(
-            content_id=content.id,
+            content_id=content_id,
             event_type=ContentEventType.CONTENT_REOPENED.value,
         )
+
+    @staticmethod
+    def _validate_view_retry(
+        event: ContentEvent | None, content_id: int, recommendation_item_id: int | None
+    ) -> None:
+        if (
+            event is None
+            or event.event_type != ContentEventType.CONTENT_REOPENED
+            or event.content_id != content_id
+            or event.recommendation_item_id != recommendation_item_id
+        ):
+            raise InvalidStateError("Event ID is already used for a different request")
+
+    async def _validate_view_recommendation(
+        self, content: Content, recommendation_item_id: int
+    ) -> None:
+        result = await self.recommendation_repository.get_owned_item(
+            user_id=content.user_id, item_id=recommendation_item_id
+        )
+        if result is None:
+            raise NotFoundError("Recommendation item not found")
+        item, batch_type = result
+        if item.content_id is None and item.category_id is None:
+            raise NotFoundError("Recommendation target not found")
+        if (
+            batch_type == RecommendationType.TODAY
+            and item.target_kind == RecommendationTargetKind.CONTENT
+            and item.content_id == content.id
+        ) or (
+            batch_type == RecommendationType.WEEKLY_PICK
+            and item.target_kind == RecommendationTargetKind.CATEGORY
+            and item.category_id in {category.id for category in content.categories}
+        ):
+            return
+        raise HTTPException(status_code=422, detail="Recommendation does not match content")
 
     async def _recommend_category(
         self,

@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 from app.schemas.category import CategoryRead
 from app.schemas.tag import TagNamesPayload, TagRead
@@ -106,6 +107,15 @@ class ContentRead(BaseModel):
     is_favorite: bool = False
     saved_at: datetime
     last_viewed_at: datetime | None = None
+
+
+class ContentViewCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_event_id: UUID
+    recommendation_item_id: int | None = Field(
+        default=None, gt=0, le=2_147_483_647, strict=True
+    )
 
 
 class ContentViewEvent(BaseModel):

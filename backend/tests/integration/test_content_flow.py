@@ -12,11 +12,17 @@ pytestmark = pytest.mark.asyncio
 async def test_direct_shared_and_fallback_storage(api, external_responses, database_connection):
     headers, _, user = await guest(api)
     categories = await request(api, "GET", "categories", headers=headers)
-    personal = next(c for c in categories if c["name"] != "미분류")
-    direct = await link(api, headers, category_ids=[personal["id"]], tag_names=["직접 태그"])
+    personal, second = [c for c in categories if c["name"] != "미분류"][:2]
+    selected_ids = sorted([personal["id"], second["id"]])
+    direct = await link(
+        api,
+        headers,
+        category_ids=[second["id"], personal["id"], second["id"]],
+        tag_names=["직접 태그"],
+    )
     assert external_responses.ai_calls == 0
     assert direct["title"] == "통합 제목" and direct["summary"] == "통합 설명"
-    assert [c["id"] for c in direct["categories"]] == [personal["id"]]
+    assert [c["id"] for c in direct["categories"]] == selected_ids
     assert [t["name"] for t in direct["tags"]] == ["직접 태그"]
     shared = await request(
         api,
@@ -43,11 +49,17 @@ async def test_direct_shared_and_fallback_storage(api, external_responses, datab
                 ContentEvent.content_id,
                 ContentEvent.event_type,
                 ContentEvent.metadata_json,
+                ContentEvent.category_ids_at_event,
             ).where(ContentEvent.user_id == user["id"])
         )
     ).all()
     assert {r.content_id for r in rows} == {direct["id"], shared["id"], fallback["id"]}
     assert len(rows) == 3 and all(r.event_type.value == "content_created" for r in rows)
+    snapshots = {r.content_id: r.category_ids_at_event for r in rows}
+    assert snapshots == {
+        content["id"]: sorted(c["id"] for c in content["categories"])
+        for content in [direct, shared, fallback]
+    }
     metadata = {r.content_id: json.loads(r.metadata_json) for r in rows}
     assert metadata[direct["id"]]["category_assignment_method"] == "user"
     assert metadata[shared["id"]]["category_assignment_method"] == "ai"
@@ -144,6 +156,19 @@ async def test_category_changes_keep_summaries_and_events_consistent(api, databa
             "after_category_ids": [second["id"]],
         },
         {"before_category_ids": [second["id"]], "after_category_ids": [unclassified]},
+    ]
+    snapshots = (
+        await database_connection.execute(
+            select(ContentEvent.event_type, ContentEvent.category_ids_at_event)
+            .where(ContentEvent.user_id == user["id"])
+            .order_by(ContentEvent.id)
+        )
+    ).all()
+    assert [(event_type.value, ids) for event_type, ids in snapshots] == [
+        ("content_created", [first["id"]]),
+        ("category_changed", None),
+        ("category_changed", None),
+        ("category_changed", None),
     ]
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,

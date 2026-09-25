@@ -169,6 +169,14 @@ class CategoryRepository:
             select(Category).where(Category.id == category_id, Category.user_id == user_id)
         )
 
+    async def get_owned_for_key_share(self, user_id: int, category_id: int) -> Category | None:
+        return await self.session.scalar(
+            select(Category)
+            .where(Category.id == category_id, Category.user_id == user_id)
+            .with_for_update(read=True, key_share=True)
+            .execution_options(populate_existing=True)
+        )
+
     async def delete_owned(self, user_id: int, category_id: int) -> None:
         await self.session.execute(
             delete(Category).where(Category.id == category_id, Category.user_id == user_id)

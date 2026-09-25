@@ -1,13 +1,24 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, false, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    Text,
+    false,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.types import enum_values
 from app.models.content_category import content_categories
 from app.models.content_tag import content_tags
+from app.models.recommendation import RecommendationType
 
 
 class ContentSource(StrEnum):
@@ -26,6 +37,10 @@ class ContentType(StrEnum):
 
 class Content(Base):
     __tablename__ = "contents"
+    __table_args__ = (
+        CheckConstraint("open_count >= 0", name="ck_contents_open_count"),
+        CheckConstraint("recommendation_count >= 0", name="ck_contents_recommendation_count"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -60,6 +75,21 @@ class Content(Base):
     )
     saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    recommendation_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_recommended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_recommended_surface: Mapped[RecommendationType | None] = mapped_column(
+        Enum(
+            RecommendationType,
+            values_callable=enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="content_recommendation_surface",
+        ),
+        nullable=True,
+    )
 
     summary_job = relationship(
         "SummaryJob", uselist=False, cascade="all, delete-orphan", passive_deletes=True
