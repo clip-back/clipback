@@ -93,6 +93,14 @@ class ContentRepository:
             select(func.count()).select_from(Content).where(Content.user_id == user_id)
         )
 
+    async def list_owned_ids_for_share(self, user_id: int) -> list[int]:
+        return list(await self.session.scalars(
+            select(Content.id)
+            .where(Content.user_id == user_id)
+            .order_by(Content.id)
+            .with_for_update(read=True, of=Content)
+        ))
+
     async def list_today_candidates_for_share(self, user_id: int) -> list[TodayCandidate]:
         # Match classification/deletion lock order and hold this snapshot through batch commit.
         rows = (

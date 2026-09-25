@@ -7,10 +7,24 @@ from app.schemas.recommendation import (
     RecommendationExposureCreate,
     RecommendationExposureRead,
     TodayRecommendationResponse,
+    WeeklyRecommendationResponse,
 )
 from app.services.recommendation_service import RecommendationService
 
 router = APIRouter()
+
+
+@router.get("/weekly", response_model=WeeklyRecommendationResponse)
+async def read_weekly(
+    response: Response,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> WeeklyRecommendationResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return await RecommendationService(
+        content_repository=ContentRepository(db),
+        recommendation_repository=RecommendationRepository(db),
+    ).read_weekly(current_user_id)
 
 
 @router.post("/exposures", response_model=RecommendationExposureRead, status_code=201)

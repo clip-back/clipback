@@ -199,7 +199,7 @@ optional JSON body:
   exposure is required, and batch dates do not expire referrals. Successful retries
   do not revalidate changed/deleted categories while the content still exists.
 - Views never record recommendation exposures or update recommendation counters.
-  Weekly generation and exposure endpoints are separate future stages.
+  Weekly generation and exposure collection use the separate recommendation endpoints below.
 
 All save routes also record sorted, unique category IDs from the final saved
 content, including the actual `미분류` ID when assigned. Later classification or
@@ -253,6 +253,72 @@ item ID as `recommendation_item_id` in a detail-entry view request.
 - This GET may create the daily batch. It does not record views or exposures and
   does not update their counters. Record actual card displays with the exposure POST.
 
+## Weekly Recommendations
+
+`GET /api/v1/recommendations/weekly` requires Bearer authentication and returns
+`200` with `Cache-Control: no-store`. Weekly is independent of Today Stage: even
+one saved content can make its owned category eligible. User, period, and the
+maximum of two cards are server-controlled.
+
+```json
+{
+  "period_start": "2026-09-18T15:00:00Z",
+  "period_end": "2026-09-25T06:00:00Z",
+  "batch_id": null,
+  "generated_at": null,
+  "items": []
+}
+```
+
+The half-open period starts at KST midnight six dates before today and ends at
+server UTC time captured after content locking. It is neither the last 168 hours
+nor a Monday-based week. Each item contains `recommendation_item_id`, `rank`,
+`card_type`, and `category` in the existing `CategorySummaryRead` format
+(`id`, `name`, `color`, `is_default`, `content_count`, `last_saved_at`). The category
+count and last save describe current holdings, not period activity. Scores,
+activity counts, and ready-made copy are not returned.
+
+- Every GET reevaluates current data and creates a new `WEEKLY_PICK` batch with
+  a null recommendation date when at least one card is selected. `generated_at`
+  equals `period_end`. Empty results create no batch. Retrying GET can produce
+  new cards and IDs; previous batches and their referral/exposure IDs are retained.
+- Eligible categories are owned, not uncategorized, and contain current owned
+  content. Summary-job status does not exclude content. Deleted content's activity
+  is excluded; currently empty or deleted categories cannot become cards.
+- Saves count `content_created` event rows; views count distinct content IDs per
+  category. Both use `category_ids_at_event` only, including multiple categories
+  once each. NULL/empty arrays have no category activity; later classification
+  never reassigns past events. Repeated views can update the last activity time.
+- Choose one `MOST_SAVED`, then one `MOST_VIEWED` from remaining categories.
+  Each ranking uses activity count, latest event time, current content count,
+  then random choice among exact ties. Actual behavior cards precede fallback;
+  view-only activity gives `MOST_VIEWED` rank 1.
+- Fill remaining places with distinct `REDISCOVERY` categories. Prefer those
+  without a category-card exposure in the same period, uniformly at random.
+  Otherwise prefer the oldest per-category **last** exposure; exact ties are
+  random. Content exposures and generated batches are not category exposures.
+- User `FOR NO KEY UPDATE`, then content IDs in ascending `FOR SHARE` order keep
+  current holdings and historical aggregation consistent. All content aggregates
+  use the captured IDs. Saves committed after this capture enter the next request.
+  Empty responses also commit; failures roll back the whole new batch and items.
+- GET does not change events, counters, or saved/viewed totals. Use returned item
+  IDs for exposure POST and view POST of a currently matching category member.
+  The frontend must retain item IDs within a home visit and reuse them for exposure
+  retries; it must not fetch a replacement Weekly batch for the same retry.
+
+Frontend integration remains stage 6. This change adds no migration or deployment.
+
+Local validation on 2026-09-25 used Python 3.12.7 and isolated PostgreSQL 17.7:
+**857 tests passed**, with no PostgreSQL skips (70 new: 31 selection, 20 API and
+aggregation, 19 independent-connection concurrency cases). Concurrency tests
+observe real lock waits, including classification/deletion/view/exposure ordering,
+new saves excluded until the next request, midnight rollover, and rollback recovery.
+The full suite ran in its own database; a separate empty database passed
+`alembic upgrade head` and `alembic check`. Ruff, compileall, and `git diff --check`
+passed. External AI/OCR/metadata were replaced and the YouTube worker disabled.
+One existing Starlette/httpx deprecation warning remains. Remote CI, Docker,
+frontend/device behavior, and production deployment were not validated in this run.
+
 ## Recommendation Exposures
 
 `POST /api/v1/recommendations/exposures` requires Bearer authentication and one
@@ -299,8 +365,8 @@ New events and identical retries return `201` with `Cache-Control: no-store`:
 - Same-user requests serialize with `FOR NO KEY UPDATE`, then lock the actual
   content for update or category for key share. UUID uniqueness and atomic commit
   prevent double counting; failures roll back the event and aggregate together.
-- Weekly category collection is supported with existing item IDs; Weekly selection
-  is stage 5. No new migration, frontend integration, or deployment is included.
+- Weekly category collection accepts the item IDs returned by the Weekly GET.
+  No new migration, frontend integration, or deployment is included.
 
 Local verification on 2026-09-24: Python 3.12.7 / PostgreSQL 17.7, **787 tests
 passed**, including 70 new exposure tests and independent-connection lock checks.

@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.recommendation import RecommendationCardType
+from app.schemas.category import CategorySummaryRead
 from app.schemas.content import ContentRead
 
 
@@ -25,6 +27,22 @@ class TodaySelection:
     score: float | None
 
 
+@dataclass(frozen=True)
+class WeeklyCandidate:
+    category: CategorySummaryRead
+    saved_count: int = 0
+    last_saved_event_at: datetime | None = None
+    viewed_count: int = 0
+    last_viewed_event_at: datetime | None = None
+    last_exposed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class WeeklySelection:
+    category_id: int
+    card_type: RecommendationCardType
+
+
 class TodayRecommendationItem(BaseModel):
     recommendation_item_id: int
     rank: int
@@ -37,6 +55,21 @@ class TodayRecommendationResponse(BaseModel):
     batch_id: int | None
     generated_at: datetime | None
     items: list[TodayRecommendationItem]
+
+
+class WeeklyRecommendationItem(BaseModel):
+    recommendation_item_id: int
+    rank: int
+    card_type: RecommendationCardType
+    category: CategorySummaryRead
+
+
+class WeeklyRecommendationResponse(BaseModel):
+    period_start: datetime
+    period_end: datetime
+    batch_id: int | None
+    generated_at: datetime | None
+    items: list[WeeklyRecommendationItem]
 
 
 class RecommendationExposureCreate(BaseModel):

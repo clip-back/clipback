@@ -8,7 +8,7 @@ Clipback의 제품 이벤트는 `content_events`에 append-only로 저장한다.
 `content_created`와 `content_reopened`는 백엔드 도메인 흐름에서 기록하므로 metrics API로
 전송하지 않는다. `category_changed`도 콘텐츠 분류 변경·카테고리 삭제 시 서버가 기록한다.
 
-2026-09-24 로컬 코드 기준 이벤트 저장과 사용자별 누적 통계 API는 구현되어 있다.
+2026-09-25 로컬 코드 기준 이벤트 저장과 사용자별 누적 통계 API는 구현되어 있다.
 `GET /api/v1/users/me/stats`는 기간 제한 없이 저장·반복 열람 이벤트를 세며, 상세 GET은
 열람을 기록하지 않는다. view POST에 UUID를 보내면 같은 사용자의 동일 요청 재시도는
 한 번만 센다. 새 상세 진입에는 새 UUID를 사용한다. 본문 없음 또는 JSON `null`로 호출하는
@@ -19,7 +19,8 @@ Clipback의 제품 이벤트는 `content_events`에 append-only로 저장한다.
 당시 분류 미확인, 빈 배열은 수집 당시 분류 없음이다. 복수 분류여도 본 이벤트는 한 행이며
 아래 누적 집계에 카테고리 배열을 펼쳐 중복 계산하지 않는다.
 열람의 `recommendation_item_id`는 검증된 추천 유입이며 노출 증거는 아니다.
-추천 노출은 별도 `recommendation_exposures`에 저장한다. Weekly 선정·집계는 후속 단계다.
+추천 노출은 별도 `recommendation_exposures`에 저장한다. Weekly는 당시 카테고리별 행동을
+집계하고 조회마다 새 배치·항목을 저장하지만 이벤트나 카운터는 증가시키지 않는다.
 Today 조회는 당일 최초 비어 있지 않은 배치만 저장하며 이벤트·노출·열람/추천 카운터를
 늘리지 않는다. 추천 항목 ID를 연결한 실제 view POST는 기존 열람 이벤트 집계에 포함된다.
 
@@ -59,6 +60,70 @@ WHERE exposure.user_id = batch.user_id
 GROUP BY exposure.user_id, batch.type, item.target_kind, item.target_id_snapshot;
 ```
 
+
+## Weekly 카테고리 행동 집계
+
+Weekly는 KST 오늘을 포함한 7개 날짜의 첫날 00시부터 잠금 이후 서버 현재 시각까지의
+`[start_at, end_at)`을 사용한다. 저장은 이벤트 행 수, 열람은 카테고리별 고유 콘텐츠 수다.
+반복 열람은 수를 늘리지 않지만 최근 열람 시각에 반영된다. 현재 관계는 보유 수와 빈 카테고리
+판별에만 사용하며 과거 이벤트는 배열 스냅샷으로 연결한다. NULL·빈 배열은 활동 없음이다.
+분류를 이동한 콘텐츠도 현재 존재하면 과거 카테고리에서 집계하며, 그 카테고리가 현재 비어
+있으면 후보에서 제외한다. 삭제된 콘텐츠와 타 사용자 데이터는 집계하지 않는다.
+
+아래 SQL은 단일 조회 시점의 분석 예시다. 실제 서비스는 사용자·콘텐츠 잠금을 먼저 획득하고
+모든 콘텐츠 집계에 확보한 ID 집합을 적용해 도중에 저장된 콘텐츠가 섞이지 않도록 한다.
+
+```sql
+WITH eligible AS (
+    SELECT category.id, COUNT(content.id) AS content_count,
+           MAX(content.saved_at) AS last_saved_at
+    FROM categories AS category
+    JOIN content_categories AS relation ON relation.category_id = category.id
+    JOIN contents AS content ON content.id = relation.content_id
+    WHERE category.user_id = :user_id
+      AND content.user_id = :user_id
+      AND category.name <> '미분류'
+    GROUP BY category.id
+), activity AS (
+    SELECT category.id,
+           COUNT(event.id) FILTER (WHERE event.event_type = 'content_created') AS saved_count,
+           COUNT(DISTINCT event.content_id)
+               FILTER (WHERE event.event_type = 'content_reopened') AS viewed_count,
+           MAX(event.created_at)
+               FILTER (WHERE event.event_type = 'content_created') AS last_saved_event_at,
+           MAX(event.created_at)
+               FILTER (WHERE event.event_type = 'content_reopened') AS last_viewed_event_at
+    FROM eligible AS category
+    JOIN content_events AS event ON category.id = ANY(event.category_ids_at_event)
+    JOIN contents AS content ON content.id = event.content_id
+    WHERE event.user_id = :user_id
+      AND content.user_id = :user_id
+      AND event.event_type IN ('content_created', 'content_reopened')
+      AND event.created_at >= :start_at AND event.created_at < :end_at
+    GROUP BY category.id
+)
+SELECT eligible.*, COALESCE(activity.saved_count, 0) AS saved_count,
+       COALESCE(activity.viewed_count, 0) AS viewed_count,
+       activity.last_saved_event_at, activity.last_viewed_event_at
+FROM eligible
+LEFT JOIN activity USING (id);
+```
+
+저장·열람 순위는 행동 수→최근 해당 이벤트 시각→현재 보유 수→완전 동점 랜덤이다.
+반환 순서는 MOST_SAVED→MOST_VIEWED→REDISCOVERY이며 각 카테고리는 한 번만 선정한다.
+행동이 없는 자리는 재발견으로 채운다. 재발견은 같은 기간에 본인 Weekly 카테고리 카드 노출이
+없는 후보를 우선하고, 모두 노출됐다면 카테고리별 `MAX(recommended_at)`이 가장 오래된 후보를
+선정한다. 원본 노출과 행동 행을 직접 함께 조인해 집계 건수를 부풀리지 않는다.
+
+Weekly 조회는 저장·열람·노출 이벤트나 누적 통계를 갱신하지 않는다. 프론트는 같은 홈 방문의
+추천 항목 ID를 유지해 실제 노출 재전송에 사용한다. 조회 재시도로 새 배치가 만들어져도
+그 자체를 노출로 세지 않는다.
+
+2026-09-25 로컬 Python 3.12.7·격리 PostgreSQL 17.7에서 전체 857개 테스트가 통과했다.
+신규 70개는 순수 선정 31개·API/집계 20개·독립 연결 동시성 19개이며, 스냅샷·중복 배열·
+삭제·사용자 격리·조회 무집계를 확인했다. 위 Weekly SQL도 별도 검증 DB에서 실행했다.
+Ruff·compileall·빈 DB upgrade/check·Git diff 검사를 통과했다. 프론트 실제 전송·원격 CI·
+실기기·운영 검증은 포함하지 않는다.
 
 ## 사용자별 저장 수와 최초 저장
 

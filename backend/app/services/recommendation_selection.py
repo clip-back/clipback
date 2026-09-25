@@ -4,7 +4,13 @@ from math import ceil
 from random import Random
 
 from app.core import recommendation_config as config
-from app.schemas.recommendation import TodayCandidate, TodaySelection
+from app.models.recommendation import RecommendationCardType
+from app.schemas.recommendation import (
+    TodayCandidate,
+    TodaySelection,
+    WeeklyCandidate,
+    WeeklySelection,
+)
 
 
 def get_stage(content_count: int) -> int:
@@ -113,4 +119,48 @@ def select_today(
         candidate, score = chosen
         category_counts.update(set(candidate.category_ids))
         selected.append(TodaySelection(content_id=candidate.id, score=score))
+    return selected
+
+
+def select_weekly(candidates: list[WeeklyCandidate], *, rng: Random) -> list[WeeklySelection]:
+    remaining = list(candidates)
+    selected = []
+    rankings = (
+        (
+            RecommendationCardType.MOST_SAVED,
+            lambda candidate: (
+                candidate.saved_count,
+                candidate.last_saved_event_at,
+                candidate.category.content_count,
+            ),
+        ),
+        (
+            RecommendationCardType.MOST_VIEWED,
+            lambda candidate: (
+                candidate.viewed_count,
+                candidate.last_viewed_event_at,
+                candidate.category.content_count,
+            ),
+        ),
+    )
+    for card_type, rank in rankings:
+        active = [candidate for candidate in remaining if rank(candidate)[0] > 0]
+        if not active:
+            continue
+        highest = max(rank(candidate) for candidate in active)
+        tied = [candidate for candidate in active if rank(candidate) == highest]
+        chosen = rng.choice(tied) if len(tied) > 1 else tied[0]
+        selected.append(WeeklySelection(category_id=chosen.category.id, card_type=card_type))
+        remaining.remove(chosen)
+
+    while remaining and len(selected) < config.WEEKLY_ITEM_COUNT:
+        tied = [candidate for candidate in remaining if candidate.last_exposed_at is None]
+        if not tied:
+            oldest = min(candidate.last_exposed_at for candidate in remaining)
+            tied = [candidate for candidate in remaining if candidate.last_exposed_at == oldest]
+        chosen = rng.choice(tied) if len(tied) > 1 else tied[0]
+        selected.append(WeeklySelection(
+            category_id=chosen.category.id, card_type=RecommendationCardType.REDISCOVERY
+        ))
+        remaining.remove(chosen)
     return selected

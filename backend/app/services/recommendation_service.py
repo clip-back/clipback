@@ -5,7 +5,7 @@ from datetime import UTC, datetime, time, timedelta
 from fastapi import HTTPException
 
 from app.core.exceptions import InvalidStateError, NotFoundError
-from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
+from app.core.recommendation_config import RECOMMENDATION_TIMEZONE, WEEKLY_WINDOW_DAYS
 from app.models.recommendation import (
     RecommendationExposure,
     RecommendationTargetKind,
@@ -19,9 +19,11 @@ from app.schemas.recommendation import (
     RecommendationExposureRead,
     TodayRecommendationItem,
     TodayRecommendationResponse,
+    WeeklyRecommendationItem,
+    WeeklyRecommendationResponse,
 )
 from app.services.content_service import content_to_read
-from app.services.recommendation_selection import get_stage, select_today
+from app.services.recommendation_selection import get_stage, select_today, select_weekly
 
 
 def utc_now() -> datetime:
@@ -120,6 +122,53 @@ class RecommendationService:
     ) -> None:
         if exposure is None or exposure.recommendation_item_id != recommendation_item_id:
             raise InvalidStateError("Event ID is already used for a different request")
+
+    async def read_weekly(self, user_id: int) -> WeeklyRecommendationResponse:
+        repository = self.recommendation_repository
+        try:
+            await repository.lock_user(user_id)
+            content_ids = await self.content_repository.list_owned_ids_for_share(user_id)
+            now = self.clock().astimezone(UTC)
+            start_date = now.astimezone(RECOMMENDATION_TIMEZONE).date() - timedelta(
+                days=WEEKLY_WINDOW_DAYS - 1
+            )
+            start = datetime.combine(
+                start_date, time.min, tzinfo=RECOMMENDATION_TIMEZONE
+            ).astimezone(UTC)
+            candidates = await repository.list_weekly_candidates(
+                user_id=user_id, content_ids=content_ids, start=start, end=now
+            )
+            selections = select_weekly(candidates, rng=self.rng)
+            batch = None
+            items = []
+            if selections:
+                batch, saved_items = await repository.create_weekly_batch(
+                    user_id=user_id, generated_at=now, selections=selections
+                )
+                category_by_id = {
+                    candidate.category.id: candidate.category for candidate in candidates
+                }
+                items = [
+                    WeeklyRecommendationItem(
+                        recommendation_item_id=item.id,
+                        rank=item.rank,
+                        card_type=item.card_type,
+                        category=category_by_id[item.category_id],
+                    )
+                    for item in saved_items
+                ]
+            response = WeeklyRecommendationResponse(
+                period_start=start,
+                period_end=now,
+                batch_id=batch.id if batch is not None else None,
+                generated_at=batch.generated_at if batch is not None else None,
+                items=items,
+            )
+            await repository.session.commit()
+            return response
+        except Exception:
+            await repository.session.rollback()
+            raise
 
     async def read_today(self, user_id: int) -> TodayRecommendationResponse:
         repository = self.recommendation_repository
