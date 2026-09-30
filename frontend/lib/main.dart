@@ -15,12 +15,12 @@ void main() {
 }
 
 typedef SaveLinkCallback =
-    Future<void> Function({
+    Future<ContentItem> Function({
       required String url,
       required CategoryItem category,
     });
 typedef SaveScreenshotCallback =
-    Future<void> Function({
+    Future<ContentItem> Function({
       required Uint8List bytes,
       required String filename,
       required CategoryItem category,
@@ -37,7 +37,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   final _api = ClipbackApi();
   final _sessionStorage = ApiSessionStorage();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
-  AppRoute _route = AppRoute.splash;
+  AppRoute _route = AppRoute.home;
   AppRoute _previousRoute = AppRoute.home;
   int _archiveTab = 0;
   bool _bookmarkedFirst = false;
@@ -49,7 +49,6 @@ class _ClipbackAppState extends State<ClipbackApp> {
   late final List<ContentItem> _contents;
   late final Set<String> _bookmarkedIds;
   AppUser _user = defaultUser;
-  bool _sessionReady = false;
   String? _apiConnectionError;
 
   @override
@@ -74,9 +73,23 @@ class _ClipbackAppState extends State<ClipbackApp> {
           return;
         } catch (_) {
           _api.clearSession();
-          await _sessionStorage.clear();
+          try {
+            await _sessionStorage.clear();
+          } catch (_) {
+            // A stale browser storage entry must not block guest access.
+          }
         }
       }
+    } catch (_) {
+      _api.clearSession();
+      try {
+        await _sessionStorage.clear();
+      } catch (_) {
+        // Guest access remains available even when browser storage is unavailable.
+      }
+    }
+
+    try {
       final guestSession = await _api.createGuestSession();
       try {
         await _sessionStorage.write(guestSession);
@@ -86,7 +99,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
       await _loadRemoteData();
     } catch (error) {
       _api.clearSession();
-      await _sessionStorage.clear();
+      try {
+        await _sessionStorage.clear();
+      } catch (_) {
+        // Retain the connection error even when local cleanup cannot run.
+      }
       if (mounted) {
         setState(() {
           _categories.clear();
@@ -97,7 +114,6 @@ class _ClipbackAppState extends State<ClipbackApp> {
       }
     } finally {
       if (mounted) {
-        setState(() => _sessionReady = true);
         if (_route == AppRoute.splash) _finishSplash();
         final errorMessage = _apiConnectionError;
         if (errorMessage != null) {
@@ -115,8 +131,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _finishSplash() {
-    if (!_sessionReady) return;
-    _go(AppRoute.home);
+    if (_route == AppRoute.splash) _go(AppRoute.home);
   }
 
   Future<void> _continueAsGuest() async {
@@ -286,46 +301,64 @@ class _ClipbackAppState extends State<ClipbackApp> {
     });
   }
 
-  Future<void> _addLinkContent({
-    required String url,
-    required CategoryItem category,
-  }) async {
+  Future<void> _ensureGuestSessionForSave() async {
+    if (_api.hasSession) return;
+    final session = await _api.createGuestSession();
     try {
-      final content = await _api.createContent(
-        originalUrl: url,
-        categoryIds: category.id == null ? const [] : [category.id!],
-        tagNames: [category.name],
-      );
-      final item = _contentFromApi(content, _categoryById);
-      if (!mounted) return;
-      _addContent(item);
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      _showError(error.message);
-      rethrow;
+      await _sessionStorage.write(session);
+    } catch (_) {
+      // Saving can continue with the in-memory guest session.
     }
   }
 
-  Future<void> _addScreenshotContent({
+  Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
+    await _ensureGuestSessionForSave();
+    try {
+      return await request();
+    } on ClipbackApiException catch (error) {
+      if (error.statusCode != 401) rethrow;
+      _api.clearSession();
+      await _ensureGuestSessionForSave();
+      return request();
+    }
+  }
+
+  Future<ContentItem> _addLinkContent({
+    required String url,
+    required CategoryItem category,
+  }) async {
+    final content = await _runSaveRequest(
+      () => _api.createContent(
+        originalUrl: url,
+        categoryIds: category.id == null ? const [] : [category.id!],
+        tagNames: [category.name],
+      ),
+    );
+    final item = _contentFromApi(content, _categoryById);
+    if (!mounted) return item;
+    _addContent(item);
+    await _refreshRemoteAfterContentChange();
+    return item;
+  }
+
+  Future<ContentItem> _addScreenshotContent({
     required Uint8List bytes,
     required String filename,
     required CategoryItem category,
   }) async {
-    try {
-      final content = await _api.uploadScreenshot(
+    final content = await _runSaveRequest(
+      () => _api.uploadScreenshot(
         bytes: bytes,
         filename: filename,
         categoryIds: category.id == null ? const [] : [category.id!],
         tagNames: [category.name],
-      );
-      final item = _contentFromApi(content, _categoryById);
-      if (!mounted) return;
-      _addContent(item);
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      _showError(error.message);
-      rethrow;
-    }
+      ),
+    );
+    final item = _contentFromApi(content, _categoryById);
+    if (!mounted) return item;
+    _addContent(item);
+    await _refreshRemoteAfterContentChange();
+    return item;
   }
 
   void _addCategory(CategoryItem category) {
@@ -912,6 +945,7 @@ class Assets {
   static const photoSelect = 'assets/icons/photo-select.svg';
   static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';
   static const savedPhotoPreview = 'assets/figma/saved-photo-preview.png';
+  static const saveLinkPreview = 'assets/figma/save-link-preview.png';
   static const categoryCardFolder = 'assets/icons/category-card-folder.svg';
   static const categoryCardStar = 'assets/icons/category-card-star.svg';
   static const categoryCardStarSmall =
@@ -1028,62 +1062,7 @@ class DesignStatusBar extends StatelessWidget {
   const DesignStatusBar({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 21),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Expanded(
-              child: Center(
-                child: Text(
-                  '9:41',
-                  style: TextStyle(
-                    color: Color(0xFF1D2734),
-                    fontFamily: 'SF Pro',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    height: 22 / 17,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 124, height: 10),
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SvgPicture.asset(
-                    Assets.statusCellular,
-                    width: 19.2,
-                    height: 12.226,
-                    fit: BoxFit.fill,
-                  ),
-                  const SizedBox(width: 7),
-                  SvgPicture.asset(
-                    Assets.statusWifi,
-                    width: 17.142,
-                    height: 12.328,
-                    fit: BoxFit.fill,
-                  ),
-                  const SizedBox(width: 7),
-                  SvgPicture.asset(
-                    Assets.statusBattery,
-                    width: 27.328,
-                    height: 13,
-                    fit: BoxFit.fill,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class EntryHomeIndicator extends StatelessWidget {
@@ -6049,7 +6028,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   final _urlController = TextEditingController();
   final _bodyScrollController = ScrollController();
   Timer? _validationTimer;
-  Timer? _extractionTimer;
+  Timer? _saveErrorTimer;
   var _activeTab = 0;
   var _linkStage = SaveFlowStage.editing;
   var _photoStage = SaveFlowStage.editing;
@@ -6057,6 +6036,8 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
   var _isSaving = false;
+  String? _saveError;
+  ContentItem? _savedContent;
 
   @override
   void initState() {
@@ -6070,7 +6051,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   @override
   void dispose() {
     _validationTimer?.cancel();
-    _extractionTimer?.cancel();
+    _saveErrorTimer?.cancel();
     _urlController.dispose();
     _bodyScrollController.dispose();
     super.dispose();
@@ -6111,8 +6092,6 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   void _changeTab(int tab) {
-    final stage = _activeTab == 0 ? _linkStage : _photoStage;
-    if (stage == SaveFlowStage.extracting) return;
     setState(() => _activeTab = tab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
@@ -6122,66 +6101,58 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Future<void> _submit() async {
     final isLink = _activeTab == 0;
     final stage = isLink ? _linkStage : _photoStage;
-    if (stage == SaveFlowStage.extracted) {
-      setState(() => _isSaving = true);
-      try {
-        if (isLink) {
-          await widget.onAddLink(
-            url: _urlController.text.trim(),
-            category: _selectedCategory,
-          );
-        } else {
-          final bytes = _selectedPhotoBytes;
-          final filename = _selectedPhotoFilename;
-          if (bytes == null || filename == null) return;
-          await widget.onAddScreenshot(
-            bytes: bytes,
-            filename: filename,
-            category: _selectedCategory,
-          );
-        }
-        if (mounted) Navigator.of(context, rootNavigator: true).pop();
-      } on ClipbackApiException {
-        if (mounted) {
-          setState(() => _isSaving = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('콘텐츠를 저장하지 못했어요. 다시 시도해 주세요.')),
-          );
-        }
-      } catch (_) {
-        if (mounted) {
-          setState(() => _isSaving = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('콘텐츠를 저장하지 못했어요. 다시 시도해 주세요.')),
-          );
-        }
-      }
-      return;
-    }
-    if (stage != SaveFlowStage.valid) return;
+    if (_isSaving || stage != SaveFlowStage.valid) return;
 
-    setState(() {
+    setState(() => _isSaving = true);
+    try {
+      late final ContentItem savedContent;
       if (isLink) {
-        _linkStage = SaveFlowStage.extracting;
+        savedContent = await widget.onAddLink(
+          url: _urlController.text.trim(),
+          category: _selectedCategory,
+        );
       } else {
-        _photoStage = SaveFlowStage.extracting;
-      }
-    });
-    _extractionTimer?.cancel();
-    _extractionTimer = Timer(const Duration(milliseconds: 1100), () {
-      if (!mounted) return;
-      setState(() {
-        if (isLink) {
-          _linkStage = SaveFlowStage.extracted;
-        } else {
-          _photoStage = SaveFlowStage.extracted;
+        final bytes = _selectedPhotoBytes;
+        final filename = _selectedPhotoFilename;
+        if (bytes == null || filename == null) {
+          setState(() => _isSaving = false);
+          return;
         }
-      });
+        savedContent = await widget.onAddScreenshot(
+          bytes: bytes,
+          filename: filename,
+          category: _selectedCategory,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _savedContent = savedContent;
+          _saveError = null;
+        });
+      }
+    } on ClipbackApiException catch (error) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSaveErrorToast(error.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSaveErrorToast();
+      }
+    }
+  }
+
+  void _showSaveErrorToast([String? message]) {
+    _saveErrorTimer?.cancel();
+    setState(() => _saveError = message ?? '저장하지 못했어요. 다시 시도해 주세요.');
+    _saveErrorTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _saveError = null);
     });
   }
 
   Future<void> _selectPhoto() async {
-    if (_photoStage == SaveFlowStage.extracting) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       withData: true,
@@ -6200,28 +6171,12 @@ class _AddContentSheetState extends State<AddContentSheet> {
     });
   }
 
-  void _changeExtractedCategory() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => CategoryChangeSheet(
-        current: _selectedCategory,
-        categories: widget.categories,
-        onChange: (category) => setState(() => _selectedCategory = category),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final savedContent = _savedContent;
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
-        !_isSaving &&
-        (stage == SaveFlowStage.valid || stage == SaveFlowStage.extracted);
-    final extractionStarted =
-        stage == SaveFlowStage.extracting || stage == SaveFlowStage.extracted;
-    final label = extractionStarted ? '완료' : '허투루에 저장하기';
+        savedContent != null || (!_isSaving && stage == SaveFlowStage.valid);
 
     return ColoredBox(
       color: AppColors.bg,
@@ -6233,7 +6188,6 @@ class _AddContentSheetState extends State<AddContentSheet> {
               color: AppColors.bg,
               child: Column(
                 children: [
-                  const DesignStatusBar(),
                   SaveContentTopBar(onClose: () => Navigator.pop(context)),
                   Row(
                     children: [
@@ -6260,38 +6214,61 @@ class _AddContentSheetState extends State<AddContentSheet> {
                           bottom: 90,
                           child: SingleChildScrollView(
                             controller: _bodyScrollController,
-                            padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
-                            child: _activeTab == 0
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              savedContent == null ? 32 : 80,
+                              16,
+                              24,
+                            ),
+                            child: savedContent != null
+                                ? SavedContentConfirmation(
+                                    content: savedContent,
+                                    originalUrl: _activeTab == 0
+                                        ? _urlController.text.trim()
+                                        : _selectedPhotoFilename ?? '',
+                                    photoBytes: _activeTab == 1
+                                        ? _selectedPhotoBytes
+                                        : null,
+                                  )
+                                : _activeTab == 0
                                 ? LinkSaveBody(
                                     controller: _urlController,
                                     stage: _linkStage,
                                     onChanged: _validateLink,
                                     onClear: _clearLink,
                                     onPaste: _paste,
-                                    selectedCategory: _selectedCategory,
-                                    onChangeCategory: _changeExtractedCategory,
                                   )
                                 : PhotoSaveBody(
                                     stage: _photoStage,
                                     onSelect: _selectPhoto,
                                     photoBytes: _selectedPhotoBytes,
-                                    selectedCategory: _selectedCategory,
-                                    onChangeCategory: _changeExtractedCategory,
                                   ),
                           ),
                         ),
                         Positioned(
                           left: 16,
                           right: 16,
-                          bottom: stage == SaveFlowStage.extracting ? 38 : 66,
+                          bottom: 66,
                           height: 56,
                           child: SaveFlowButton(
-                            label: label,
+                            label: savedContent == null ? '허투루에 저장하기' : '닫기',
                             enabled: enabled,
                             loading: _isSaving,
-                            onPressed: _submit,
+                            onPressed: savedContent == null
+                                ? _submit
+                                : () => Navigator.of(
+                                    context,
+                                    rootNavigator: true,
+                                  ).pop(),
                           ),
                         ),
+                        if (_saveError case final message?)
+                          Positioned(
+                            left: 40,
+                            right: 40,
+                            bottom: 138,
+                            child: SaveErrorToast(message: message),
+                          ),
                         const Positioned(
                           left: 0,
                           right: 0,
@@ -6354,7 +6331,7 @@ class _SaveTab extends StatelessWidget {
   }
 }
 
-enum SaveFlowStage { editing, invalid, valid, extracting, extracted }
+enum SaveFlowStage { editing, invalid, valid }
 
 class SaveContentTopBar extends StatelessWidget {
   const SaveContentTopBar({required this.onClose, super.key});
@@ -6398,8 +6375,6 @@ class LinkSaveBody extends StatelessWidget {
     required this.onChanged,
     required this.onClear,
     required this.onPaste,
-    required this.selectedCategory,
-    required this.onChangeCategory,
     super.key,
   });
 
@@ -6408,13 +6383,9 @@ class LinkSaveBody extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
   final VoidCallback onPaste;
-  final CategoryItem selectedCategory;
-  final VoidCallback onChangeCategory;
 
   @override
   Widget build(BuildContext context) {
-    final locked =
-        stage == SaveFlowStage.extracting || stage == SaveFlowStage.extracted;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -6434,7 +6405,6 @@ class LinkSaveBody extends StatelessWidget {
                 height: 44,
                 child: TextField(
                   controller: controller,
-                  readOnly: locked,
                   keyboardType: TextInputType.url,
                   onChanged: onChanged,
                   style: const TextStyle(
@@ -6455,7 +6425,7 @@ class LinkSaveBody extends StatelessWidget {
                     suffixIcon: controller.text.isEmpty
                         ? null
                         : IconButton(
-                            onPressed: locked ? null : onClear,
+                            onPressed: onClear,
                             padding: const EdgeInsets.only(right: 8),
                             constraints: const BoxConstraints(
                               minWidth: 26,
@@ -6480,7 +6450,7 @@ class LinkSaveBody extends StatelessWidget {
               width: 64,
               height: 44,
               child: TextButton(
-                onPressed: locked ? null : onPaste,
+                onPressed: onPaste,
                 style: TextButton.styleFrom(
                   padding: EdgeInsets.zero,
                   backgroundColor: AppColors.mainSubtle,
@@ -6505,19 +6475,193 @@ class LinkSaveBody extends StatelessWidget {
           const SizedBox(height: 5),
           ValidationMessage(valid: stage == SaveFlowStage.valid),
         ],
-        if (stage == SaveFlowStage.extracting) ...[
-          const SizedBox(height: 32),
-          LinkExtractionPreview(loading: true, url: controller.text),
-        ],
-        if (stage == SaveFlowStage.extracted) ...[
-          const SizedBox(height: 32),
-          LinkExtractionPreview(
-            loading: false,
-            url: controller.text,
-            category: selectedCategory,
-            onChangeCategory: onChangeCategory,
+      ],
+    );
+  }
+}
+
+class SavedContentConfirmation extends StatelessWidget {
+  const SavedContentConfirmation({
+    required this.content,
+    required this.originalUrl,
+    required this.photoBytes,
+    super.key,
+  });
+
+  final ContentItem content;
+  final String originalUrl;
+  final Uint8List? photoBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 링크',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
           ),
-        ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 44,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            linkLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.35,
+            ),
+          ),
+        ),
+        const SizedBox(height: 5),
+        const ValidationMessage(valid: true),
+        const SizedBox(height: 28),
+        const Text(
+          '미리보기',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 116,
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(
+                  width: 164,
+                  height: 100,
+                  child: photoBytes == null
+                      ? Image.asset(Assets.saveLinkPreview, fit: BoxFit.cover)
+                      : Image.memory(photoBytes!, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      content.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        height: 1.6,
+                        letterSpacing: -0.375,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      content.source,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 30),
+        Row(
+          children: [
+            const Text(
+              '카테고리',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              '허투루가 자동으로 분류했어요!',
+              style: TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 55,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              FolderGlyph(color: content.category.color, size: 28),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  content.category.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.subtle),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  '변경',
+                  style: TextStyle(
+                    color: AppColors.subtle,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -6556,16 +6700,12 @@ class PhotoSaveBody extends StatelessWidget {
     required this.stage,
     required this.onSelect,
     required this.photoBytes,
-    required this.selectedCategory,
-    required this.onChangeCategory,
     super.key,
   });
 
   final SaveFlowStage stage;
   final Future<void> Function() onSelect;
   final Uint8List? photoBytes;
-  final CategoryItem selectedCategory;
-  final VoidCallback onChangeCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -6583,24 +6723,12 @@ class PhotoSaveBody extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         InkWell(
-          onTap: stage == SaveFlowStage.extracting ? null : onSelect,
+          onTap: onSelect,
           borderRadius: BorderRadius.circular(8),
           child: selected
               ? SelectedPhotoPreview(photoBytes: photoBytes)
               : const PhotoEmptyPrompt(),
         ),
-        if (stage == SaveFlowStage.extracting) ...[
-          const SizedBox(height: 40),
-          const ExtractionLoading(kind: '사진'),
-        ],
-        if (stage == SaveFlowStage.extracted) ...[
-          const SizedBox(height: 24),
-          ExtractedContentPreview(
-            isPhoto: true,
-            category: selectedCategory,
-            onChangeCategory: onChangeCategory,
-          ),
-        ],
       ],
     );
   }
@@ -6747,386 +6875,6 @@ class SelectedPhotoPreview extends StatelessWidget {
   }
 }
 
-class ExtractionLoading extends StatelessWidget {
-  const ExtractionLoading({required this.kind, super.key});
-
-  final String kind;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 180,
-      width: double.infinity,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(
-            width: 32,
-            height: 32,
-            child: CircularProgressIndicator(
-              color: AppColors.text,
-              strokeWidth: 3,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            '$kind에서 정보를 추출하고 있어요.',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '잠시만 기다려 주세요.',
-            style: TextStyle(
-              color: AppColors.subtle,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class LinkExtractionPreview extends StatelessWidget {
-  const LinkExtractionPreview({
-    required this.loading,
-    required this.url,
-    this.category = catToWatch,
-    this.onChangeCategory,
-    super.key,
-  });
-
-  final bool loading;
-  final String url;
-  final CategoryItem category;
-  final VoidCallback? onChangeCategory;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '미리보기',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const SizedBox(height: 12),
-        loading ? const ExtractionPreviewSkeleton() : LinkPreviewCard(url: url),
-        const SizedBox(height: 32),
-        Row(
-          children: [
-            const Text(
-              '카테고리',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                loading ? '허투루가 분류하고 있어요.' : '허투루가 자동으로 분류했어요!',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.subtle,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: -0.35,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        loading
-            ? const CategoryExtractionSkeleton()
-            : ExtractedCategoryTile(
-                category: category,
-                onChange: onChangeCategory!,
-              ),
-        if (loading) ...[
-          const SizedBox(height: 68),
-          const Center(
-            child: Text(
-              '허투루가 정보를 추출 중입니다...',
-              style: TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.35,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class ExtractionPreviewSkeleton extends StatelessWidget {
-  const ExtractionPreviewSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 116,
-      padding: const EdgeInsets.all(8),
-      color: AppColors.surface,
-      child: Row(
-        children: [
-          Container(width: 164, color: AppColors.faint),
-          const SizedBox(width: 16),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SkeletonBar(width: double.infinity),
-                SizedBox(height: 8),
-                _SkeletonBar(width: 108),
-                Spacer(),
-                _SkeletonBar(width: 108),
-                SizedBox(height: 10),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class LinkPreviewCard extends StatelessWidget {
-  const LinkPreviewCard({required this.url, super.key});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    final uri = Uri.tryParse(url.trim());
-    final host = uri?.host.isNotEmpty == true ? uri!.host : '저장한 링크';
-    final path = uri?.path.isNotEmpty == true ? uri!.path : '';
-    return Container(
-      height: 116,
-      padding: const EdgeInsets.all(8),
-      color: AppColors.surface,
-      child: Row(
-        children: [
-          Container(
-            width: 164,
-            height: 100,
-            decoration: BoxDecoration(
-              color: AppColors.mainSubtle,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            alignment: Alignment.center,
-            child: const SvgIcon(
-              asset: Assets.link,
-              size: 28,
-              color: AppColors.mainDeep,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  path.isEmpty ? host : '$host$path',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    height: 1.5,
-                    letterSpacing: -0.35,
-                  ),
-                ),
-                Spacer(),
-                Text(
-                  host,
-                  style: const TextStyle(
-                    color: AppColors.subtle,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                    letterSpacing: -0.35,
-                  ),
-                ),
-                SizedBox(height: 6),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class CategoryExtractionSkeleton extends StatelessWidget {
-  const CategoryExtractionSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      width: double.infinity,
-      color: AppColors.surface,
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: const _SkeletonBar(width: 166),
-    );
-  }
-}
-
-class ExtractedCategoryTile extends StatelessWidget {
-  const ExtractedCategoryTile({
-    required this.category,
-    required this.onChange,
-    super.key,
-  });
-
-  final CategoryItem category;
-  final VoidCallback onChange;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      color: AppColors.surface,
-      child: Row(
-        children: [
-          FolderGlyph(color: category.color, size: 32),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              category.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
-            ),
-          ),
-          OutlinedButton(
-            onPressed: onChange,
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(48, 32),
-              padding: EdgeInsets.zero,
-              foregroundColor: AppColors.subtle,
-              side: const BorderSide(color: AppColors.subtle),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.35,
-              ),
-            ),
-            child: const Text('변경'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SkeletonBar extends StatelessWidget {
-  const _SkeletonBar({required this.width});
-
-  final double width;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: 18,
-      decoration: BoxDecoration(
-        color: AppColors.faint,
-        borderRadius: BorderRadius.circular(4),
-      ),
-    );
-  }
-}
-
-class ExtractedContentPreview extends StatelessWidget {
-  const ExtractedContentPreview({
-    required this.isPhoto,
-    required this.category,
-    required this.onChangeCategory,
-    super.key,
-  });
-
-  final bool isPhoto;
-  final CategoryItem category;
-  final VoidCallback onChangeCategory;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '정보 추출이 완료됐어요!',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 16),
-          CategoryBadge(category: category),
-          const SizedBox(height: 12),
-          Text(
-            isPhoto ? '스크린샷에서 발견한 생활 정보' : '링크에서 확인한 핵심 정보',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              height: 1.5,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isPhoto
-                ? '사진 속 문장을 읽어 필요한 내용을 정리했어요. 완료를 누르면 허투루에 저장됩니다.'
-                : '링크의 제목과 본문을 읽어 핵심 내용을 정리했어요. 완료를 누르면 허투루에 저장됩니다.',
-            style: const TextStyle(
-              color: AppColors.middle,
-              fontSize: 14,
-              height: 1.6,
-              letterSpacing: -0.35,
-            ),
-          ),
-          const SizedBox(height: 20),
-          ExtractedCategoryTile(category: category, onChange: onChangeCategory),
-        ],
-      ),
-    );
-  }
-}
-
 class SaveFlowButton extends StatelessWidget {
   const SaveFlowButton({
     required this.label,
@@ -7143,30 +6891,92 @@ class SaveFlowButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
-      onPressed: enabled ? onPressed : null,
-      style: FilledButton.styleFrom(
-        backgroundColor: AppColors.text,
-        disabledBackgroundColor: AppColors.subtler,
-        foregroundColor: AppColors.main,
-        disabledForegroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          letterSpacing: -0.4,
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: loading ? '저장 중' : label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: enabled || loading ? AppColors.text : AppColors.subtler,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: DefaultTextStyle(
+              style: const TextStyle(
+                color: AppColors.main,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+              child: loading
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            color: AppColors.surface,
+                            strokeWidth: 2.2,
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Text('저장 중...'),
+                      ],
+                    )
+                  : Text(label),
+            ),
+          ),
         ),
       ),
-      child: loading
-          ? const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                color: AppColors.surface,
-                strokeWidth: 2.5,
+    );
+  }
+}
+
+class SaveErrorToast extends StatelessWidget {
+  const SaveErrorToast({required this.message, super.key});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x26000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: AppColors.surface, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.surface,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.35,
+                ),
               ),
-            )
-          : Text(label),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

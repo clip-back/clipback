@@ -242,6 +242,7 @@ class ApiUserStats {
 class ClipbackApi {
   ClipbackApi({http.Client? client}) : _client = client ?? http.Client();
 
+  static const _requestTimeout = Duration(seconds: 10);
   static const _baseUrl = String.fromEnvironment(
     'CLIPBACK_API_BASE_URL',
     defaultValue: 'https://clipback-production.up.railway.app/api/v1',
@@ -262,7 +263,9 @@ class ClipbackApi {
   Future<Map<String, String>> readiness() => _getPublic('/health/ready');
 
   Future<ApiSession> createGuestSession() async {
-    final session = ApiSession.fromJson(await _json('POST', '/auth/guest'));
+    final session = ApiSession.fromJson(
+      await _json('POST', '/auth/guest', authenticated: false),
+    );
     _session = session;
     return session;
   }
@@ -430,15 +433,17 @@ class ClipbackApi {
   Future<void> recordContentView(int contentId) =>
       _json('POST', '/contents/$contentId/view');
 
-  Future<List<ApiCategory>> listCategories() async => _jsonList(
-    await _json('GET', '/categories'),
-  ).map(ApiCategory.fromJson).toList();
+  Future<List<ApiCategory>> listCategories() async {
+    final response = await _request('GET', '/categories');
+    _throwForError(response);
+    return _decodeJsonList(response).map(ApiCategory.fromJson).toList();
+  }
 
   Future<List<ApiCategory>> listRecentCategories({int limit = 2}) async {
     final query = Uri(queryParameters: {'limit': '$limit'}).query;
-    return _jsonList(
-      await _json('GET', '/categories/recent?$query'),
-    ).map(ApiCategory.fromJson).toList();
+    final response = await _request('GET', '/categories/recent?$query');
+    _throwForError(response);
+    return _decodeJsonList(response).map(ApiCategory.fromJson).toList();
   }
 
   Future<ApiCategory> createCategory({
@@ -484,9 +489,19 @@ class ClipbackApi {
     for (final name in tagNames) {
       request.fields.putIfAbsent('tag_names', () => name);
     }
-    final response = await http.Response.fromStream(
-      await _client.send(request),
-    );
+    late http.Response response;
+    try {
+      final streamedResponse = await _client
+          .send(request)
+          .timeout(_requestTimeout);
+      response = await http.Response.fromStream(
+        streamedResponse,
+      ).timeout(_requestTimeout);
+    } on TimeoutException {
+      throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+    } on http.ClientException {
+      throw const ClipbackApiException('서버에 연결하지 못했어요.');
+    }
     _throwForError(response);
     return ApiContent.fromJson(_decodeJson(response));
   }
@@ -626,6 +641,11 @@ class ClipbackApi {
   Map<String, dynamic> _decodeJson(http.Response response) {
     if (response.body.isEmpty) return const {};
     return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  List<Map<String, dynamic>> _decodeJsonList(http.Response response) {
+    if (response.body.isEmpty) return const [];
+    return _jsonList(jsonDecode(response.body));
   }
 }
 
