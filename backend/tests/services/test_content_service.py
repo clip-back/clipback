@@ -377,6 +377,69 @@ async def test_create_content_links_available_categories_and_records_event() -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("category_ids", [[9, 2], [2, 9], [9, 2, 9, 2]])
+async def test_create_content_rejects_uncategorized_with_other_categories(category_ids) -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(9, "미분류", is_default=True)],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                content_type=ContentType.SCREENSHOT,
+                source=ContentSource.SCREENSHOT,
+                category_ids=category_ids,
+                tag_names=["저장되면 안 되는 태그"],
+            ),
+            asset=PendingContentAsset(
+                asset_type=AssetType.SCREENSHOT,
+                storage_key="screenshots/invalid.png",
+                mime_type="image/png",
+            ),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Uncategorized category cannot be combined with other categories"
+    )
+    assert content_repository.contents == {}
+    assert service.tag_repository.tags == {}
+    assert content_repository.created_assets == []
+    assert event_repository.events == []
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("category_ids", [[9], [9, 9]])
+async def test_content_categories_accept_uncategorized_alone(operation, category_ids) -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    service, content_repository, event_repository = build_service(
+        categories=[uncategorized],
+        contents=[content(1)] if operation == "update" else [],
+    )
+
+    if operation == "create":
+        result = await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                original_url="https://example.com/post", category_ids=category_ids,
+            ),
+        )
+    else:
+        result = await service.update_categories(
+            user_id=1, content_id=1,
+            payload=ContentCategoryUpdate(category_ids=category_ids),
+        )
+
+    assert [item.id for item in result.categories] == [9]
+    assert [item.id for item in content_repository.contents[1].categories] == [9]
+    assert len(event_repository.events) == 1
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
 async def test_create_content_creates_normalized_tags_in_same_transaction() -> None:
     service, content_repository, _ = build_service(
         categories=[category(1, "취업", is_default=True)]
@@ -711,9 +774,10 @@ async def test_create_content_fails_when_uncategorized_is_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_rejects_inaccessible_categories() -> None:
+@pytest.mark.parametrize("category_ids", [[1, 99], [9, 1, 99]])
+async def test_create_content_rejects_inaccessible_categories(category_ids) -> None:
     service, content_repository, _ = build_service(
-        categories=[category(1, "취업", is_default=True)]
+        categories=[category(1, "취업", is_default=True), category(9, "미분류", is_default=True)]
     )
 
     with pytest.raises(NotFoundError):
@@ -721,7 +785,7 @@ async def test_create_content_rejects_inaccessible_categories() -> None:
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
-                category_ids=[1, 99],
+                category_ids=category_ids,
             ),
         )
 
@@ -812,31 +876,40 @@ async def test_update_categories_skips_unchanged_set() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_categories_rejects_uncategorized_with_other_categories() -> None:
+@pytest.mark.parametrize("category_ids", [[9, 2], [2, 9], [9, 2, 9, 2]])
+async def test_update_categories_rejects_uncategorized_with_other_categories(category_ids) -> None:
+    existing_content = content(1)
+    existing_content.summary_job = SimpleNamespace(apply_category=True)
     service, content_repository, event_repository = build_service(
         categories=[
             category(2, "여행"),
             category(9, "미분류", is_default=True),
         ],
-        contents=[content(1)],
+        contents=[existing_content],
     )
 
     with pytest.raises(HTTPException) as exc_info:
         await service.update_categories(
             user_id=1,
             content_id=1,
-            payload=ContentCategoryUpdate(category_ids=[9, 2]),
+            payload=ContentCategoryUpdate(category_ids=category_ids),
         )
 
     assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Uncategorized category cannot be combined with other categories"
+    )
+    assert [item.id for item in existing_content.categories] == [1]
+    assert existing_content.summary_job.apply_category is True
     assert content_repository.session.committed is False
     assert event_repository.events == []
 
 
 @pytest.mark.asyncio
-async def test_update_categories_rejects_inaccessible_category() -> None:
+@pytest.mark.parametrize("category_ids", [[2, 99], [9, 2, 99]])
+async def test_update_categories_rejects_inaccessible_category(category_ids) -> None:
     service, content_repository, event_repository = build_service(
-        categories=[category(2, "여행")],
+        categories=[category(2, "여행"), category(9, "미분류", is_default=True)],
         contents=[content(1)],
     )
 
@@ -844,7 +917,7 @@ async def test_update_categories_rejects_inaccessible_category() -> None:
         await service.update_categories(
             user_id=1,
             content_id=1,
-            payload=ContentCategoryUpdate(category_ids=[2, 99]),
+            payload=ContentCategoryUpdate(category_ids=category_ids),
         )
 
     assert content_repository.session.committed is False
