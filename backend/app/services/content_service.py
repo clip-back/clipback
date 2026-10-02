@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
 from app.integrations.storage_client import StorageClient
+from app.models.category import Category
 from app.models.content import (
     Content,
     ContentSource as ModelContentSource,
@@ -159,6 +160,7 @@ class ContentService:
                 raise NotFoundError("Category not found")
             category_by_id = {category.id: category for category in categories}
             categories = [category_by_id[category_id] for category_id in category_ids]
+            self._validate_category_combination(categories)
             recommendation = CategoryRecommendationResult(
                 category_id=None,
                 assignment_method=CategoryAssignmentMethod.USER,
@@ -351,13 +353,7 @@ class ContentService:
                 raise NotFoundError("Category not found")
             category_by_id = {category.id: category for category in categories}
             categories = [category_by_id[category_id] for category_id in category_ids]
-            if len(categories) > 1 and any(
-                category.name == "미분류" and category.is_default for category in categories
-            ):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Uncategorized category cannot be combined with other categories",
-                )
+            self._validate_category_combination(categories)
         else:
             categories = [await self._get_uncategorized()]
 
@@ -589,6 +585,16 @@ class ContentService:
             metadata[key] = string_fields[key][: max(0, len(string_fields[key]) - overflow)]
             serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
         return serialized
+
+    @staticmethod
+    def _validate_category_combination(categories: list[Category]) -> None:
+        if len(categories) > 1 and any(
+            category.name == "미분류" and category.is_default for category in categories
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Uncategorized category cannot be combined with other categories",
+            )
 
     @staticmethod
     def _deduplicate_ids(category_ids: list[int]) -> list[int]:

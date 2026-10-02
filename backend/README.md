@@ -467,6 +467,25 @@ edits/deletions cannot be losslessly merged back into shared categories, so down
 is explicitly refused; rollback requires restoring the pre-migration backup and old
 application together. Validate this data migration on a backup before production.
 
+## Content Category Validation
+
+Direct saves (`POST /api/v1/contents`), shared saves (`POST /api/v1/contents/share`),
+screenshot uploads (`POST /api/v1/uploads/screenshots`), and category updates
+(`PUT /api/v1/contents/{content_id}/categories`) use the same category combination rule.
+After duplicate IDs are removed and category access is checked, combining the shared
+`미분류` category with any other category returns `422` with
+`{"detail": "Uncategorized category cannot be combined with other categories"}`.
+Missing or inaccessible category IDs return `404` before the combination check.
+
+Selecting `미분류` alone (including repeated copies of its ID) or multiple available
+ordinary categories remains valid. Empty selections retain the existing automatic
+classification/fallback behavior for saves and `미분류` assignment for updates.
+Rejected saves create no content, tags, events, asset rows, or summary jobs. Rejected
+updates preserve existing categories, events, and the summary job's `apply_category` flag.
+Metadata extraction and OCR keep their existing order; an uploaded screenshot file is
+removed through the existing compensation path when category validation rejects the save.
+No request/response fields or database migration are added.
+
 ## Content URL Length
 
 `POST /api/v1/contents` accepts HTTP(S) URLs up to 2,048 characters in
