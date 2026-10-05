@@ -2,6 +2,9 @@
 
 Flutter mobile frontend for the Clipback MVP.
 
+FE 병합 전 수정 순서와 PR별 검증 결과는
+[FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
+
 The current implementation mirrors the supplied Figma flows:
 
 - Onboarding
