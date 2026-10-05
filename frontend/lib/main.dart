@@ -27,7 +27,9 @@ typedef SaveScreenshotCallback =
     });
 
 class ClipbackApp extends StatefulWidget {
-  const ClipbackApp({super.key});
+  const ClipbackApp({this.sessionStorage, super.key});
+
+  final ApiSessionStorage? sessionStorage;
 
   @override
   State<ClipbackApp> createState() => _ClipbackAppState();
@@ -35,7 +37,7 @@ class ClipbackApp extends StatefulWidget {
 
 class _ClipbackAppState extends State<ClipbackApp> {
   final _api = ClipbackApi();
-  final _sessionStorage = ApiSessionStorage();
+  late final ApiSessionStorage _sessionStorage;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   AppRoute _route = AppRoute.home;
   AppRoute _previousRoute = AppRoute.home;
@@ -49,11 +51,13 @@ class _ClipbackAppState extends State<ClipbackApp> {
   late final List<ContentItem> _contents;
   late final Set<String> _bookmarkedIds;
   AppUser _user = defaultUser;
+  bool _isRestoringSession = false;
   String? _apiConnectionError;
 
   @override
   void initState() {
     super.initState();
+    _sessionStorage = widget.sessionStorage ?? ApiSessionStorage();
     _categories = List.of(initialCategories);
     _contents = List.of(initialContents);
     _bookmarkedIds = {
@@ -64,70 +68,54 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _restoreSession() async {
+    if (_isRestoringSession) return;
+    setState(() {
+      _isRestoringSession = true;
+      _apiConnectionError = null;
+    });
     try {
-      final session = await _sessionStorage.read();
-      if (session != null) {
-        _api.restoreSession(session);
-        try {
-          await _loadRemoteData();
-          return;
-        } catch (_) {
-          _api.clearSession();
-          try {
-            await _sessionStorage.clear();
-          } catch (_) {
-            // A stale browser storage entry must not block guest access.
-          }
-        }
+      if (!_api.hasSession) {
+        final session = await _sessionStorage.read();
+        if (session != null) _api.restoreSession(session);
+      }
+
+      if (!_api.hasSession) {
+        await _createGuestForRestore();
+        await _loadRemoteData();
+        return;
+      }
+
+      try {
+        await _loadRemoteData();
+      } on ClipbackApiException catch (error) {
+        if (error.statusCode != 401) rethrow;
+        // Keep the current session if removing invalid stored credentials fails.
+        await _sessionStorage.clear();
+        _api.clearSession();
+        await _createGuestForRestore();
+        // A new guest's failure must not trigger another replacement in this attempt.
+        await _loadRemoteData();
       }
     } catch (_) {
-      _api.clearSession();
-      try {
-        await _sessionStorage.clear();
-      } catch (_) {
-        // Guest access remains available even when browser storage is unavailable.
-      }
-    }
-
-    try {
-      final guestSession = await _api.createGuestSession();
-      try {
-        await _sessionStorage.write(guestSession);
-      } catch (_) {
-        // Continue with the in-memory guest session when persistence is unavailable.
-      }
-      await _loadRemoteData();
-    } catch (error) {
-      _api.clearSession();
-      try {
-        await _sessionStorage.clear();
-      } catch (_) {
-        // Retain the connection error even when local cleanup cannot run.
-      }
       if (mounted) {
         setState(() {
-          _categories.clear();
-          _contents.clear();
-          _bookmarkedIds.clear();
-          _apiConnectionError = _apiErrorMessage(error);
+          _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.';
         });
       }
     } finally {
       if (mounted) {
-        if (_route == AppRoute.splash) _finishSplash();
-        final errorMessage = _apiConnectionError;
-        if (errorMessage != null) {
-          WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _showError(errorMessage),
-          );
-        }
+        setState(() => _isRestoringSession = false);
       }
     }
   }
 
-  String _apiErrorMessage(Object error) {
-    if (error is ClipbackApiException) return error.message;
-    return '게스트 데이터를 불러오지 못했어요. 네트워크 연결을 확인해 주세요.';
+  Future<void> _createGuestForRestore() async {
+    final session = await _api.createGuestSession();
+    try {
+      await _sessionStorage.write(session);
+    } catch (_) {
+      // Continue with the in-memory guest session when persistence is unavailable.
+    }
   }
 
   void _finishSplash() {
@@ -172,7 +160,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
       final user = await _api.readMe();
       final stats = await _api.readStats();
       remoteUser = _userFromApi(user, stats);
-    } catch (_) {
+    } catch (error) {
+      if (error is ClipbackApiException && error.statusCode == 401) rethrow;
       // Categories and saved content remain available without profile statistics.
     }
     if (!mounted) return;
@@ -728,6 +717,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
       ),
       home: switch (_route) {
+        _ when _isRestoringSession || _apiConnectionError != null =>
+          _SessionRestoreScreen(
+            errorMessage: _apiConnectionError,
+            onRetry: _restoreSession,
+          ),
         AppRoute.splash => SplashScreen(onDone: _finishSplash),
         AppRoute.login => LoginScreen(onContinue: _continueAsGuest),
         AppRoute.onboarding => OnboardingScreen(
@@ -865,6 +859,49 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onDeleteCategory: _deleteCategory,
         ),
       },
+    );
+  }
+}
+
+class _SessionRestoreScreen extends StatelessWidget {
+  const _SessionRestoreScreen({
+    required this.errorMessage,
+    required this.onRetry,
+  });
+
+  final String? errorMessage;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (errorMessage == null) ...[
+                    const CircularProgressIndicator(color: AppColors.mainDeep),
+                    const SizedBox(height: 24),
+                    const Text('저장한 콘텐츠를 불러오는 중이에요.'),
+                  ] else ...[
+                    Text(
+                      errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 16, height: 1.6),
+                    ),
+                    const SizedBox(height: 24),
+                    PrimaryButton(label: '다시 시도', onPressed: onRetry),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
