@@ -4,7 +4,7 @@
 
 FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수정하고, 검증 결과를 이 문서에 기록한다.
 문서 준비일은 **2026-10-05 (KST)**다. 문서 PR #36은 FE에 병합되었으며,
-현재 PR 1의 세션 복원 수정과 로컬 검증을 완료했다. PR 2~10은 미착수이며,
+현재 PR 1의 세션 복원 수정과 로컬 검증을 완료하고 PR #37을 생성했다. PR 2~10은 미착수이며,
 백엔드 API·DB 스키마·기존 데이터는 PR 1에서 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -52,7 +52,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 
 | 작업 | 우선순위 | 수정 주제 | 선행 작업 | 상태 | 브랜치 / PR |
 | --- | --- | --- | --- | --- | --- |
-| PR 1 | P1 | 일시 오류에서 기존 세션 보존 | 없음 | 검증 완료 | `fix/fe-session-restore` / PR 미생성 |
+| PR 1 | P1 | 일시 오류에서 기존 세션 보존 | 없음 | PR 생성 | `fix/fe-session-restore` / [#37](https://github.com/clip-back/clipback/pull/37) |
 | PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | 예정 | 미생성 |
 | PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | 예정 | 미생성 |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | PR 3 | 예정 | 미생성 |
@@ -274,6 +274,21 @@ flutter build web --no-pub
 - 범위 유지: API 클라이언트·백엔드·migration·사용자 `AGENTS.md` 변경 없음.
   토큰 즉시 영속화(PR 2)·동시 refresh 통합(PR 3)·스크린샷 인증(PR 4)은 후속 작업이다.
 - 다음 단계: 이 변경을 커밋·푸시해 `FE` 대상 수정 PR을 검토하고, FE 병합 후 PR 2를 시작한다.
+
+### PR 1 커밋·푸시·PR 생성 — 2026-10-05
+
+- 상태: [#37 — fix: 일시적인 조회 실패 시 기존 세션 보존](https://github.com/clip-back/clipback/pull/37)
+  생성, 리뷰 및 FE 병합 대기. draft가 아닌 일반 PR이다.
+- 브랜치: `fix/fe-session-restore` → `FE`.
+- 구현 커밋: `69bbc0889f01d873ac53ff0eda639fcbe0f6f382` — `fix: 일시적인 조회 실패 시 기존 세션 보존`.
+  PR 생성 시 origin에 푸시한 구현 커밋과 PR head가 일치함을 확인했다.
+- 변경 범위: `main.dart`, `session_restore_test.dart`, 프론트 README, 이 진행 문서의 네 파일.
+  사용자 `AGENTS.md` 변경은 커밋에서 제외했으며 원본 잠금파일도 유지했다.
+- 이번 단계 검증: staged diff 및 `git diff --check` 통과, 원격 FE 기준·PR base·파일 범위 확인.
+  제품 코드가 바뀌지 않아 앱·DB·Chrome 검증은 재실행하지 않았다. 결과는 위 구현 기록을 참고한다.
+- GitHub 상태: 생성 직후 충돌 없음(`MERGEABLE`), Checks 기록 없음.
+  이를 원격 CI 통과로 취급하지 않는다. FE 병합은 실행하지 않았다.
+- 다음 단계: PR #37 리뷰·FE 병합 후 최신 FE에서 PR 2를 진행한다.
 
 ### 다음 작업 기록 양식
 
