@@ -5,7 +5,8 @@
 FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수정하고, 검증 결과를 이 문서에 기록한다.
 문서 준비일은 **2026-10-05 (KST)**다. 문서 PR #36과 PR 1의 수정 PR #37은 FE에 병합되었으며,
 PR 2의 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)도 FE에 병합되었다.
-현재 PR 3의 동시 토큰 갱신 중복 방지는 구현·로컬 검증을 완료했다. PR 4~10은 미착수이며,
+현재 PR 3의 동시 토큰 갱신 중복 방지는 구현·검증·푸시 후 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)를 생성했다.
+PR 4~10은 미착수이며,
 백엔드 API·DB 스키마·기존 데이터는 PR 3에서 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -56,7 +57,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | --- | --- | --- | --- | --- | --- |
 | PR 1 | P1 | 일시 오류에서 기존 세션 보존 | 없음 | FE 병합 | `fix/fe-session-restore` / [#37](https://github.com/clip-back/clipback/pull/37) |
 | PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | FE 병합 | `fix/fe-refresh-persistence` / [#38](https://github.com/clip-back/clipback/pull/38) |
-| PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | 검증 완료 | `fix/fe-refresh-single-flight` / PR 미생성 |
+| PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | PR 생성 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | PR 3 | 예정 | 미생성 |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | 없음 | 예정 | 미생성 |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 예정 | 미생성 |
@@ -470,6 +471,18 @@ flutter build web --no-pub
   `git diff --check` 통과, 신규 테스트의 공백 검사 출력 없음(새 파일 차이 종료 코드 1).
   사용자 `AGENTS.md` diff와 잠금파일의 SHA-256이 시작 시점과 같고 화면 3장은 Git 제외 상태다.
   다음 단계는 검증 결과를 기록한 커밋·푸시·일반 PR 생성이며, PR 병합은 수행하지 않는다.
+
+### PR 3 커밋·푸시·PR 생성 — 2026-10-06
+
+- 상태: [#39 — fix: 동시 인증 오류의 토큰 갱신 중복 방지](https://github.com/clip-back/clipback/pull/39) 생성.
+  `fix/fe-refresh-single-flight` → `FE`의 일반 PR이며 이 작업 대화에 연결했다. 병합은 수행하지 않았다.
+- 구현 커밋: `4347e3ec38ea490dee1a42a0aed069d3b8883b9c`. 위 100건의 Flutter 테스트와 6건의 실제 DB 테스트,
+  Chrome 화면·요청·DB 결과를 본문에 기록했다. 이후 변경은 이 PR 생성 기록뿐이다.
+- 생성 후 확인: 원격 head와 PR head 일치, base `FE`, 관련 6개 파일만 포함,
+  충돌 없음(`MERGEABLE`, `CLEAN`). GitHub Checks 기록은 없으며 원격 CI 통과로 취급하지 않는다.
+- 사용자 `AGENTS.md`, 잠금파일, 화면·로그 산출물은 PR에 포함하지 않았다. migration은 필요하지 않다.
+- 이 링크와 상태 기록을 추가 커밋·푸시하고 최종 원격 head·파일 범위·Checks를 다시 확인한다.
+  다음 수정은 PR #39의 FE 병합을 확인한 뒤 PR 4 스크린샷 인증 갱신·재시도를 진행한다.
 
 ### 다음 작업 기록 양식
 
