@@ -6,17 +6,21 @@ Monorepo for the Clipback MVP.
 
 ```text
 backend/   FastAPI backend service.
-frontend/  Flutter screens using mock data and local state in this checkout.
+frontend/  Flutter app with API-backed auth, content, categories, and account stats.
 docs/      MVP status, category policy, metrics, and deployment documents.
 ```
 
-## Current status (2026-09-21)
+## Current status (2026-10-06)
 
-Core MVP backend APIs, PostgreSQL/HTTP integration tests, CI, and Railway deployment
-configuration are implemented in this checkout (`9fbadd8`). The user has reported
-Railway deployment; live connectivity, provider credentials, backups, and real-device
-flows have not been verified by this documentation update. The local Flutter app
-still uses mock data; this does not describe work in other checkouts.
+This checkout combines the FE app with the backend from main (`8c759d1`).
+The frontend uses backend APIs for authentication, content, categories, and account
+statistics. Some recommendation and notification screens still use local or mock
+behavior; remaining fixes and actual validation results are tracked in the
+[FE integration progress](docs/fe-merge-fixes.md).
+
+Backend APIs, PostgreSQL/HTTP integration tests, CI, and Railway deployment
+configuration are included. Repository integration does not establish live Railway,
+provider credential, backup, or real-device verification.
 
 - [MVP status and remaining decisions](docs/backend-mvp-plan.md)
 - [Backend setup and API contracts](backend/README.md)

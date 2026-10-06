@@ -1,150 +1,1298 @@
 import 'dart:ui' show PointerDeviceKind;
 
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
+import 'clipback_api.dart';
 
 void main() {
   runApp(const ClipbackApp());
 }
 
+typedef SaveLinkCallback =
+    Future<ContentItem> Function({required String url, CategoryItem? category});
+typedef SaveScreenshotCallback =
+    Future<ContentItem> Function({
+      required Uint8List bytes,
+      required String filename,
+      CategoryItem? category,
+    });
+
+enum _ContentMutationKind { bookmark, category, delete }
+
+class _ContentMutation {
+  _ContentMutation(this.original, this.kind, this.accountVersion);
+
+  final ContentItem original;
+  final _ContentMutationKind kind;
+  final int accountVersion;
+  bool requestFinished = false;
+
+  String get label => kind == _ContentMutationKind.delete ? '삭제 중…' : '변경 중…';
+}
+
+// Only changed fields survive until older reads finish. This is not a content cache.
+class _ContentChange {
+  _ContentMutation? pending;
+  ({int version, bool value})? bookmark;
+  ({int version, List<CategoryItem> value})? category;
+  int? deletedVersion;
+}
+
+class _CategoryMutation {
+  _CategoryMutation(
+    this.original,
+    this.accountVersion, {
+    required this.deleting,
+  }) : value = original;
+
+  final CategoryItem original;
+  final int accountVersion;
+  final bool deleting;
+  CategoryItem value;
+
+  String get label => deleting ? '삭제 중…' : '변경 중…';
+}
+
+/// One bounded list, including the query that owns its opaque server cursor.
+class FeedPage {
+  final List<ContentItem> items = [];
+  int? categoryId;
+  String? query;
+  bool? isFavorite;
+  bool bookmarkedFirst = false;
+  bool _favoritePhase = true;
+  String? nextCursor;
+  bool initialized = false;
+  bool loading = false;
+  bool hasMore = true;
+  Object? error;
+  int version = 0;
+  double scrollOffset = 0;
+  Future<void>? _pending;
+
+  bool get invalidCursor =>
+      error is ClipbackApiException &&
+      (error as ClipbackApiException).statusCode == 422;
+
+  void reset() {
+    version++;
+    items.clear();
+    nextCursor = null;
+    initialized = false;
+    loading = false;
+    hasMore = true;
+    error = null;
+    scrollOffset = 0;
+    _favoritePhase = true;
+    _pending = null;
+  }
+}
+
 class ClipbackApp extends StatefulWidget {
-  const ClipbackApp({super.key});
+  const ClipbackApp({this.sessionStorage, super.key});
+
+  final ApiSessionStorage? sessionStorage;
 
   @override
   State<ClipbackApp> createState() => _ClipbackAppState();
 }
 
 class _ClipbackAppState extends State<ClipbackApp> {
-  AppRoute _route = AppRoute.splash;
+  late final ClipbackApi _api;
+  late final ApiSessionStorage _sessionStorage;
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final _isSessionStorageBusy = ValueNotifier(false);
+  Future<void> _sessionStorageQueue = Future.value();
+  int _pendingSessionStorageOperations = 0;
+  ApiSession? _sessionNeedingPersistence;
+  bool _persistenceBannerVisible = false;
+  bool _persistenceBannerUpdateScheduled = false;
+  AppRoute _route = AppRoute.home;
   AppRoute _previousRoute = AppRoute.home;
   int _archiveTab = 0;
   bool _bookmarkedFirst = false;
+  bool _randomViewing = false;
   String? _activeCategoryName;
   ContentItem? _selectedContent;
   String _searchQuery = '';
   late final List<CategoryItem> _categories;
-  late final List<ContentItem> _contents;
+  final _homeFeed = FeedPage();
+  final _archiveFeed = FeedPage();
+  final _bookmarkFeed = FeedPage()..isFavorite = true;
+  final _searchFeed = FeedPage();
+  FeedPage? _detailFeed;
+  int _contentVersion = 0;
+  final _contentChanges = <String, _ContentChange>{};
+  final _contentReads = <Object, int>{};
+  final _categoryMutations = <int, _CategoryMutation>{};
+  final _deletedCategoryIds = <int>{};
+  bool _categoryRefreshRequired = false;
+  int _accountVersion = 0;
+  int _refreshVersion = 0;
+  int _detailNavigationVersion = 0;
+  bool _movingDetail = false;
+  AppRoute _searchReturnRoute = AppRoute.home;
+  List<ContentItem> get _contents => _homeFeed.items;
+  List<FeedPage> get _feeds => [
+    _homeFeed,
+    _archiveFeed,
+    _bookmarkFeed,
+    _searchFeed,
+  ];
   late final Set<String> _bookmarkedIds;
+  AppUser _user = defaultUser;
+  bool _isRestoringSession = false;
+  String? _apiConnectionError;
 
   @override
   void initState() {
     super.initState();
+    _sessionStorage = widget.sessionStorage ?? ApiSessionStorage();
+    _api = ClipbackApi(onSessionChanged: (_) => _persistCurrentSession());
     _categories = List.of(initialCategories);
-    _contents = List.of(initialContents);
-    _bookmarkedIds = {
-      for (final content in initialContents.where((item) => item.bookmarked))
-        content.id,
-    };
+    _bookmarkedIds = {};
+    unawaited(_restoreSession());
+  }
+
+  @override
+  void dispose() {
+    _isSessionStorageBusy.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enqueueSessionStorage(Future<void> Function() operation) {
+    _pendingSessionStorageOperations++;
+    if (mounted) _isSessionStorageBusy.value = true;
+    final result = _sessionStorageQueue.then((_) => operation());
+    // A failed clear must reach its caller without blocking later storage work.
+    _sessionStorageQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace stackTrace) {},
+    );
+    return result.whenComplete(() {
+      _pendingSessionStorageOperations--;
+      if (mounted) {
+        _isSessionStorageBusy.value = _pendingSessionStorageOperations > 0;
+      }
+    });
+  }
+
+  Future<void> _persistCurrentSession() => _enqueueSessionStorage(() async {
+    // Read at execution time so a retry never writes an obsolete token snapshot.
+    final session = _api.session;
+    if (session == null) return;
+    try {
+      await _sessionStorage.write(session);
+      if (identical(_api.session, session)) _sessionNeedingPersistence = null;
+    } catch (_) {
+      if (identical(_api.session, session)) {
+        _sessionNeedingPersistence = session;
+      }
+      // The server has already issued these tokens; keep using them in memory.
+    }
+    _schedulePersistenceBannerUpdate();
+  });
+
+  Future<void> _clearStoredSession({
+    bool afterLogout = false,
+  }) => _enqueueSessionStorage(() async {
+    // A session issued while logout was waiting owns its newer stored value.
+    if (afterLogout && _api.hasSession) return;
+    try {
+      await _sessionStorage.clear();
+      _sessionNeedingPersistence = null;
+    } finally {
+      _schedulePersistenceBannerUpdate();
+    }
+  });
+
+  void _retrySessionPersistence() {
+    if (_isSessionStorageBusy.value || !_api.hasSession) return;
+    unawaited(_persistCurrentSession());
+  }
+
+  void _schedulePersistenceBannerUpdate() {
+    if (!mounted || _persistenceBannerUpdateScheduled) return;
+    _persistenceBannerUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _persistenceBannerUpdateScheduled = false;
+      if (!mounted) return;
+      final messenger = _messengerKey.currentState;
+      if (messenger == null) return;
+      final showBanner =
+          _sessionNeedingPersistence != null &&
+          identical(_api.session, _sessionNeedingPersistence);
+      if (!showBanner) {
+        if (_persistenceBannerVisible) messenger.removeCurrentMaterialBanner();
+        _persistenceBannerVisible = false;
+        return;
+      }
+      if (_persistenceBannerVisible) return;
+      _persistenceBannerVisible = true;
+      messenger.showMaterialBanner(
+        MaterialBanner(
+          backgroundColor: AppColors.surface,
+          content: const Text('로그인 정보를 기기에 저장하지 못했어요. 앱을 종료하기 전에 다시 저장해 주세요.'),
+          actions: [
+            ValueListenableBuilder<bool>(
+              valueListenable: _isSessionStorageBusy,
+              builder: (context, busy, child) => TextButton(
+                onPressed: busy ? null : _retrySessionPersistence,
+                child: const Text('다시 저장'),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _restoreSession() async {
+    if (_isRestoringSession) return;
+    setState(() {
+      _isRestoringSession = true;
+      _apiConnectionError = null;
+    });
+    try {
+      if (!_api.hasSession) {
+        final session = await _sessionStorage.read();
+        if (session != null) {
+          _invalidateAccountFeeds();
+          _api.restoreSession(session);
+        }
+      }
+
+      if (!_api.hasSession) {
+        _invalidateAccountFeeds();
+        await _api.createGuestSession();
+        await _loadRemoteData();
+        return;
+      }
+
+      try {
+        await _loadRemoteData();
+      } on ClipbackApiException catch (error) {
+        if (error.statusCode != 401) rethrow;
+        // Keep the current session if removing invalid stored credentials fails.
+        await _clearStoredSession();
+        _invalidateAccountFeeds();
+        _api.clearSession();
+        await _api.createGuestSession();
+        // A new guest's failure must not trigger another replacement in this attempt.
+        await _loadRemoteData();
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRestoringSession = false);
+      }
+    }
+  }
+
+  void _finishSplash() {
+    if (_route == AppRoute.splash) _go(AppRoute.home);
+  }
+
+  Future<void> _continueAsGuest() async {
+    try {
+      _invalidateAccountFeeds();
+      await _api.createGuestSession();
+      await _loadRemoteData();
+      if (mounted) _go(AppRoute.onboarding);
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }
+
+  Future<void> _loadRemoteData() async {
+    final accountVersion = _accountVersion;
+    final apiCategories = await _api.listCategories();
+    if (!mounted || accountVersion != _accountVersion) return;
+    setState(() {
+      _categories
+        ..clear()
+        ..addAll(_reconcileCategoryList(apiCategories));
+    });
+    await _loadFeed(_homeFeed, reset: true);
+    if (_homeFeed.error != null) throw _homeFeed.error!;
+    AppUser? remoteUser;
+    try {
+      final user = await _api.readMe();
+      final stats = await _api.readStats();
+      remoteUser = _userFromApi(user, stats);
+    } catch (error) {
+      if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+      // Categories and saved content remain available without profile statistics.
+    }
+    if (!mounted || accountVersion != _accountVersion) return;
+
+    setState(() {
+      if (remoteUser != null) _user = remoteUser;
+      _apiConnectionError = null;
+    });
+  }
+
+  void _invalidateAccountFeeds() {
+    _accountVersion++;
+    _contentVersion++;
+    _contentChanges.clear();
+    _contentReads.clear();
+    _categoryMutations.clear();
+    _deletedCategoryIds.clear();
+    _categoryRefreshRequired = false;
+    _refreshVersion++;
+    _detailNavigationVersion++;
+    _movingDetail = false;
+    _detailFeed = null;
+    for (final page in _feeds) {
+      page.reset();
+      page.categoryId = null;
+      page.query = null;
+    }
+    _bookmarkedIds.clear();
+    _activeCategoryName = null;
+  }
+
+  Future<void> _loadFeed(FeedPage page, {bool reset = false}) {
+    if (reset) page.reset();
+    if (page._pending != null) return page._pending!;
+    // Metadata is still loading for a write-triggered first-page refresh.
+    if (page.loading) return Future.value();
+    if (!page.hasMore || !mounted) return Future.value();
+    final version = page.version;
+    final accountVersion = _accountVersion;
+    bool current() =>
+        mounted && version == page.version && accountVersion == _accountVersion;
+    final completion = Completer<void>();
+    page._pending = completion.future;
+    setState(() {
+      page.loading = true;
+      page.error = null;
+    });
+    unawaited(() async {
+      try {
+        // Empty favorites must fall through to the ordinary segment. Otherwise
+        // one request advances one page, without prefetching the whole segment.
+        do {
+          final read = _beginContentRead();
+          try {
+            final feed = await _api.readFeed(
+              limit: 20,
+              query: page.query,
+              categoryId: page.categoryId,
+              isFavorite: page.bookmarkedFirst
+                  ? page._favoritePhase
+                  : page.isFavorite,
+              cursor: page.nextCursor,
+            );
+            if (!current()) return;
+            if (!page.initialized) page.items.clear();
+            final knownIds = page.items.map((item) => item.id).toSet();
+            final items = feed.items
+                .map(
+                  (item) => _reconcileContentRead(
+                    _contentFromApi(item, _categoryById),
+                    read.version,
+                  ),
+                )
+                .whereType<ContentItem>();
+            setState(() {
+              for (final item in items) {
+                if (knownIds.add(item.id)) page.items.add(item);
+                if (item.bookmarked) {
+                  _bookmarkedIds.add(item.id);
+                } else {
+                  _bookmarkedIds.remove(item.id);
+                }
+              }
+              page.initialized = true;
+              page.nextCursor = feed.nextCursor;
+              if (feed.nextCursor == null) {
+                if (page.bookmarkedFirst && page._favoritePhase) {
+                  page._favoritePhase = false;
+                } else {
+                  page.hasMore = false;
+                }
+              }
+            });
+          } finally {
+            _endContentRead(read.key);
+          }
+        } while (page.items.isEmpty && page.hasMore);
+      } catch (error) {
+        if (current()) setState(() => page.error = error);
+      } finally {
+        if (current()) {
+          setState(() {
+            page.loading = false;
+            page._pending = null;
+          });
+        }
+        completion.complete();
+      }
+    }());
+    return completion.future;
+  }
+
+  void _ensureFeed(FeedPage page) {
+    if (!page.initialized && !page.loading && page.error == null) {
+      unawaited(_loadFeed(page));
+    }
+  }
+
+  void _selectHomeCategory(CategoryItem? category) {
+    if (_deletedCategoryIds.contains(category?.id)) return;
+    _homeFeed.categoryId = category?.id;
+    unawaited(_loadFeed(_homeFeed, reset: true));
+  }
+
+  void _selectArchiveCategory(CategoryItem? category) {
+    if (_deletedCategoryIds.contains(category?.id)) return;
+    setState(() {
+      _activeCategoryName = category?.name;
+      _archiveTab = 0;
+      _randomViewing = false;
+      _archiveFeed.categoryId = category?.id;
+    });
+    unawaited(_loadFeed(_archiveFeed, reset: true));
+  }
+
+  CategoryItem _categoryFromApi(ApiCategory category) {
+    final color = _colorFromHex(category.color) ?? AppColors.subSubtle;
+    return CategoryItem(
+      id: category.id,
+      name: category.name == '미분류' ? catUncategorized.name : category.name,
+      color: color,
+      tint: color.withValues(alpha: 0.2),
+      deep: _deepCategoryColor(color),
+      contentCount: category.contentCount,
+      rawLastSavedAt: category.lastSavedAt,
+      lastSavedAt: category.lastSavedAt == null
+          ? null
+          : _formatSavedAt(category.lastSavedAt!),
+    );
+  }
+
+  ContentItem _contentFromApi(
+    ApiContent content,
+    Map<int, CategoryItem> categoryById,
+  ) {
+    final categories = content.categories
+        .map(
+          (category) => categoryById[category.id] ?? _categoryFromApi(category),
+        )
+        .toList();
+    if (categories.isEmpty) categories.add(_uncategorizedCategory);
+    return _normalizeContentCategories(
+      ContentItem(
+        id: 'api-${content.id}',
+        apiId: content.id,
+        title: content.title.isEmpty ? '제목을 추출하지 못한 링크' : content.title,
+        summary: content.summary,
+        category: categories.first,
+        categories: List.unmodifiable(categories),
+        savedAt: _formatShortDate(content.savedAt),
+        savedAtFull: _formatSavedAt(content.savedAt),
+        savedAtFullShort: _formatSavedAtShort(content.savedAt),
+        tags: content.tags,
+        source: _sourceLabel(content.source),
+        originalUrl: content.originalUrl ?? '',
+        originalText: content.summary,
+        bookmarked: content.isFavorite,
+        isScreenshot: content.contentType == 'screenshot',
+        assets: List.unmodifiable(content.assets),
+        summaryStatus: content.summaryStatus,
+      ),
+    );
+  }
+
+  AppUser _userFromApi(ApiUser user, ApiUserStats stats) {
+    final provider = user.isGuest
+        ? '게스트 계정'
+        : user.linkedProviders.isEmpty
+        ? '연동된 계정 없음'
+        : '${user.linkedProviders.join(', ')} 계정 연동 중';
+    return AppUser(
+      name: user.displayName,
+      providerLabel: provider,
+      joinedAt: _formatJoinedAt(user.createdAt),
+      savedContentCount: stats.savedCount,
+      revisitedContentCount: stats.reopenedCount,
+      appVersion: defaultUser.appVersion,
+    );
+  }
+
+  void _showError(String message) {
+    _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   bool _isBookmarked(ContentItem content) =>
       _bookmarkedIds.contains(content.id);
 
   void _toggleBookmark(ContentItem content) {
-    setState(() {
-      if (!_bookmarkedIds.remove(content.id)) {
-        _bookmarkedIds.add(content.id);
-      }
-    });
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.bookmark,
+    );
+    if (mutation == null) return;
+    final next = !mutation.original.bookmarked;
+    _contentChanges[content.id]!.bookmark = (
+      version: ++_contentVersion,
+      value: next,
+    );
+    _updateExistingContent(
+      content.id,
+      (item) => item.copyWith(bookmarked: next, mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(
+        mutation,
+        () => _api.updateContentFavorite(mutation.original.apiId!, next),
+      ),
+    );
   }
 
   void _addContent(ContentItem content) {
     setState(() {
       _contents.insert(0, content);
       _selectedContent = content;
+      _detailFeed = _homeFeed;
+      _detailNavigationVersion++;
       _route = AppRoute.detail;
       _previousRoute = AppRoute.home;
     });
   }
 
-  void _addLinkContent({required String url, required CategoryItem category}) {
-    final count = _contents.length + 1;
-    _addContent(
-      ContentItem(
-        id: 'mock-link-$count',
-        title: '새로 저장한 링크 요약',
-        summary:
-            '입력한 링크에서 제목과 설명을 추출한 목데이터입니다. 실제 API 연결 전까지 저장 완료, 자동 분류, 상세 확인 흐름을 검증할 수 있어요.',
-        category: category,
-        savedAt: '26.07.23',
-        savedAtFull: '2026. 07. 23 오후 09:58',
-        savedAtFullShort: '2026. 07. 23 21:58',
-        tags: ['링크저장', category.name, '자동분류'],
-        source: '직접 입력',
-        originalUrl: url,
-        originalText: '사용자가 입력한 링크: $url',
-      ),
-    );
+  Future<void> _ensureGuestSessionForSave() async {
+    if (_api.hasSession) return;
+    _invalidateAccountFeeds();
+    await _api.createGuestSession();
   }
 
-  void _addScreenshotContent() {
-    final category = _categories.firstWhere(
-      (item) => item.name == '생활정보',
-      orElse: () => _categories.first,
-    );
-    _addContent(
-      ContentItem(
-        id: 'mock-screenshot-${_contents.length + 1}',
-        title: '스크린샷으로 저장한 레시피 메모',
-        summary:
-            '갤러리에서 선택한 이미지를 OCR로 읽어 제목과 요약을 만든 목데이터입니다. OCR 실패 시에도 미분류로 저장되는 기획 흐름을 화면에서 확인할 수 있어요.',
-        category: category,
-        savedAt: '26.07.23',
-        savedAtFull: '2026. 07. 23 오후 10:01',
-        savedAtFullShort: '2026. 07. 23 22:01',
-        tags: ['스크린샷', 'OCR', '생활정보'],
-        source: '스크린샷',
-        originalUrl: '',
-        originalText: '이미지 OCR 목데이터: 토마토, 달걀, 올리브오일을 사용한 간단한 아침 레시피',
-        isScreenshot: true,
+  Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
+    await _ensureGuestSessionForSave();
+    final accountVersion = _accountVersion;
+    final result = await request();
+    if (accountVersion != _accountVersion) {
+      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    }
+    return result;
+  }
+
+  Future<ContentItem> _addLinkContent({
+    required String url,
+    CategoryItem? category,
+  }) async {
+    final content = await _runSaveRequest(
+      () => _api.createContent(
+        originalUrl: url,
+        categoryIds: category?.id == null ? const [] : [category!.id!],
       ),
     );
+    final item = _contentFromApi(content, _categoryById);
+    if (!mounted) return item;
+    _addContent(item);
+    await _refreshRemoteAfterContentChange();
+    return item;
+  }
+
+  Future<ContentItem> _addScreenshotContent({
+    required Uint8List bytes,
+    required String filename,
+    CategoryItem? category,
+  }) async {
+    final content = await _runSaveRequest(
+      () => _api.uploadScreenshot(
+        bytes: bytes,
+        filename: filename,
+        categoryIds: category?.id == null ? const [] : [category!.id!],
+      ),
+    );
+    final item = _contentFromApi(content, _categoryById);
+    if (!mounted) return item;
+    _addContent(item);
+    await _refreshRemoteAfterContentChange();
+    return item;
   }
 
   void _addCategory(CategoryItem category) {
+    unawaited(_createCategory(category));
+  }
+
+  Future<void> _createCategory(CategoryItem category) async {
+    final accountVersion = _accountVersion;
+    try {
+      final created = await _api.createCategory(
+        name: category.name,
+        color: _hexFromColor(category.color),
+      );
+      if (!mounted || accountVersion != _accountVersion) return;
+      setState(() {
+        _categories.insert(0, _categoryFromApi(created));
+      });
+    } catch (error) {
+      if (!mounted || accountVersion != _accountVersion) return;
+      _showError(
+        error is ClipbackApiException
+            ? error.message
+            : '카테고리를 만들지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  }
+
+  CategoryItem get _uncategorizedCategory => _categories.firstWhere(
+    (category) => category.name == catUncategorized.name,
+    orElse: () => catUncategorized,
+  );
+
+  CategoryItem _applyCategoryState(CategoryItem category) {
+    final mutation = _categoryMutations[category.id];
+    if (mutation == null) return category.copyWith(clearMutationLabel: true);
+    return category.copyWith(
+      name: mutation.value.name,
+      color: mutation.value.color,
+      tint: mutation.value.tint,
+      deep: mutation.value.deep,
+      mutationLabel: mutation.label,
+    );
+  }
+
+  List<CategoryItem> _reconcileCategoryList(List<ApiCategory> response) {
+    final categories = response
+        .where((category) => !_deletedCategoryIds.contains(category.id))
+        .map((category) => _applyCategoryState(_categoryFromApi(category)))
+        .toList();
+    // A concurrent read can see the server commit before DELETE acknowledges it.
+    for (final mutation in _categoryMutations.values) {
+      if (!_deletedCategoryIds.contains(mutation.original.id) &&
+          !categories.any((category) => category.id == mutation.original.id)) {
+        categories.add(_applyCategoryState(mutation.value));
+      }
+    }
+    return categories;
+  }
+
+  ContentItem _normalizeContentCategories(ContentItem content) {
+    final currentCategories = _categoryById;
+    final categories = content.categories
+        .where((category) => !_deletedCategoryIds.contains(category.id))
+        .map(
+          (category) =>
+              _applyCategoryState(currentCategories[category.id] ?? category),
+        )
+        .toList();
+    if (categories.isEmpty) categories.add(_uncategorizedCategory);
+    return content.copyWith(categories: categories);
+  }
+
+  void _normalizeLoadedCategories() {
+    for (final page in _feeds) {
+      for (var index = 0; index < page.items.length; index++) {
+        page.items[index] = _normalizeContentCategories(page.items[index]);
+      }
+    }
+    if (_selectedContent != null) {
+      _selectedContent = _normalizeContentCategories(_selectedContent!);
+    }
+  }
+
+  _CategoryMutation? _beginCategoryMutation(
+    CategoryItem category, {
+    required bool deleting,
+  }) {
+    final current = _categories
+        .where((item) => item.id == category.id)
+        .firstOrNull;
+    if (!mounted ||
+        current?.id == null ||
+        current!.name == catUncategorized.name ||
+        _deletedCategoryIds.contains(current.id) ||
+        _categoryMutations.containsKey(current.id)) {
+      return null;
+    }
+    final mutation = _CategoryMutation(
+      current,
+      _accountVersion,
+      deleting: deleting,
+    );
+    _categoryMutations[current.id!] = mutation;
+    return mutation;
+  }
+
+  bool _isCurrentCategoryMutation(_CategoryMutation mutation) =>
+      mounted &&
+      mutation.accountVersion == _accountVersion &&
+      identical(_categoryMutations[mutation.original.id], mutation);
+
+  void _finishCategoryMutation(_CategoryMutation mutation) {
+    if (!_isCurrentCategoryMutation(mutation)) return;
     setState(() {
-      _categories.insert(0, category);
-      _archiveTab = 1;
-      _activeCategoryName = null;
-      _route = AppRoute.archive;
-      _previousRoute = AppRoute.archive;
+      _categoryMutations.remove(mutation.original.id);
+      for (var index = 0; index < _categories.length; index++) {
+        _categories[index] = _applyCategoryState(_categories[index]);
+      }
+      _normalizeLoadedCategories();
     });
   }
 
-  void _changeContentCategory(ContentItem content, CategoryItem category) {
+  void _updateCategory(CategoryItem original, CategoryItem updated) {
+    final mutation = _beginCategoryMutation(original, deleting: false);
+    if (mutation == null) return;
+    mutation.value = mutation.original.copyWith(
+      name: updated.name,
+      color: updated.color,
+      tint: updated.tint,
+      deep: updated.deep,
+    );
+    _replaceCategoryLocally(mutation.original.id!, mutation.value);
+    unawaited(_saveCategoryUpdate(mutation));
+  }
+
+  void _replaceCategoryLocally(int categoryId, CategoryItem updated) {
     setState(() {
-      final index = _contents.indexWhere((item) => item.id == content.id);
-      if (index == -1) return;
-      final updated = _contents[index].copyWith(category: category);
-      _contents[index] = updated;
-      if (_selectedContent?.id == content.id) {
-        _selectedContent = updated;
+      final categoryIndex = _categories.indexWhere(
+        (category) => category.id == categoryId,
+      );
+      if (categoryIndex != -1) {
+        _categories[categoryIndex] = _applyCategoryState(updated);
+      }
+      ContentItem replace(ContentItem content) => _normalizeContentCategories(
+        content.copyWith(
+          categories: [
+            for (final category in content.categories)
+              if (category.id == categoryId) updated else category,
+          ],
+        ),
+      );
+      for (final page in _feeds) {
+        for (var index = 0; index < page.items.length; index++) {
+          page.items[index] = replace(page.items[index]);
+        }
+      }
+      if (_selectedContent != null) {
+        _selectedContent = replace(_selectedContent!);
+      }
+      if (_archiveFeed.categoryId == categoryId) {
+        _activeCategoryName = updated.name;
       }
     });
   }
 
+  Future<void> _saveCategoryUpdate(_CategoryMutation mutation) async {
+    try {
+      final saved = await _api.updateCategory(
+        categoryId: mutation.original.id!,
+        name: mutation.value.name,
+        color: _hexFromColor(mutation.value.color),
+      );
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      final style = _categoryFromApi(saved);
+      mutation.value = mutation.value.copyWith(
+        name: saved.name,
+        color: style.color,
+        tint: style.tint,
+        deep: style.deep,
+      );
+      _replaceCategoryLocally(mutation.original.id!, mutation.value);
+      // Replace metadata reads that started before this confirmed rename.
+      await _refreshRemoteAfterContentChange();
+    } catch (error) {
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      mutation.value = mutation.original;
+      _replaceCategoryLocally(mutation.original.id!, mutation.original);
+      _showError(
+        error is ClipbackApiException
+            ? error.message
+            : '카테고리를 수정하지 못했어요. 다시 시도해 주세요.',
+      );
+    } finally {
+      _finishCategoryMutation(mutation);
+    }
+  }
+
+  void _deleteCategory(CategoryItem category) {
+    final mutation = _beginCategoryMutation(category, deleting: true);
+    if (mutation == null) return;
+    _replaceCategoryLocally(mutation.original.id!, mutation.original);
+    unawaited(_removeCategory(mutation));
+  }
+
+  Future<void> _removeCategory(_CategoryMutation mutation) async {
+    try {
+      try {
+        await _api.deleteCategory(mutation.original.id!);
+      } catch (error) {
+        if (!_isCurrentCategoryMutation(mutation)) return;
+        _showError(
+          error is ClipbackApiException
+              ? error.message
+              : '카테고리를 삭제하지 못했어요. 다시 시도해 주세요.',
+        );
+        return;
+      }
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      final categoryId = mutation.original.id!;
+      setState(() {
+        _deletedCategoryIds.add(categoryId);
+        _categories.removeWhere((category) => category.id == categoryId);
+        _normalizeLoadedCategories();
+        if (_archiveFeed.categoryId == categoryId) {
+          _activeCategoryName = null;
+        }
+        for (final page in _feeds) {
+          if (page.categoryId == categoryId) page.categoryId = null;
+        }
+        _categoryRefreshRequired = true;
+      });
+      await _refreshRemoteAfterContentChange();
+    } finally {
+      _finishCategoryMutation(mutation);
+    }
+  }
+
+  Future<List<ContentItem>> _searchContents(String query) async {
+    _searchFeed.query = query.trim();
+    await _loadFeed(_searchFeed, reset: true);
+    return List.of(_searchFeed.items);
+  }
+
+  Future<void> _logout() async {
+    try {
+      await _api.logout();
+      await _clearStoredSession(afterLogout: true);
+      if (!mounted || _api.hasSession) return;
+      setState(() {
+        _invalidateAccountFeeds();
+        _categories
+          ..clear()
+          ..addAll(initialCategories);
+        _user = defaultUser;
+        _selectedContent = null;
+        _previousRoute = AppRoute.home;
+        _route = AppRoute.home;
+      });
+    } on ClipbackApiException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('로그아웃하지 못했어요. 다시 시도해 주세요.');
+    }
+  }
+
+  void _changeContentCategory(ContentItem content, CategoryItem category) {
+    if (category.id == null ||
+        _deletedCategoryIds.contains(category.id) ||
+        _categoryMutations[category.id]?.deleting == true) {
+      return;
+    }
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.category,
+    );
+    if (mutation == null) return;
+    _contentChanges[content.id]!.category = (
+      version: ++_contentVersion,
+      value: [category],
+    );
+    _updateExistingContent(
+      content.id,
+      (item) =>
+          item.copyWith(category: category, mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(
+        mutation,
+        () => _api.updateContentCategories(mutation.original.apiId!, [
+          category.id!,
+        ]),
+      ),
+    );
+  }
+
   void _deleteContent(ContentItem content) {
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.delete,
+    );
+    if (mutation == null) return;
+    _updateExistingContent(
+      content.id,
+      (item) => item.copyWith(mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(mutation, () async {
+        await _api.deleteContent(mutation.original.apiId!);
+        return null;
+      }),
+    );
+  }
+
+  ContentItem? _currentContent(String id) {
+    if (_selectedContent?.id == id) return _selectedContent;
+    for (final page in _feeds) {
+      for (final item in page.items) {
+        if (item.id == id) return item;
+      }
+    }
+    return null;
+  }
+
+  _ContentMutation? _beginContentMutation(
+    ContentItem content,
+    _ContentMutationKind kind,
+  ) {
+    final current = _currentContent(content.id);
+    if (!mounted ||
+        current?.apiId == null ||
+        _contentChanges[content.id]?.pending != null) {
+      return null;
+    }
+    final mutation = _ContentMutation(current!, kind, _accountVersion);
+    (_contentChanges[content.id] ??= _ContentChange()).pending = mutation;
+    return mutation;
+  }
+
+  bool _isCurrentMutation(_ContentMutation mutation) =>
+      mounted &&
+      mutation.accountVersion == _accountVersion &&
+      identical(_contentChanges[mutation.original.id]?.pending, mutation);
+
+  Future<void> _runContentMutation(
+    _ContentMutation mutation,
+    Future<ApiContent?> Function() request,
+  ) async {
+    final id = mutation.original.id;
+    try {
+      ApiContent? response;
+      try {
+        response = await request();
+      } catch (error) {
+        if (!_isCurrentMutation(mutation)) return;
+        mutation.requestFinished = true;
+        final change = _contentChanges[id]!;
+        final version = ++_contentVersion;
+        switch (mutation.kind) {
+          case _ContentMutationKind.bookmark:
+            change.bookmark = (
+              version: version,
+              value: mutation.original.bookmarked,
+            );
+            _updateExistingContent(
+              id,
+              (item) => item.copyWith(bookmarked: mutation.original.bookmarked),
+            );
+          case _ContentMutationKind.category:
+            change.category = (
+              version: version,
+              value: mutation.original.categories,
+            );
+            _updateExistingContent(
+              id,
+              (item) => item.copyWith(categories: mutation.original.categories),
+            );
+          case _ContentMutationKind.delete:
+            break;
+        }
+        _showError(
+          error is ClipbackApiException
+              ? error.message
+              : '콘텐츠 변경을 완료하지 못했어요. 다시 시도해 주세요.',
+        );
+        return;
+      }
+      if (!_isCurrentMutation(mutation)) return;
+      mutation.requestFinished = true;
+      final change = _contentChanges[id]!;
+      final version = ++_contentVersion;
+      if (mutation.kind == _ContentMutationKind.delete) {
+        change.deletedVersion = version;
+        setState(() {
+          for (final page in _feeds) {
+            page.items.removeWhere((item) => item.id == id);
+          }
+          _bookmarkedIds.remove(id);
+          if (_route == AppRoute.detail && _selectedContent?.id == id) {
+            _detailNavigationVersion++;
+            _movingDetail = false;
+            _selectedContent = null;
+            _route = _previousRoute == AppRoute.detail
+                ? AppRoute.home
+                : _previousRoute;
+          }
+        });
+      } else {
+        final updated = _contentFromApi(response!, _categoryById);
+        if (mutation.kind == _ContentMutationKind.bookmark) {
+          change.bookmark = (version: version, value: updated.bookmarked);
+        } else {
+          change.category = (version: version, value: updated.categories);
+        }
+        _replaceContent(updated.copyWith(mutationLabel: mutation.label));
+      }
+      // A failed follow-up read must not roll back an already committed write.
+      await _refreshRemoteAfterContentChange();
+    } finally {
+      if (_isCurrentMutation(mutation)) {
+        _contentChanges[id]!.pending = null;
+        _updateExistingContent(
+          id,
+          (item) => item.copyWith(clearMutationLabel: true),
+        );
+        _pruneContentChanges();
+      }
+    }
+  }
+
+  void _updateExistingContent(
+    String id,
+    ContentItem Function(ContentItem) update,
+  ) {
+    if (!mounted) return;
     setState(() {
-      _contents.removeWhere((item) => item.id == content.id);
-      _bookmarkedIds.remove(content.id);
-      _selectedContent = null;
-      _route = _previousRoute == AppRoute.detail
-          ? AppRoute.home
-          : _previousRoute;
+      for (final page in _feeds) {
+        final index = page.items.indexWhere((item) => item.id == id);
+        if (index != -1) {
+          page.items[index] = _normalizeContentCategories(
+            update(page.items[index]),
+          );
+        }
+      }
+      if (_selectedContent?.id == id) {
+        _selectedContent = _normalizeContentCategories(
+          update(_selectedContent!),
+        );
+      }
+      final current = _currentContent(id);
+      final bookmarked =
+          current?.bookmarked ?? _contentChanges[id]?.bookmark?.value;
+      if (bookmarked != null) {
+        if (bookmarked) {
+          _bookmarkedIds.add(id);
+        } else {
+          _bookmarkedIds.remove(id);
+        }
+      }
     });
   }
 
-  void _openAdjacentContent(int delta) {
+  ({Object key, int version}) _beginContentRead() {
+    final key = Object();
+    _contentReads[key] = _contentVersion;
+    return (key: key, version: _contentVersion);
+  }
+
+  void _endContentRead(Object key) {
+    _contentReads.remove(key);
+    _pruneContentChanges();
+  }
+
+  void _pruneContentChanges() {
+    final oldestRead = _contentReads.values.fold(_contentVersion, math.min);
+    _contentChanges.removeWhere((id, change) {
+      if (change.pending != null) return false;
+      if ((change.bookmark?.version ?? 0) <= oldestRead) change.bookmark = null;
+      if ((change.category?.version ?? 0) <= oldestRead) change.category = null;
+      if ((change.deletedVersion ?? 0) <= oldestRead) {
+        change.deletedVersion = null;
+      }
+      return change.bookmark == null &&
+          change.category == null &&
+          change.deletedVersion == null;
+    });
+  }
+
+  ContentItem? _reconcileContentRead(ContentItem item, int readVersion) {
+    final change = _contentChanges[item.id];
+    if (change == null) return _normalizeContentCategories(item);
+    if (change.deletedVersion != null && readVersion < change.deletedVersion!) {
+      return null;
+    }
+    final pending = change.pending;
+    final writing = pending != null && !pending.requestFinished;
+    final bookmark = change.bookmark;
+    final category = change.category;
+    return _normalizeContentCategories(
+      item.copyWith(
+        bookmarked:
+            bookmark != null &&
+                (readVersion < bookmark.version ||
+                    (writing && pending.kind == _ContentMutationKind.bookmark))
+            ? bookmark.value
+            : null,
+        categories:
+            category != null &&
+                (readVersion < category.version ||
+                    (writing && pending.kind == _ContentMutationKind.category))
+            ? category.value
+            : null,
+        mutationLabel: pending?.label,
+        clearMutationLabel: pending == null,
+      ),
+    );
+  }
+
+  Map<int, CategoryItem> get _categoryById => {
+    for (final category in _categories)
+      if (category.id != null) category.id!: category,
+  };
+
+  void _replaceContent(ContentItem updated) {
+    if (!mounted) return;
+    updated = _normalizeContentCategories(updated);
+    setState(() {
+      for (final page in _feeds) {
+        final index = page.items.indexWhere((item) => item.id == updated.id);
+        if (index != -1) page.items[index] = updated;
+      }
+      if (updated.bookmarked) {
+        _bookmarkedIds.add(updated.id);
+      } else {
+        _bookmarkedIds.remove(updated.id);
+      }
+      if (_selectedContent?.id == updated.id) _selectedContent = updated;
+    });
+  }
+
+  Future<void> _refreshStats() async {
+    final accountVersion = _accountVersion;
+    final refreshVersion = _refreshVersion;
+    try {
+      final stats = await _api.readStats();
+      final user = await _api.readMe();
+      if (mounted &&
+          accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion) {
+        setState(() => _user = _userFromApi(user, stats));
+      }
+    } catch (_) {
+      // The content action has already completed; the next screen load retries stats.
+    }
+  }
+
+  Future<void> _refreshRemoteAfterContentChange() async {
+    final accountVersion = _accountVersion;
+    final refreshVersion = ++_refreshVersion;
+    bool current() =>
+        mounted &&
+        accountVersion == _accountVersion &&
+        refreshVersion == _refreshVersion;
+    final pages = _feeds
+        .where(
+          (page) =>
+              identical(page, _homeFeed) ||
+              page.initialized ||
+              page.loading ||
+              page.error != null,
+        )
+        .toList();
+    // Invalidate before the category read so older pages cannot be appended
+    // while this refresh is waiting for metadata.
+    setState(() {
+      for (final page in pages) {
+        final previousItems = List<ContentItem>.of(page.items);
+        page.reset();
+        // Keep current values usable for other content actions until the first
+        // response replaces this list. General query/filter resets still clear it.
+        page.items.addAll(previousItems);
+        // Metadata is part of this reload. A subsequent write must still see
+        // this page as active while its first feed request has not started.
+        page.loading = true;
+      }
+    });
+    final versions = {for (final page in pages) page: page.version};
+    final refreshCategoryDetails = _categoryRefreshRequired;
+    var metadataFailed = false;
+    try {
+      final categories = await _api.listCategories();
+      if (!current()) return;
+      setState(() {
+        _categories
+          ..clear()
+          ..addAll(_reconcileCategoryList(categories));
+      });
+    } catch (_) {
+      metadataFailed = true;
+      // Lists can still be refreshed when category metadata is unavailable.
+    }
+    if (!current()) return;
+    await Future.wait(
+      pages.where((page) => page.version == versions[page]).map((page) {
+        page.loading = false;
+        return _loadFeed(page);
+      }),
+    );
+    if (!current()) return;
+    if (refreshCategoryDetails &&
+        _route == AppRoute.detail &&
+        _selectedContent?.apiId != null) {
+      await _refreshContentDetail(
+        _selectedContent!.apiId!,
+        onError: () => metadataFailed = true,
+      );
+    }
+    if (!current()) return;
+    if (refreshCategoryDetails) {
+      _categoryRefreshRequired = metadataFailed;
+      if (metadataFailed) {
+        _messengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: const Text('최신 정보를 불러오지 못했어요.'),
+            action: SnackBarAction(
+              label: '다시 불러오기',
+              onPressed: () {
+                if (mounted && accountVersion == _accountVersion) {
+                  unawaited(_refreshRemoteAfterContentChange());
+                }
+              },
+            ),
+          ),
+        );
+      }
+    }
+    await _refreshStats();
+  }
+
+  void _openAdjacentContent(int delta) async {
     final current = _selectedContent;
-    if (current == null || _contents.isEmpty) return;
-    final index = _contents.indexWhere((item) => item.id == current.id);
+    final page = _detailFeed;
+    if (current == null || page == null || _movingDetail) return;
+    final index = page.items.indexWhere((item) => item.id == current.id);
     if (index == -1) return;
-    final nextIndex = (index + delta) % _contents.length;
-    final wrappedIndex = nextIndex < 0 ? _contents.length - 1 : nextIndex;
-    setState(() => _selectedContent = _contents[wrappedIndex]);
+    final navigationVersion = _detailNavigationVersion;
+    final pageVersion = page.version;
+    setState(() => _movingDetail = true);
+    if (delta > 0 && index + 1 == page.items.length && page.hasMore) {
+      await _loadFeed(page);
+    }
+    if (!mounted || navigationVersion != _detailNavigationVersion) return;
+    setState(() => _movingDetail = false);
+    if (_route != AppRoute.detail ||
+        _selectedContent?.id != current.id ||
+        pageVersion != page.version) {
+      return;
+    }
+    final nextIndex = index + delta;
+    if (nextIndex >= 0 && nextIndex < page.items.length) {
+      _openDetail(page.items[nextIndex]);
+    }
   }
 
   void _go(AppRoute route) {
+    _detailNavigationVersion++;
+    _movingDetail = false;
     setState(() {
       _route = route;
       if (route != AppRoute.detail) {
@@ -160,10 +1308,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _selectRootTab(AppRoute route) {
+    _detailNavigationVersion++;
+    _movingDetail = false;
     setState(() {
       if (route == AppRoute.archive && _route != AppRoute.archive) {
         _archiveTab = 0;
         _activeCategoryName = null;
+        if (_archiveFeed.categoryId != null) {
+          _archiveFeed.categoryId = null;
+          _archiveFeed.reset();
+        }
       }
       _route = route;
       _selectedContent = null;
@@ -174,17 +1328,24 @@ class _ClipbackAppState extends State<ClipbackApp> {
         _previousRoute = route;
       }
     });
+    if (route == AppRoute.archive) _ensureFeed(_archiveFeed);
+    if (route == AppRoute.bookmark) _ensureFeed(_bookmarkFeed);
   }
 
   void _openSearch() {
     setState(() {
-      _previousRoute = _route;
+      _searchReturnRoute = _route;
       _searchQuery = '';
+      _searchFeed.reset();
+      _searchFeed.query = null;
       _route = AppRoute.search;
     });
   }
 
   void _openArchive({int tab = 0, String? categoryName}) {
+    final category = _categories
+        .where((item) => item.name == categoryName)
+        .firstOrNull;
     setState(() {
       _route = AppRoute.archive;
       _archiveTab = tab;
@@ -192,18 +1353,98 @@ class _ClipbackAppState extends State<ClipbackApp> {
       _selectedContent = null;
       _previousRoute = AppRoute.archive;
     });
+    if (_archiveFeed.categoryId != category?.id) {
+      _archiveFeed.categoryId = category?.id;
+      _archiveFeed.reset();
+    }
+    if (tab == 0) _ensureFeed(_archiveFeed);
   }
 
   void _openDetail(ContentItem content) {
+    content = _currentContent(content.id) ?? content;
     setState(() {
-      _previousRoute = _route;
+      if (_route != AppRoute.detail) {
+        _previousRoute = _route;
+        _detailFeed = switch (_route) {
+          AppRoute.archive => _archiveFeed,
+          AppRoute.bookmark => _bookmarkFeed,
+          AppRoute.search => _searchFeed,
+          _ => _homeFeed,
+        };
+      }
+      _detailNavigationVersion++;
+      _movingDetail = false;
       _selectedContent = content;
       _route = AppRoute.detail;
     });
+    if (content.apiId != null) {
+      unawaited(_refreshContentDetail(content.apiId!));
+      unawaited(
+        _api
+            .recordContentView(content.apiId!)
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+      );
+      unawaited(
+        _api
+            .createCardClickEvent(
+              contentId: content.apiId!,
+              categoryId: content.category.id,
+            )
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+      );
+    }
+  }
+
+  Future<void> _refreshContentDetail(
+    int contentId, {
+    VoidCallback? onError,
+  }) async {
+    final accountVersion = _accountVersion;
+    final refreshVersion = _refreshVersion;
+    final navigationVersion = _detailNavigationVersion;
+    final read = _beginContentRead();
+    try {
+      final content = await _api.readContent(contentId);
+      if (mounted &&
+          accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion &&
+          navigationVersion == _detailNavigationVersion) {
+        final updated = _reconcileContentRead(
+          _contentFromApi(content, _categoryById),
+          read.version,
+        );
+        if (updated != null) _replaceContent(updated);
+      }
+    } catch (_) {
+      // Feed data is still enough to keep the detail screen usable.
+      if (mounted &&
+          accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion &&
+          navigationVersion == _detailNavigationVersion) {
+        onError?.call();
+      }
+    } finally {
+      _endContentRead(read.key);
+    }
+  }
+
+  Future<Uint8List> _readScreenshotAsset(int assetId) async {
+    final accountVersion = _accountVersion;
+    final navigationVersion = _detailNavigationVersion;
+    final bytes = await _api.readAsset(assetId);
+    if (!mounted ||
+        _route != AppRoute.detail ||
+        accountVersion != _accountVersion ||
+        navigationVersion != _detailNavigationVersion) {
+      throw const ClipbackApiException('화면이 변경되어 원본 조회를 취소했어요.');
+    }
+    return bytes;
   }
 
   void _backFromDetail() {
     setState(() {
+      _detailNavigationVersion++;
+      _movingDetail = false;
       _route = _previousRoute;
       _selectedContent = null;
     });
@@ -213,11 +1454,15 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
+        bottomSheetTheme: const BottomSheetThemeData(
+          constraints: BoxConstraints(maxWidth: phoneWidth),
+        ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.main,
           surface: AppColors.bg,
@@ -229,12 +1474,14 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
       ),
       home: switch (_route) {
-        AppRoute.splash => SplashScreen(onDone: () => _go(AppRoute.login)),
-        AppRoute.login => LoginScreen(
-          onContinue: () => _go(AppRoute.onboarding),
-        ),
+        _ when _isRestoringSession || _apiConnectionError != null =>
+          _SessionRestoreScreen(
+            errorMessage: _apiConnectionError,
+            onRetry: _restoreSession,
+          ),
+        AppRoute.splash => SplashScreen(onDone: _finishSplash),
+        AppRoute.login => LoginScreen(onContinue: _continueAsGuest),
         AppRoute.onboarding => OnboardingScreen(
-          onBack: () => _go(AppRoute.login),
           onDone: () => _go(AppRoute.interests),
         ),
         AppRoute.interests => InterestSelectionScreen(
@@ -243,10 +1490,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.home => HomeScreen(
           contents: _contents,
+          feed: _homeFeed,
+          onRetry: () => _loadFeed(_homeFeed, reset: true),
+          activeCategoryId: _homeFeed.categoryId,
+          onCategorySelected: _selectHomeCategory,
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           onSearch: _openSearch,
-          onOpenArchive: () => _openArchive(),
+          onOpenArchive: () => _openArchive(
+            categoryName: _categoryById[_homeFeed.categoryId]?.name,
+          ),
           onOpenCategories: () => _openArchive(tab: 1),
           onOpenToday: _contents.isEmpty
               ? () {}
@@ -259,59 +1512,190 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.archive => ArchiveScreen(
           activeTab: _archiveTab,
-          contents: _contents,
+          contents: _archiveFeed.items,
+          feed: _archiveFeed,
+          onLoadMore: () => _loadFeed(_archiveFeed),
+          onRetry: () =>
+              _loadFeed(_archiveFeed, reset: _archiveFeed.invalidCursor),
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           bookmarkedFirst: _bookmarkedFirst,
+          randomViewing: _randomViewing,
           activeCategoryName: _activeCategoryName,
-          onTabChanged: (value) => setState(() => _archiveTab = value),
-          onSortChanged: (value) => setState(() => _bookmarkedFirst = value),
-          onClearCategory: () => setState(() => _activeCategoryName = null),
+          onTabChanged: (value) {
+            setState(() => _archiveTab = value);
+            if (value == 0) _ensureFeed(_archiveFeed);
+          },
+          onSortChanged: (value) {
+            _bookmarkedFirst = value;
+            _archiveFeed.bookmarkedFirst = value;
+            unawaited(_loadFeed(_archiveFeed, reset: true));
+          },
+          onOpenRandomView: () => setState(() => _randomViewing = true),
+          onExitRandomView: () => setState(() => _randomViewing = false),
+          onClearCategory: () => setState(() {
+            _activeCategoryName = null;
+            _archiveTab = 1;
+            _randomViewing = false;
+            _archiveFeed.categoryId = null;
+            _archiveFeed.reset();
+          }),
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
           onAddCategory: _addCategory,
-          onOpenCategory: (category) => setState(() {
-            _activeCategoryName = category.name;
-            _archiveTab = 0;
-          }),
+          onUpdateCategory: _updateCategory,
+          onDeleteCategory: _deleteCategory,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
+          onOpenCategory: (category) {
+            _selectArchiveCategory(category);
+            if (category.id != null) {
+              unawaited(_api.createCategoryFilterEvent(category.id!));
+            }
+          },
           onTab: _selectRootTab,
         ),
         AppRoute.bookmark => BookmarkScreen(
-          contents: _contents
-              .where((content) => _bookmarkedIds.contains(content.id))
-              .toList(),
+          contents: _bookmarkFeed.items,
+          feed: _bookmarkFeed,
+          onLoadMore: () => _loadFeed(_bookmarkFeed),
+          onRetry: () =>
+              _loadFeed(_bookmarkFeed, reset: _bookmarkFeed.invalidCursor),
           bookmarkedIds: _bookmarkedIds,
+          categories: _categories,
           onSearch: _openSearch,
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
           onTab: _selectRootTab,
         ),
         AppRoute.search => SearchScreen(
           initialQuery: _searchQuery,
-          contents: _contents,
+          contents: _searchFeed.items,
+          feed: _searchFeed,
+          onLoadMore: () => _loadFeed(_searchFeed),
+          onRetry: () =>
+              _loadFeed(_searchFeed, reset: _searchFeed.invalidCursor),
           bookmarkedIds: _bookmarkedIds,
-          onQueryChanged: (value) => _searchQuery = value,
-          onClose: () => _go(_previousRoute),
+          categories: _categories,
+          onSearch: _searchContents,
+          onQueryChanged: (value) {
+            _searchQuery = value;
+            setState(() {
+              _searchFeed.reset();
+              _searchFeed.query = null;
+            });
+          },
+          onClose: () => _go(_searchReturnRoute),
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
+          onChangeContentCategory: _changeContentCategory,
+          onDeleteContent: _deleteContent,
           onOpenArchive: () => _openArchive(),
         ),
         AppRoute.detail => DetailScreen(
+          key: ValueKey((_accountVersion, _selectedContent?.id)),
+          onReadAsset: _readScreenshotAsset,
           content: _selectedContent ?? _contents.first,
-          contents: _contents,
+          contents: _detailFeed?.items ?? const [],
+          feed: _detailFeed,
+          moving: _movingDetail,
+          onRetry: () {
+            if (_detailFeed?.invalidCursor ?? false) {
+              unawaited(_loadFeed(_detailFeed!, reset: true));
+            } else {
+              _openAdjacentContent(1);
+            }
+          },
           categories: _categories,
           bookmarked: _isBookmarked(_selectedContent ?? _contents.first),
           onBack: _backFromDetail,
           onToggleBookmark: _toggleBookmark,
           onChangeCategory: _changeContentCategory,
           onDeleteContent: _deleteContent,
+          onOpenOriginalLink: () {
+            final contentId = _selectedContent?.apiId;
+            if (contentId != null) {
+              unawaited(_api.createOriginalLinkOpenedEvent(contentId));
+            }
+          },
           onOpenAdjacent: _openAdjacentContent,
           onOpenContent: _openDetail,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
           onTab: _selectRootTab,
         ),
-        AppRoute.my => MyScreen(onTab: _selectRootTab),
+        AppRoute.my => MyScreen(
+          user: _user,
+          onAddLink: _addLinkContent,
+          onAddScreenshot: _addScreenshotContent,
+          onOpenAccount: () => _go(AppRoute.account),
+          onOpenCategoryManagement: () => _go(AppRoute.categoryManagement),
+          onTab: _selectRootTab,
+        ),
+        AppRoute.account => AccountManagementScreen(
+          user: _user,
+          onBack: () => _go(AppRoute.my),
+          onLogout: _logout,
+        ),
+        AppRoute.categoryManagement => CategoryManagementScreen(
+          categories: _categories,
+          contents: _contents,
+          onBack: () => _go(AppRoute.my),
+          onAddCategory: _addCategory,
+          onUpdateCategory: _updateCategory,
+          onDeleteCategory: _deleteCategory,
+        ),
       },
+    );
+  }
+}
+
+class _SessionRestoreScreen extends StatelessWidget {
+  const _SessionRestoreScreen({
+    required this.errorMessage,
+    required this.onRetry,
+  });
+
+  final String? errorMessage;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (errorMessage == null) ...[
+                    const CircularProgressIndicator(color: AppColors.mainDeep),
+                    const SizedBox(height: 24),
+                    const Text('저장한 콘텐츠를 불러오는 중이에요.'),
+                  ] else ...[
+                    Text(
+                      errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 16, height: 1.6),
+                    ),
+                    const SizedBox(height: 24),
+                    PrimaryButton(label: '다시 시도', onPressed: onRetry),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -327,6 +1711,8 @@ enum AppRoute {
   search,
   detail,
   my,
+  account,
+  categoryManagement,
 }
 
 class AppColors {
@@ -348,6 +1734,13 @@ class AppColors {
 class Assets {
   static const logo = 'assets/figma/hutureu-logo.svg';
   static const appIcon = 'assets/figma/app-icon.svg';
+  static const entryLogo = 'assets/figma/entry-logo.svg';
+  static const kakaoLogin = 'assets/figma/kakao-login.png';
+  static const naverLogin = 'assets/figma/naver-login.png';
+  static const googleLogin = 'assets/figma/google-login.png';
+  static const statusCellular = 'assets/figma/status-cellular.svg';
+  static const statusWifi = 'assets/figma/status-wifi.svg';
+  static const statusBattery = 'assets/figma/status-battery.svg';
   static const onboarding1 = 'assets/figma/onboarding-1.svg';
   static const onboarding2 = 'assets/figma/onboarding-2.svg';
   static const onboarding3 = 'assets/figma/onboarding-3.svg';
@@ -363,6 +1756,7 @@ class Assets {
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';
   static const star = 'assets/icons/star.svg';
+  static const starFilled = 'assets/icons/star-filled.svg';
   static const account = 'assets/icons/account.svg';
   static const plus = 'assets/icons/plus.svg';
   static const search = 'assets/icons/search.svg';
@@ -370,12 +1764,23 @@ class Assets {
   static const chevronRight = 'assets/icons/chevron-right.svg';
   static const chevronDown = 'assets/icons/chevron-down.svg';
   static const arrowRight = 'assets/icons/arrow-right.svg';
+  static const link = 'assets/icons/link-icon.svg';
   static const back = 'assets/icons/back.svg';
   static const more = 'assets/icons/more-vertical.svg';
   static const moreHorizontal = 'assets/icons/more-horizontal.svg';
   static const folderPlus = 'assets/icons/folder-plus.svg';
   static const clock = 'assets/icons/clock.svg';
   static const close = 'assets/icons/x.svg';
+  static const check = 'assets/icons/check.svg';
+  static const xCircle = 'assets/icons/x-circle.svg';
+  static const photoSelect = 'assets/icons/photo-select.svg';
+  static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';
+  static const savedPhotoPreview = 'assets/figma/saved-photo-preview.png';
+  static const saveLinkPreview = 'assets/figma/save-link-preview.png';
+  static const categoryCardFolder = 'assets/icons/category-card-folder.svg';
+  static const categoryCardStar = 'assets/icons/category-card-star.svg';
+  static const categoryCardStarSmall =
+      'assets/icons/category-card-star-small.svg';
   static const instagram = 'assets/icons/instagram.svg';
 }
 
@@ -415,23 +1820,124 @@ class PhoneFrame extends StatelessWidget {
       color: AppColors.bg,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth <= 480) {
-            return child;
-          }
-
-          final previewHeight = constraints.maxHeight < phoneHeight
+          final contentWidth = math.min(phoneWidth, constraints.maxWidth);
+          final contentHeight = constraints.hasBoundedHeight
               ? constraints.maxHeight
               : phoneHeight;
 
           return Align(
             alignment: Alignment.topCenter,
             child: SizedBox(
-              width: phoneWidth,
-              height: previewHeight,
+              width: contentWidth,
+              height: contentHeight,
               child: child,
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class EntrySurface extends StatelessWidget {
+  const EntrySurface({
+    required this.backgroundColor,
+    required this.children,
+    super.key,
+  });
+
+  final Color backgroundColor;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        body: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: phoneWidth,
+              height: phoneHeight,
+              child: Stack(
+                children: [
+                  const EntryStatusBar(),
+                  const EntryHomeIndicator(),
+                  ...children,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class EntryStatusBar extends StatelessWidget {
+  const EntryStatusBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Positioned(
+      left: 0,
+      right: 0,
+      top: 0,
+      child: DesignStatusBar(),
+    );
+  }
+}
+
+class DesignStatusBar extends StatelessWidget {
+  const DesignStatusBar({super.key});
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class EntryHomeIndicator extends StatelessWidget {
+  const EntryHomeIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 116,
+      bottom: 8,
+      width: 144,
+      height: 5,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.text,
+          borderRadius: BorderRadius.circular(100),
+        ),
+      ),
+    );
+  }
+}
+
+class EntryTagline extends StatelessWidget {
+  const EntryTagline({required this.color, super.key});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        '저장한 정보를 다시 볼 순간으로',
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        softWrap: false,
+        style: TextStyle(
+          color: color,
+          fontFamily: 'RiaSans',
+          fontFamilyFallback: const ['Pretendard'],
+          fontSize: 16,
+          fontWeight: FontWeight.w400,
+          height: 23 / 16,
+        ),
       ),
     );
   }
@@ -457,40 +1963,35 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PhoneFrame(
-      child: Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SvgPicture.asset(Assets.logo, width: 149, fit: BoxFit.contain),
-                const SizedBox(height: 16),
-                const Text(
-                  '저장한 정보를 다시 볼 순간으로',
-                  style: TextStyle(
-                    color: AppColors.subtle,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+    return EntrySurface(
+      backgroundColor: AppColors.main,
+      children: [
+        Positioned(
+          left: 72,
+          top: 346,
+          width: 232,
+          height: 91,
+          child: Column(
+            children: [
+              SvgPicture.asset(
+                Assets.entryLogo,
+                width: 148.771,
+                height: 50,
+                fit: BoxFit.fill,
+              ),
+              const SizedBox(height: 16),
+              const EntryTagline(color: AppColors.mainDeep),
+            ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({
-    required this.onBack,
-    required this.onDone,
-    super.key,
-  });
+  const OnboardingScreen({required this.onDone, super.key});
 
-  final VoidCallback onBack;
   final VoidCallback onDone;
 
   @override
@@ -536,17 +2037,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  void _back() {
-    if (_page == 0) {
-      widget.onBack();
-      return;
-    }
-    _controller.previousPage(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return PhoneFrame(
@@ -561,26 +2051,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 itemBuilder: (context, index) =>
                     _OnboardingPage(data: _pages[index]),
               ),
-              if (_page > 0)
-                Positioned(
-                  left: 6,
-                  top: 8,
-                  child: SvgIconButton(
-                    asset: Assets.back,
-                    onPressed: _back,
-                    size: 24,
-                  ),
-                ),
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 96,
+                bottom: 128,
                 child: PageDots(count: _pages.length, activeIndex: _page),
               ),
               Positioned(
                 left: 16,
                 right: 16,
-                bottom: 16,
+                bottom: 40,
                 child: PrimaryButton(
                   label: _page == _pages.length - 1 ? '시작하기' : '다음',
                   onPressed: _next,
@@ -606,10 +2086,28 @@ class _OnboardingPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 80),
-          Text(data.title, style: AppText.title24),
+          const SizedBox(height: 104),
+          Text(
+            data.title,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 26,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+              letterSpacing: -0.65,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text(data.body, style: AppText.body16Subtle),
+          Text(
+            data.body,
+            style: const TextStyle(
+              color: AppColors.subtle,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              height: 1.5,
+              letterSpacing: -0.4,
+            ),
+          ),
           const Spacer(),
           Center(
             child: Image.asset(
@@ -629,52 +2127,78 @@ class _OnboardingPage extends StatelessWidget {
 class LoginScreen extends StatelessWidget {
   const LoginScreen({required this.onContinue, super.key});
 
-  final VoidCallback onContinue;
+  final Future<void> Function() onContinue;
 
   @override
   Widget build(BuildContext context) {
-    return PhoneFrame(
-      child: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                const Spacer(flex: 5),
-                SvgPicture.asset(Assets.logo, width: 182, fit: BoxFit.contain),
-                const SizedBox(height: 14),
-                const Text('저장한 정보를 다시 볼 순간으로', style: AppText.body16Subtle),
-                const Spacer(flex: 6),
-                SocialButton(
-                  label: '카카오로 계속하기',
-                  color: const Color(0xFFFDDC3F),
-                  foreground: AppColors.text,
-                  mark: 'K',
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 8),
-                SocialButton(
-                  label: '네이버로 계속하기',
-                  color: const Color(0xFF00BF18),
-                  foreground: Colors.white,
-                  mark: 'N',
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 8),
-                SocialButton(
-                  label: '구글로 계속하기',
-                  color: Colors.white,
-                  foreground: AppColors.text,
-                  mark: 'G',
-                  borderColor: AppColors.subtler,
-                  onPressed: onContinue,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
+    return EntrySurface(
+      backgroundColor: AppColors.bg,
+      children: [
+        Positioned(
+          left: 98,
+          top: 245,
+          width: 179,
+          height: 99,
+          child: Column(
+            children: [
+              SvgPicture.asset(
+                Assets.entryLogo,
+                width: 178.525,
+                height: 60,
+                fit: BoxFit.fill,
+              ),
+              const SizedBox(height: 16),
+              const EntryTagline(color: AppColors.subtle),
+            ],
           ),
         ),
-      ),
+        Positioned(
+          left: 16,
+          top: 590,
+          width: 343,
+          child: SocialButton(
+            label: '카카오로 계속하기',
+            color: const Color(0xFFFDDC3F),
+            foreground: AppColors.text,
+            iconAsset: Assets.kakaoLogin,
+            iconLeft: 8,
+            iconTop: 7,
+            iconSize: 38,
+            onPressed: onContinue,
+          ),
+        ),
+        Positioned(
+          left: 16,
+          top: 650,
+          width: 343,
+          child: SocialButton(
+            label: '네이버로 계속하기',
+            color: const Color(0xFF00BF18),
+            foreground: Colors.white,
+            iconAsset: Assets.naverLogin,
+            iconLeft: 13,
+            iconTop: 12,
+            iconSize: 28,
+            onPressed: onContinue,
+          ),
+        ),
+        Positioned(
+          left: 16,
+          top: 710,
+          width: 343,
+          child: SocialButton(
+            label: '구글로 계속하기',
+            color: Colors.white,
+            foreground: AppColors.text,
+            iconAsset: Assets.googleLogin,
+            iconLeft: 18,
+            iconTop: 17,
+            iconSize: 18,
+            borderColor: AppColors.subtler,
+            onPressed: onContinue,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -828,6 +2352,10 @@ class InterestOptionTile extends StatelessWidget {
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
+    this.feed,
+    this.onRetry,
+    this.activeCategoryId,
+    this.onCategorySelected,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
@@ -844,6 +2372,10 @@ class HomeScreen extends StatelessWidget {
   });
 
   final List<ContentItem> contents;
+  final FeedPage? feed;
+  final VoidCallback? onRetry;
+  final int? activeCategoryId;
+  final ValueChanged<CategoryItem?>? onCategorySelected;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final VoidCallback onSearch;
@@ -852,63 +2384,47 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onOpenToday;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
     final hasSavedContent = contents.isNotEmpty;
     void showAddContentSheet() {
-      showModalBottomSheet<void>(
+      showContentSaveScreen(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => AddContentSheet(
-          categories: categories,
-          onAddLink: onAddLink,
-          onAddScreenshot: onAddScreenshot,
-        ),
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
       );
     }
 
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Stack(
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
             children: [
-              Positioned.fill(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Column(
-                    children: [
-                      HomeHero(
-                        hasSavedContent: hasSavedContent,
-                        onSearch: onSearch,
-                        onOpenToday: hasSavedContent
-                            ? onOpenToday
-                            : showAddContentSheet,
-                      ),
-                      HomeContentPanel(
-                        hasSavedContent: hasSavedContent,
-                        contents: contents,
-                        categories: categories,
-                        bookmarkedIds: bookmarkedIds,
-                        onOpenArchive: onOpenArchive,
-                        onOpenCategories: onOpenCategories,
-                        onOpenContent: onOpenContent,
-                        onToggleBookmark: onToggleBookmark,
-                      ),
-                    ],
-                  ),
-                ),
+              HomeHero(
+                hasSavedContent: hasSavedContent,
+                onSearch: onSearch,
+                onOpenToday: hasSavedContent
+                    ? onOpenToday
+                    : showAddContentSheet,
               ),
-              Positioned(
-                right: 16,
-                bottom: 113,
-                child: FloatingAddButton(onPressed: showAddContentSheet),
+              HomeContentPanel(
+                feed: feed,
+                onRetry: onRetry,
+                activeCategoryId: activeCategoryId,
+                onCategorySelected: onCategorySelected,
+                hasSavedContent: hasSavedContent,
+                contents: contents,
+                categories: categories,
+                bookmarkedIds: bookmarkedIds,
+                onOpenArchive: onOpenArchive,
+                onOpenCategories: onOpenCategories,
+                onOpenContent: onOpenContent,
+                onToggleBookmark: onToggleBookmark,
               ),
             ],
           ),
@@ -916,6 +2432,7 @@ class HomeScreen extends StatelessWidget {
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 0,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -937,30 +2454,42 @@ class HomeHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 254,
+      height: hasSavedContent ? 254 : 286,
       child: Stack(
         children: [
+          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
           Positioned(
             left: 16,
             right: 16,
-            top: 8,
+            top: 58,
+            height: 56,
             child: Row(
               children: [
                 SvgPicture.asset(
-                  Assets.logo,
-                  width: 72,
+                  Assets.entryLogo,
+                  width: 71.41,
                   height: 24,
-                  fit: BoxFit.contain,
+                  fit: BoxFit.fill,
                 ),
                 const Spacer(),
-                SvgIconButton(asset: Assets.search, onPressed: onSearch),
-                const SizedBox(width: 16),
                 SvgIconButton(
-                  asset: Assets.bell,
-                  onPressed: () => showModalBottomSheet<void>(
-                    context: context,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => const NotificationSheet(),
+                  asset: Assets.search,
+                  onPressed: onSearch,
+                  size: 24,
+                  hitSize: 24,
+                ),
+                const SizedBox(width: 16),
+                Transform.translate(
+                  offset: const Offset(0, 1),
+                  child: SvgIconButton(
+                    asset: Assets.bell,
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => const NotificationSheet(),
+                    ),
+                    size: 24,
+                    hitSize: 24,
                   ),
                 ),
               ],
@@ -968,8 +2497,8 @@ class HomeHero extends StatelessWidget {
           ),
           Positioned(
             left: 24,
-            top: 72,
-            width: 180,
+            top: 122,
+            width: 168,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -977,15 +2506,26 @@ class HomeHero extends StatelessWidget {
                   hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
                   style: const TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     height: 1.6,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                Text(
-                  hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
+                SizedBox(
+                  width: 168,
+                  child: FittedBox(
+                    alignment: Alignment.centerLeft,
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.45,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1004,8 +2544,10 @@ class HomeHero extends StatelessWidget {
                       hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
                       style: const TextStyle(
                         color: AppColors.main,
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        height: 1.4,
+                        letterSpacing: -0.35,
                       ),
                     ),
                   ),
@@ -1014,8 +2556,8 @@ class HomeHero extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 20,
-            top: 64,
+            right: hasSavedContent ? 24 : 30,
+            top: 114,
             child: Image.asset(
               hasSavedContent ? Assets.homeCharacter : Assets.character2Png,
               width: hasSavedContent ? 99 : 81,
@@ -1031,6 +2573,10 @@ class HomeHero extends StatelessWidget {
 
 class HomeContentPanel extends StatefulWidget {
   const HomeContentPanel({
+    this.feed,
+    this.onRetry,
+    this.activeCategoryId,
+    this.onCategorySelected,
     required this.hasSavedContent,
     required this.contents,
     required this.categories,
@@ -1043,6 +2589,10 @@ class HomeContentPanel extends StatefulWidget {
   });
 
   final bool hasSavedContent;
+  final FeedPage? feed;
+  final VoidCallback? onRetry;
+  final int? activeCategoryId;
+  final ValueChanged<CategoryItem?>? onCategorySelected;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
@@ -1056,20 +2606,18 @@ class HomeContentPanel extends StatefulWidget {
 }
 
 class _HomeContentPanelState extends State<HomeContentPanel> {
-  String _activeCategoryLabel = '전체보기';
-
-  List<ContentItem> get _filteredContents {
-    if (_activeCategoryLabel == '전체보기') {
-      return widget.contents;
-    }
-    return widget.contents
-        .where((content) => content.category.name == _activeCategoryLabel)
-        .toList();
-  }
+  String get _activeCategoryLabel =>
+      widget.categories
+          .where(
+            (item) => item.id != null && item.id == widget.activeCategoryId,
+          )
+          .firstOrNull
+          ?.name ??
+      '전체보기';
 
   @override
   Widget build(BuildContext context) {
-    final filteredContents = _filteredContents;
+    final filteredContents = widget.contents;
 
     return Container(
       width: double.infinity,
@@ -1079,15 +2627,34 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
       ),
       child: Column(
         children: [
+          const SizedBox(height: 16),
+          if (widget.hasSavedContent) ...[
+            SectionHeader(
+              title: '이번주 허투루 픽 🎯',
+              onTap: widget.onOpenCategories,
+            ),
+            const SizedBox(height: 8),
+            WeeklyPickRail(onOpenCategory: widget.onOpenCategories),
+            const SizedBox(height: 32),
+          ],
           SectionHeader(title: '최근 저장한 콘텐츠', onTap: widget.onOpenArchive),
           CategoryChips(
             categories: ['전체보기', ...widget.categories.map((item) => item.name)],
             activeLabel: _activeCategoryLabel,
             onSelected: (label) {
-              setState(() => _activeCategoryLabel = label);
+              widget.onCategorySelected?.call(
+                label == '전체보기'
+                    ? null
+                    : widget.categories
+                          .where((item) => item.name == label)
+                          .first,
+              );
             },
           ),
-          if (widget.hasSavedContent && filteredContents.isNotEmpty) ...[
+          if (widget.feed != null &&
+              (widget.feed!.loading || widget.feed!.error != null))
+            _FeedStatus(page: widget.feed!, onRetry: widget.onRetry)
+          else if (filteredContents.isNotEmpty) ...[
             SizedBox(
               height: 218,
               child: ListView.separated(
@@ -1106,25 +2673,27 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
                 itemCount: filteredContents.take(4).length,
               ),
             ),
-            PageDots(count: filteredContents.take(5).length, activeIndex: 0),
-          ] else if (widget.hasSavedContent)
+            PageDots(count: filteredContents.take(4).length, activeIndex: 0),
+          ] else if (widget.activeCategoryId != null)
             HomeFilteredEmptyContent(
               label: _activeCategoryLabel,
-              onReset: () => setState(() => _activeCategoryLabel = '전체보기'),
+              onReset: () => widget.onCategorySelected?.call(null),
             )
           else
             const EmptyHomeContent(),
-          const SizedBox(height: 22),
-          SectionHeader(title: '최근 카테고리', onTap: widget.onOpenArchive),
-          const SizedBox(height: 8),
-          for (final category in widget.categories.take(2))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: CategoryHomeRow(
-                category: category,
-                onTap: widget.onOpenCategories,
+          const SizedBox(height: 32),
+          if (!widget.hasSavedContent) ...[
+            SectionHeader(title: '최근 카테고리', onTap: widget.onOpenCategories),
+            const SizedBox(height: 8),
+            for (final category in widget.categories.take(2))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: CategoryHomeRow(
+                  category: category,
+                  onTap: widget.onOpenCategories,
+                ),
               ),
-            ),
+          ],
         ],
       ),
     );
@@ -1197,81 +2766,233 @@ class HomeFilteredEmptyContent extends StatelessWidget {
   }
 }
 
+class WeeklyPickRail extends StatelessWidget {
+  const WeeklyPickRail({required this.onOpenCategory, super.key});
+
+  final VoidCallback onOpenCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final picks = [
+      ('많이 저장한', '일본 여행을\n준비 중이라면?', false),
+      ('자주 본', '평생의 숙제\n다이어트', false),
+      ('공지사항', '허투루\n100% 활용법', true),
+    ];
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: picks.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final pick = picks[index];
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onOpenCategory,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 133,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: pick.$3 ? AppColors.main : AppColors.surface,
+                  border: pick.$3 ? null : Border.all(color: AppColors.faint),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      pick.$1,
+                      style: const TextStyle(
+                        color: AppColors.middle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      pick.$2,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class ArchiveScreen extends StatelessWidget {
   const ArchiveScreen({
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     required this.activeTab,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
     required this.bookmarkedFirst,
+    required this.randomViewing,
     required this.activeCategoryName,
     required this.onTabChanged,
     required this.onSortChanged,
+    required this.onOpenRandomView,
+    required this.onExitRandomView,
     required this.onClearCategory,
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onOpenCategory,
     required this.onTab,
     super.key,
   });
 
   final int activeTab;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final bool bookmarkedFirst;
+  final bool randomViewing;
   final String? activeCategoryName;
   final ValueChanged<int> onTabChanged;
   final ValueChanged<bool> onSortChanged;
+  final VoidCallback onOpenRandomView;
+  final VoidCallback onExitRandomView;
   final VoidCallback onClearCategory;
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final ValueChanged<CategoryItem> onAddCategory;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<CategoryItem> onOpenCategory;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
+    if (activeCategoryName != null && randomViewing && activeTab == 0) {
+      final categoryContents = List.of(contents);
+      categoryContents.shuffle();
+      return PhoneFrame(
+        child: CategoryCardReviewScreen(
+          contents: categoryContents.take(5).toList(),
+          categoryName: activeCategoryName!,
+          bookmarkedIds: bookmarkedIds,
+          onExit: onExitRandomView,
+          onOpenContent: onOpenContent,
+          onToggleBookmark: onToggleBookmark,
+        ),
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              AppTopBar(
-                title: '아카이브',
-                onBack: () => onTab(AppRoute.home),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            if (activeCategoryName == null)
+              AppTopBar(title: '아카이브', onSearch: onSearch)
+            else
+              CategoryTopBar(
+                title: activeCategoryName!,
+                onBack: onClearCategory,
                 onSearch: onSearch,
+                onMore: () => showModalBottomSheet<void>(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => SortSheet(
+                    activeBookmarkedFirst: bookmarkedFirst,
+                    onSelect: onSortChanged,
+                  ),
+                ),
               ),
+            const SizedBox(height: 8),
+            if (activeCategoryName == null)
               ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
-              Expanded(
-                child: activeTab == 0
-                    ? ContentListView(
-                        contents: contents,
-                        bookmarkedIds: bookmarkedIds,
-                        bookmarkedFirst: bookmarkedFirst,
-                        activeCategoryName: activeCategoryName,
-                        onSortChanged: onSortChanged,
-                        onClearCategory: onClearCategory,
-                        onOpenContent: onOpenContent,
-                        onToggleBookmark: onToggleBookmark,
-                        onGoHome: () => onTab(AppRoute.home),
-                      )
-                    : CategoryArchiveView(
-                        categories: categories,
-                        onAddCategory: onAddCategory,
-                        onOpenCategory: onOpenCategory,
-                      ),
-              ),
-            ],
-          ),
+            Expanded(
+              child: activeTab == 0
+                  ? Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ContentListView(
+                            feed: feed,
+                            onLoadMore: onLoadMore,
+                            onRetry: onRetry,
+                            contents: contents,
+                            bookmarkedIds: bookmarkedIds,
+                            bookmarkedFirst: bookmarkedFirst,
+                            activeCategoryName: activeCategoryName,
+                            onSortChanged: onSortChanged,
+                            onClearCategory: onClearCategory,
+                            onOpenContent: onOpenContent,
+                            onToggleBookmark: onToggleBookmark,
+                            categories: categories,
+                            onChangeContentCategory: onChangeContentCategory,
+                            onDeleteContent: onDeleteContent,
+                            onGoHome: () => onTab(AppRoute.home),
+                          ),
+                        ),
+                        if (activeCategoryName != null && contents.isNotEmpty)
+                          Positioned(
+                            right: 16,
+                            bottom: 24,
+                            child: RandomReviewButton(
+                              onPressed: onOpenRandomView,
+                            ),
+                          ),
+                      ],
+                    )
+                  : CategoryArchiveView(
+                      categories: categories,
+                      contents: contents,
+                      bookmarkedIds: bookmarkedIds,
+                      bookmarkedFirst: bookmarkedFirst,
+                      onSortChanged: onSortChanged,
+                      onAddCategory: onAddCategory,
+                      onUpdateCategory: onUpdateCategory,
+                      onDeleteCategory: onDeleteCategory,
+                      onOpenCategory: onOpenCategory,
+                    ),
+            ),
+          ],
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 1,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -1282,22 +3003,47 @@ class BookmarkScreen extends StatelessWidget {
   const BookmarkScreen({
     required this.contents,
     required this.bookmarkedIds,
+    required this.categories,
     required this.onSearch,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onTab,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     super.key,
   });
 
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
+  final List<CategoryItem> categories;
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
         body: SafeArea(
@@ -1309,29 +3055,46 @@ class BookmarkScreen extends StatelessWidget {
                 onBack: () => onTab(AppRoute.home),
                 onSearch: onSearch,
               ),
-              Expanded(
-                child: contents.isEmpty
-                    ? EmptyStatePanel(
-                        title: '즐겨찾기한 콘텐츠가 없어요',
-                        body: '중요한 콘텐츠의 별 아이콘을 누르면 이곳에 모아둘 수 있어요.',
-                        actionLabel: '아카이브 보러가기',
-                        onAction: () => onTab(AppRoute.archive),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.only(top: 8),
-                        itemBuilder: (context, index) {
-                          final content = contents[index];
-                          return ContentListCard(
-                            content: content,
-                            bookmarked: bookmarkedIds.contains(content.id),
-                            onToggleBookmark: () => onToggleBookmark(content),
-                            onTap: () => onOpenContent(content),
-                          );
-                        },
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 8),
-                        itemCount: contents.length,
+              if (feed != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '불러온 ${contents.length}개',
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
                       ),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: _PagedContentList(
+                  feed: feed,
+                  contents: contents,
+                  onLoadMore: onLoadMore,
+                  onRetry: onRetry,
+                  empty: EmptyStatePanel(
+                    title: '즐겨찾기한 콘텐츠가 없어요',
+                    body: '중요한 콘텐츠의 별 아이콘을 누르면 이곳에 모아둘 수 있어요.',
+                    actionLabel: '아카이브 보러가기',
+                    onAction: () => onTab(AppRoute.archive),
+                  ),
+                  itemBuilder: (content) => ContentListCard(
+                    content: content,
+                    bookmarked: bookmarkedIds.contains(content.id),
+                    onToggleBookmark: () => onToggleBookmark(content),
+                    categories: categories,
+                    onChangeCategory: (category) =>
+                        onChangeContentCategory(content, category),
+                    onDelete: () => onDeleteContent(content),
+                    onTap: () => onOpenContent(content),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1339,6 +3102,7 @@ class BookmarkScreen extends StatelessWidget {
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 2,
           onTap: onTab,
+          onAdd: showAddContentSheet,
         ),
       ),
     );
@@ -1347,24 +3111,39 @@ class BookmarkScreen extends StatelessWidget {
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     required this.initialQuery,
     required this.contents,
     required this.bookmarkedIds,
+    required this.categories,
+    required this.onSearch,
     required this.onQueryChanged,
     required this.onClose,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onOpenArchive,
     super.key,
   });
 
   final String initialQuery;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
+  final List<CategoryItem> categories;
+  final Future<List<ContentItem>> Function(String query) onSearch;
   final ValueChanged<String> onQueryChanged;
   final VoidCallback onClose;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onOpenArchive;
 
   @override
@@ -1374,6 +3153,9 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   late final TextEditingController _controller;
   late List<String> _terms;
+  List<ContentItem>? _serverResults;
+  var _isSearching = false;
+  int _requestVersion = 0;
 
   @override
   void initState() {
@@ -1390,9 +3172,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
   bool get _hasQuery => _controller.text.trim().isNotEmpty;
 
-  void _submitQuery(String value) {
+  Future<void> _submitQuery(String value) async {
     final term = value.trim();
     if (term.isEmpty) return;
+    final version = ++_requestVersion;
     widget.onQueryChanged(term);
     setState(() {
       _terms
@@ -1402,6 +3185,22 @@ class _SearchScreenState extends State<SearchScreen> {
         _terms = _terms.take(5).toList();
       }
     });
+    setState(() {
+      _isSearching = true;
+      _serverResults = null;
+    });
+    try {
+      final results = await widget.onSearch(term);
+      if (!mounted || version != _requestVersion) return;
+      setState(() {
+        _serverResults = results;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (mounted && version == _requestVersion) {
+        setState(() => _isSearching = false);
+      }
+    }
   }
 
   List<ContentItem> get _results {
@@ -1409,18 +3208,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (query.isEmpty) {
       return const [];
     }
-    final normalizedQuery = query.toLowerCase();
-    return widget.contents.where((content) {
-      final searchableText = [
-        content.title,
-        content.summary,
-        content.category.name,
-        content.source,
-        content.originalUrl,
-        ...content.tags,
-      ].join(' ').toLowerCase();
-      return searchableText.contains(normalizedQuery);
-    }).toList();
+    if (widget.feed != null) return widget.contents;
+    return _serverResults ?? const [];
   }
 
   @override
@@ -1453,12 +3242,18 @@ class _SearchScreenState extends State<SearchScreen> {
                             Expanded(
                               child: TextField(
                                 controller: _controller,
-                                autofocus: true,
+                                autofocus: widget.initialQuery.trim().isEmpty,
                                 onChanged: (value) {
+                                  _requestVersion++;
                                   widget.onQueryChanged(value);
-                                  setState(() {});
+                                  setState(() {
+                                    _serverResults = null;
+                                    _isSearching = false;
+                                  });
                                 },
-                                onSubmitted: _submitQuery,
+                                onSubmitted: (value) {
+                                  unawaited(_submitQuery(value));
+                                },
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
@@ -1478,9 +3273,13 @@ class _SearchScreenState extends State<SearchScreen> {
                             if (_hasQuery)
                               GestureDetector(
                                 onTap: () {
+                                  _requestVersion++;
                                   _controller.clear();
                                   widget.onQueryChanged('');
-                                  setState(() {});
+                                  setState(() {
+                                    _serverResults = null;
+                                    _isSearching = false;
+                                  });
                                 },
                                 child: const SvgIcon(
                                   asset: Assets.close,
@@ -1516,48 +3315,108 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               const SizedBox(height: 32),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    if (!_hasQuery) ...[
-                      const Text(
-                        '최근 검색어',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      for (final term in _terms)
-                        SearchHistoryRow(
-                          term: term,
-                          onTap: () {
-                            _controller.text = term;
-                            _submitQuery(term);
-                            widget.onQueryChanged(term);
-                            setState(() {});
-                          },
-                          onRemove: () => setState(() => _terms.remove(term)),
-                        ),
-                    ] else ...[
-                      for (final content in _results)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: ContentListCard(
-                            content: content,
-                            bookmarked: widget.bookmarkedIds.contains(
-                              content.id,
+                child: _hasQuery && widget.feed != null
+                    ? (widget.feed!.query == null
+                          ? const Center(child: Text('검색어를 입력하고 검색해 주세요.'))
+                          : Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Text('불러온 ${_results.length}개'),
+                                ),
+                                Expanded(
+                                  child: _PagedContentList(
+                                    feed: widget.feed,
+                                    contents: _results,
+                                    onLoadMore: widget.onLoadMore,
+                                    onRetry: widget.onRetry,
+                                    empty: EmptySearchResult(
+                                      onOpenArchive: widget.onOpenArchive,
+                                    ),
+                                    itemBuilder: (content) => ContentListCard(
+                                      content: content,
+                                      bookmarked: widget.bookmarkedIds.contains(
+                                        content.id,
+                                      ),
+                                      onToggleBookmark: () =>
+                                          widget.onToggleBookmark(content),
+                                      categories: widget.categories,
+                                      onChangeCategory: (category) =>
+                                          widget.onChangeContentCategory(
+                                            content,
+                                            category,
+                                          ),
+                                      onDelete: () =>
+                                          widget.onDeleteContent(content),
+                                      onTap: () =>
+                                          widget.onOpenContent(content),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ))
+                    : ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          if (!_hasQuery) ...[
+                            const Text(
+                              '최근 검색어',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                            onToggleBookmark: () =>
-                                widget.onToggleBookmark(content),
-                            onTap: () => widget.onOpenContent(content),
-                          ),
-                        ),
-                      if (_results.isEmpty)
-                        EmptySearchResult(onOpenArchive: widget.onOpenArchive),
-                    ],
-                  ],
-                ),
+                            const SizedBox(height: 16),
+                            for (final term in _terms)
+                              SearchHistoryRow(
+                                term: term,
+                                onTap: () {
+                                  _controller.text = term;
+                                  unawaited(_submitQuery(term));
+                                },
+                                onRemove: () =>
+                                    setState(() => _terms.remove(term)),
+                              ),
+                          ] else ...[
+                            if (_isSearching)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 72),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.mainDeep,
+                                  ),
+                                ),
+                              )
+                            else ...[
+                              for (final content in _results)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ContentListCard(
+                                    content: content,
+                                    bookmarked: widget.bookmarkedIds.contains(
+                                      content.id,
+                                    ),
+                                    onToggleBookmark: () =>
+                                        widget.onToggleBookmark(content),
+                                    categories: widget.categories,
+                                    onChangeCategory: (category) =>
+                                        widget.onChangeContentCategory(
+                                          content,
+                                          category,
+                                        ),
+                                    onDelete: () =>
+                                        widget.onDeleteContent(content),
+                                    onTap: () => widget.onOpenContent(content),
+                                  ),
+                                ),
+                              if (_results.isEmpty)
+                                EmptySearchResult(
+                                  onOpenArchive: widget.onOpenArchive,
+                                ),
+                            ],
+                          ],
+                        ],
+                      ),
               ),
             ],
           ),
@@ -1569,6 +3428,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
+    required this.onReadAsset,
+    this.feed,
+    this.moving = false,
+    this.onRetry,
     required this.content,
     required this.contents,
     required this.categories,
@@ -1577,13 +3440,20 @@ class DetailScreen extends StatefulWidget {
     required this.onToggleBookmark,
     required this.onChangeCategory,
     required this.onDeleteContent,
+    required this.onOpenOriginalLink,
     required this.onOpenAdjacent,
     required this.onOpenContent,
+    required this.onAddLink,
+    required this.onAddScreenshot,
     required this.onTab,
     super.key,
   });
 
   final ContentItem content;
+  final Future<Uint8List> Function(int) onReadAsset;
+  final FeedPage? feed;
+  final bool moving;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final bool bookmarked;
@@ -1592,8 +3462,11 @@ class DetailScreen extends StatefulWidget {
   final void Function(ContentItem content, CategoryItem category)
   onChangeCategory;
   final ValueChanged<ContentItem> onDeleteContent;
+  final VoidCallback onOpenOriginalLink;
   final ValueChanged<int> onOpenAdjacent;
   final ValueChanged<ContentItem> onOpenContent;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -1602,14 +3475,101 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   final _relatedKey = GlobalKey();
+  bool _showFullText = false;
+  late _ScreenshotAssetController _originalImage;
+  Route<void>? _originalSheetRoute;
+  bool _showingOriginalSheet = false;
+  int _originalSheetVersion = 0;
+
+  int? get _assetId => widget.content.isScreenshot
+      ? widget.content.assets
+            .where((asset) => asset.assetType == 'screenshot')
+            .firstOrNull
+            ?.id
+      : null;
+
+  @override
+  void initState() {
+    super.initState();
+    _originalImage = _ScreenshotAssetController(_assetId, widget.onReadAsset);
+  }
+
+  @override
+  void didUpdateWidget(covariant DetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.content.id != widget.content.id ||
+        _originalImage.assetId != _assetId) {
+      _closeOriginalSheet();
+      _originalImage.dispose();
+      _originalImage = _ScreenshotAssetController(_assetId, widget.onReadAsset);
+      _showFullText = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _closeOriginalSheet();
+    _originalImage.dispose();
+    super.dispose();
+  }
+
+  void _closeOriginalSheet() {
+    _originalSheetVersion++;
+    _showingOriginalSheet = false;
+    final route = _originalSheetRoute;
+    _originalSheetRoute = null;
+    if (route == null) return;
+    // A modal route can outlive the detail widget beneath it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (route.isActive) route.navigator?.removeRoute(route);
+    });
+  }
 
   void _showOriginal() {
-    showModalBottomSheet<void>(
+    setState(() => _showFullText = !_showFullText);
+    if (_showFullText && widget.content.isScreenshot) {
+      unawaited(_originalImage.load());
+    }
+  }
+
+  Future<void> _showOriginalSheet() async {
+    if (_showingOriginalSheet) return;
+    _showingOriginalSheet = true;
+    final version = ++_originalSheetVersion;
+    final content = widget.content;
+    final image = _originalImage;
+    if (content.isScreenshot) {
+      unawaited(image.load());
+    } else if (content.originalUrl.isNotEmpty) {
+      widget.onOpenOriginalLink();
+    }
+    await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
+      isScrollControlled: content.isScreenshot,
       backgroundColor: Colors.transparent,
-      builder: (context) => OriginalContentSheet(content: widget.content),
+      builder: (sheetContext) {
+        final route = ModalRoute.of<void>(sheetContext);
+        if (!mounted || version != _originalSheetVersion) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (route != null && route.isActive) {
+              route.navigator?.removeRoute(route);
+            }
+          });
+          return const SizedBox.shrink();
+        }
+        _originalSheetRoute = route;
+        return OriginalContentSheet(
+          content: content,
+          originalImage: content.isScreenshot
+              ? _ScreenshotAssetView(controller: image)
+              : null,
+        );
+      },
     );
+    if (version == _originalSheetVersion) {
+      _originalSheetRoute = null;
+      _showingOriginalSheet = false;
+    }
   }
 
   void _scrollToRelated() {
@@ -1636,103 +3596,193 @@ class _DetailScreenState extends State<DetailScreen> {
         )
         .toList();
 
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        onAddLink: widget.onAddLink,
+        onAddScreenshot: widget.onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Stack(
-            children: [
-              ListView(
-                padding: const EdgeInsets.fromLTRB(16, 64, 16, 128),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            const SizedBox(height: 8),
+            DetailTopBar(
+              content: content,
+              categories: widget.categories,
+              bookmarked: widget.bookmarked,
+              onBack: widget.onBack,
+              onToggleBookmark: () => widget.onToggleBookmark(content),
+              onChangeCategory: (category) =>
+                  widget.onChangeCategory(content, category),
+              onDeleteContent: () => widget.onDeleteContent(content),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: CategoryBadge(category: content.category),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    content.title.replaceFirst(' ', '\n'),
-                    style: AppText.title24,
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      SvgPicture.asset(Assets.instagram, width: 16, height: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        content.source,
-                        style: const TextStyle(
-                          color: AppColors.subtle,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '저장일시 | ${content.savedAtFullShort}',
-                        style: const TextStyle(
-                          color: AppColors.subtle,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 26),
-                  const Text(
-                    '핵심 요약',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      height: 1.6,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: CategoryBadge(category: content.category),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    content.summary,
-                    style: const TextStyle(fontSize: 15, height: 1.6),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Text(
+                      content.title,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        height: 1.5,
+                        letterSpacing: -0.6,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  const Divider(color: AppColors.faint),
-                  InkWell(
-                    onTap: _showOriginal,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
                     child: SizedBox(
-                      height: 54,
+                      height: 32,
                       child: Row(
                         children: [
-                          const Text(
-                            '전문 보기',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                          Text(
+                            '${content.savedAtFull} 저장',
+                            style: const TextStyle(
+                              color: AppColors.subtle,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w400,
+                              letterSpacing: -0.35,
                             ),
                           ),
                           const Spacer(),
-                          SvgIcon(asset: Assets.chevronDown),
+                          SvgIconButton(
+                            asset: Assets.link,
+                            onPressed: _showOriginalSheet,
+                            size: 32,
+                            hitSize: 32,
+                            color: AppColors.subtle,
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const Divider(color: AppColors.faint),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      '요약',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        height: 19 / 16,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: SizedBox(
+                      height: 72,
+                      child: Text(
+                        content.summary,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.middle,
+                          fontSize: 15,
+                          height: 1.6,
+                          letterSpacing: -0.375,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.faint,
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  InkWell(
+                    onTap: _showOriginal,
+                    child: SizedBox(
+                      height: 24,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          children: [
+                            Text(
+                              content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            const Spacer(),
+                            Transform.rotate(
+                              angle: _showFullText ? 3.14159 : 0,
+                              child: const SvgIcon(
+                                asset: Assets.chevronDown,
+                                size: 24,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_showFullText) ...[
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: content.isScreenshot
+                          ? _ScreenshotAssetView(controller: _originalImage)
+                          : FullContentPreview(content: content),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.faint,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Padding(
-                          padding: EdgeInsets.only(top: 3),
+                          padding: EdgeInsets.only(left: 8),
                           child: Text(
                             '태그',
                             style: TextStyle(
                               color: AppColors.middle,
                               fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: -0.4,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
                         Expanded(
                           child: Wrap(
+                            alignment: WrapAlignment.end,
                             spacing: 4,
-                            runSpacing: 6,
+                            runSpacing: 4,
                             children: content.tags
                                 .map((tag) => TagChip(label: '#$tag'))
                                 .toList(),
@@ -1741,19 +3791,36 @@ class _DetailScreenState extends State<DetailScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  SectionHeader(
+                  const SizedBox(height: 32),
+                  InkWell(
                     key: _relatedKey,
-                    title: '비슷한 정보 보러가기',
                     onTap: _scrollToRelated,
-                    horizontalPadding: 0,
-                    iconAsset: Assets.arrowRight,
+                    child: SizedBox(
+                      height: 40,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: const [
+                            Text(
+                              '비슷한 태그를 가진 정보',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            Spacer(),
+                            SvgIcon(asset: Assets.chevronRight, size: 24),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 9),
+                  const SizedBox(height: 8),
                   if (relatedContents.isNotEmpty)
                     for (final related in relatedContents)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         child: RelatedContentTile(
                           category: related.category,
                           title: related.title,
@@ -1763,143 +3830,343 @@ class _DetailScreenState extends State<DetailScreen> {
                   else
                     const SizedBox.shrink(),
                   const SizedBox(height: 18),
-                  DetailPager(
-                    currentIndex: currentIndex == -1 ? 0 : currentIndex,
-                    totalCount: widget.contents.length,
-                    onPrevious: () => widget.onOpenAdjacent(-1),
-                    onNext: () => widget.onOpenAdjacent(1),
-                  ),
                 ],
               ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: DetailTopBar(
-                  content: content,
-                  categories: widget.categories,
-                  bookmarked: widget.bookmarked,
-                  onBack: widget.onBack,
-                  onToggleBookmark: () => widget.onToggleBookmark(content),
-                  onChangeCategory: (category) =>
-                      widget.onChangeCategory(content, category),
-                  onDeleteContent: () => widget.onDeleteContent(content),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-        bottomNavigationBar: ClipbackNavigationBar(
-          activeIndex: 1,
-          onTap: widget.onTab,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.feed?.error != null || widget.moving)
+              _FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
+            DetailPager(
+              currentIndex: currentIndex,
+              totalCount: widget.contents.length,
+              onPrevious: !widget.moving && currentIndex > 0
+                  ? () => widget.onOpenAdjacent(-1)
+                  : null,
+              onNext:
+                  !widget.moving &&
+                      currentIndex >= 0 &&
+                      (currentIndex + 1 < widget.contents.length ||
+                          (widget.feed?.hasMore ?? false))
+                  ? () => widget.onOpenAdjacent(1)
+                  : null,
+            ),
+            ClipbackNavigationBar(
+              activeIndex: 1,
+              onTap: widget.onTab,
+              onAdd: showAddContentSheet,
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class MyScreen extends StatelessWidget {
-  const MyScreen({required this.onTab, super.key});
+/// Only the open detail owns these bytes; its two image surfaces share one load.
+class _ScreenshotAssetController extends ChangeNotifier {
+  _ScreenshotAssetController(this.assetId, this._read);
 
+  final int? assetId;
+  final Future<Uint8List> Function(int) _read;
+  Uint8List? bytes;
+  String? error;
+  bool loading = false;
+  bool _disposed = false;
+  Future<void>? _pending;
+
+  Future<void> load({bool retry = false}) {
+    if (_disposed || assetId == null) return Future.value();
+    if (_pending != null) return _pending!;
+    if (!retry && (bytes != null || error != null)) return Future.value();
+    return _pending = _download();
+  }
+
+  void _clearBytes() {
+    final previous = bytes;
+    bytes = null;
+    if (previous != null) {
+      PaintingBinding.instance.imageCache.evict(MemoryImage(previous));
+    }
+  }
+
+  Future<void> _download() async {
+    _clearBytes();
+    error = null;
+    loading = true;
+    notifyListeners();
+    try {
+      final result = await _read(assetId!);
+      if (_disposed) return;
+      bytes = result;
+    } catch (failure) {
+      if (_disposed) return;
+      error = failure is ClipbackApiException && failure.statusCode == 404
+          ? '원본 이미지를 찾을 수 없어요.'
+          : '원본 이미지를 불러오지 못했어요.';
+    } finally {
+      if (!_disposed) {
+        loading = false;
+        _pending = null;
+        notifyListeners();
+      }
+    }
+  }
+
+  void reportDecodeFailure(Uint8List rejectedBytes) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !identical(bytes, rejectedBytes)) return;
+      _clearBytes();
+      error = '원본 이미지를 표시하지 못했어요.';
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _clearBytes();
+    error = null;
+    super.dispose();
+  }
+}
+
+class _ScreenshotAssetView extends StatelessWidget {
+  const _ScreenshotAssetView({required this.controller});
+
+  final _ScreenshotAssetController controller;
+
+  Widget _message(String message, {bool retry = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(message, textAlign: TextAlign.center),
+        if (retry)
+          TextButton(
+            onPressed: () => controller.load(retry: true),
+            child: const Text('다시 시도'),
+          ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, child) {
+      if (controller.assetId == null) {
+        return _message('저장된 원본 이미지가 없어요.');
+      }
+      if (controller.loading) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('원본 이미지를 불러오는 중이에요.'),
+            ],
+          ),
+        );
+      }
+      if (controller.error != null) {
+        return _message(controller.error!, retry: true);
+      }
+      final bytes = controller.bytes;
+      if (bytes == null) return const SizedBox.shrink();
+      return Image.memory(
+        bytes,
+        width: double.infinity,
+        fit: BoxFit.contain,
+        semanticLabel: '저장한 스크린샷 원본',
+        errorBuilder: (context, error, stackTrace) {
+          controller.reportDecodeFailure(bytes);
+          return _message('원본 이미지를 표시하지 못했어요.', retry: true);
+        },
+      );
+    },
+  );
+}
+
+class FullContentPreview extends StatelessWidget {
+  const FullContentPreview({required this.content, super.key});
+
+  final ContentItem content;
+
+  @override
+  Widget build(BuildContext context) {
+    final originalText = content.originalText.isEmpty
+        ? content.summary
+        : content.originalText;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          originalText,
+          style: const TextStyle(
+            color: AppColors.middle,
+            fontSize: 14,
+            height: 1.6,
+            letterSpacing: -0.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class MyScreen extends StatelessWidget {
+  const MyScreen({
+    required this.user,
+    required this.onAddLink,
+    required this.onAddScreenshot,
+    required this.onOpenAccount,
+    required this.onOpenCategoryManagement,
+    required this.onTab,
+    super.key,
+  });
+
+  final AppUser user;
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
+  final VoidCallback onOpenAccount;
+  final VoidCallback onOpenCategoryManagement;
   final ValueChanged<AppRoute> onTab;
 
   @override
   Widget build(BuildContext context) {
+    void showAddContentSheet() {
+      showContentSaveScreen(
+        context: context,
+        onAddLink: onAddLink,
+        onAddScreenshot: onAddScreenshot,
+      );
+    }
+
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              AppTopBar(title: '마이', onBack: () => onTab(AppRoute.home)),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
-                  children: [
-                    MyProfileRow(
-                      user: mockUser,
-                      onTap: () => showModalBottomSheet<void>(
-                        context: context,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => const AccountSheet(),
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            const SizedBox(height: 8),
+            MyPageTopBar(onMore: onOpenAccount),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+                children: [
+                  MyProfileRow(user: user, onTap: onOpenAccount),
+                  const MySectionHeader(title: '나의 허투루'),
+                  MyStatsStrip(user: user),
+                  const SizedBox(height: 16),
+                  const MySectionHeader(title: '관리'),
+                  MyListGroup(
+                    children: [
+                      MyListTile(
+                        title: '리마인드 설정',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const ReminderSheet(),
+                        ),
                       ),
-                    ),
-                    const MySectionHeader(title: '나의 허투루'),
-                    MyStatsStrip(user: mockUser),
-                    const SizedBox(height: 16),
-                    const MySectionHeader(title: '관리'),
-                    MyListGroup(
-                      children: [
-                        MyListTile(
-                          title: '리마인드 설정',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ReminderSheet(),
-                          ),
+                      MyListTile(
+                        title: '카테고리 관리',
+                        onTap: onOpenCategoryManagement,
+                      ),
+                      MyListTile(
+                        title: '알림 및 앱 권한',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const PermissionSheet(),
                         ),
-                        MyListTile(
-                          title: '카테고리 관리',
-                          onTap: () => onTab(AppRoute.archive),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const MySectionHeader(title: '고객지원'),
+                  MyListGroup(
+                    children: [
+                      MyListTile(
+                        title: '공지사항',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const NoticeSheet(),
                         ),
-                        MyListTile(
-                          title: '알림 및 앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '문의하기',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const ContactSheet(),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const MySectionHeader(title: '고객지원'),
-                    MyListGroup(
-                      children: [
-                        MyListTile(
-                          title: '공지사항',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const NoticeSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '알림 및 앱 권한',
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const PermissionSheet(),
                         ),
-                        MyListTile(
-                          title: '문의하기',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ContactSheet(),
-                          ),
+                      ),
+                      MyListTile(
+                        title: '앱 버전',
+                        trailingText: user.appVersion,
+                        onTap: () => showModalBottomSheet<void>(
+                          context: context,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => const AppVersionSheet(),
                         ),
-                        MyListTile(
-                          title: '알림 및 앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
-                          ),
-                        ),
-                        MyListTile(
-                          title: '앱 버전',
-                          trailingText: mockUser.appVersion,
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const AppVersionSheet(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 3,
           onTap: onTab,
+          onAdd: showAddContentSheet,
+        ),
+      ),
+    );
+  }
+}
+
+class MyPageTopBar extends StatelessWidget {
+  const MyPageTopBar({required this.onMore, super.key});
+
+  final VoidCallback onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            const Text(
+              '마이페이지',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
+            ),
+            const Spacer(),
+            SvgIconButton(asset: Assets.more, onPressed: onMore, size: 24),
+          ],
         ),
       ),
     );
@@ -1909,74 +4176,80 @@ class MyScreen extends StatelessWidget {
 class MyProfileRow extends StatelessWidget {
   const MyProfileRow({required this.user, required this.onTap, super.key});
 
-  final MockUser user;
+  final AppUser user;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-      child: InkWell(
-        onTap: onTap,
+      child: Material(
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          height: 78,
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  color: AppColors.main,
-                  shape: BoxShape.circle,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            height: 78,
+            padding: const EdgeInsets.only(left: 16, right: 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(
+                    color: AppColors.main,
+                    shape: BoxShape.circle,
+                  ),
+                  child: ClipOval(
+                    child: Image.asset(Assets.homeCharacter, fit: BoxFit.cover),
+                  ),
                 ),
-                child: ClipOval(
-                  child: Image.asset(Assets.homeCharacter, fit: BoxFit.cover),
+                const SizedBox(width: 8),
+                Text(
+                  user.name,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                user.name,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                height: 18,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.mainSubtle,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'K',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
+                const SizedBox(width: 8),
+                Container(
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDDC3F),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'K',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      user.providerLabel,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                      const SizedBox(width: 2),
+                      Text(
+                        user.providerLabel,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const Spacer(),
-              const SvgIcon(
-                asset: Assets.chevronRight,
-                size: 20,
-                color: AppColors.subtler,
-              ),
-            ],
+                const Spacer(),
+                const SvgIcon(
+                  asset: Assets.chevronRight,
+                  size: 24,
+                  color: AppColors.subtler,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2010,7 +4283,7 @@ class MySectionHeader extends StatelessWidget {
 class MyStatsStrip extends StatelessWidget {
   const MyStatsStrip({required this.user, super.key});
 
-  final MockUser user;
+  final AppUser user;
 
   @override
   Widget build(BuildContext context) {
@@ -2019,7 +4292,7 @@ class MyStatsStrip extends StatelessWidget {
       child: Container(
         height: 80,
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: AppColors.text,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -2030,7 +4303,11 @@ class MyStatsStrip extends StatelessWidget {
                 value: user.savedContentCount.toString(),
               ),
             ),
-            Container(width: 1, height: 48, color: AppColors.faint),
+            Container(
+              width: 1,
+              height: 48,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
             Expanded(
               child: MyMetric(
                 label: '다시 본 콘텐츠',
@@ -2056,16 +4333,26 @@ class MyMetric extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             label,
-            style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.mainSubtle,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.main,
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -2278,18 +4565,22 @@ class AppTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 72,
+      height: 64,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            if (onBack == null)
-              const SizedBox(width: 44, height: 44)
-            else
+            if (onBack != null) ...[
               SvgIconButton(asset: Assets.back, onPressed: onBack!, size: 24),
+              const SizedBox(width: 8),
+            ],
             Text(
               title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
             ),
             const Spacer(),
             if (onSearch != null)
@@ -2298,6 +4589,57 @@ class AppTopBar extends StatelessWidget {
                 onPressed: onSearch!,
                 size: 24,
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryTopBar extends StatelessWidget {
+  const CategoryTopBar({
+    required this.title,
+    required this.onBack,
+    required this.onSearch,
+    this.onMore,
+    super.key,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+  final VoidCallback onSearch;
+  final VoidCallback? onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.45,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SvgIconButton(asset: Assets.search, onPressed: onSearch, size: 24),
+            const SizedBox(width: 16),
+            SvgIconButton(
+              asset: Assets.more,
+              onPressed: onMore ?? () {},
+              size: 24,
+            ),
           ],
         ),
       ),
@@ -2335,13 +4677,21 @@ class DetailTopBar extends StatelessWidget {
         children: [
           SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
           const Spacer(),
+          if (content.mutationLabel != null) ...[
+            _ContentMutationStatus(label: content.mutationLabel!),
+            const SizedBox(width: 12),
+          ],
           BookmarkActionButton(
             initialActive: bookmarked,
             onToggle: onToggleBookmark,
+            enabled: content.mutationLabel == null,
+            size: 24,
+            hitSize: 24,
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           SvgIconButton(
             asset: Assets.more,
+            enabled: content.mutationLabel == null,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
               backgroundColor: Colors.transparent,
@@ -2353,6 +4703,7 @@ class DetailTopBar extends StatelessWidget {
               ),
             ),
             size: 24,
+            hitSize: 24,
           ),
         ],
       ),
@@ -2360,17 +4711,35 @@ class DetailTopBar extends StatelessWidget {
   }
 }
 
+class _ContentMutationStatus extends StatelessWidget {
+  const _ContentMutationStatus({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(color: AppColors.subtle, fontSize: 11),
+  );
+}
+
 class BookmarkActionButton extends StatefulWidget {
   const BookmarkActionButton({
     this.initialActive = false,
     this.onToggle,
+    this.enabled = true,
     this.size = 28,
+    this.hitSize = 44,
     super.key,
   });
 
   final bool initialActive;
   final VoidCallback? onToggle;
+  final bool enabled;
   final double size;
+  final double hitSize;
 
   @override
   State<BookmarkActionButton> createState() => _BookmarkActionButtonState();
@@ -2396,15 +4765,18 @@ class _BookmarkActionButtonState extends State<BookmarkActionButton> {
   @override
   Widget build(BuildContext context) {
     return SvgIconButton(
-      asset: Assets.star,
+      asset: _active ? Assets.starFilled : Assets.star,
+      enabled: widget.enabled,
       onPressed: () {
+        if (!widget.enabled) return;
         widget.onToggle?.call();
         if (widget.onToggle == null) {
           setState(() => _active = !_active);
         }
       },
       size: widget.size,
-      color: _active ? AppColors.text : AppColors.subtler,
+      hitSize: widget.hitSize,
+      color: _active ? AppColors.main : AppColors.subtler,
     );
   }
 }
@@ -2467,7 +4839,7 @@ class CategoryChips extends StatelessWidget {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: SizedBox(
-        height: 40,
+        height: 35,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
@@ -2476,7 +4848,8 @@ class CategoryChips extends StatelessWidget {
             final label = categories[index];
             final active = label == activeLabel;
             return SizedBox(
-              height: 40,
+              width: 70,
+              height: 35,
               child: Material(
                 color: active ? AppColors.faint : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
@@ -2484,16 +4857,15 @@ class CategoryChips extends StatelessWidget {
                   onTap: onSelected == null ? null : () => onSelected!(label),
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    constraints: const BoxConstraints(minWidth: 70),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     alignment: Alignment.center,
                     child: Text(
                       label,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: active ? AppColors.middle : AppColors.subtle,
-                        fontSize: 14,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 15,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                        letterSpacing: -0.375,
                       ),
                     ),
                   ),
@@ -2595,6 +4967,7 @@ class HomeContentCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: 298,
+        height: 186,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -2610,12 +4983,26 @@ class HomeContentCard extends StatelessWidget {
                 key: ValueKey('home-bookmark-${content.title}'),
                 initialActive: bookmarked,
                 onToggle: onToggleBookmark,
+                enabled: content.mutationLabel == null,
               ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CategoryBadge(category: content.category),
+                Padding(
+                  padding: const EdgeInsets.only(right: 28),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: CategoryBadge(category: content.category),
+                      ),
+                      if (content.mutationLabel != null) ...[
+                        const SizedBox(width: 8),
+                        _ContentMutationStatus(label: content.mutationLabel!),
+                      ],
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   content.title,
@@ -2627,7 +5014,7 @@ class HomeContentCard extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   content.summary,
                   maxLines: 3,
@@ -2647,6 +5034,201 @@ class HomeContentCard extends StatelessWidget {
   }
 }
 
+class _PagedContentList extends StatefulWidget {
+  const _PagedContentList({
+    required this.contents,
+    required this.itemBuilder,
+    required this.empty,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
+  });
+
+  final FeedPage? feed;
+  final List<ContentItem> contents;
+  final Widget Function(ContentItem) itemBuilder;
+  final Widget empty;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
+
+  @override
+  State<_PagedContentList> createState() => _PagedContentListState();
+}
+
+class _PagedContentListState extends State<_PagedContentList> {
+  late final ScrollController _controller;
+  int? _feedVersion;
+  double _restoreOffset = 0;
+  bool _restorePending = true;
+  bool _checkScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedVersion = widget.feed?.version;
+    _restoreOffset = widget.feed?.scrollOffset ?? 0;
+    _controller = ScrollController(
+      initialScrollOffset: _restoreOffset,
+      keepScrollOffset: false,
+    )..addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PagedContentList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.feed, widget.feed) ||
+        _feedVersion != widget.feed?.version) {
+      if (!identical(oldWidget.feed, widget.feed) &&
+          !_restorePending &&
+          _controller.hasClients &&
+          oldWidget.feed?.version == _feedVersion) {
+        oldWidget.feed?.scrollOffset = _controller.offset;
+      }
+      _feedVersion = widget.feed?.version;
+      _restoreOffset = widget.feed?.scrollOffset ?? 0;
+      _restorePending = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveOffset();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _saveOffset() {
+    if (_restorePending ||
+        !_controller.hasClients ||
+        _feedVersion != widget.feed?.version) {
+      return;
+    }
+    widget.feed?.scrollOffset = _controller.offset;
+  }
+
+  void _onScroll() {
+    _saveOffset();
+    _maybeLoadMore();
+  }
+
+  void _scheduleViewportCheck() {
+    if (_checkScheduled) return;
+    _checkScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkScheduled = false;
+      if (!mounted || !_controller.hasClients) return;
+      if (_restorePending) {
+        final offset = _restoreOffset
+            .clamp(0.0, _controller.position.maxScrollExtent)
+            .toDouble();
+        _restorePending = false;
+        _controller.jumpTo(offset);
+      }
+      _saveOffset();
+      _maybeLoadMore();
+    });
+  }
+
+  void _maybeLoadMore() {
+    final page = widget.feed;
+    final loadMore = widget.onLoadMore;
+    if (_restorePending ||
+        !_controller.hasClients ||
+        page == null ||
+        loadMore == null ||
+        _feedVersion != page.version ||
+        !page.initialized ||
+        page.loading ||
+        page.error != null ||
+        !page.hasMore ||
+        _controller.position.extentAfter > 300) {
+      return;
+    }
+    unawaited(_loadMore(loadMore));
+  }
+
+  Future<void> _loadMore(Future<void> Function() loadMore) async {
+    try {
+      await loadMore();
+    } finally {
+      if (mounted) _scheduleViewportCheck();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _scheduleViewportCheck();
+    final page = widget.feed;
+    if (widget.contents.isEmpty) {
+      if (page != null &&
+          (!page.initialized || page.loading || page.error != null)) {
+        return Center(
+          child: _FeedStatus(page: page, onRetry: widget.onRetry),
+        );
+      }
+      return widget.empty;
+    }
+    return ListView.separated(
+      controller: _controller,
+      padding: EdgeInsets.zero,
+      itemCount: widget.contents.length + (page == null ? 0 : 1),
+      itemBuilder: (context, index) {
+        if (index == widget.contents.length) {
+          return _FeedStatus(page: page!, onRetry: widget.onRetry);
+        }
+        final content = widget.contents[index];
+        return KeyedSubtree(
+          key: ValueKey(content.id),
+          child: widget.itemBuilder(content),
+        );
+      },
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+    );
+  }
+}
+
+class _FeedStatus extends StatelessWidget {
+  const _FeedStatus({required this.page, this.onRetry});
+
+  final FeedPage page;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (page.loading || (!page.initialized && page.error == null)) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (page.error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            page.items.isEmpty ? '콘텐츠를 불러오지 못했어요.' : '콘텐츠를 더 불러오지 못했어요.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(page.invalidCursor ? '처음부터 다시 불러오기' : '다시 시도'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ContentListView extends StatelessWidget {
   const ContentListView({
     required this.contents,
@@ -2657,7 +5239,13 @@ class ContentListView extends StatelessWidget {
     required this.onClearCategory,
     required this.onOpenContent,
     required this.onToggleBookmark,
+    required this.categories,
+    required this.onChangeContentCategory,
+    required this.onDeleteContent,
     required this.onGoHome,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     super.key,
   });
 
@@ -2669,63 +5257,73 @@ class ContentListView extends StatelessWidget {
   final VoidCallback onClearCategory;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+  final List<CategoryItem> categories;
+  final void Function(ContentItem content, CategoryItem category)
+  onChangeContentCategory;
+  final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onGoHome;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final visibleContents = contents
-        .where(
-          (content) =>
-              activeCategoryName == null ||
-              content.category.name == activeCategoryName,
-        )
-        .toList();
-    if (bookmarkedFirst) {
+    final visibleContents = feed == null
+        ? contents
+              .where(
+                (content) =>
+                    activeCategoryName == null ||
+                    content.category.name == activeCategoryName,
+              )
+              .toList()
+        : contents;
+    if (feed == null && bookmarkedFirst) {
       visibleContents.sort((a, b) {
         final aMarked = bookmarkedIds.contains(a.id) ? 0 : 1;
         final bMarked = bookmarkedIds.contains(b.id) ? 0 : 1;
         return aMarked.compareTo(bMarked);
       });
     }
+    final isUnclassified = activeCategoryName == catUncategorized.name;
 
     return Column(
       children: [
         ArchiveToolbar(
-          countLabel: '총 ${visibleContents.length}개',
+          countLabel: feed == null
+              ? '총 ${visibleContents.length}개'
+              : '불러온 ${visibleContents.length}개',
           sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
           onSortChanged: onSortChanged,
         ),
-        if (activeCategoryName != null)
-          ActiveFilterBar(label: activeCategoryName!, onClear: onClearCategory),
         Expanded(
-          child: visibleContents.isEmpty
-              ? EmptyStatePanel(
-                  title: activeCategoryName == null
-                      ? '저장한 콘텐츠가 없어요'
-                      : '$activeCategoryName 콘텐츠가 없어요',
-                  body: activeCategoryName == null
-                      ? '홈의 + 버튼에서 링크나 스크린샷 목데이터를 추가해 보세요.'
-                      : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
-                  actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
-                  onAction: activeCategoryName == null
-                      ? onGoHome
-                      : onClearCategory,
-                )
-              : ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemBuilder: (context, index) {
-                    final content = visibleContents[index];
-                    return ContentListCard(
-                      content: content,
-                      bookmarked: bookmarkedIds.contains(content.id),
-                      onToggleBookmark: () => onToggleBookmark(content),
-                      onTap: () => onOpenContent(content),
-                    );
-                  },
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 8),
-                  itemCount: visibleContents.length,
-                ),
+          child: _PagedContentList(
+            feed: feed,
+            contents: visibleContents,
+            onLoadMore: onLoadMore,
+            onRetry: onRetry,
+            empty: EmptyStatePanel(
+              title: activeCategoryName == null
+                  ? '저장한 콘텐츠가 없어요'
+                  : isUnclassified
+                  ? '분류가 필요한 콘텐츠가 없어요'
+                  : '$activeCategoryName 콘텐츠가 없어요',
+              body: activeCategoryName == null
+                  ? '홈의 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
+                  : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
+              actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
+              onAction: activeCategoryName == null ? onGoHome : onClearCategory,
+            ),
+            itemBuilder: (content) => ContentListCard(
+              content: content,
+              bookmarked: bookmarkedIds.contains(content.id),
+              onToggleBookmark: () => onToggleBookmark(content),
+              categories: categories,
+              onChangeCategory: (category) =>
+                  onChangeContentCategory(content, category),
+              onDelete: () => onDeleteContent(content),
+              onTap: () => onOpenContent(content),
+            ),
+          ),
         ),
       ],
     );
@@ -2737,6 +5335,9 @@ class ContentListCard extends StatelessWidget {
     required this.content,
     required this.onTap,
     required this.onToggleBookmark,
+    required this.categories,
+    required this.onChangeCategory,
+    required this.onDelete,
     this.bookmarked = false,
     super.key,
   });
@@ -2744,6 +5345,9 @@ class ContentListCard extends StatelessWidget {
   final ContentItem content;
   final VoidCallback onTap;
   final VoidCallback onToggleBookmark;
+  final List<CategoryItem> categories;
+  final ValueChanged<CategoryItem> onChangeCategory;
+  final VoidCallback onDelete;
   final bool bookmarked;
 
   @override
@@ -2752,22 +5356,628 @@ class ContentListCard extends StatelessWidget {
       color: AppColors.surface,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+        child: SizedBox(
+          width: double.infinity,
+          height: 173,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned(
+                top: 16,
+                left: 16,
+                child: CategoryBadge(category: content.category),
+              ),
+              Positioned(
+                top: 13,
+                right: 8,
+                child: Row(
+                  children: [
+                    BookmarkActionButton(
+                      key: ValueKey('list-bookmark-${content.title}'),
+                      initialActive: bookmarked,
+                      hitSize: 28,
+                      onToggle: onToggleBookmark,
+                      enabled: content.mutationLabel == null,
+                    ),
+                    const SizedBox(width: 4),
+                    SvgIconButton(
+                      asset: Assets.more,
+                      enabled: content.mutationLabel == null,
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => ContentActionSheet(
+                          content: content,
+                          categories: categories,
+                          onChangeCategory: onChangeCategory,
+                          onDelete: onDelete,
+                        ),
+                      ),
+                      size: 24,
+                      hitSize: 28,
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 46,
+                left: 20,
+                right: 20,
+                height: 22.4,
+                child: Text(
+                  content.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 72.4,
+                left: 20,
+                right: 20,
+                height: 48,
+                child: ClipRect(
+                  child: Text(
+                    content.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.middle,
+                      fontSize: 15,
+                      height: 1.6,
+                      letterSpacing: -0.375,
+                    ),
+                  ),
+                ),
+              ),
+              const Positioned(
+                top: 128,
+                left: 20,
+                right: 20,
+                child: Divider(height: 1, thickness: 1, color: AppColors.faint),
+              ),
+              Positioned(
+                bottom: 16,
+                left: 20,
+                right: 20,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        content.savedAt,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFA9A9A9),
+                          fontSize: 14,
+                          letterSpacing: -0.35,
+                        ),
+                      ),
+                    ),
+                    if (content.mutationLabel != null)
+                      _ContentMutationStatus(label: content.mutationLabel!),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryFeaturedCard extends StatelessWidget {
+  const CategoryFeaturedCard({
+    required this.content,
+    required this.bookmarked,
+    required this.onTap,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final ContentItem content;
+  final bool bookmarked;
+  final VoidCallback onTap;
+  final VoidCallback onToggleBookmark;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 319,
+        height: 435,
+        padding: const EdgeInsets.fromLTRB(16, 21, 16, 21),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x3D767676),
+              blurRadius: 8,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(child: CategoryBadge(category: content.category)),
+                const Spacer(),
+                if (content.mutationLabel != null) ...[
+                  _ContentMutationStatus(label: content.mutationLabel!),
+                  const SizedBox(width: 8),
+                ],
+                BookmarkActionButton(
+                  initialActive: bookmarked,
+                  hitSize: 28,
+                  onToggle: onToggleBookmark,
+                  enabled: content.mutationLabel == null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              content.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+                letterSpacing: -0.45,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Text(
+                content.originalText.isNotEmpty
+                    ? content.originalText
+                    : content.summary,
+                maxLines: 13,
+                overflow: TextOverflow.clip,
+                style: const TextStyle(
+                  color: AppColors.middle,
+                  fontSize: 14,
+                  height: 1.6,
+                  letterSpacing: -0.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryCardPager extends StatefulWidget {
+  const CategoryCardPager({
+    required this.contents,
+    required this.categoryName,
+    required this.bookmarkedIds,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final List<ContentItem> contents;
+  final String categoryName;
+  final Set<String> bookmarkedIds;
+  final ValueChanged<ContentItem> onOpenContent;
+  final ValueChanged<ContentItem> onToggleBookmark;
+
+  @override
+  State<CategoryCardPager> createState() => _CategoryCardPagerState();
+}
+
+class _CategoryCardPagerState extends State<CategoryCardPager> {
+  late final PageController _pageController;
+  var _activeIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayCount = widget.contents.length.clamp(1, 5);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '딱 5개만 다시 확인해볼까요?',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const FolderGlyph(color: AppColors.main, size: 28),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.categoryName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              CardPagerProgress(activeIndex: _activeIndex, count: displayCount),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.contents.length,
+            onPageChanged: (index) => setState(() => _activeIndex = index),
+            itemBuilder: (context, index) {
+              final content = widget.contents[index];
+              return Center(
+                child: CategoryFeaturedCard(
+                  content: content,
+                  bookmarked: widget.bookmarkedIds.contains(content.id),
+                  onTap: () => widget.onOpenContent(content),
+                  onToggleBookmark: () => widget.onToggleBookmark(content),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class CategoryCardReviewScreen extends StatefulWidget {
+  const CategoryCardReviewScreen({
+    required this.contents,
+    required this.categoryName,
+    required this.bookmarkedIds,
+    required this.onExit,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    super.key,
+  });
+
+  final List<ContentItem> contents;
+  final String categoryName;
+  final Set<String> bookmarkedIds;
+  final VoidCallback onExit;
+  final ValueChanged<ContentItem> onOpenContent;
+  final ValueChanged<ContentItem> onToggleBookmark;
+
+  @override
+  State<CategoryCardReviewScreen> createState() =>
+      _CategoryCardReviewScreenState();
+}
+
+class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
+  static const _cardTransitionDuration = Duration(milliseconds: 240);
+
+  var _activeIndex = 0;
+  var _dragOffset = Offset.zero;
+  var _isDragging = false;
+  var _isAdvancing = false;
+  var _isComplete = false;
+
+  ContentItem get _activeContent => widget.contents[_activeIndex];
+
+  void _updateDrag(DragUpdateDetails details) {
+    if (_isAdvancing) return;
+    setState(() {
+      _isDragging = true;
+      _dragOffset += details.delta;
+    });
+  }
+
+  void _finishDrag(DragEndDetails details) {
+    if (_isAdvancing) return;
+    final velocity = details.velocity.pixelsPerSecond;
+    final shouldAdvance = _dragOffset.distance > 72 || velocity.distance > 650;
+    if (!shouldAdvance) {
+      setState(() {
+        _isDragging = false;
+        _dragOffset = Offset.zero;
+      });
+      return;
+    }
+
+    final direction = _dragOffset.distance > 1
+        ? _dragOffset / _dragOffset.distance
+        : velocity / velocity.distance;
+    setState(() {
+      _isDragging = false;
+      _isAdvancing = true;
+      _dragOffset = direction * 620;
+    });
+    Future<void>.delayed(_cardTransitionDuration, () {
+      if (!mounted) return;
+      setState(() {
+        if (_activeIndex == widget.contents.length - 1) {
+          _isComplete = true;
+        } else {
+          _activeIndex += 1;
+        }
+        _dragOffset = Offset.zero;
+        _isAdvancing = false;
+      });
+    });
+  }
+
+  Widget _backgroundCard(int distance, double top) {
+    final content = widget.contents[_activeIndex + distance];
+    final promoting = _isAdvancing && distance == 1;
+    return AnimatedPositioned(
+      key: ValueKey('background-${content.id}-$distance'),
+      top: promoting ? 248 : top,
+      left: 0,
+      right: 0,
+      duration: _cardTransitionDuration,
+      curve: Curves.easeOutCubic,
+      child: IgnorePointer(
+        child: Center(
+          child: AnimatedRotation(
+            alignment: Alignment.topCenter,
+            turns: promoting ? 0.00382 : 0,
+            duration: _cardTransitionDuration,
+            curve: Curves.easeOutCubic,
+            child: AnimatedScale(
+              alignment: Alignment.topCenter,
+              scale: promoting ? 1 : (distance == 1 ? 0.907 : 0.86),
+              duration: _cardTransitionDuration,
+              curve: Curves.easeOutCubic,
+              child: CategoryReviewCard(
+                content: content,
+                bookmarked: widget.bookmarkedIds.contains(content.id),
+                onOpenContent: () {},
+                onToggleBookmark: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.contents.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.bg,
+        body: EmptyStatePanel(
+          title: '다시 볼 콘텐츠가 없어요',
+          body: '카테고리에 콘텐츠를 저장한 뒤 랜덤 보기를 이용해 보세요.',
+          actionLabel: '나가기',
+          onAction: widget.onExit,
+        ),
+      );
+    }
+
+    final remainingCount = widget.contents.length - _activeIndex;
+
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
+          Positioned(
+            top: 50,
+            right: 16,
+            height: 64,
+            child: TextButton(
+              onPressed: widget.onExit,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.text,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(48, 44),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              child: const Text('나가기'),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            top: 114,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '딱 5개만 다시 확인해볼까요?',
+                  style: TextStyle(
+                    color: AppColors.subSubtle,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    SvgPicture.asset(
+                      Assets.categoryCardFolder,
+                      width: 28.235,
+                      height: 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.categoryName,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.6,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            top: 192,
+            child: CardPagerProgress(
+              activeIndex: _activeIndex,
+              count: widget.contents.length,
+            ),
+          ),
+          if (!_isComplete && remainingCount > 2) _backgroundCard(2, 224),
+          if (!_isComplete && remainingCount > 1) _backgroundCard(1, 236),
+          if (!_isComplete)
+            Positioned(
+              top: 248,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: _isAdvancing
+                      ? null
+                      : () => widget.onOpenContent(_activeContent),
+                  onPanUpdate: _updateDrag,
+                  onPanEnd: _finishDrag,
+                  child: AnimatedSlide(
+                    key: ValueKey(_activeContent.id),
+                    offset: Offset(_dragOffset.dx / 343, _dragOffset.dy / 496),
+                    duration: _isDragging
+                        ? Duration.zero
+                        : _cardTransitionDuration,
+                    curve: Curves.easeOutCubic,
+                    child: Transform.rotate(
+                      angle: 0.024 + _dragOffset.dx / 22000,
+                      child: CategoryReviewCard(
+                        content: _activeContent,
+                        bookmarked: widget.bookmarkedIds.contains(
+                          _activeContent.id,
+                        ),
+                        onOpenContent: () =>
+                            widget.onOpenContent(_activeContent),
+                        onToggleBookmark: () =>
+                            widget.onToggleBookmark(_activeContent),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: NavigationHomeIndicator(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryReviewCard extends StatelessWidget {
+  const CategoryReviewCard({
+    required this.content,
+    required this.bookmarked,
+    required this.onOpenContent,
+    required this.onToggleBookmark,
+    this.compact = false,
+    super.key,
+  });
+
+  final ContentItem content;
+  final bool bookmarked;
+  final VoidCallback onOpenContent;
+  final VoidCallback onToggleBookmark;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = compact ? 311.0 : 343.0;
+    final height = compact ? 449.0 : 496.0;
+    final padding = compact ? 20.0 : 24.0;
+    final titleSize = compact ? 19.614 : 22.0;
+    final bodySize = compact ? 14.264 : 16.0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenContent,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: width,
+          height: height,
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [
+              BoxShadow(color: Color(0x29767676), blurRadius: 8),
+            ],
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CategoryBadge(category: content.category),
+                  Flexible(child: CategoryBadge(category: content.category)),
                   const Spacer(),
-                  BookmarkActionButton(
-                    key: ValueKey('list-bookmark-${content.title}'),
-                    initialActive: bookmarked,
-                    onToggle: onToggleBookmark,
-                    size: 24,
-                  ),
+                  if (content.mutationLabel != null) ...[
+                    _ContentMutationStatus(label: content.mutationLabel!),
+                    const SizedBox(width: 8),
+                  ],
+                  if (compact)
+                    SvgPicture.asset(
+                      Assets.categoryCardStarSmall,
+                      width: 24.963,
+                      height: 24.963,
+                    )
+                  else
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: InkWell(
+                        onTap: content.mutationLabel == null
+                            ? onToggleBookmark
+                            : null,
+                        customBorder: const CircleBorder(),
+                        child: Center(
+                          child: SvgPicture.asset(
+                            bookmarked
+                                ? Assets.starFilled
+                                : Assets.categoryCardStar,
+                            width: 28,
+                            height: 28,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -2775,32 +5985,117 @@ class ContentListCard extends StatelessWidget {
                 content.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  height: 1.45,
+                style: TextStyle(
+                  fontSize: titleSize,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
+                  letterSpacing: -titleSize / 40,
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                content.summary,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.subtle,
-                  fontSize: 14,
-                  height: 1.55,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                content.savedAt,
-                style: const TextStyle(
-                  color: AppColors.subSubtle,
-                  fontSize: 13,
+              Expanded(
+                child: Text(
+                  content.originalText.isNotEmpty
+                      ? content.originalText
+                      : content.summary,
+                  maxLines: compact ? 13 : 11,
+                  overflow: TextOverflow.clip,
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: bodySize,
+                    height: 1.6,
+                    letterSpacing: -bodySize / 40,
+                  ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CardPagerProgress extends StatelessWidget {
+  const CardPagerProgress({
+    required this.activeIndex,
+    required this.count,
+    super.key,
+  });
+
+  final int activeIndex;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 24,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.faint,
+              borderRadius: BorderRadius.circular(100),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(count, (index) {
+              final active = index == activeIndex;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: active ? 16 : 8,
+                height: active ? 16 : 8,
+                decoration: BoxDecoration(
+                  color: active ? AppColors.subtle : AppColors.faint,
+                  shape: BoxShape.circle,
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RandomReviewButton extends StatelessWidget {
+  const RandomReviewButton({required this.onPressed, super.key});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.main,
+      borderRadius: BorderRadius.circular(24),
+      elevation: 4,
+      shadowColor: const Color(0x33767676),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(24),
+        child: const SizedBox(
+          height: 48,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shuffle_rounded, color: AppColors.text, size: 16),
+                SizedBox(width: 6),
+                Text(
+                  '랜덤 보기',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.375,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2821,8 +6116,8 @@ class ArchiveTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: AppColors.faint,
@@ -2832,16 +6127,16 @@ class ArchiveTabs extends StatelessWidget {
           children: [
             Expanded(
               child: ArchiveTabButton(
-                label: '전체보기',
-                active: activeTab == 0,
-                onTap: () => onChanged(0),
+                label: '카테고리',
+                active: activeTab == 1,
+                onTap: () => onChanged(1),
               ),
             ),
             Expanded(
               child: ArchiveTabButton(
-                label: '카테고리',
-                active: activeTab == 1,
-                onTap: () => onChanged(1),
+                label: '전체보기',
+                active: activeTab == 0,
+                onTap: () => onChanged(0),
               ),
             ),
           ],
@@ -2878,8 +6173,9 @@ class ArchiveTabButton extends StatelessWidget {
               label,
               style: TextStyle(
                 color: active ? AppColors.text : AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
               ),
             ),
           ),
@@ -2904,29 +6200,15 @@ class ArchiveToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 52,
+      height: 56,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            Text(
-              sortLabel,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            ),
-            IconButton(
-              onPressed: () => showModalBottomSheet<void>(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => SortSheet(
-                  activeBookmarkedFirst: sortLabel == '북마크 우선',
-                  onSelect: onSortChanged ?? (_) {},
-                ),
-              ),
-              icon: const SvgIcon(
-                asset: Assets.chevronDown,
-                size: 16,
-                color: AppColors.subtle,
-              ),
+            ArchiveSortButton(
+              label: sortLabel,
+              bookmarkedFirst: sortLabel == '북마크 우선',
+              onSelected: onSortChanged ?? (_) {},
             ),
             const Spacer(),
             Text(
@@ -2944,41 +6226,132 @@ class ArchiveToolbar extends StatelessWidget {
   }
 }
 
-class CategoryArchiveToolbar extends StatelessWidget {
-  const CategoryArchiveToolbar({required this.onAddCategory, super.key});
+class ArchiveSortButton extends StatelessWidget {
+  const ArchiveSortButton({
+    required this.label,
+    required this.bookmarkedFirst,
+    required this.onSelected,
+    super.key,
+  });
 
+  final String label;
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<bool>(
+      onSelected: onSelected,
+      padding: EdgeInsets.zero,
+      tooltip: '',
+      offset: const Offset(0, 32),
+      color: AppColors.surface,
+      elevation: 1,
+      shadowColor: const Color(0x1F000000),
+      menuPadding: const EdgeInsets.all(4),
+      constraints: const BoxConstraints.tightFor(width: 128),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: AppColors.faint),
+      ),
+      itemBuilder: (context) => [
+        PopupMenuItem<bool>(
+          value: false,
+          height: 40,
+          padding: EdgeInsets.zero,
+          child: _ArchiveSortOption(label: '최신순', selected: !bookmarkedFirst),
+        ),
+        PopupMenuItem<bool>(
+          value: true,
+          height: 40,
+          padding: EdgeInsets.zero,
+          child: _ArchiveSortOption(label: '북마크 우선', selected: bookmarkedFirst),
+        ),
+      ],
+      child: SizedBox(
+        height: 32,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const SvgIcon(
+              asset: Assets.chevronDown,
+              size: 16,
+              color: AppColors.subtle,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArchiveSortOption extends StatelessWidget {
+  const _ArchiveSortOption({required this.label, required this.selected});
+
+  final String label;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppColors.text : AppColors.middle,
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              letterSpacing: -0.35,
+            ),
+          ),
+          const Spacer(),
+          if (selected)
+            const Icon(Icons.check, size: 16, color: AppColors.mainDeep),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryArchiveToolbar extends StatelessWidget {
+  const CategoryArchiveToolbar({
+    required this.bookmarkedFirst,
+    required this.onSortChanged,
+    required this.onAddCategory,
+    super.key,
+  });
+
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSortChanged;
   final VoidCallback onAddCategory;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: 56,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            TextButton.icon(
-              onPressed: () => showModalBottomSheet<void>(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) =>
-                    SortSheet(activeBookmarkedFirst: false, onSelect: (_) {}),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.subtle,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(67, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              label: const Text(
-                '최신순',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              iconAlignment: IconAlignment.end,
-              icon: const SvgIcon(
-                asset: Assets.chevronDown,
-                size: 16,
+            const Text(
+              '최신순',
+              style: TextStyle(
                 color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
               ),
             ),
             const Spacer(),
@@ -2995,23 +6368,581 @@ class CategoryArchiveToolbar extends StatelessWidget {
   }
 }
 
+class AccountManagementScreen extends StatelessWidget {
+  const AccountManagementScreen({
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+    super.key,
+  });
+
+  final AppUser user;
+  final VoidCallback onBack;
+  final Future<void> Function() onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return PhoneFrame(
+      child: Scaffold(
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  SvgIconButton(
+                    asset: Assets.back,
+                    onPressed: onBack,
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.text,
+                  ),
+                  const Text(
+                    '계정 관리',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 30),
+            Image.asset(Assets.character1Png, width: 140, height: 140),
+            const SizedBox(height: 10),
+            Text(
+              user.name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 30),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '연결된 계정',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AccountManagementTile(
+              leading: user.providerLabel,
+              trailing: '연결됨',
+              onTap: null,
+            ),
+            const SizedBox(height: 24),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '계정',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AccountManagementTile(
+              leading: '로그아웃',
+              onTap: () => unawaited(onLogout()),
+            ),
+            AccountManagementTile(
+              leading: '회원 탈퇴',
+              onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.')),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AccountManagementTile extends StatelessWidget {
+  const AccountManagementTile({
+    required this.leading,
+    required this.onTap,
+    this.trailing,
+    super.key,
+  });
+
+  final String leading;
+  final String? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      leading,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (trailing != null)
+                    Text(
+                      trailing!,
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  const SvgIcon(
+                    asset: Assets.chevronRight,
+                    size: 20,
+                    color: AppColors.text,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryManagementScreen extends StatelessWidget {
+  const CategoryManagementScreen({
+    required this.categories,
+    required this.contents,
+    required this.onBack,
+    required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
+    super.key,
+  });
+
+  final List<CategoryItem> categories;
+  final List<ContentItem> contents;
+  final VoidCallback onBack;
+  final ValueChanged<CategoryItem> onAddCategory;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleCategories = categories
+        .where((category) => category.name != catUncategorized.name)
+        .toList();
+    return PhoneFrame(
+      child: Scaffold(
+        body: Column(
+          children: [
+            const DesignStatusBar(),
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  SvgIconButton(
+                    asset: Assets.back,
+                    onPressed: onBack,
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.text,
+                  ),
+                  const Expanded(
+                    child: Text(
+                      '카테고리 관리',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  SvgIconButton(
+                    asset: Assets.folderPlus,
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) =>
+                          CategoryCreateSheet(onCreate: onAddCategory),
+                    ),
+                    size: 24,
+                    hitSize: 48,
+                    color: AppColors.subtle,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '총 ${visibleCategories.length}개',
+                  style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: visibleCategories.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 16),
+                itemBuilder: (context, index) {
+                  final category = visibleCategories[index];
+                  return CategoryRow(
+                    category: category,
+                    onMore: () => showCategoryActionSheet(
+                      context: context,
+                      category: category,
+                      contentCount: category.contentCount,
+                      onUpdate: onUpdateCategory,
+                      onDelete: onDeleteCategory,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void showCategoryActionSheet({
+  required BuildContext context,
+  required CategoryItem category,
+  required int contentCount,
+  required void Function(CategoryItem original, CategoryItem updated) onUpdate,
+  required ValueChanged<CategoryItem> onDelete,
+}) {
+  if (category.mutationLabel != null) return;
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => CategoryActionSheet(
+      category: category,
+      contentCount: contentCount,
+      onEdit: () {
+        Navigator.pop(sheetContext);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => CategoryEditSheet(
+              category: category,
+              onSave: (updated) => onUpdate(category, updated),
+            ),
+          );
+        });
+      },
+      onDelete: () {
+        Navigator.pop(sheetContext);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          showDialog<void>(
+            context: context,
+            builder: (context) => CategoryDeleteDialog(
+              category: category,
+              onDelete: () {
+                Navigator.pop(context);
+                onDelete(category);
+              },
+            ),
+          );
+        });
+      },
+    ),
+  );
+}
+
+class CategoryActionSheet extends StatelessWidget {
+  const CategoryActionSheet({
+    required this.category,
+    required this.contentCount,
+    required this.onEdit,
+    required this.onDelete,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final int contentCount;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 50,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AppColors.subtler,
+                borderRadius: BorderRadius.circular(100),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                FolderGlyph(color: category.color),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        '저장된 콘텐츠 $contentCount',
+                        style: const TextStyle(
+                          color: AppColors.subSubtle,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (category.mutationLabel != null)
+                        _ContentMutationStatus(label: category.mutationLabel!),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1, color: AppColors.faint),
+            CategoryActionRow(
+              icon: Icons.edit_outlined,
+              title: '카테고리 수정',
+              onTap: onEdit,
+              enabled: category.mutationLabel == null,
+            ),
+            CategoryActionRow(
+              icon: Icons.delete_outline,
+              title: '카테고리 삭제',
+              onTap: onDelete,
+              enabled: category.mutationLabel == null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryActionRow extends StatelessWidget {
+  const CategoryActionRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.enabled = true,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: enabled ? onTap : null,
+    child: SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          Icon(icon, size: 24, color: AppColors.text),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class CategoryDeleteDialog extends StatelessWidget {
+  const CategoryDeleteDialog({
+    required this.category,
+    required this.onDelete,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      constraints: const BoxConstraints(maxWidth: phoneWidth - 64),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                color: AppColors.mainSubtle,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                '!',
+                style: TextStyle(
+                  color: AppColors.mainDeep,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '삭제하기',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '‘${category.name}’ 카테고리를 삭제할까요?\n'
+              '저장된 콘텐츠는 삭제되지 않아요.\n'
+              '다른 카테고리가 있으면 그대로 유지되고, '
+              '남은 카테고리가 없으면 미분류로 이동해요.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      side: const BorderSide(color: AppColors.faint),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('취소'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: category.mutationLabel == null ? onDelete : null,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      backgroundColor: const Color(0xFFFFD9DC),
+                      foregroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text('삭제'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class CategoryArchiveView extends StatelessWidget {
   const CategoryArchiveView({
     required this.categories,
+    required this.contents,
+    required this.bookmarkedIds,
+    required this.bookmarkedFirst,
+    required this.onSortChanged,
     required this.onAddCategory,
+    required this.onUpdateCategory,
+    required this.onDeleteCategory,
     required this.onOpenCategory,
     super.key,
   });
 
   final List<CategoryItem> categories;
+  final List<ContentItem> contents;
+  final Set<String> bookmarkedIds;
+  final bool bookmarkedFirst;
+  final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
+  final void Function(CategoryItem original, CategoryItem updated)
+  onUpdateCategory;
+  final ValueChanged<CategoryItem> onDeleteCategory;
   final ValueChanged<CategoryItem> onOpenCategory;
 
   @override
   Widget build(BuildContext context) {
+    final visibleCategories = categories
+        .where((category) => category.name != catUncategorized.name)
+        .toList();
+    final unclassifiedCategory = categories.firstWhere(
+      (category) => category.name == catUncategorized.name,
+      orElse: () => catUncategorized,
+    );
+    visibleCategories.sort((a, b) {
+      final aSavedAt = a.rawLastSavedAt;
+      final bSavedAt = b.rawLastSavedAt;
+      if (aSavedAt != null && bSavedAt != null) {
+        final timeOrder = bSavedAt.compareTo(aSavedAt);
+        if (timeOrder != 0) return timeOrder;
+      } else if (aSavedAt != bSavedAt) {
+        return aSavedAt == null ? 1 : -1;
+      }
+      final aId = a.id;
+      final bId = b.id;
+      if (aId == null) return bId == null ? 0 : 1;
+      if (bId == null) return -1;
+      return aId.compareTo(bId);
+    });
+
     return Column(
       children: [
         CategoryArchiveToolbar(
+          bookmarkedFirst: bookmarkedFirst,
+          onSortChanged: onSortChanged,
           onAddCategory: () => showModalBottomSheet<void>(
             context: context,
             isScrollControlled: true,
@@ -3019,21 +6950,107 @@ class CategoryArchiveView extends StatelessWidget {
             builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),
           ),
         ),
+        UnclassifiedCategoryRow(
+          count: unclassifiedCategory.contentCount,
+          onTap: () => onOpenCategory(unclassifiedCategory),
+        ),
+        const SizedBox(height: 16),
         Expanded(
           child: ListView.separated(
             padding: EdgeInsets.zero,
             itemBuilder: (context, index) {
-              final category = categories[index];
+              final category = visibleCategories[index];
               return CategoryRow(
                 category: category,
                 onTap: () => onOpenCategory(category),
+                onMore: () => showCategoryActionSheet(
+                  context: context,
+                  category: category,
+                  contentCount: category.contentCount,
+                  onUpdate: onUpdateCategory,
+                  onDelete: onDeleteCategory,
+                ),
               );
             },
             separatorBuilder: (context, index) => const SizedBox(height: 16),
-            itemCount: categories.length,
+            itemCount: visibleCategories.length,
           ),
         ),
       ],
+    );
+  }
+}
+
+class UnclassifiedCategoryRow extends StatelessWidget {
+  const UnclassifiedCategoryRow({
+    required this.count,
+    required this.onTap,
+    super.key,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Material(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  const SvgIcon(
+                    asset: Assets.star,
+                    size: 20,
+                    color: AppColors.main,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '분류가 필요한 콘텐츠',
+                    style: TextStyle(
+                      color: AppColors.main,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.mainSubtle,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                  ),
+                  const SvgIcon(
+                    asset: Assets.chevronRight,
+                    size: 24,
+                    color: AppColors.main,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3093,10 +7110,16 @@ class CategoryHomeRow extends StatelessWidget {
 }
 
 class CategoryRow extends StatelessWidget {
-  const CategoryRow({required this.category, required this.onTap, super.key});
+  const CategoryRow({
+    required this.category,
+    this.onTap,
+    this.onMore,
+    super.key,
+  });
 
   final CategoryItem category;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -3128,11 +7151,13 @@ class CategoryRow extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        '2020. 3. 10. 오후 11:56',
+                      Text(
+                        category.mutationLabel ??
+                            category.lastSavedAt ??
+                            '저장된 콘텐츠 없음',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: AppColors.subSubtle,
                           fontSize: 12,
                         ),
@@ -3141,22 +7166,31 @@ class CategoryRow extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Center(
-                    child: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: const BoxDecoration(
-                        color: AppColors.faint,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Center(
-                        child: SvgIcon(
-                          asset: Assets.moreHorizontal,
-                          size: 19.2,
-                          color: AppColors.middle,
+                Text(
+                  '${category.contentCount}',
+                  style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: category.mutationLabel == null ? onMore : null,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                          color: AppColors.faint,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: SvgIcon(
+                            asset: Assets.moreHorizontal,
+                            size: 19.2,
+                            color: AppColors.middle,
+                          ),
                         ),
                       ),
                     ),
@@ -3171,18 +7205,79 @@ class CategoryRow extends StatelessWidget {
   }
 }
 
-class CategoryCreateSheet extends StatefulWidget {
+class CategoryCreateSheet extends StatelessWidget {
   const CategoryCreateSheet({required this.onCreate, super.key});
 
   final ValueChanged<CategoryItem> onCreate;
 
   @override
-  State<CategoryCreateSheet> createState() => _CategoryCreateSheetState();
+  Widget build(BuildContext context) => CategoryFormSheet(
+    actionLabel: '생성하기',
+    onSave: (name, color) => onCreate(
+      CategoryItem(
+        name: name,
+        color: color,
+        tint: color.withValues(alpha: 0.22),
+        deep: color,
+      ),
+    ),
+  );
 }
 
-class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
-  final _controller = TextEditingController();
-  Color _selectedColor = FolderColorPicker.colors.first;
+class CategoryEditSheet extends StatelessWidget {
+  const CategoryEditSheet({
+    required this.category,
+    required this.onSave,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final ValueChanged<CategoryItem> onSave;
+
+  @override
+  Widget build(BuildContext context) => CategoryFormSheet(
+    initialName: category.name,
+    initialColor: category.color,
+    actionLabel: '수정하기',
+    onSave: (name, color) => onSave(
+      category.copyWith(
+        name: name,
+        color: color,
+        tint: color.withValues(alpha: 0.22),
+        deep: _deepCategoryColor(color),
+      ),
+    ),
+  );
+}
+
+class CategoryFormSheet extends StatefulWidget {
+  const CategoryFormSheet({
+    required this.actionLabel,
+    required this.onSave,
+    this.initialName = '',
+    this.initialColor,
+    super.key,
+  });
+
+  final String actionLabel;
+  final void Function(String name, Color color) onSave;
+  final String initialName;
+  final Color? initialColor;
+
+  @override
+  State<CategoryFormSheet> createState() => _CategoryFormSheetState();
+}
+
+class _CategoryFormSheetState extends State<CategoryFormSheet> {
+  late final TextEditingController _controller;
+  late Color _selectedColor;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+    _selectedColor = widget.initialColor ?? FolderColorPicker.colors.first;
+  }
 
   @override
   void dispose() {
@@ -3193,62 +7288,902 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
   void _save() {
     final name = _controller.text.trim();
     if (name.isEmpty) return;
-    widget.onCreate(
-      CategoryItem(
-        name: name,
-        color: _selectedColor,
-        tint: _selectedColor.withValues(alpha: 0.22),
-        deep: _selectedColor,
-      ),
-    );
+    widget.onSave(name, _selectedColor);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.88;
+    final mediaQuery = MediaQuery.of(context);
+    final sheetHeight = math.min(
+      mediaQuery.size.height * 0.87,
+      428 + mediaQuery.viewInsets.bottom,
+    );
+    final canCreate = _controller.text.trim().isNotEmpty;
 
-    return Container(
-      constraints: BoxConstraints(maxHeight: maxSheetHeight),
-      padding: EdgeInsets.fromLTRB(
-        16,
-        18,
-        16,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '카테고리 만들기',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _controller,
-                onSubmitted: (_) => _save(),
-                decoration: const InputDecoration(
-                  hintText: '카테고리 이름',
-                  filled: true,
-                  fillColor: AppColors.bg,
-                  border: OutlineInputBorder(borderSide: BorderSide.none),
+    return SizedBox(
+      height: sheetHeight,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 8,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AppColors.subtler,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              FolderColorPicker(
-                selectedColor: _selectedColor,
-                onChanged: (color) => setState(() => _selectedColor = color),
+            ),
+            Positioned(
+              top: 60,
+              left: 24,
+              right: 24,
+              child: Column(
+                children: [
+                  SvgPicture.asset(
+                    Assets.folderCreatePreview,
+                    width: 121,
+                    height: 103,
+                    colorFilter: ColorFilter.mode(
+                      _selectedColor,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: _controller,
+                    autofocus: true,
+                    textAlign: TextAlign.center,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) {
+                      if (canCreate) _save();
+                    },
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.45,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: '카테고리명을 입력해주세요',
+                      hintStyle: TextStyle(color: AppColors.subtler),
+                      isDense: true,
+                      contentPadding: EdgeInsets.only(bottom: 8),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.subtler),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: AppColors.text),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  FolderColorPicker(
+                    selectedColor: _selectedColor,
+                    onChanged: (color) =>
+                        setState(() => _selectedColor = color),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-              PrimaryButton(label: '저장하기', onPressed: _save, height: 52),
+            ),
+            Positioned(
+              top: 348,
+              left: 16,
+              right: 16,
+              height: 48,
+              child: FilledButton(
+                onPressed: canCreate ? _save : null,
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: AppColors.text,
+                  disabledBackgroundColor: AppColors.subtler,
+                  foregroundColor: AppColors.main,
+                  disabledForegroundColor: AppColors.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.375,
+                  ),
+                ),
+                child: Text(widget.actionLabel),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> showContentSaveScreen({
+  required BuildContext context,
+  required SaveLinkCallback onAddLink,
+  required SaveScreenshotCallback onAddScreenshot,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.transparent,
+    transitionDuration: Duration.zero,
+    pageBuilder: (context, _, _) =>
+        AddContentSheet(onAddLink: onAddLink, onAddScreenshot: onAddScreenshot),
+  );
+}
+
+class AddContentSheet extends StatefulWidget {
+  const AddContentSheet({
+    required this.onAddLink,
+    required this.onAddScreenshot,
+    super.key,
+  });
+
+  final SaveLinkCallback onAddLink;
+  final SaveScreenshotCallback onAddScreenshot;
+
+  @override
+  State<AddContentSheet> createState() => _AddContentSheetState();
+}
+
+class _AddContentSheetState extends State<AddContentSheet> {
+  final _urlController = TextEditingController();
+  final _bodyScrollController = ScrollController();
+  Timer? _validationTimer;
+  Timer? _saveErrorTimer;
+  var _activeTab = 0;
+  var _linkStage = SaveFlowStage.editing;
+  var _photoStage = SaveFlowStage.editing;
+  Uint8List? _selectedPhotoBytes;
+  String? _selectedPhotoFilename;
+  var _isSaving = false;
+  String? _saveError;
+  ContentItem? _savedContent;
+
+  @override
+  void dispose() {
+    _validationTimer?.cancel();
+    _saveErrorTimer?.cancel();
+    _urlController.dispose();
+    _bodyScrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted || data?.text == null || data!.text!.trim().isEmpty) return;
+    _urlController.text = data.text!.trim();
+    _validateLink(_urlController.text);
+  }
+
+  void _validateLink(String value) {
+    _validationTimer?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _linkStage = SaveFlowStage.editing);
+      return;
+    }
+    setState(() => _linkStage = SaveFlowStage.editing);
+    _validationTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      final uri = Uri.tryParse(trimmed);
+      final valid =
+          uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.contains('.');
+      setState(
+        () => _linkStage = valid ? SaveFlowStage.valid : SaveFlowStage.invalid,
+      );
+    });
+  }
+
+  void _clearLink() {
+    _validationTimer?.cancel();
+    _urlController.clear();
+    setState(() => _linkStage = SaveFlowStage.editing);
+  }
+
+  void _changeTab(int tab) {
+    setState(() => _activeTab = tab);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+    });
+  }
+
+  Future<void> _submit() async {
+    final isLink = _activeTab == 0;
+    final stage = isLink ? _linkStage : _photoStage;
+    if (_isSaving || stage != SaveFlowStage.valid) return;
+
+    setState(() => _isSaving = true);
+    try {
+      late final ContentItem savedContent;
+      if (isLink) {
+        savedContent = await widget.onAddLink(url: _urlController.text.trim());
+      } else {
+        final bytes = _selectedPhotoBytes;
+        final filename = _selectedPhotoFilename;
+        if (bytes == null || filename == null) {
+          setState(() => _isSaving = false);
+          return;
+        }
+        savedContent = await widget.onAddScreenshot(
+          bytes: bytes,
+          filename: filename,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _savedContent = savedContent;
+          _saveError = null;
+        });
+      }
+    } on ClipbackApiException catch (error) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSaveErrorToast(error.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSaveErrorToast();
+      }
+    }
+  }
+
+  void _showSaveErrorToast([String? message]) {
+    _saveErrorTimer?.cancel();
+    setState(() => _saveError = message ?? '저장하지 못했어요. 다시 시도해 주세요.');
+    _saveErrorTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _saveError = null);
+    });
+  }
+
+  Future<void> _selectPhoto() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    final photo = result != null && result.files.isNotEmpty
+        ? result.files.first
+        : null;
+    if (!mounted || photo?.bytes == null) return;
+    setState(() {
+      _selectedPhotoBytes = photo!.bytes;
+      _selectedPhotoFilename = photo.name;
+      _photoStage = SaveFlowStage.valid;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final savedContent = _savedContent;
+    final stage = _activeTab == 0 ? _linkStage : _photoStage;
+    final enabled =
+        savedContent != null || (!_isSaving && stage == SaveFlowStage.valid);
+
+    return ColoredBox(
+      color: AppColors.bg,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: phoneWidth),
+          child: SizedBox.expand(
+            child: Material(
+              color: AppColors.bg,
+              child: Column(
+                children: [
+                  SaveContentTopBar(onClose: () => Navigator.pop(context)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SaveTab(
+                          label: '링크 첨부',
+                          active: _activeTab == 0,
+                          onTap: () => _changeTab(0),
+                        ),
+                      ),
+                      Expanded(
+                        child: _SaveTab(
+                          label: '사진 첨부',
+                          active: _activeTab == 1,
+                          onTap: () => _changeTab(1),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          bottom: 90,
+                          child: SingleChildScrollView(
+                            controller: _bodyScrollController,
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              savedContent == null ? 32 : 80,
+                              16,
+                              24,
+                            ),
+                            child: savedContent != null
+                                ? SavedContentConfirmation(
+                                    content: savedContent,
+                                    originalUrl: _activeTab == 0
+                                        ? _urlController.text.trim()
+                                        : _selectedPhotoFilename ?? '',
+                                    photoBytes: _activeTab == 1
+                                        ? _selectedPhotoBytes
+                                        : null,
+                                  )
+                                : _activeTab == 0
+                                ? LinkSaveBody(
+                                    controller: _urlController,
+                                    stage: _linkStage,
+                                    onChanged: _validateLink,
+                                    onClear: _clearLink,
+                                    onPaste: _paste,
+                                  )
+                                : PhotoSaveBody(
+                                    stage: _photoStage,
+                                    onSelect: _selectPhoto,
+                                    photoBytes: _selectedPhotoBytes,
+                                  ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 16,
+                          right: 16,
+                          bottom: 66,
+                          height: 56,
+                          child: SaveFlowButton(
+                            label: savedContent == null ? '허투루에 저장하기' : '닫기',
+                            enabled: enabled,
+                            loading: _isSaving,
+                            onPressed: savedContent == null
+                                ? _submit
+                                : () => Navigator.of(
+                                    context,
+                                    rootNavigator: true,
+                                  ).pop(),
+                          ),
+                        ),
+                        if (_saveError case final message?)
+                          Positioned(
+                            left: 40,
+                            right: 40,
+                            bottom: 138,
+                            child: SaveErrorToast(message: message),
+                          ),
+                        const Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 34,
+                          child: Center(child: _SaveHomeIndicator()),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SaveTab extends StatelessWidget {
+  const _SaveTab({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      hoverColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      child: Container(
+        height: 56,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? AppColors.text : AppColors.subtler,
+              width: active ? 2 : 1,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? AppColors.text : AppColors.subtler,
+            fontSize: 16,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum SaveFlowStage { editing, invalid, valid }
+
+class SaveContentTopBar extends StatelessWidget {
+  const SaveContentTopBar({required this.onClose, super.key});
+
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            SvgIconButton(
+              asset: Assets.close,
+              onPressed: onClose,
+              size: 24,
+              hitSize: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              '콘텐츠 저장하기',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LinkSaveBody extends StatelessWidget {
+  const LinkSaveBody({
+    required this.controller,
+    required this.stage,
+    required this.onChanged,
+    required this.onClear,
+    required this.onPaste,
+    super.key,
+  });
+
+  final TextEditingController controller;
+  final SaveFlowStage stage;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onPaste;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 링크',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 44,
+                child: TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.url,
+                  onChanged: onChanged,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.35,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'https://',
+                    hintStyle: const TextStyle(color: AppColors.subtler),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    contentPadding: const EdgeInsets.only(left: 8),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 34,
+                      minHeight: 18,
+                    ),
+                    suffixIcon: controller.text.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: onClear,
+                            padding: const EdgeInsets.only(right: 8),
+                            constraints: const BoxConstraints(
+                              minWidth: 26,
+                              minHeight: 18,
+                            ),
+                            icon: SvgPicture.asset(
+                              Assets.xCircle,
+                              width: 18,
+                              height: 18,
+                            ),
+                          ),
+                    border: const OutlineInputBorder(
+                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.all(Radius.circular(4)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 64,
+              height: 44,
+              child: TextButton(
+                onPressed: onPaste,
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: AppColors.mainSubtle,
+                  foregroundColor: AppColors.mainDeep,
+                  disabledBackgroundColor: AppColors.mainSubtle,
+                  disabledForegroundColor: AppColors.mainDeep,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+                child: const Text('붙여넣기'),
+              ),
+            ),
+          ],
+        ),
+        if (stage == SaveFlowStage.invalid || stage == SaveFlowStage.valid) ...[
+          const SizedBox(height: 5),
+          ValidationMessage(valid: stage == SaveFlowStage.valid),
+        ],
+      ],
+    );
+  }
+}
+
+class SavedContentConfirmation extends StatelessWidget {
+  const SavedContentConfirmation({
+    required this.content,
+    required this.originalUrl,
+    required this.photoBytes,
+    super.key,
+  });
+
+  final ContentItem content;
+  final String originalUrl;
+  final Uint8List? photoBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
+    final processingVideo =
+        content.source == _sourceLabel('youtube') &&
+        (content.summaryStatus == 'queued' ||
+            content.summaryStatus == 'processing');
+    final categoryMessage = processingVideo
+        ? '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.'
+        : content.category.name == catUncategorized.name
+        ? '아직 분류되지 않았어요.'
+        : '저장된 카테고리';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 링크',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 44,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            linkLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.35,
+            ),
+          ),
+        ),
+        const SizedBox(height: 5),
+        const ValidationMessage(valid: true),
+        const SizedBox(height: 28),
+        const Text(
+          '미리보기',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 116,
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(
+                  width: 164,
+                  height: 100,
+                  child: photoBytes == null
+                      ? Image.asset(Assets.saveLinkPreview, fit: BoxFit.cover)
+                      : Image.memory(photoBytes!, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      content.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        height: 1.6,
+                        letterSpacing: -0.375,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      content.source,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 30),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '카테고리',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              categoryMessage,
+              style: const TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 55,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              FolderGlyph(color: content.category.color, size: 28),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  content.category.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '분류는 상세 화면에서 변경할 수 있어요.',
+          style: TextStyle(color: AppColors.subtle, fontSize: 14),
+        ),
+      ],
+    );
+  }
+}
+
+class ValidationMessage extends StatelessWidget {
+  const ValidationMessage({required this.valid, super.key});
+
+  final bool valid;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SvgIcon(
+          asset: valid ? Assets.check : Assets.close,
+          size: 24,
+          color: AppColors.subSubtle,
+        ),
+        Text(
+          valid ? '유효한 링크예요!' : '유효하지 않은 링크예요.',
+          style: const TextStyle(
+            color: AppColors.subSubtle,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            letterSpacing: -0.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class PhotoSaveBody extends StatelessWidget {
+  const PhotoSaveBody({
+    required this.stage,
+    required this.onSelect,
+    required this.photoBytes,
+    super.key,
+  });
+
+  final SaveFlowStage stage;
+  final Future<void> Function() onSelect;
+  final Uint8List? photoBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = stage != SaveFlowStage.editing;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '저장할 사진',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: onSelect,
+          borderRadius: BorderRadius.circular(8),
+          child: selected
+              ? SelectedPhotoPreview(photoBytes: photoBytes)
+              : const PhotoEmptyPrompt(),
+        ),
+      ],
+    );
+  }
+}
+
+class PhotoEmptyPrompt extends StatelessWidget {
+  const PhotoEmptyPrompt({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      foregroundPainter: const _DashedRoundedBorderPainter(
+        color: AppColors.subtler,
+        radius: 8,
+      ),
+      child: SizedBox(
+        height: 89,
+        width: double.infinity,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: SvgPicture.asset(Assets.photoSelect),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '사진 선택',
+                      style: TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.375,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.subSubtle,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -3257,46 +8192,205 @@ class _CategoryCreateSheetState extends State<CategoryCreateSheet> {
   }
 }
 
-class AddContentSheet extends StatelessWidget {
-  const AddContentSheet({
-    required this.categories,
-    required this.onAddLink,
-    required this.onAddScreenshot,
-    super.key,
+class _DashedRoundedBorderPainter extends CustomPainter {
+  const _DashedRoundedBorderPainter({
+    required this.color,
+    required this.radius,
   });
 
-  final List<CategoryItem> categories;
-  final void Function({required String url, required CategoryItem category})
-  onAddLink;
-  final VoidCallback onAddScreenshot;
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+      );
+    final metric = path.computeMetrics().first;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    const dash = 4.0;
+    const gap = 4.0;
+    for (var distance = 0.0; distance < metric.length; distance += dash + gap) {
+      canvas.drawPath(
+        metric.extractPath(distance, math.min(distance + dash, metric.length)),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundedBorderPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
+}
+
+class SelectedPhotoPreview extends StatelessWidget {
+  const SelectedPhotoPreview({required this.photoBytes, super.key});
+
+  final Uint8List? photoBytes;
 
   @override
   Widget build(BuildContext context) {
-    return AppSheet(
-      title: '콘텐츠 추가',
-      children: [
-        SheetActionTile(
-          icon: Assets.plus,
-          title: '링크 추가',
-          description: 'SNS나 웹에서 발견한 링크를 저장해요.',
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) =>
-                LinkAddSheet(categories: categories, onSave: onAddLink),
+    return Container(
+      width: double.infinity,
+      height: 437,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.subtler),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: AppColors.subtler)),
+        child: ClipRect(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: -constraints.maxHeight * 0.4067,
+                    height: constraints.maxHeight * 1.6607,
+                    child: photoBytes == null
+                        ? Image.asset(
+                            Assets.savedPhotoPreview,
+                            fit: BoxFit.fill,
+                          )
+                        : Image.memory(photoBytes!, fit: BoxFit.fill),
+                  ),
+                ],
+              );
+            },
           ),
         ),
-        SheetActionTile(
-          icon: Assets.archive,
-          title: '스크린샷 첨부',
-          description: '이미지로 저장한 정보를 허투루에 모아요.',
-          onTap: () {
-            onAddScreenshot();
-            Navigator.pop(context);
-          },
+      ),
+    );
+  }
+}
+
+class SaveFlowButton extends StatelessWidget {
+  const SaveFlowButton({
+    required this.label,
+    required this.enabled,
+    required this.loading,
+    required this.onPressed,
+    super.key,
+  });
+
+  final String label;
+  final bool enabled;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: loading ? '저장 중' : label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: enabled || loading ? AppColors.text : AppColors.subtler,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: DefaultTextStyle(
+              style: const TextStyle(
+                color: AppColors.main,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.4,
+              ),
+              child: loading
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            color: AppColors.surface,
+                            strokeWidth: 2.2,
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Text('저장 중...'),
+                      ],
+                    )
+                  : Text(label),
+            ),
+          ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class SaveErrorToast extends StatelessWidget {
+  const SaveErrorToast({required this.message, super.key});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x26000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: AppColors.surface, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.surface,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SaveHomeIndicator extends StatelessWidget {
+  const _SaveHomeIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 144,
+      height: 5,
+      decoration: BoxDecoration(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(100),
+      ),
     );
   }
 }
@@ -3460,19 +8554,24 @@ class ContentActionSheet extends StatelessWidget {
     return AppSheet(
       title: '콘텐츠 관리',
       children: [
+        if (content.mutationLabel != null)
+          _ContentMutationStatus(label: content.mutationLabel!),
         SheetActionTile(
           icon: Assets.archive,
           title: '카테고리 변경',
           description: '이 콘텐츠를 다른 카테고리로 옮겨요.',
+          enabled: content.mutationLabel == null,
           onTap: () {
             Navigator.pop(context);
             showModalBottomSheet<void>(
               context: context,
+              isScrollControlled: true,
               backgroundColor: Colors.transparent,
               builder: (context) => CategoryChangeSheet(
                 current: content.category,
                 categories: categories,
                 onChange: onChangeCategory,
+                enabled: content.mutationLabel == null,
               ),
             );
           },
@@ -3481,6 +8580,7 @@ class ContentActionSheet extends StatelessWidget {
           icon: Assets.close,
           title: '삭제',
           description: '저장한 콘텐츠 목록에서 제거해요.',
+          enabled: content.mutationLabel == null,
           onTap: () {
             onDelete();
             Navigator.pop(context);
@@ -3492,18 +8592,26 @@ class ContentActionSheet extends StatelessWidget {
 }
 
 class OriginalContentSheet extends StatelessWidget {
-  const OriginalContentSheet({required this.content, super.key});
+  const OriginalContentSheet({
+    required this.content,
+    this.originalImage,
+    super.key,
+  });
 
   final ContentItem content;
+  final Widget? originalImage;
 
   @override
   Widget build(BuildContext context) {
     return AppSheet(
-      title: '원문 보기',
+      title: content.isScreenshot ? '원본 이미지' : '원문 보기',
       children: [
         Row(
           children: [
-            SvgPicture.asset(Assets.instagram, width: 18, height: 18),
+            if (content.isScreenshot)
+              const Icon(Icons.image_outlined, size: 18)
+            else
+              SvgPicture.asset(Assets.instagram, width: 18, height: 18),
             const SizedBox(width: 6),
             Text(
               content.source,
@@ -3518,20 +8626,26 @@ class OriginalContentSheet extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Container(
-          constraints: const BoxConstraints(maxHeight: 280),
+          constraints: BoxConstraints(
+            maxHeight: content.isScreenshot
+                ? MediaQuery.sizeOf(context).height * 0.55
+                : 280,
+          ),
           width: double.infinity,
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(content.isScreenshot ? 0 : 16),
           decoration: BoxDecoration(
             color: AppColors.bg,
             borderRadius: BorderRadius.circular(8),
           ),
           child: SingleChildScrollView(
-            child: Text(
-              content.originalText.isEmpty
-                  ? content.summary
-                  : content.originalText,
-              style: const TextStyle(fontSize: 15, height: 1.6),
-            ),
+            child: content.isScreenshot
+                ? originalImage ?? const Text('저장된 원본 이미지가 없어요.')
+                : Text(
+                    content.originalText.isEmpty
+                        ? content.summary
+                        : content.originalText,
+                    style: const TextStyle(fontSize: 15, height: 1.6),
+                  ),
           ),
         ),
         if (content.originalUrl.isNotEmpty) ...[
@@ -3550,16 +8664,18 @@ class OriginalContentSheet extends StatelessWidget {
 }
 
 class AccountSheet extends StatelessWidget {
-  const AccountSheet({super.key});
+  const AccountSheet({required this.user, super.key});
+
+  final AppUser user;
 
   @override
   Widget build(BuildContext context) {
     return AppSheet(
       title: '계정 관리',
       children: [
-        SheetInfoRow(label: '이름', value: mockUser.name),
-        SheetInfoRow(label: '연동 계정', value: mockUser.providerLabel),
-        SheetInfoRow(label: '가입일', value: mockUser.joinedAt),
+        SheetInfoRow(label: '이름', value: user.name),
+        SheetInfoRow(label: '연동 계정', value: user.providerLabel),
+        SheetInfoRow(label: '가입일', value: user.joinedAt),
         const SizedBox(height: 12),
         PrimaryButton(
           label: '확인',
@@ -3734,6 +8850,7 @@ class SheetActionTile extends StatelessWidget {
     required this.title,
     required this.description,
     required this.onTap,
+    this.enabled = true,
     super.key,
   });
 
@@ -3741,11 +8858,12 @@ class SheetActionTile extends StatelessWidget {
   final String title;
   final String description;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -3879,31 +8997,113 @@ class CategoryChangeSheet extends StatelessWidget {
     required this.current,
     required this.categories,
     required this.onChange,
+    this.enabled = true,
     super.key,
   });
 
   final CategoryItem current;
   final List<CategoryItem> categories;
   final ValueChanged<CategoryItem> onChange;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return AppSheet(
       title: '카테고리 변경',
       children: [
+        const Text(
+          '저장할 카테고리를 선택해 주세요.',
+          style: TextStyle(
+            color: AppColors.subtle,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 12),
         for (final category in categories)
-          SheetActionTile(
-            icon: Assets.archive,
-            title: category.name,
-            description: category.name == current.name
-                ? '현재 선택된 카테고리입니다.'
-                : '이 카테고리로 콘텐츠를 이동해요.',
+          CategoryChangeTile(
+            category: category,
+            selected: category.id == current.id,
+            enabled: enabled && !category.isDeleting,
             onTap: () {
               onChange(category);
               Navigator.pop(context);
             },
           ),
       ],
+    );
+  }
+}
+
+class CategoryChangeTile extends StatelessWidget {
+  const CategoryChangeTile({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    this.enabled = true,
+    super.key,
+  });
+
+  final CategoryItem category;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(8),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: selected ? category.tint : AppColors.bg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected ? category.deep : AppColors.faint,
+              ),
+            ),
+            child: Row(
+              children: [
+                FolderGlyph(color: category.color, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    category.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? category.deep : AppColors.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: selected ? category.deep : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: selected
+                        ? null
+                        : Border.all(color: AppColors.subtler),
+                  ),
+                  child: selected
+                      ? const Icon(Icons.check, color: Colors.white, size: 16)
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3919,37 +9119,123 @@ class FolderColorPicker extends StatelessWidget {
   final ValueChanged<Color> onChanged;
 
   static const colors = [
-    Color(0xFFB48CFF),
-    Color(0xFFFF5F78),
-    Color(0xFF64B5F6),
-    Color(0xFF5BD89D),
+    Color(0xFFFF6277),
+    Color(0xFFFFA24B),
     Color(0xFFFFD75C),
+    Color(0xFF5BD89D),
+    Color(0xFF64B5F6),
+    Color(0xFFB9AAFF),
+    Color(0xFFFFB3C1),
+    Color(0xFF1F5E24),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        for (final color in colors)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => onChanged(color),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final color in colors)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => onChanged(color),
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Center(
+                          child: Container(
+                            width: color == selectedColor ? 36 : 30,
+                            height: color == selectedColor ? 36 : 30,
+                            padding: color == selectedColor
+                                ? const EdgeInsets.all(3)
+                                : EdgeInsets.zero,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: color == selectedColor
+                                  ? Border.all(color: color, width: 1.5)
+                                  : null,
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                              child: color == selectedColor
+                                  ? const Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                      size: 21,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        _CustomFolderColorSwatch(
+          onTap: () => onChanged(const Color(0xFFFF6F61)),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomFolderColorSwatch extends StatelessWidget {
+  const _CustomFolderColorSwatch({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 38,
+      height: 32,
+      child: Row(
+        children: [
+          Container(width: 1, height: 32, color: AppColors.subtler),
+          const SizedBox(width: 7),
+          InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Container(
+              width: 30,
+              height: 30,
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: SweepGradient(
+                  colors: [
+                    Color(0xFFFF0000),
+                    Color(0xFFFFD400),
+                    Color(0xFF37FF00),
+                    Color(0xFF00FFCC),
+                    Color(0xFF0072FF),
+                    Color(0xFF6905FF),
+                    Color(0xFFFF0051),
+                    Color(0xFFFF0000),
+                  ],
+                ),
+              ),
               child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: color,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFF6F61),
                   shape: BoxShape.circle,
-                  border: color == selectedColor
-                      ? Border.all(color: AppColors.text, width: 2)
-                      : null,
                 ),
               ),
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -3958,49 +9244,135 @@ class ClipbackNavigationBar extends StatelessWidget {
   const ClipbackNavigationBar({
     required this.activeIndex,
     required this.onTap,
+    this.onAdd,
     super.key,
   });
 
   final int activeIndex;
   final ValueChanged<AppRoute> onTap;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     final items = [
-      NavSpec(Assets.home, '홈', AppRoute.home),
-      NavSpec(Assets.archive, '아카이브', AppRoute.archive),
-      NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark),
-      NavSpec(Assets.account, '마이', AppRoute.my),
+      NavSpec(Assets.home, '홈', AppRoute.home, 0),
+      NavSpec(Assets.archive, '아카이브', AppRoute.archive, 1),
+      NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark, 2),
+      NavSpec(Assets.account, '마이', AppRoute.my, 3),
     ];
 
     return Container(
-      height: 97,
+      height: 96,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [BoxShadow(color: Color(0x1F000000), blurRadius: 16)],
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            SizedBox(
-              height: 56,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var index = 0; index < items.length; index++)
-                    SizedBox(
-                      width: 80,
-                      child: _NavItem(
-                        spec: items[index],
-                        active: activeIndex == index,
-                        onTap: () => onTap(items[index].route),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 64,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final horizontalPadding = constraints.maxWidth >= 343
+                    ? 16.0
+                    : 8.0;
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _NavItem(
+                        spec: items[0],
+                        active: activeIndex == items[0].activeIndex,
+                        onTap: () => onTap(items[0].route),
                       ),
-                    ),
-                ],
-              ),
+                      _NavItem(
+                        spec: items[1],
+                        active: activeIndex == items[1].activeIndex,
+                        onTap: () => onTap(items[1].route),
+                      ),
+                      Transform.translate(
+                        offset: const Offset(0, -22),
+                        child: NavAddButton(onTap: onAdd),
+                      ),
+                      _NavItem(
+                        spec: items[2],
+                        active: activeIndex == items[2].activeIndex,
+                        onTap: () => onTap(items[2].route),
+                      ),
+                      _NavItem(
+                        spec: items[3],
+                        active: activeIndex == items[3].activeIndex,
+                        onTap: () => onTap(items[3].route),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
-          ],
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: NavigationHomeIndicator(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NavAddButton extends StatelessWidget {
+  const NavAddButton({required this.onTap, super.key});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          color: AppColors.main,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.surface, width: 4),
+        ),
+        child: Center(
+          child: SvgIcon(asset: Assets.plus, size: 38.5, color: AppColors.text),
+        ),
+      ),
+    );
+  }
+}
+
+class NavigationHomeIndicator extends StatelessWidget {
+  const NavigationHomeIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 34,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Container(
+            width: 144,
+            height: 5,
+            decoration: BoxDecoration(
+              color: AppColors.text,
+              borderRadius: BorderRadius.circular(100),
+            ),
+          ),
         ),
       ),
     );
@@ -4021,7 +9393,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 80,
+      width: 56,
       height: 56,
       child: InkWell(
         onTap: onTap,
@@ -4030,7 +9402,7 @@ class _NavItem extends StatelessWidget {
           children: [
             SvgIcon(
               asset: spec.asset,
-              size: spec.label == '마이' ? 24 : 28,
+              size: 28,
               color: active ? AppColors.text : AppColors.subtler,
             ),
             const SizedBox(height: 3),
@@ -4040,6 +9412,7 @@ class _NavItem extends StatelessWidget {
                 color: active ? AppColors.text : AppColors.subtler,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
+                letterSpacing: -0.3,
               ),
             ),
           ],
@@ -4050,11 +9423,12 @@ class _NavItem extends StatelessWidget {
 }
 
 class NavSpec {
-  const NavSpec(this.asset, this.label, this.route);
+  const NavSpec(this.asset, this.label, this.route, this.activeIndex);
 
   final String asset;
   final String label;
   final AppRoute route;
+  final int activeIndex;
 }
 
 class DetailPager extends StatelessWidget {
@@ -4068,8 +9442,8 @@ class DetailPager extends StatelessWidget {
 
   final int currentIndex;
   final int totalCount;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -4078,19 +9452,32 @@ class DetailPager extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          RoundIconButton(asset: Assets.back, onPressed: onPrevious),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: Text(
-              '${currentIndex + 1} / $totalCount',
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
+          RoundIconButton(
+            asset: Assets.arrowRight,
+            rotate: true,
+            onPressed: onPrevious,
+          ),
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              height: 35,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Text(
+                currentIndex < 0
+                    ? '현재 목록에 없는 콘텐츠'
+                    : '${currentIndex + 1} / 불러온 $totalCount개',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.subtle,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  height: 19 / 14,
+                ),
               ),
             ),
           ),
@@ -4117,30 +9504,27 @@ class RelatedContentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            CategoryBadge(category: category),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+      child: SizedBox(
+        height: 48,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              CategoryBadge(category: category),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -4318,6 +9702,8 @@ class CategoryBadge extends StatelessWidget {
       ),
       child: Text(
         category.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: category.deep,
           fontSize: 12,
@@ -4394,7 +9780,10 @@ class SocialButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.foreground,
-    required this.mark,
+    required this.iconAsset,
+    required this.iconLeft,
+    required this.iconTop,
+    required this.iconSize,
     required this.onPressed,
     this.borderColor,
     super.key,
@@ -4403,7 +9792,10 @@ class SocialButton extends StatelessWidget {
   final String label;
   final Color color;
   final Color foreground;
-  final String mark;
+  final String iconAsset;
+  final double iconLeft;
+  final double iconTop;
+  final double iconSize;
   final VoidCallback onPressed;
   final Color? borderColor;
 
@@ -4429,16 +9821,15 @@ class SocialButton extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 Positioned(
-                  left: 18,
-                  child: Text(
-                    mark,
-                    style: TextStyle(
-                      color: foreground == Colors.white
-                          ? Colors.white
-                          : AppColors.text,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  left: iconLeft,
+                  top: iconTop,
+                  width: iconSize,
+                  height: iconSize,
+                  child: Image.asset(
+                    iconAsset,
+                    width: iconSize,
+                    height: iconSize,
+                    fit: BoxFit.cover,
                   ),
                 ),
                 Text(
@@ -4446,7 +9837,8 @@ class SocialButton extends StatelessWidget {
                   style: TextStyle(
                     color: foreground,
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.35,
                   ),
                 ),
               ],
@@ -4500,12 +9892,16 @@ class RoundIconButton extends StatelessWidget {
   });
 
   final String asset;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool rotate;
 
   @override
   Widget build(BuildContext context) {
-    final icon = SvgIcon(asset: asset, size: 32);
+    final icon = SvgIcon(
+      asset: asset,
+      size: 28,
+      color: onPressed == null ? AppColors.subSubtle : AppColors.text,
+    );
     return InkWell(
       onTap: onPressed,
       customBorder: const CircleBorder(),
@@ -4528,6 +9924,7 @@ class SvgIconButton extends StatelessWidget {
   const SvgIconButton({
     required this.asset,
     required this.onPressed,
+    this.enabled = true,
     this.size = 24,
     this.hitSize = 44,
     this.color = AppColors.text,
@@ -4536,6 +9933,7 @@ class SvgIconButton extends StatelessWidget {
 
   final String asset;
   final VoidCallback onPressed;
+  final bool enabled;
   final double size;
   final double hitSize;
   final Color color;
@@ -4548,7 +9946,7 @@ class SvgIconButton extends StatelessWidget {
       child: IconButton(
         padding: EdgeInsets.zero,
         constraints: BoxConstraints.tight(Size(hitSize, hitSize)),
-        onPressed: onPressed,
+        onPressed: enabled ? onPressed : null,
         icon: SvgIcon(asset: asset, size: size, color: color),
       ),
     );
@@ -4604,8 +10002,8 @@ class PageDots extends StatelessWidget {
         for (var index = 0; index < count; index++)
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: activeIndex == index ? 13.3 : 6,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            width: activeIndex == index ? 10 : 6,
             height: 6,
             decoration: BoxDecoration(
               color: activeIndex == index ? AppColors.text : AppColors.subtler,
@@ -4647,9 +10045,11 @@ class OnboardingData {
 class ContentItem {
   const ContentItem({
     required this.id,
+    this.apiId,
     required this.title,
     required this.summary,
-    required this.category,
+    required CategoryItem category,
+    List<CategoryItem>? categories,
     required this.savedAt,
     required this.savedAtFull,
     required this.savedAtFullShort,
@@ -4659,12 +10059,22 @@ class ContentItem {
     required this.originalText,
     this.bookmarked = false,
     this.isScreenshot = false,
-  });
+    this.assets = const [],
+    this.summaryStatus = 'not_requested',
+    this.mutationLabel,
+  }) : _category = category,
+       _categories = categories;
 
   final String id;
+  final int? apiId;
   final String title;
   final String summary;
-  final CategoryItem category;
+  final CategoryItem _category;
+  final List<CategoryItem>? _categories;
+  CategoryItem get category => _categories?.firstOrNull ?? _category;
+  List<CategoryItem> get categories => List.unmodifiable(
+    _categories == null || _categories.isEmpty ? [_category] : _categories,
+  );
   final String savedAt;
   final String savedAtFull;
   final String savedAtFullShort;
@@ -4674,13 +10084,28 @@ class ContentItem {
   final String originalText;
   final bool bookmarked;
   final bool isScreenshot;
+  final List<ApiAsset> assets;
+  final String summaryStatus;
+  final String? mutationLabel;
 
-  ContentItem copyWith({CategoryItem? category, bool? bookmarked}) {
+  ContentItem copyWith({
+    CategoryItem? category,
+    List<CategoryItem>? categories,
+    bool? bookmarked,
+    String? mutationLabel,
+    bool clearMutationLabel = false,
+  }) {
+    final nextCategories =
+        categories ?? (category == null ? this.categories : [category]);
     return ContentItem(
       id: id,
+      apiId: apiId,
       title: title,
       summary: summary,
-      category: category ?? this.category,
+      category: nextCategories.firstOrNull ?? catUncategorized,
+      categories: List.unmodifiable(
+        nextCategories.isEmpty ? [catUncategorized] : nextCategories,
+      ),
       savedAt: savedAt,
       savedAtFull: savedAtFull,
       savedAtFullShort: savedAtFullShort,
@@ -4690,12 +10115,17 @@ class ContentItem {
       originalText: originalText,
       bookmarked: bookmarked ?? this.bookmarked,
       isScreenshot: isScreenshot,
+      assets: assets,
+      summaryStatus: summaryStatus,
+      mutationLabel: clearMutationLabel
+          ? null
+          : mutationLabel ?? this.mutationLabel,
     );
   }
 }
 
-class MockUser {
-  const MockUser({
+class AppUser {
+  const AppUser({
     required this.name,
     required this.providerLabel,
     required this.joinedAt,
@@ -4719,7 +10149,7 @@ class MockSettingItem {
   final String value;
 }
 
-const mockUser = MockUser(
+const defaultUser = AppUser(
   name: '정지윤',
   providerLabel: '카카오 계정 연동 중',
   joinedAt: '2026. 03. 07',
@@ -4757,17 +10187,109 @@ const mockNotices = [
 
 class CategoryItem {
   const CategoryItem({
+    this.id,
+    this.lastSavedAt,
+    this.contentCount = 0,
+    this.rawLastSavedAt,
+    this.mutationLabel,
     required this.name,
     required this.color,
     required this.tint,
     required this.deep,
   });
 
+  final int? id;
+  final String? lastSavedAt;
+  final int contentCount;
+  final DateTime? rawLastSavedAt;
   final String name;
   final Color color;
   final Color tint;
   final Color deep;
+  final String? mutationLabel;
+  bool get isDeleting => mutationLabel == '삭제 중…';
+
+  CategoryItem copyWith({
+    String? name,
+    Color? color,
+    Color? tint,
+    Color? deep,
+    String? mutationLabel,
+    bool clearMutationLabel = false,
+  }) => CategoryItem(
+    id: id,
+    lastSavedAt: lastSavedAt,
+    contentCount: contentCount,
+    rawLastSavedAt: rawLastSavedAt,
+    name: name ?? this.name,
+    color: color ?? this.color,
+    tint: tint ?? this.tint,
+    deep: deep ?? this.deep,
+    mutationLabel: clearMutationLabel
+        ? null
+        : mutationLabel ?? this.mutationLabel,
+  );
 }
+
+Color? _colorFromHex(String? value) {
+  if (value == null) return null;
+  final hex = value.replaceFirst('#', '');
+  if (hex.length != 6) return null;
+  final parsed = int.tryParse(hex, radix: 16);
+  return parsed == null ? null : Color(0xFF000000 | parsed);
+}
+
+Color _deepCategoryColor(Color color) {
+  return Color.fromARGB(
+    255,
+    (color.r * 0.72).round(),
+    (color.g * 0.72).round(),
+    (color.b * 0.72).round(),
+  );
+}
+
+String _hexFromColor(Color color) {
+  String value(int channel) => channel.toRadixString(16).padLeft(2, '0');
+  final argb = color.toARGB32();
+  return '#${value((argb >> 16) & 0xFF)}'
+      '${value((argb >> 8) & 0xFF)}${value(argb & 0xFF)}';
+}
+
+String _formatShortDate(DateTime dateTime) {
+  final year = (dateTime.year % 100).toString().padLeft(2, '0');
+  final month = dateTime.month.toString().padLeft(2, '0');
+  final day = dateTime.day.toString().padLeft(2, '0');
+  return '$year.$month.$day';
+}
+
+String _formatJoinedAt(DateTime dateTime) {
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')}';
+}
+
+String _formatSavedAt(DateTime dateTime) {
+  final hour = dateTime.hour;
+  final period = hour < 12 ? '오전' : '오후';
+  final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')} $period '
+      '${displayHour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+String _formatSavedAtShort(DateTime dateTime) {
+  return '${dateTime.year}. ${dateTime.month.toString().padLeft(2, '0')}. '
+      '${dateTime.day.toString().padLeft(2, '0')} '
+      '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+String _sourceLabel(String source) => switch (source) {
+  'instagram' => '인스타그램',
+  'youtube' => '유튜브',
+  'tiktok' => '틱톡',
+  'screenshot' => '스크린샷',
+  'web' => '웹 링크',
+  _ => '직접 입력',
+};
 
 const catProduct = CategoryItem(
   name: '제품추천',
@@ -4796,6 +10318,12 @@ const catLife = CategoryItem(
 const catLifeInfo = CategoryItem(
   name: '생활정보',
   color: Color(0xFFFFA9BD),
+  tint: Color(0xFFFFE0E4),
+  deep: Color(0xFFBC4858),
+);
+const catToWatch = CategoryItem(
+  name: '봐야할 것',
+  color: Color(0xFFFF5F78),
   tint: Color(0xFFFFE0E4),
   deep: Color(0xFFBC4858),
 );
@@ -4830,7 +10358,7 @@ const catEconomy = CategoryItem(
   deep: Color(0xFF2E817A),
 );
 const catUncategorized = CategoryItem(
-  name: '미분류',
+  name: '분류가 필요한 콘텐츠',
   color: Color(0xFFB5BDC3),
   tint: Color(0xFFE9ECEF),
   deep: Color(0xFF626C73),
@@ -4845,6 +10373,7 @@ const initialCategories = [
   catEconomy,
   catLife,
   catLifeInfo,
+  catToWatch,
   catDiet,
   catProduct,
   catUncategorized,
