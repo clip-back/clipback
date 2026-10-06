@@ -8,7 +8,8 @@ PR 2의 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)도 FE에 
 PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-10-06 FE에 병합되었다.
 [동기화 PR #40](https://github.com/clip-back/clipback/pull/40)은 2026-10-06 FE에 병합되었다.
 [수정 PR #41](https://github.com/clip-back/clipback/pull/41)은 2026-10-06 FE에 병합되었다.
-현재 `fix/fe-auto-category`에서 PR 5의 선택 없는 저장과 서버 분류 결과 표시를 구현하고 로컬 검증을 마쳤다.
+PR 5의 선택 없는 저장과 서버 분류 결과 표시는 로컬 검증을 마치고
+[수정 PR #42](https://github.com/clip-back/clipback/pull/42)로 FE 리뷰를 기다린다.
 PR 6~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -64,7 +65,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | FE 병합 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
 | 동기화 | P1 | main → FE 병합·통합 검증 | PR 3 | FE 병합 | `chore/fe-sync-main` / [#40](https://github.com/clip-back/clipback/pull/40) |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | FE 병합 | `fix/fe-screenshot-auth` / [#41](https://github.com/clip-back/clipback/pull/41) |
-| PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | 검증 완료 | `fix/fe-auto-category` / PR 미생성 |
+| PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | PR 생성 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 예정 | 미생성 |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | 예정 | 미생성 |
 | PR 8 | P2 | 검색 결과 변경 상태 동기화 | PR 6 이후 권장 | 예정 | 미생성 |
@@ -694,6 +695,10 @@ flutter build web --no-pub
 - 실제 화면과 결과를 대화에 공유했다. 제품 코드·새 테스트의 별도 읽기 전용 리뷰에서도
   승인 범위의 추가 결함은 발견되지 않았다. `git diff --check`와 새 테스트의 whitespace 검사를 통과했다.
   사용자 `AGENTS.md`는 원래 체크아웃에 그대로 두고 커밋에서 제외한다.
+- 관련 6개 파일을 `5bf4501`로 커밋·푸시하고 FE 대상 일반
+  [PR #42](https://github.com/clip-back/clipback/pull/42)를 생성했다.
+  이 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행하며,
+  실제 결과·실행 링크는 PR 본문과 작업 대화에 기록한다. PR은 병합하지 않는다.
 
 ### 다음 작업 기록 양식
 
