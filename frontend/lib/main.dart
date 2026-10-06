@@ -40,8 +40,23 @@ class _ContentMutation {
 class _ContentChange {
   _ContentMutation? pending;
   ({int version, bool value})? bookmark;
-  ({int version, CategoryItem value})? category;
+  ({int version, List<CategoryItem> value})? category;
   int? deletedVersion;
+}
+
+class _CategoryMutation {
+  _CategoryMutation(
+    this.original,
+    this.accountVersion, {
+    required this.deleting,
+  }) : value = original;
+
+  final CategoryItem original;
+  final int accountVersion;
+  final bool deleting;
+  CategoryItem value;
+
+  String get label => deleting ? '삭제 중…' : '변경 중…';
 }
 
 /// One bounded list, including the query that owns its opaque server cursor.
@@ -115,6 +130,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
   int _contentVersion = 0;
   final _contentChanges = <String, _ContentChange>{};
   final _contentReads = <Object, int>{};
+  final _categoryMutations = <int, _CategoryMutation>{};
+  final _deletedCategoryIds = <int>{};
+  bool _categoryRefreshRequired = false;
   int _accountVersion = 0;
   int _refreshVersion = 0;
   int _detailNavigationVersion = 0;
@@ -307,7 +325,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
     setState(() {
       _categories
         ..clear()
-        ..addAll(apiCategories.map(_categoryFromApi));
+        ..addAll(_reconcileCategoryList(apiCategories));
     });
     await _loadFeed(_homeFeed, reset: true);
     if (_homeFeed.error != null) throw _homeFeed.error!;
@@ -333,6 +351,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
     _contentVersion++;
     _contentChanges.clear();
     _contentReads.clear();
+    _categoryMutations.clear();
+    _deletedCategoryIds.clear();
+    _categoryRefreshRequired = false;
     _refreshVersion++;
     _detailNavigationVersion++;
     _movingDetail = false;
@@ -434,11 +455,13 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _selectHomeCategory(CategoryItem? category) {
+    if (_deletedCategoryIds.contains(category?.id)) return;
     _homeFeed.categoryId = category?.id;
     unawaited(_loadFeed(_homeFeed, reset: true));
   }
 
   void _selectArchiveCategory(CategoryItem? category) {
+    if (_deletedCategoryIds.contains(category?.id)) return;
     setState(() {
       _activeCategoryName = category?.name;
       _archiveTab = 0;
@@ -468,27 +491,32 @@ class _ClipbackAppState extends State<ClipbackApp> {
     ApiContent content,
     Map<int, CategoryItem> categoryById,
   ) {
-    final category = content.categories.isEmpty
-        ? catUncategorized
-        : categoryById[content.categories.first.id] ??
-              _categoryFromApi(content.categories.first);
-    return ContentItem(
-      id: 'api-${content.id}',
-      apiId: content.id,
-      title: content.title.isEmpty ? '제목을 추출하지 못한 링크' : content.title,
-      summary: content.summary,
-      category: category,
-      savedAt: _formatShortDate(content.savedAt),
-      savedAtFull: _formatSavedAt(content.savedAt),
-      savedAtFullShort: _formatSavedAtShort(content.savedAt),
-      tags: content.tags,
-      source: _sourceLabel(content.source),
-      originalUrl: content.originalUrl ?? '',
-      originalText: content.summary,
-      bookmarked: content.isFavorite,
-      isScreenshot: content.contentType == 'screenshot',
-      assets: List.unmodifiable(content.assets),
-      summaryStatus: content.summaryStatus,
+    final categories = content.categories
+        .map(
+          (category) => categoryById[category.id] ?? _categoryFromApi(category),
+        )
+        .toList();
+    if (categories.isEmpty) categories.add(_uncategorizedCategory);
+    return _normalizeContentCategories(
+      ContentItem(
+        id: 'api-${content.id}',
+        apiId: content.id,
+        title: content.title.isEmpty ? '제목을 추출하지 못한 링크' : content.title,
+        summary: content.summary,
+        category: categories.first,
+        categories: List.unmodifiable(categories),
+        savedAt: _formatShortDate(content.savedAt),
+        savedAtFull: _formatSavedAt(content.savedAt),
+        savedAtFullShort: _formatSavedAtShort(content.savedAt),
+        tags: content.tags,
+        source: _sourceLabel(content.source),
+        originalUrl: content.originalUrl ?? '',
+        originalText: content.summary,
+        bookmarked: content.isFavorite,
+        isScreenshot: content.contentType == 'screenshot',
+        assets: List.unmodifiable(content.assets),
+        summaryStatus: content.summaryStatus,
+      ),
     );
   }
 
@@ -606,119 +634,233 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _createCategory(CategoryItem category) async {
+    final accountVersion = _accountVersion;
     try {
       final created = await _api.createCategory(
         name: category.name,
         color: _hexFromColor(category.color),
       );
-      if (!mounted) return;
+      if (!mounted || accountVersion != _accountVersion) return;
       setState(() {
         _categories.insert(0, _categoryFromApi(created));
       });
-    } on ClipbackApiException catch (error) {
-      _showError(error.message);
+    } catch (error) {
+      if (!mounted || accountVersion != _accountVersion) return;
+      _showError(
+        error is ClipbackApiException
+            ? error.message
+            : '카테고리를 만들지 못했어요. 다시 시도해 주세요.',
+      );
     }
   }
 
-  void _updateCategory(CategoryItem original, CategoryItem updated) {
-    final categoryId = original.id;
-    if (categoryId == null) return;
-    _replaceCategoryLocally(original, updated);
-    unawaited(_saveCategoryUpdate(original, updated));
+  CategoryItem get _uncategorizedCategory => _categories.firstWhere(
+    (category) => category.name == catUncategorized.name,
+    orElse: () => catUncategorized,
+  );
+
+  CategoryItem _applyCategoryState(CategoryItem category) {
+    final mutation = _categoryMutations[category.id];
+    if (mutation == null) return category.copyWith(clearMutationLabel: true);
+    return category.copyWith(
+      name: mutation.value.name,
+      color: mutation.value.color,
+      tint: mutation.value.tint,
+      deep: mutation.value.deep,
+      mutationLabel: mutation.label,
+    );
   }
 
-  void _replaceCategoryLocally(CategoryItem original, CategoryItem updated) {
+  List<CategoryItem> _reconcileCategoryList(List<ApiCategory> response) {
+    final categories = response
+        .where((category) => !_deletedCategoryIds.contains(category.id))
+        .map((category) => _applyCategoryState(_categoryFromApi(category)))
+        .toList();
+    // A concurrent read can see the server commit before DELETE acknowledges it.
+    for (final mutation in _categoryMutations.values) {
+      if (!_deletedCategoryIds.contains(mutation.original.id) &&
+          !categories.any((category) => category.id == mutation.original.id)) {
+        categories.add(_applyCategoryState(mutation.value));
+      }
+    }
+    return categories;
+  }
+
+  ContentItem _normalizeContentCategories(ContentItem content) {
+    final currentCategories = _categoryById;
+    final categories = content.categories
+        .where((category) => !_deletedCategoryIds.contains(category.id))
+        .map(
+          (category) =>
+              _applyCategoryState(currentCategories[category.id] ?? category),
+        )
+        .toList();
+    if (categories.isEmpty) categories.add(_uncategorizedCategory);
+    return content.copyWith(categories: categories);
+  }
+
+  void _normalizeLoadedCategories() {
+    for (final page in _feeds) {
+      for (var index = 0; index < page.items.length; index++) {
+        page.items[index] = _normalizeContentCategories(page.items[index]);
+      }
+    }
+    if (_selectedContent != null) {
+      _selectedContent = _normalizeContentCategories(_selectedContent!);
+    }
+  }
+
+  _CategoryMutation? _beginCategoryMutation(
+    CategoryItem category, {
+    required bool deleting,
+  }) {
+    final current = _categories
+        .where((item) => item.id == category.id)
+        .firstOrNull;
+    if (!mounted ||
+        current?.id == null ||
+        current!.name == catUncategorized.name ||
+        _deletedCategoryIds.contains(current.id) ||
+        _categoryMutations.containsKey(current.id)) {
+      return null;
+    }
+    final mutation = _CategoryMutation(
+      current,
+      _accountVersion,
+      deleting: deleting,
+    );
+    _categoryMutations[current.id!] = mutation;
+    return mutation;
+  }
+
+  bool _isCurrentCategoryMutation(_CategoryMutation mutation) =>
+      mounted &&
+      mutation.accountVersion == _accountVersion &&
+      identical(_categoryMutations[mutation.original.id], mutation);
+
+  void _finishCategoryMutation(_CategoryMutation mutation) {
+    if (!_isCurrentCategoryMutation(mutation)) return;
+    setState(() {
+      _categoryMutations.remove(mutation.original.id);
+      for (var index = 0; index < _categories.length; index++) {
+        _categories[index] = _applyCategoryState(_categories[index]);
+      }
+      _normalizeLoadedCategories();
+    });
+  }
+
+  void _updateCategory(CategoryItem original, CategoryItem updated) {
+    final mutation = _beginCategoryMutation(original, deleting: false);
+    if (mutation == null) return;
+    mutation.value = mutation.original.copyWith(
+      name: updated.name,
+      color: updated.color,
+      tint: updated.tint,
+      deep: updated.deep,
+    );
+    _replaceCategoryLocally(mutation.original.id!, mutation.value);
+    unawaited(_saveCategoryUpdate(mutation));
+  }
+
+  void _replaceCategoryLocally(int categoryId, CategoryItem updated) {
     setState(() {
       final categoryIndex = _categories.indexWhere(
-        (category) => category.id == original.id,
+        (category) => category.id == categoryId,
       );
-      if (categoryIndex != -1) _categories[categoryIndex] = updated;
+      if (categoryIndex != -1) {
+        _categories[categoryIndex] = _applyCategoryState(updated);
+      }
+      ContentItem replace(ContentItem content) => _normalizeContentCategories(
+        content.copyWith(
+          categories: [
+            for (final category in content.categories)
+              if (category.id == categoryId) updated else category,
+          ],
+        ),
+      );
       for (final page in _feeds) {
         for (var index = 0; index < page.items.length; index++) {
-          if (page.items[index].category.id == original.id) {
-            page.items[index] = page.items[index].copyWith(category: updated);
-          }
+          page.items[index] = replace(page.items[index]);
         }
       }
-      if (_selectedContent?.category.id == original.id) {
-        _selectedContent = _selectedContent!.copyWith(category: updated);
+      if (_selectedContent != null) {
+        _selectedContent = replace(_selectedContent!);
+      }
+      if (_archiveFeed.categoryId == categoryId) {
+        _activeCategoryName = updated.name;
       }
     });
   }
 
-  Future<void> _saveCategoryUpdate(
-    CategoryItem original,
-    CategoryItem updated,
-  ) async {
+  Future<void> _saveCategoryUpdate(_CategoryMutation mutation) async {
     try {
       final saved = await _api.updateCategory(
-        categoryId: original.id!,
-        name: updated.name,
-        color: _hexFromColor(updated.color),
+        categoryId: mutation.original.id!,
+        name: mutation.value.name,
+        color: _hexFromColor(mutation.value.color),
       );
-      if (!mounted) return;
-      _replaceCategoryLocally(
-        updated,
-        updated.copyWith(
-          name: saved.name,
-          color: _categoryFromApi(saved).color,
-          tint: _categoryFromApi(saved).tint,
-          deep: _categoryFromApi(saved).deep,
-        ),
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      final style = _categoryFromApi(saved);
+      mutation.value = mutation.value.copyWith(
+        name: saved.name,
+        color: style.color,
+        tint: style.tint,
+        deep: style.deep,
       );
-    } on ClipbackApiException catch (error) {
-      if (mounted) _replaceCategoryLocally(updated, original);
-      _showError(error.message);
+      _replaceCategoryLocally(mutation.original.id!, mutation.value);
+      // Replace metadata reads that started before this confirmed rename.
+      await _refreshRemoteAfterContentChange();
+    } catch (error) {
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      mutation.value = mutation.original;
+      _replaceCategoryLocally(mutation.original.id!, mutation.original);
+      _showError(
+        error is ClipbackApiException
+            ? error.message
+            : '카테고리를 수정하지 못했어요. 다시 시도해 주세요.',
+      );
+    } finally {
+      _finishCategoryMutation(mutation);
     }
   }
 
   void _deleteCategory(CategoryItem category) {
-    final categoryId = category.id;
-    if (categoryId == null) return;
-    final categoryIndex = _categories.indexWhere(
-      (item) => item.id == categoryId,
-    );
-    final removedContents = _contents
-        .where((content) => content.category.id == categoryId)
-        .toList();
-    setState(() {
-      _categories.removeWhere((item) => item.id == categoryId);
-      _contents.removeWhere((content) => content.category.id == categoryId);
-      _bookmarkedIds.removeWhere(
-        (id) => removedContents.any((content) => content.id == id),
-      );
-    });
-    unawaited(_removeCategory(category, categoryIndex, removedContents));
+    final mutation = _beginCategoryMutation(category, deleting: true);
+    if (mutation == null) return;
+    _replaceCategoryLocally(mutation.original.id!, mutation.original);
+    unawaited(_removeCategory(mutation));
   }
 
-  Future<void> _removeCategory(
-    CategoryItem category,
-    int categoryIndex,
-    List<ContentItem> removedContents,
-  ) async {
+  Future<void> _removeCategory(_CategoryMutation mutation) async {
     try {
-      await _api.deleteCategory(category.id!);
-      if (!mounted) return;
-      for (final page in _feeds) {
-        if (page.categoryId == category.id) page.categoryId = null;
+      try {
+        await _api.deleteCategory(mutation.original.id!);
+      } catch (error) {
+        if (!_isCurrentCategoryMutation(mutation)) return;
+        _showError(
+          error is ClipbackApiException
+              ? error.message
+              : '카테고리를 삭제하지 못했어요. 다시 시도해 주세요.',
+        );
+        return;
       }
-      if (_activeCategoryName == category.name) _activeCategoryName = null;
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentCategoryMutation(mutation)) return;
+      final categoryId = mutation.original.id!;
       setState(() {
-        _categories.insert(
-          categoryIndex.clamp(0, _categories.length),
-          category,
-        );
-        _contents.addAll(removedContents);
-        _bookmarkedIds.addAll(
-          removedContents
-              .where((content) => content.bookmarked)
-              .map((content) => content.id),
-        );
+        _deletedCategoryIds.add(categoryId);
+        _categories.removeWhere((category) => category.id == categoryId);
+        _normalizeLoadedCategories();
+        if (_archiveFeed.categoryId == categoryId) {
+          _activeCategoryName = null;
+        }
+        for (final page in _feeds) {
+          if (page.categoryId == categoryId) page.categoryId = null;
+        }
+        _categoryRefreshRequired = true;
       });
-      _showError(error.message);
+      await _refreshRemoteAfterContentChange();
+    } finally {
+      _finishCategoryMutation(mutation);
     }
   }
 
@@ -751,7 +893,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _changeContentCategory(ContentItem content, CategoryItem category) {
-    if (category.id == null) return;
+    if (category.id == null ||
+        _deletedCategoryIds.contains(category.id) ||
+        _categoryMutations[category.id]?.deleting == true) {
+      return;
+    }
     final mutation = _beginContentMutation(
       content,
       _ContentMutationKind.category,
@@ -759,7 +905,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
     if (mutation == null) return;
     _contentChanges[content.id]!.category = (
       version: ++_contentVersion,
-      value: category,
+      value: [category],
     );
     _updateExistingContent(
       content.id,
@@ -851,11 +997,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
           case _ContentMutationKind.category:
             change.category = (
               version: version,
-              value: mutation.original.category,
+              value: mutation.original.categories,
             );
             _updateExistingContent(
               id,
-              (item) => item.copyWith(category: mutation.original.category),
+              (item) => item.copyWith(categories: mutation.original.categories),
             );
           case _ContentMutationKind.delete:
             break;
@@ -892,7 +1038,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
         if (mutation.kind == _ContentMutationKind.bookmark) {
           change.bookmark = (version: version, value: updated.bookmarked);
         } else {
-          change.category = (version: version, value: updated.category);
+          change.category = (version: version, value: updated.categories);
         }
         _replaceContent(updated.copyWith(mutationLabel: mutation.label));
       }
@@ -918,10 +1064,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
     setState(() {
       for (final page in _feeds) {
         final index = page.items.indexWhere((item) => item.id == id);
-        if (index != -1) page.items[index] = update(page.items[index]);
+        if (index != -1) {
+          page.items[index] = _normalizeContentCategories(
+            update(page.items[index]),
+          );
+        }
       }
       if (_selectedContent?.id == id) {
-        _selectedContent = update(_selectedContent!);
+        _selectedContent = _normalizeContentCategories(
+          update(_selectedContent!),
+        );
       }
       final current = _currentContent(id);
       final bookmarked =
@@ -964,7 +1116,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   ContentItem? _reconcileContentRead(ContentItem item, int readVersion) {
     final change = _contentChanges[item.id];
-    if (change == null) return item;
+    if (change == null) return _normalizeContentCategories(item);
     if (change.deletedVersion != null && readVersion < change.deletedVersion!) {
       return null;
     }
@@ -972,21 +1124,23 @@ class _ClipbackAppState extends State<ClipbackApp> {
     final writing = pending != null && !pending.requestFinished;
     final bookmark = change.bookmark;
     final category = change.category;
-    return item.copyWith(
-      bookmarked:
-          bookmark != null &&
-              (readVersion < bookmark.version ||
-                  (writing && pending.kind == _ContentMutationKind.bookmark))
-          ? bookmark.value
-          : null,
-      category:
-          category != null &&
-              (readVersion < category.version ||
-                  (writing && pending.kind == _ContentMutationKind.category))
-          ? category.value
-          : null,
-      mutationLabel: pending?.label,
-      clearMutationLabel: pending == null,
+    return _normalizeContentCategories(
+      item.copyWith(
+        bookmarked:
+            bookmark != null &&
+                (readVersion < bookmark.version ||
+                    (writing && pending.kind == _ContentMutationKind.bookmark))
+            ? bookmark.value
+            : null,
+        categories:
+            category != null &&
+                (readVersion < category.version ||
+                    (writing && pending.kind == _ContentMutationKind.category))
+            ? category.value
+            : null,
+        mutationLabel: pending?.label,
+        clearMutationLabel: pending == null,
+      ),
     );
   }
 
@@ -997,6 +1151,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   void _replaceContent(ContentItem updated) {
     if (!mounted) return;
+    updated = _normalizeContentCategories(updated);
     setState(() {
       for (final page in _feeds) {
         final index = page.items.indexWhere((item) => item.id == updated.id);
@@ -1058,15 +1213,18 @@ class _ClipbackAppState extends State<ClipbackApp> {
       }
     });
     final versions = {for (final page in pages) page: page.version};
+    final refreshCategoryDetails = _categoryRefreshRequired;
+    var metadataFailed = false;
     try {
       final categories = await _api.listCategories();
       if (!current()) return;
       setState(() {
         _categories
           ..clear()
-          ..addAll(categories.map(_categoryFromApi));
+          ..addAll(_reconcileCategoryList(categories));
       });
     } catch (_) {
+      metadataFailed = true;
       // Lists can still be refreshed when category metadata is unavailable.
     }
     if (!current()) return;
@@ -1076,7 +1234,35 @@ class _ClipbackAppState extends State<ClipbackApp> {
         return _loadFeed(page);
       }),
     );
-    if (current()) await _refreshStats();
+    if (!current()) return;
+    if (refreshCategoryDetails &&
+        _route == AppRoute.detail &&
+        _selectedContent?.apiId != null) {
+      await _refreshContentDetail(
+        _selectedContent!.apiId!,
+        onError: () => metadataFailed = true,
+      );
+    }
+    if (!current()) return;
+    if (refreshCategoryDetails) {
+      _categoryRefreshRequired = metadataFailed;
+      if (metadataFailed) {
+        _messengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: const Text('최신 정보를 불러오지 못했어요.'),
+            action: SnackBarAction(
+              label: '다시 불러오기',
+              onPressed: () {
+                if (mounted && accountVersion == _accountVersion) {
+                  unawaited(_refreshRemoteAfterContentChange());
+                }
+              },
+            ),
+          ),
+        );
+      }
+    }
+    await _refreshStats();
   }
 
   void _openAdjacentContent(int delta) async {
@@ -1209,14 +1395,18 @@ class _ClipbackAppState extends State<ClipbackApp> {
     }
   }
 
-  Future<void> _refreshContentDetail(int contentId) async {
+  Future<void> _refreshContentDetail(
+    int contentId, {
+    VoidCallback? onError,
+  }) async {
     final accountVersion = _accountVersion;
     final refreshVersion = _refreshVersion;
     final navigationVersion = _detailNavigationVersion;
     final read = _beginContentRead();
     try {
       final content = await _api.readContent(contentId);
-      if (accountVersion == _accountVersion &&
+      if (mounted &&
+          accountVersion == _accountVersion &&
           refreshVersion == _refreshVersion &&
           navigationVersion == _detailNavigationVersion) {
         final updated = _reconcileContentRead(
@@ -1227,6 +1417,12 @@ class _ClipbackAppState extends State<ClipbackApp> {
       }
     } catch (_) {
       // Feed data is still enough to keep the detail screen usable.
+      if (mounted &&
+          accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion &&
+          navigationVersion == _detailNavigationVersion) {
+        onError?.call();
+      }
     } finally {
       _endContentRead(read.key);
     }
@@ -6434,6 +6630,7 @@ void showCategoryActionSheet({
   required void Function(CategoryItem original, CategoryItem updated) onUpdate,
   required ValueChanged<CategoryItem> onDelete,
 }) {
+  if (category.mutationLabel != null) return;
   showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
@@ -6515,24 +6712,30 @@ class CategoryActionSheet extends StatelessWidget {
               children: [
                 FolderGlyph(color: category.color),
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      category.name,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    Text(
-                      '저장된 콘텐츠 $contentCount',
-                      style: const TextStyle(
-                        color: AppColors.subSubtle,
-                        fontSize: 12,
+                      Text(
+                        '저장된 콘텐츠 $contentCount',
+                        style: const TextStyle(
+                          color: AppColors.subSubtle,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  ],
+                      if (category.mutationLabel != null)
+                        _ContentMutationStatus(label: category.mutationLabel!),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -6542,11 +6745,13 @@ class CategoryActionSheet extends StatelessWidget {
               icon: Icons.edit_outlined,
               title: '카테고리 수정',
               onTap: onEdit,
+              enabled: category.mutationLabel == null,
             ),
             CategoryActionRow(
               icon: Icons.delete_outline,
               title: '카테고리 삭제',
               onTap: onDelete,
+              enabled: category.mutationLabel == null,
             ),
           ],
         ),
@@ -6560,16 +6765,18 @@ class CategoryActionRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
+    this.enabled = true,
     super.key,
   });
 
   final IconData icon;
   final String title;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
+    onTap: enabled ? onTap : null,
     child: SizedBox(
       height: 48,
       child: Row(
@@ -6599,6 +6806,7 @@ class CategoryDeleteDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
+      constraints: const BoxConstraints(maxWidth: phoneWidth - 64),
       insetPadding: const EdgeInsets.symmetric(horizontal: 32),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -6629,7 +6837,10 @@ class CategoryDeleteDialog extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              '${category.name} 카테고리를 삭제하시겠습니까?\n해당 카테고리에 저장된 콘텐츠도 함께 삭제되며,\n삭제된 항목은 복구할 수 없습니다.',
+              '‘${category.name}’ 카테고리를 삭제할까요?\n'
+              '저장된 콘텐츠는 삭제되지 않아요.\n'
+              '다른 카테고리가 있으면 그대로 유지되고, '
+              '남은 카테고리가 없으면 미분류로 이동해요.',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: AppColors.subtle,
@@ -6656,7 +6867,7 @@ class CategoryDeleteDialog extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton(
-                    onPressed: onDelete,
+                    onPressed: category.mutationLabel == null ? onDelete : null,
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(44),
                       backgroundColor: const Color(0xFFFFD9DC),
@@ -6941,7 +7152,9 @@ class CategoryRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        category.lastSavedAt ?? '저장된 콘텐츠 없음',
+                        category.mutationLabel ??
+                            category.lastSavedAt ??
+                            '저장된 콘텐츠 없음',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -6960,7 +7173,7 @@ class CategoryRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: onMore,
+                  onTap: category.mutationLabel == null ? onMore : null,
                   child: SizedBox(
                     width: 44,
                     height: 44,
@@ -8811,7 +9024,7 @@ class CategoryChangeSheet extends StatelessWidget {
           CategoryChangeTile(
             category: category,
             selected: category.id == current.id,
-            enabled: enabled,
+            enabled: enabled && !category.isDeleting,
             onTap: () {
               onChange(category);
               Navigator.pop(context);
@@ -9835,7 +10048,8 @@ class ContentItem {
     this.apiId,
     required this.title,
     required this.summary,
-    required this.category,
+    required CategoryItem category,
+    List<CategoryItem>? categories,
     required this.savedAt,
     required this.savedAtFull,
     required this.savedAtFullShort,
@@ -9848,13 +10062,19 @@ class ContentItem {
     this.assets = const [],
     this.summaryStatus = 'not_requested',
     this.mutationLabel,
-  });
+  }) : _category = category,
+       _categories = categories;
 
   final String id;
   final int? apiId;
   final String title;
   final String summary;
-  final CategoryItem category;
+  final CategoryItem _category;
+  final List<CategoryItem>? _categories;
+  CategoryItem get category => _categories?.firstOrNull ?? _category;
+  List<CategoryItem> get categories => List.unmodifiable(
+    _categories == null || _categories.isEmpty ? [_category] : _categories,
+  );
   final String savedAt;
   final String savedAtFull;
   final String savedAtFullShort;
@@ -9870,16 +10090,22 @@ class ContentItem {
 
   ContentItem copyWith({
     CategoryItem? category,
+    List<CategoryItem>? categories,
     bool? bookmarked,
     String? mutationLabel,
     bool clearMutationLabel = false,
   }) {
+    final nextCategories =
+        categories ?? (category == null ? this.categories : [category]);
     return ContentItem(
       id: id,
       apiId: apiId,
       title: title,
       summary: summary,
-      category: category ?? this.category,
+      category: nextCategories.firstOrNull ?? catUncategorized,
+      categories: List.unmodifiable(
+        nextCategories.isEmpty ? [catUncategorized] : nextCategories,
+      ),
       savedAt: savedAt,
       savedAtFull: savedAtFull,
       savedAtFullShort: savedAtFullShort,
@@ -9965,6 +10191,7 @@ class CategoryItem {
     this.lastSavedAt,
     this.contentCount = 0,
     this.rawLastSavedAt,
+    this.mutationLabel,
     required this.name,
     required this.color,
     required this.tint,
@@ -9979,12 +10206,16 @@ class CategoryItem {
   final Color color;
   final Color tint;
   final Color deep;
+  final String? mutationLabel;
+  bool get isDeleting => mutationLabel == '삭제 중…';
 
   CategoryItem copyWith({
     String? name,
     Color? color,
     Color? tint,
     Color? deep,
+    String? mutationLabel,
+    bool clearMutationLabel = false,
   }) => CategoryItem(
     id: id,
     lastSavedAt: lastSavedAt,
@@ -9994,6 +10225,9 @@ class CategoryItem {
     color: color ?? this.color,
     tint: tint ?? this.tint,
     deep: deep ?? this.deep,
+    mutationLabel: clearMutationLabel
+        ? null
+        : mutationLabel ?? this.mutationLabel,
   );
 }
 
