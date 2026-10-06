@@ -7,7 +7,7 @@ FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수�
 PR 2의 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)도 FE에 병합되었다.
 PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-10-06 FE에 병합되었다.
 [동기화 PR #40](https://github.com/clip-back/clipback/pull/40)은 2026-10-06 FE에 병합되었다.
-현재 `fix/fe-screenshot-auth`에서 PR 4의 구현과 로컬 검증을 완료했다. 스크린샷 인증 갱신·재시도와 전체 multipart 목록 전송을 수정했다.
+현재 `fix/fe-screenshot-auth`에서 PR 4의 구현과 로컬 검증을 완료하고 [수정 PR #41](https://github.com/clip-back/clipback/pull/41)을 생성했다. 스크린샷 인증 갱신·재시도와 전체 multipart 목록 전송을 수정했다.
 PR 5~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -62,7 +62,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | FE 병합 | `fix/fe-refresh-persistence` / [#38](https://github.com/clip-back/clipback/pull/38) |
 | PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | FE 병합 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
 | 동기화 | P1 | main → FE 병합·통합 검증 | PR 3 | FE 병합 | `chore/fe-sync-main` / [#40](https://github.com/clip-back/clipback/pull/40) |
-| PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | 로컬 검증 완료 | `fix/fe-screenshot-auth` / PR 미생성 |
+| PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | PR 생성 | `fix/fe-screenshot-auth` / [#41](https://github.com/clip-back/clipback/pull/41) |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | 없음 | 예정 | 미생성 |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 예정 | 미생성 |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | 예정 | 미생성 |
@@ -622,8 +622,11 @@ flutter build web --no-pub
   사진 저장 완료 화면의 링크 문구, 기본 분류, 저장된 원본 표시도 이번 PR에서 재설계하지 않았다.
 - 한계: timeout·연결 종료·세션 변경은 서버의 저장 취소를 보장하지 않는다. 수동 재시도 중복 방지는 미구현이다.
   운영 배포·실제 OCR/AI·OAuth·실기기 검증은 수행하지 않았다. migration·백엔드·의존성 변경은 없다.
-- 관련 5개 파일만 커밋한다. 원래 체크아웃의 사용자 `AGENTS.md`와 잠금파일 SHA-256이 시작 값과 같음을 확인한다.
-  FE 대상 일반 PR 생성 후 링크를 이 문서에 추가하고 최종 head에서 원격 CI를 실행한다.
+- 관련 5개 파일을 `4a97350`으로 커밋·푸시하고 FE 대상 일반 [PR #41](https://github.com/clip-back/clipback/pull/41)을 생성했다.
+  원래 체크아웃의 사용자 `AGENTS.md`와 잠금파일 SHA-256이 시작 값과 같음을 확인했다.
+- 이 PR 링크 기록을 추가 푸시한 최종 head에서 기존 Backend Validation을 수동 실행한다.
+  실제 CI 결과와 실행 링크는 PR 본문·작업 대화에 기록한다. PR을 병합하지 않는다.
+- Chrome/API/전용 PostgreSQL 검증 프로세스는 정상 종료했다. 임시 DB·로그·원본 PNG는 로컬에 보관한다.
 
 ### 다음 작업 기록 양식
 
