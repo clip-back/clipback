@@ -272,17 +272,49 @@ class ClipbackApi {
   final http.Client _client;
   final Future<void> Function(ApiSession)? _onSessionChanged;
   ApiSession? _session;
+  int _sessionGeneration = 0;
+  Future<ApiSession>? _refreshFuture;
+  int? _logoutGeneration;
 
   bool get hasSession => _session != null;
   ApiSession? get session => _session;
 
-  void restoreSession(ApiSession session) => _session = session;
+  void restoreSession(ApiSession session) => _replaceSession(session);
 
-  void clearSession() => _session = null;
+  void clearSession() => _replaceSession(null);
 
-  Future<ApiSession> _setSession(ApiSession session) async {
+  void _replaceSession(ApiSession? session) {
+    _sessionGeneration++;
     _session = session;
-    await _onSessionChanged?.call(session);
+    _refreshFuture = null;
+  }
+
+  void _checkSessionGeneration(int generation, {bool allowLogout = false}) {
+    if (generation != _sessionGeneration ||
+        (!allowLogout && _logoutGeneration == generation)) {
+      throw const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.');
+    }
+  }
+
+  Future<ApiSession> _setSession(
+    ApiSession session, {
+    required int generation,
+    bool isRefresh = false,
+  }) async {
+    _checkSessionGeneration(generation, allowLogout: isRefresh);
+    if (isRefresh) {
+      _session = session;
+    } else {
+      _replaceSession(session);
+      generation = _sessionGeneration;
+    }
+    try {
+      await _onSessionChanged?.call(session);
+    } catch (_) {
+      _checkSessionGeneration(generation, allowLogout: isRefresh);
+      rethrow;
+    }
+    _checkSessionGeneration(generation, allowLogout: isRefresh);
     return session;
   }
 
@@ -290,67 +322,121 @@ class ClipbackApi {
 
   Future<Map<String, String>> readiness() => _getPublic('/health/ready');
 
-  Future<ApiSession> createGuestSession() async {
-    final session = ApiSession.fromJson(
-      await _json('POST', '/auth/guest', authenticated: false),
-    );
-    return _setSession(session);
+  Future<ApiSession> createGuestSession() => _issueSession('/auth/guest');
+
+  Future<ApiSession> refreshSession() {
+    final generation = _sessionGeneration;
+    if (_logoutGeneration == generation) {
+      return Future.error(
+        const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.'),
+      );
+    }
+    final session = _session;
+    if (session == null) {
+      return Future.error(const ClipbackApiException('로그인이 필요합니다.'));
+    }
+    final activeRefresh = _refreshFuture;
+    if (activeRefresh != null) return activeRefresh;
+
+    late final Future<ApiSession> refresh;
+    refresh = _refreshSession(session, generation).whenComplete(() {
+      if (identical(_refreshFuture, refresh)) _refreshFuture = null;
+    });
+    _refreshFuture = refresh;
+    return refresh;
   }
 
-  Future<ApiSession> refreshSession() async {
-    final session = _session;
-    if (session == null) throw const ClipbackApiException('로그인이 필요합니다.');
-    final refreshed = ApiSession.fromJson(
-      await _json(
+  Future<ApiSession> _refreshSession(ApiSession session, int generation) async {
+    late final Map<String, dynamic> response;
+    try {
+      response = await _json(
         'POST',
         '/auth/refresh',
         authenticated: false,
         body: {'refresh_token': session.refreshToken},
-      ),
+      ).timeout(_requestTimeout);
+    } on TimeoutException {
+      _checkSessionGeneration(generation, allowLogout: true);
+      throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+    } catch (_) {
+      _checkSessionGeneration(generation, allowLogout: true);
+      rethrow;
+    }
+    _checkSessionGeneration(generation, allowLogout: true);
+    return _setSession(
+      ApiSession.fromJson(response),
+      generation: generation,
+      isRefresh: true,
     );
-    return _setSession(refreshed);
   }
 
   Future<void> logout() async {
-    final session = _session;
-    if (session == null) return;
-    await _json(
-      'POST',
-      '/auth/logout',
-      authenticated: false,
-      body: {'refresh_token': session.refreshToken},
-      allowEmpty: true,
-    );
-    _session = null;
+    final generation = _sessionGeneration;
+    _checkSessionGeneration(generation);
+    if (_session == null) return;
+    _logoutGeneration = generation;
+    try {
+      final refresh = _refreshFuture;
+      if (refresh != null) {
+        try {
+          await refresh;
+        } catch (_) {
+          // Even if refresh fails, attempt logout with the current token.
+        }
+      }
+      _checkSessionGeneration(generation, allowLogout: true);
+      await _json(
+        'POST',
+        '/auth/logout',
+        authenticated: false,
+        body: {'refresh_token': _session!.refreshToken},
+        allowEmpty: true,
+      );
+      _checkSessionGeneration(generation, allowLogout: true);
+      clearSession();
+    } catch (_) {
+      _checkSessionGeneration(generation, allowLogout: true);
+      rethrow;
+    } finally {
+      if (_logoutGeneration == generation) _logoutGeneration = null;
+    }
   }
 
   Future<ApiSession> socialLogin({
     required String provider,
     required String token,
-  }) async {
-    final session = ApiSession.fromJson(
-      await _json(
-        'POST',
-        '/auth/social/$provider',
-        authenticated: false,
-        body: {'token': token},
-      ),
-    );
-    return _setSession(session);
-  }
+  }) => _issueSession('/auth/social/$provider', body: {'token': token});
 
   Future<ApiSession> upgradeGuestWithSocial({
     required String provider,
     required String token,
+  }) => _issueSession(
+    '/auth/social/$provider/upgrade',
+    authenticated: true,
+    body: {'token': token},
+  );
+
+  Future<ApiSession> _issueSession(
+    String path, {
+    bool authenticated = false,
+    Map<String, dynamic>? body,
   }) async {
-    final session = ApiSession.fromJson(
-      await _json(
+    final generation = _sessionGeneration;
+    _checkSessionGeneration(generation);
+    late final Map<String, dynamic> response;
+    try {
+      response = await _json(
         'POST',
-        '/auth/social/$provider/upgrade',
-        body: {'token': token},
-      ),
-    );
-    return _setSession(session);
+        path,
+        authenticated: authenticated,
+        body: body,
+      );
+    } catch (_) {
+      _checkSessionGeneration(generation);
+      rethrow;
+    }
+    _checkSessionGeneration(generation);
+    return _setSession(ApiSession.fromJson(response), generation: generation);
   }
 
   Future<ApiUser> readMe() async =>
@@ -608,26 +694,43 @@ class ClipbackApi {
     Map<String, dynamic>? body,
     bool retried = false,
   }) async {
-    if (authenticated && _session == null) {
-      throw const ClipbackApiException('로그인이 필요합니다.');
+    final generation = _sessionGeneration;
+    final session = _session;
+    if (authenticated) {
+      _checkSessionGeneration(generation);
+      if (session == null) throw const ClipbackApiException('로그인이 필요합니다.');
     }
     final request = http.Request(method, Uri.parse('$_baseUrl$path'));
     request.headers['Accept'] = 'application/json';
     if (authenticated) {
-      request.headers['Authorization'] = _authorizationHeader();
+      request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
     }
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    final response = await http.Response.fromStream(
-      await _client.send(request),
-    );
-    if (response.statusCode == 401 &&
-        authenticated &&
-        !retried &&
-        _session != null) {
-      await refreshSession();
+    late final http.Response response;
+    try {
+      response = await http.Response.fromStream(await _client.send(request));
+    } catch (_) {
+      if (authenticated) _checkSessionGeneration(generation);
+      rethrow;
+    }
+    if (authenticated) _checkSessionGeneration(generation);
+    if (response.statusCode == 401 && authenticated && !retried) {
+      try {
+        final activeRefresh = _refreshFuture;
+        if (activeRefresh != null) {
+          // Memory can change before the persistence callback finishes.
+          await activeRefresh;
+        } else if (session!.accessToken == _session!.accessToken) {
+          await refreshSession();
+        }
+      } catch (_) {
+        _checkSessionGeneration(generation);
+        rethrow;
+      }
+      _checkSessionGeneration(generation);
       return _request(
         method,
         path,

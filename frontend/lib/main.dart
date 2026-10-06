@@ -113,7 +113,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
     _schedulePersistenceBannerUpdate();
   });
 
-  Future<void> _clearStoredSession() => _enqueueSessionStorage(() async {
+  Future<void> _clearStoredSession({
+    bool afterLogout = false,
+  }) => _enqueueSessionStorage(() async {
+    // A session issued while logout was waiting owns its newer stored value.
+    if (afterLogout && _api.hasSession) return;
     try {
       await _sessionStorage.clear();
       _sessionNeedingPersistence = null;
@@ -540,8 +544,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Future<void> _logout() async {
     try {
       await _api.logout();
-      await _clearStoredSession();
-      if (!mounted) return;
+      await _clearStoredSession(afterLogout: true);
+      if (!mounted || _api.hasSession) return;
       setState(() {
         _categories
           ..clear()

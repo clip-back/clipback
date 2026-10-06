@@ -699,7 +699,7 @@ void main() {
   );
 
   testWidgets(
-    'logout waits for pending writes and prevents queued credentials from returning',
+    'logout waits for refreshed credentials to be saved before clearing them',
     (tester) async {
       final backing = _store();
       final release = Completer<bool>();
@@ -716,9 +716,97 @@ void main() {
         await _openCategories(tester);
         await _createCategory(tester, settle: false);
         expect(writes, ['rotated-access']);
-        server.rotateAgain = true;
-        await _createCategory(tester, name: '두 번째 분류', settle: false);
-        expect(server.rotations, 2);
+        expect(server.rotations, 1);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.my);
+        await tester.pump();
+        tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+        await tester.pump();
+        final logout = tester
+            .widget<AccountManagementScreen>(
+              find.byType(AccountManagementScreen),
+            )
+            .onLogout();
+        await tester.pump();
+        expect(server.calls('/api/v1/auth/logout'), isEmpty);
+        expect(
+          backing.removedKeys,
+          isEmpty,
+          reason: 'Clear must wait for the active writer.',
+        );
+        release.complete(true);
+        await tester.pumpAndSettle();
+        await logout;
+        expect(server.calls('/api/v1/auth/logout'), hasLength(1));
+        expect(await _readFromDisk(), isNull);
+        expect(
+          writes,
+          ['rotated-access'],
+          reason:
+              'The completed write must be cleared without restoring old credentials.',
+        );
+        expect(backing.removedKeys.last, _sessionKey);
+        expect(
+          jsonDecode(
+            server.calls('/api/v1/auth/logout').single.body,
+          )['refresh_token'],
+          'rotated-refresh',
+        );
+        expect(find.text(_warning), findsNothing);
+      });
+    },
+  );
+
+  testWidgets(
+    'a guest issued while logout waits retains its storage and screen',
+    (tester) async {
+      const newGuest = ApiSession(
+        accessToken: 'new-guest-access',
+        refreshToken: 'new-guest-refresh',
+        expiresIn: 3600,
+        refreshExpiresIn: 86400,
+      );
+      final backing = _store();
+      final oldWrite = Completer<bool>();
+      final guestWrite = Completer<bool>();
+      final guestWriteStarted = Completer<void>();
+      var manualRetry = false;
+      backing.onSet = (_, value) async {
+        final access = jsonDecode(value as String)['access_token'] as String;
+        if (access == 'rotated-access') {
+          return manualRetry ? oldWrite.future : false;
+        }
+        guestWriteStarted.complete();
+        return guestWrite.future;
+      };
+      addTearDown(() {
+        if (!oldWrite.isCompleted) oldWrite.complete(true);
+        if (!guestWrite.isCompleted) guestWrite.complete(true);
+      });
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == '/api/v1/auth/guest') {
+            return _json(_sessionJson(newGuest), 201);
+          }
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        home.onTab(AppRoute.login);
+        await tester.pumpAndSettle();
+        final continueGuest = tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onContinue;
+        home.onTab(AppRoute.home);
+        await tester.pumpAndSettle();
+        await _openCategories(tester);
+        await _createCategory(tester);
+        expect(find.text(_warning), findsOneWidget);
+        manualRetry = true;
+        await tester.tap(find.text('다시 저장'));
+        await tester.pump();
         tester
             .widget<ArchiveScreen>(find.byType(ArchiveScreen))
             .onTab(AppRoute.my);
@@ -732,28 +820,34 @@ void main() {
             .onLogout();
         await tester.pump();
         expect(server.calls('/api/v1/auth/logout'), hasLength(1));
+        expect(backing.removedKeys, isEmpty);
+        final guest = continueGuest();
+        await tester.pump();
+        expect(server.calls('/api/v1/auth/guest'), hasLength(1));
+        oldWrite.complete(true);
+        await tester.pump();
+        await logout;
+        await guestWriteStarted.future;
         expect(
           backing.removedKeys,
           isEmpty,
-          reason: 'Clear must wait for the active writer.',
+          reason: 'The newer guest owns the queued storage.',
         );
-        release.complete(true);
+        expect(find.byType(AccountManagementScreen), findsOneWidget);
+        expect(
+          find.byType(HomeScreen),
+          findsNothing,
+          reason: 'Old logout must not reset the newer flow.',
+        );
+        guestWrite.complete(true);
         await tester.pumpAndSettle();
-        await logout;
-        expect(await _readFromDisk(), isNull);
+        await guest;
+        expect(find.byType(OnboardingScreen), findsOneWidget);
+        _expectSession(await _readFromDisk(), newGuest);
         expect(
-          writes,
-          ['rotated-access'],
-          reason: 'A queued writer must observe the cleared memory session.',
+          server.calls('/api/v1/categories').last.headers['Authorization'],
+          'Bearer new-guest-access',
         );
-        expect(backing.removedKeys.last, _sessionKey);
-        expect(
-          jsonDecode(
-            server.calls('/api/v1/auth/logout').single.body,
-          )['refresh_token'],
-          'third-refresh',
-        );
-        expect(find.text(_warning), findsNothing);
       });
     },
   );
