@@ -11,7 +11,8 @@ PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-1
 [수정 PR #42](https://github.com/clip-back/clipback/pull/42)는 2026-10-06 FE에 병합되었다
 (`550833e01253010102e05fee614bb724b222e376`). PR 6의
 [수정 PR #43](https://github.com/clip-back/clipback/pull/43)은 2026-10-06 FE에 병합되었다
-(`da895d34f7623a095045127d39f34a150d6f69dc`). PR 7의 저장한 스크린샷 원본 조회는 구현·로컬 검증을 완료했다.
+(`da895d34f7623a095045127d39f34a150d6f69dc`). PR 7의 저장한 스크린샷 원본 조회는
+[수정 PR #44](https://github.com/clip-back/clipback/pull/44)로 FE 리뷰를 기다린다.
 PR 8~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -69,7 +70,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | FE 병합 | `fix/fe-screenshot-auth` / [#41](https://github.com/clip-back/clipback/pull/41) |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | FE 병합 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | FE 병합 | `fix/fe-feed-pagination` / [#43](https://github.com/clip-back/clipback/pull/43) |
-| PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | 검증 완료 | `fix/fe-screenshot-original` / 미생성 |
+| PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | PR 생성 | `fix/fe-screenshot-original` / [#44](https://github.com/clip-back/clipback/pull/44) |
 | PR 8 | P2 | 검색 결과 변경 상태 동기화 | PR 6 이후 권장 | 예정 | 미생성 |
 | PR 9 | P2 | 분류 변경 실패 시 상세 복구 | 없음 | 예정 | 미생성 |
 | PR 10 | P2 | 카테고리 삭제 안내·동작 일치 | 없음 | 예정 | 미생성 |
@@ -759,7 +760,7 @@ flutter build web --no-pub
 - 커서는 요청 사이 DB 스냅샷을 보장하지 않으며, 다른 기기에서 추가한 최신 항목은 새 조회에 반영된다.
   운영 배포·실제 외부 OCR/AI·OAuth·실기기는 이번 검증 범위가 아니다. migration은 필요 없다.
 
-### 2026-10-06 / PR 7 / 검증 완료
+### 2026-10-06 / PR 7 / PR 생성
 
 - PR #43의 FE 병합(`da895d3`)을 확인하고 최신 FE에서 `fix/fe-screenshot-original`을 만들었다.
   사용자 `AGENTS.md`는 원래 체크아웃에 보존하고 커밋에서 제외한다.
@@ -803,10 +804,15 @@ flutter build web --no-pub
   `01-detail-original.jpg`, `02-original-sheet-top.jpg`, `03-original-sheet-bottom.jpg`,
   `04-after-reload.jpg`, `05-download-error.jpg`, `06-download-recovered.jpg`를 대화에 공유한다.
   화면·테스트 사진·인증값·로그·DB·저장 파일은 커밋하지 않는다.
-- `git diff --check`, 신규 파일 whitespace와 최종 diff를 확인한다. 사용자 `AGENTS.md` 변경 및
+- `git diff --check`, 신규 파일 whitespace와 최종 diff를 확인했다. 사용자 `AGENTS.md` 변경 및
   잠금파일의 SHA-256은 작업 전과 동일하다. 백엔드·DB·의존성 변경과 migration은 없다.
 - 운영 배포·실제 OCR/AI·OAuth·실기기 및 Chrome 파일 선택 UI는 미검증이다.
   원본의 영속 캐시·확대·파일 다운로드 기능은 범위 밖이며, 시간 초과/화면 이탈이 서버 전송을 취소하지 않는다.
+
+- 실제 검증 화면과 결과를 대화에 공유하고 관련 6개 파일을 `d4ce0e5`로 커밋·푸시했다.
+  FE 대상 일반 [PR #44](https://github.com/clip-back/clipback/pull/44)를 생성했다.
+  이 PR 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행한다.
+  PostgreSQL 16·Docker 결과와 실행 링크는 PR 본문과 작업 대화에 기록하며, PR은 병합하지 않는다.
 
 ### 다음 작업 기록 양식
 
