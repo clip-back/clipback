@@ -627,7 +627,27 @@ class ClipbackApi {
   }
 
   Future<Uint8List> readAsset(int assetId) async {
-    final response = await _request('GET', '/uploads/assets/$assetId');
+    late http.Response response;
+    try {
+      response = await _sendWithSessionRetry((session) async {
+        final request = http.Request(
+          'GET',
+          Uri.parse('$_baseUrl/uploads/assets/$assetId'),
+        );
+        request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
+        request.headers['Accept'] = 'image/png, image/jpeg, image/webp';
+        final streamedResponse = await _client
+            .send(request)
+            .timeout(_requestTimeout);
+        return http.Response.fromStream(
+          streamedResponse,
+        ).timeout(_requestTimeout);
+      });
+    } on TimeoutException {
+      throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+    } on http.ClientException {
+      throw const ClipbackApiException('서버에 연결하지 못했어요.');
+    }
     _throwForError(response);
     return response.bodyBytes;
   }
