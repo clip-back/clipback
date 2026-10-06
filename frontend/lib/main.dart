@@ -23,6 +23,41 @@ typedef SaveScreenshotCallback =
       CategoryItem? category,
     });
 
+/// One bounded list, including the query that owns its opaque server cursor.
+class FeedPage {
+  final List<ContentItem> items = [];
+  int? categoryId;
+  String? query;
+  bool? isFavorite;
+  bool bookmarkedFirst = false;
+  bool _favoritePhase = true;
+  String? nextCursor;
+  bool initialized = false;
+  bool loading = false;
+  bool hasMore = true;
+  Object? error;
+  int version = 0;
+  double scrollOffset = 0;
+  Future<void>? _pending;
+
+  bool get invalidCursor =>
+      error is ClipbackApiException &&
+      (error as ClipbackApiException).statusCode == 422;
+
+  void reset() {
+    version++;
+    items.clear();
+    nextCursor = null;
+    initialized = false;
+    loading = false;
+    hasMore = true;
+    error = null;
+    scrollOffset = 0;
+    _favoritePhase = true;
+    _pending = null;
+  }
+}
+
 class ClipbackApp extends StatefulWidget {
   const ClipbackApp({this.sessionStorage, super.key});
 
@@ -51,7 +86,23 @@ class _ClipbackAppState extends State<ClipbackApp> {
   ContentItem? _selectedContent;
   String _searchQuery = '';
   late final List<CategoryItem> _categories;
-  late final List<ContentItem> _contents;
+  final _homeFeed = FeedPage();
+  final _archiveFeed = FeedPage();
+  final _bookmarkFeed = FeedPage()..isFavorite = true;
+  final _searchFeed = FeedPage();
+  FeedPage? _detailFeed;
+  int _accountVersion = 0;
+  int _refreshVersion = 0;
+  int _detailNavigationVersion = 0;
+  bool _movingDetail = false;
+  AppRoute _searchReturnRoute = AppRoute.home;
+  List<ContentItem> get _contents => _homeFeed.items;
+  List<FeedPage> get _feeds => [
+    _homeFeed,
+    _archiveFeed,
+    _bookmarkFeed,
+    _searchFeed,
+  ];
   late final Set<String> _bookmarkedIds;
   AppUser _user = defaultUser;
   bool _isRestoringSession = false;
@@ -63,11 +114,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
     _sessionStorage = widget.sessionStorage ?? ApiSessionStorage();
     _api = ClipbackApi(onSessionChanged: (_) => _persistCurrentSession());
     _categories = List.of(initialCategories);
-    _contents = List.of(initialContents);
-    _bookmarkedIds = {
-      for (final content in _contents)
-        if (content.bookmarked) content.id,
-    };
+    _bookmarkedIds = {};
     unawaited(_restoreSession());
   }
 
@@ -174,10 +221,14 @@ class _ClipbackAppState extends State<ClipbackApp> {
     try {
       if (!_api.hasSession) {
         final session = await _sessionStorage.read();
-        if (session != null) _api.restoreSession(session);
+        if (session != null) {
+          _invalidateAccountFeeds();
+          _api.restoreSession(session);
+        }
       }
 
       if (!_api.hasSession) {
+        _invalidateAccountFeeds();
         await _api.createGuestSession();
         await _loadRemoteData();
         return;
@@ -189,6 +240,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
         if (error.statusCode != 401) rethrow;
         // Keep the current session if removing invalid stored credentials fails.
         await _clearStoredSession();
+        _invalidateAccountFeeds();
         _api.clearSession();
         await _api.createGuestSession();
         // A new guest's failure must not trigger another replacement in this attempt.
@@ -213,6 +265,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<void> _continueAsGuest() async {
     try {
+      _invalidateAccountFeeds();
       await _api.createGuestSession();
       await _loadRemoteData();
       if (mounted) _go(AppRoute.onboarding);
@@ -224,17 +277,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _loadRemoteData() async {
+    final accountVersion = _accountVersion;
     final apiCategories = await _api.listCategories();
-    final feed = await _api.readFeed();
-    if (!mounted) return;
-
-    final categories = apiCategories.map(_categoryFromApi).toList();
-    final categoryById = {
-      for (final category in categories) category.id!: category,
-    };
-    final contents = feed.items
-        .map((content) => _contentFromApi(content, categoryById))
-        .toList();
+    if (!mounted || accountVersion != _accountVersion) return;
+    setState(() {
+      _categories
+        ..clear()
+        ..addAll(apiCategories.map(_categoryFromApi));
+    });
+    await _loadFeed(_homeFeed, reset: true);
+    if (_homeFeed.error != null) throw _homeFeed.error!;
     AppUser? remoteUser;
     try {
       final user = await _api.readMe();
@@ -244,25 +296,116 @@ class _ClipbackAppState extends State<ClipbackApp> {
       if (error is ClipbackApiException && error.statusCode == 401) rethrow;
       // Categories and saved content remain available without profile statistics.
     }
-    if (!mounted) return;
+    if (!mounted || accountVersion != _accountVersion) return;
 
     setState(() {
-      _categories
-        ..clear()
-        ..addAll(categories);
-      _contents
-        ..clear()
-        ..addAll(contents);
-      _bookmarkedIds
-        ..clear()
-        ..addAll(
-          contents
-              .where((content) => content.bookmarked)
-              .map((content) => content.id),
-        );
       if (remoteUser != null) _user = remoteUser;
       _apiConnectionError = null;
     });
+  }
+
+  void _invalidateAccountFeeds() {
+    _accountVersion++;
+    _refreshVersion++;
+    _detailNavigationVersion++;
+    _movingDetail = false;
+    _detailFeed = null;
+    for (final page in _feeds) {
+      page.reset();
+      page.categoryId = null;
+      page.query = null;
+    }
+    _bookmarkedIds.clear();
+    _activeCategoryName = null;
+  }
+
+  Future<void> _loadFeed(FeedPage page, {bool reset = false}) {
+    if (reset) page.reset();
+    if (page._pending != null) return page._pending!;
+    if (!page.hasMore || !mounted) return Future.value();
+    final version = page.version;
+    final accountVersion = _accountVersion;
+    bool current() =>
+        mounted && version == page.version && accountVersion == _accountVersion;
+    final completion = Completer<void>();
+    page._pending = completion.future;
+    setState(() {
+      page.loading = true;
+      page.error = null;
+    });
+    unawaited(() async {
+      try {
+        // Empty favorites must fall through to the ordinary segment. Otherwise
+        // one request advances one page, without prefetching the whole segment.
+        do {
+          final feed = await _api.readFeed(
+            limit: 20,
+            query: page.query,
+            categoryId: page.categoryId,
+            isFavorite: page.bookmarkedFirst
+                ? page._favoritePhase
+                : page.isFavorite,
+            cursor: page.nextCursor,
+          );
+          if (!current()) return;
+          final knownIds = page.items.map((item) => item.id).toSet();
+          final items = feed.items.map(
+            (item) => _contentFromApi(item, _categoryById),
+          );
+          setState(() {
+            for (final item in items) {
+              if (knownIds.add(item.id)) page.items.add(item);
+              if (item.bookmarked) {
+                _bookmarkedIds.add(item.id);
+              } else {
+                _bookmarkedIds.remove(item.id);
+              }
+            }
+            page.initialized = true;
+            page.nextCursor = feed.nextCursor;
+            if (feed.nextCursor == null) {
+              if (page.bookmarkedFirst && page._favoritePhase) {
+                page._favoritePhase = false;
+              } else {
+                page.hasMore = false;
+              }
+            }
+          });
+        } while (page.items.isEmpty && page.hasMore);
+      } catch (error) {
+        if (current()) setState(() => page.error = error);
+      } finally {
+        if (current()) {
+          setState(() {
+            page.loading = false;
+            page._pending = null;
+          });
+        }
+        completion.complete();
+      }
+    }());
+    return completion.future;
+  }
+
+  void _ensureFeed(FeedPage page) {
+    if (!page.initialized && !page.loading && page.error == null) {
+      unawaited(_loadFeed(page));
+    }
+  }
+
+  void _selectHomeCategory(CategoryItem? category) {
+    _homeFeed.categoryId = category?.id;
+    unawaited(_loadFeed(_homeFeed, reset: true));
+  }
+
+  void _selectArchiveCategory(CategoryItem? category) {
+    setState(() {
+      _activeCategoryName = category?.name;
+      _archiveTab = 0;
+      _randomViewing = false;
+      _archiveFeed.categoryId = category?.id;
+    });
+    unawaited(_loadFeed(_archiveFeed, reset: true));
   }
 
   CategoryItem _categoryFromApi(ApiCategory category) {
@@ -273,6 +416,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
       color: color,
       tint: color.withValues(alpha: 0.2),
       deep: _deepCategoryColor(color),
+      contentCount: category.contentCount,
+      rawLastSavedAt: category.lastSavedAt,
       lastSavedAt: category.lastSavedAt == null
           ? null
           : _formatSavedAt(category.lastSavedAt!),
@@ -342,15 +487,17 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _saveBookmark(ContentItem content, bool isFavorite) async {
+    final accountVersion = _accountVersion;
     try {
       final updated = await _api.updateContentFavorite(
         content.apiId!,
         isFavorite,
       );
+      if (!mounted || accountVersion != _accountVersion) return;
       _replaceContent(_contentFromApi(updated, _categoryById));
-      await _refreshStats();
+      await _refreshRemoteAfterContentChange();
     } on ClipbackApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || accountVersion != _accountVersion) return;
       setState(() {
         if (isFavorite) {
           _bookmarkedIds.remove(content.id);
@@ -366,6 +513,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
     setState(() {
       _contents.insert(0, content);
       _selectedContent = content;
+      _detailFeed = _homeFeed;
+      _detailNavigationVersion++;
       _route = AppRoute.detail;
       _previousRoute = AppRoute.home;
     });
@@ -373,12 +522,18 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<void> _ensureGuestSessionForSave() async {
     if (_api.hasSession) return;
+    _invalidateAccountFeeds();
     await _api.createGuestSession();
   }
 
   Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
     await _ensureGuestSessionForSave();
-    return request();
+    final accountVersion = _accountVersion;
+    final result = await request();
+    if (accountVersion != _accountVersion) {
+      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    }
+    return result;
   }
 
   Future<ContentItem> _addLinkContent({
@@ -449,9 +604,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
         (category) => category.id == original.id,
       );
       if (categoryIndex != -1) _categories[categoryIndex] = updated;
-      for (var index = 0; index < _contents.length; index++) {
-        if (_contents[index].category.id == original.id) {
-          _contents[index] = _contents[index].copyWith(category: updated);
+      for (final page in _feeds) {
+        for (var index = 0; index < page.items.length; index++) {
+          if (page.items[index].category.id == original.id) {
+            page.items[index] = page.items[index].copyWith(category: updated);
+          }
         }
       }
       if (_selectedContent?.category.id == original.id) {
@@ -471,7 +628,15 @@ class _ClipbackAppState extends State<ClipbackApp> {
         color: _hexFromColor(updated.color),
       );
       if (!mounted) return;
-      _replaceCategoryLocally(updated, _categoryFromApi(saved));
+      _replaceCategoryLocally(
+        updated,
+        updated.copyWith(
+          name: saved.name,
+          color: _categoryFromApi(saved).color,
+          tint: _categoryFromApi(saved).tint,
+          deep: _categoryFromApi(saved).deep,
+        ),
+      );
     } on ClipbackApiException catch (error) {
       if (mounted) _replaceCategoryLocally(updated, original);
       _showError(error.message);
@@ -504,6 +669,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
   ) async {
     try {
       await _api.deleteCategory(category.id!);
+      if (!mounted) return;
+      for (final page in _feeds) {
+        if (page.categoryId == category.id) page.categoryId = null;
+      }
+      if (_activeCategoryName == category.name) _activeCategoryName = null;
       await _refreshRemoteAfterContentChange();
     } on ClipbackApiException catch (error) {
       if (!mounted) return;
@@ -524,10 +694,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<List<ContentItem>> _searchContents(String query) async {
-    final feed = await _api.readFeed(query: query);
-    return feed.items
-        .map((content) => _contentFromApi(content, _categoryById))
-        .toList();
+    _searchFeed.query = query.trim();
+    await _loadFeed(_searchFeed, reset: true);
+    return List.of(_searchFeed.items);
   }
 
   Future<void> _logout() async {
@@ -536,19 +705,10 @@ class _ClipbackAppState extends State<ClipbackApp> {
       await _clearStoredSession(afterLogout: true);
       if (!mounted || _api.hasSession) return;
       setState(() {
+        _invalidateAccountFeeds();
         _categories
           ..clear()
           ..addAll(initialCategories);
-        _contents
-          ..clear()
-          ..addAll(initialContents);
-        _bookmarkedIds
-          ..clear()
-          ..addAll(
-            _contents
-                .where((content) => content.bookmarked)
-                .map((content) => content.id),
-          );
         _user = defaultUser;
         _selectedContent = null;
         _previousRoute = AppRoute.home;
@@ -565,15 +725,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
     final apiId = content.apiId;
     final categoryId = category.id;
     if (apiId == null || categoryId == null) return;
-    setState(() {
-      final index = _contents.indexWhere((item) => item.id == content.id);
-      if (index == -1) return;
-      final updated = _contents[index].copyWith(category: category);
-      _contents[index] = updated;
-      if (_selectedContent?.id == content.id) {
-        _selectedContent = updated;
-      }
-    });
+    _replaceContent(content.copyWith(category: category));
     unawaited(_saveContentCategory(content, category));
   }
 
@@ -581,18 +733,24 @@ class _ClipbackAppState extends State<ClipbackApp> {
     ContentItem original,
     CategoryItem category,
   ) async {
+    final versions = {for (final page in _feeds) page: page.version};
+    final accountVersion = _accountVersion;
     try {
       final updated = await _api.updateContentCategories(original.apiId!, [
         category.id!,
       ]);
+      if (!mounted || accountVersion != _accountVersion) return;
       _replaceContent(_contentFromApi(updated, _categoryById));
       await _refreshRemoteAfterContentChange();
     } on ClipbackApiException catch (error) {
-      if (!mounted) return;
-      final index = _contents.indexWhere((item) => item.id == original.id);
-      if (index != -1) {
-        setState(() => _contents[index] = original);
-      }
+      if (!mounted || accountVersion != _accountVersion) return;
+      setState(() {
+        for (final page in _feeds) {
+          if (page.version != versions[page]) continue;
+          final index = page.items.indexWhere((item) => item.id == original.id);
+          if (index != -1) page.items[index] = original;
+        }
+      });
       _showError(error.message);
     }
   }
@@ -600,30 +758,55 @@ class _ClipbackAppState extends State<ClipbackApp> {
   void _deleteContent(ContentItem content) {
     final apiId = content.apiId;
     if (apiId == null) return;
-    final index = _contents.indexWhere((item) => item.id == content.id);
+    final positions = {
+      for (final page in _feeds)
+        if (page.items.any((item) => item.id == content.id))
+          page: (
+            page.version,
+            page.items.indexWhere((item) => item.id == content.id),
+          ),
+    };
     setState(() {
       final deletingOpenDetail =
           _route == AppRoute.detail && _selectedContent?.id == content.id;
-      _contents.removeWhere((item) => item.id == content.id);
+      for (final page in _feeds) {
+        page.items.removeWhere((item) => item.id == content.id);
+      }
       _bookmarkedIds.remove(content.id);
       if (deletingOpenDetail) {
+        _detailNavigationVersion++;
         _selectedContent = null;
         _route = _previousRoute == AppRoute.detail
             ? AppRoute.home
             : _previousRoute;
       }
     });
-    unawaited(_removeContent(content, index));
+    unawaited(_removeContent(content, positions));
   }
 
-  Future<void> _removeContent(ContentItem content, int index) async {
+  Future<void> _removeContent(
+    ContentItem content,
+    Map<FeedPage, (int, int)> positions,
+  ) async {
+    final accountVersion = _accountVersion;
     try {
       await _api.deleteContent(content.apiId!);
+      if (!mounted || accountVersion != _accountVersion) return;
       await _refreshRemoteAfterContentChange();
     } on ClipbackApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || accountVersion != _accountVersion) return;
       setState(() {
-        _contents.insert(index.clamp(0, _contents.length), content);
+        for (final entry in positions.entries) {
+          final page = entry.key;
+          if (page.version != entry.value.$1 ||
+              page.items.any((item) => item.id == content.id)) {
+            continue;
+          }
+          page.items.insert(
+            entry.value.$2.clamp(0, page.items.length),
+            content,
+          );
+        }
         if (content.bookmarked) _bookmarkedIds.add(content.id);
       });
       _showError(error.message);
@@ -637,10 +820,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   void _replaceContent(ContentItem updated) {
     if (!mounted) return;
-    final index = _contents.indexWhere((content) => content.id == updated.id);
-    if (index == -1) return;
     setState(() {
-      _contents[index] = updated;
+      for (final page in _feeds) {
+        final index = page.items.indexWhere((item) => item.id == updated.id);
+        if (index != -1) page.items[index] = updated;
+      }
       if (updated.bookmarked) {
         _bookmarkedIds.add(updated.id);
       } else {
@@ -651,34 +835,91 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _refreshStats() async {
+    final accountVersion = _accountVersion;
     try {
       final stats = await _api.readStats();
       final user = await _api.readMe();
-      if (mounted) setState(() => _user = _userFromApi(user, stats));
-    } on ClipbackApiException {
+      if (mounted && accountVersion == _accountVersion) {
+        setState(() => _user = _userFromApi(user, stats));
+      }
+    } catch (_) {
       // The content action has already completed; the next screen load retries stats.
     }
   }
 
   Future<void> _refreshRemoteAfterContentChange() async {
+    final accountVersion = _accountVersion;
+    final refreshVersion = ++_refreshVersion;
+    bool current() =>
+        mounted &&
+        accountVersion == _accountVersion &&
+        refreshVersion == _refreshVersion;
+    final pages = _feeds
+        .where(
+          (page) =>
+              identical(page, _homeFeed) ||
+              page.initialized ||
+              page.loading ||
+              page.error != null,
+        )
+        .toList();
+    // Invalidate before the category read so older pages cannot be appended
+    // while this refresh is waiting for metadata.
+    setState(() {
+      for (final page in pages) {
+        page.reset();
+        // Metadata is part of this reload. A subsequent write must still see
+        // this page as active while its first feed request has not started.
+        page.loading = true;
+      }
+    });
+    final versions = {for (final page in pages) page: page.version};
     try {
-      await _loadRemoteData();
-    } on ClipbackApiException catch (error) {
-      _showError(error.message);
+      final categories = await _api.listCategories();
+      if (!current()) return;
+      setState(() {
+        _categories
+          ..clear()
+          ..addAll(categories.map(_categoryFromApi));
+      });
+    } catch (_) {
+      // Lists can still be refreshed when category metadata is unavailable.
+    }
+    if (!current()) return;
+    await Future.wait(
+      pages.where((page) => page.version == versions[page]).map(_loadFeed),
+    );
+    await _refreshStats();
+  }
+
+  void _openAdjacentContent(int delta) async {
+    final current = _selectedContent;
+    final page = _detailFeed;
+    if (current == null || page == null || _movingDetail) return;
+    final index = page.items.indexWhere((item) => item.id == current.id);
+    if (index == -1) return;
+    final navigationVersion = _detailNavigationVersion;
+    final pageVersion = page.version;
+    setState(() => _movingDetail = true);
+    if (delta > 0 && index + 1 == page.items.length && page.hasMore) {
+      await _loadFeed(page);
+    }
+    if (!mounted || navigationVersion != _detailNavigationVersion) return;
+    setState(() => _movingDetail = false);
+    if (_route != AppRoute.detail ||
+        _selectedContent?.id != current.id ||
+        pageVersion != page.version) {
+      return;
+    }
+    final nextIndex = index + delta;
+    if (nextIndex >= 0 && nextIndex < page.items.length) {
+      _openDetail(page.items[nextIndex]);
     }
   }
 
-  void _openAdjacentContent(int delta) {
-    final current = _selectedContent;
-    if (current == null || _contents.isEmpty) return;
-    final index = _contents.indexWhere((item) => item.id == current.id);
-    if (index == -1) return;
-    final nextIndex = (index + delta) % _contents.length;
-    final wrappedIndex = nextIndex < 0 ? _contents.length - 1 : nextIndex;
-    setState(() => _selectedContent = _contents[wrappedIndex]);
-  }
-
   void _go(AppRoute route) {
+    _detailNavigationVersion++;
+    _movingDetail = false;
     setState(() {
       _route = route;
       if (route != AppRoute.detail) {
@@ -694,10 +935,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _selectRootTab(AppRoute route) {
+    _detailNavigationVersion++;
+    _movingDetail = false;
     setState(() {
       if (route == AppRoute.archive && _route != AppRoute.archive) {
         _archiveTab = 0;
         _activeCategoryName = null;
+        if (_archiveFeed.categoryId != null) {
+          _archiveFeed.categoryId = null;
+          _archiveFeed.reset();
+        }
       }
       _route = route;
       _selectedContent = null;
@@ -708,17 +955,24 @@ class _ClipbackAppState extends State<ClipbackApp> {
         _previousRoute = route;
       }
     });
+    if (route == AppRoute.archive) _ensureFeed(_archiveFeed);
+    if (route == AppRoute.bookmark) _ensureFeed(_bookmarkFeed);
   }
 
   void _openSearch() {
     setState(() {
-      _previousRoute = _route;
+      _searchReturnRoute = _route;
       _searchQuery = '';
+      _searchFeed.reset();
+      _searchFeed.query = null;
       _route = AppRoute.search;
     });
   }
 
   void _openArchive({int tab = 0, String? categoryName}) {
+    final category = _categories
+        .where((item) => item.name == categoryName)
+        .firstOrNull;
     setState(() {
       _route = AppRoute.archive;
       _archiveTab = tab;
@@ -726,37 +980,67 @@ class _ClipbackAppState extends State<ClipbackApp> {
       _selectedContent = null;
       _previousRoute = AppRoute.archive;
     });
+    if (_archiveFeed.categoryId != category?.id) {
+      _archiveFeed.categoryId = category?.id;
+      _archiveFeed.reset();
+    }
+    if (tab == 0) _ensureFeed(_archiveFeed);
   }
 
   void _openDetail(ContentItem content) {
     setState(() {
-      _previousRoute = _route;
+      if (_route != AppRoute.detail) {
+        _previousRoute = _route;
+        _detailFeed = switch (_route) {
+          AppRoute.archive => _archiveFeed,
+          AppRoute.bookmark => _bookmarkFeed,
+          AppRoute.search => _searchFeed,
+          _ => _homeFeed,
+        };
+      }
+      _detailNavigationVersion++;
+      _movingDetail = false;
       _selectedContent = content;
       _route = AppRoute.detail;
     });
     if (content.apiId != null) {
       unawaited(_refreshContentDetail(content.apiId!));
-      unawaited(_api.recordContentView(content.apiId!));
       unawaited(
-        _api.createCardClickEvent(
-          contentId: content.apiId!,
-          categoryId: content.category.id,
-        ),
+        _api
+            .recordContentView(content.apiId!)
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+      );
+      unawaited(
+        _api
+            .createCardClickEvent(
+              contentId: content.apiId!,
+              categoryId: content.category.id,
+            )
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {}),
       );
     }
   }
 
   Future<void> _refreshContentDetail(int contentId) async {
+    final accountVersion = _accountVersion;
+    final refreshVersion = _refreshVersion;
+    final navigationVersion = _detailNavigationVersion;
     try {
       final content = await _api.readContent(contentId);
-      _replaceContent(_contentFromApi(content, _categoryById));
-    } on ClipbackApiException {
+      if (accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion &&
+          navigationVersion == _detailNavigationVersion) {
+        _replaceContent(_contentFromApi(content, _categoryById));
+      }
+    } catch (_) {
       // Feed data is still enough to keep the detail screen usable.
     }
   }
 
   void _backFromDetail() {
     setState(() {
+      _detailNavigationVersion++;
+      _movingDetail = false;
       _route = _previousRoute;
       _selectedContent = null;
     });
@@ -802,10 +1086,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.home => HomeScreen(
           contents: _contents,
+          feed: _homeFeed,
+          onRetry: () => _loadFeed(_homeFeed, reset: true),
+          activeCategoryId: _homeFeed.categoryId,
+          onCategorySelected: _selectHomeCategory,
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           onSearch: _openSearch,
-          onOpenArchive: () => _openArchive(),
+          onOpenArchive: () => _openArchive(
+            categoryName: _categoryById[_homeFeed.categoryId]?.name,
+          ),
           onOpenCategories: () => _openArchive(tab: 1),
           onOpenToday: _contents.isEmpty
               ? () {}
@@ -818,20 +1108,33 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.archive => ArchiveScreen(
           activeTab: _archiveTab,
-          contents: _contents,
+          contents: _archiveFeed.items,
+          feed: _archiveFeed,
+          onLoadMore: () => _loadFeed(_archiveFeed),
+          onRetry: () =>
+              _loadFeed(_archiveFeed, reset: _archiveFeed.invalidCursor),
           categories: _categories,
           bookmarkedIds: _bookmarkedIds,
           bookmarkedFirst: _bookmarkedFirst,
           randomViewing: _randomViewing,
           activeCategoryName: _activeCategoryName,
-          onTabChanged: (value) => setState(() => _archiveTab = value),
-          onSortChanged: (value) => setState(() => _bookmarkedFirst = value),
+          onTabChanged: (value) {
+            setState(() => _archiveTab = value);
+            if (value == 0) _ensureFeed(_archiveFeed);
+          },
+          onSortChanged: (value) {
+            _bookmarkedFirst = value;
+            _archiveFeed.bookmarkedFirst = value;
+            unawaited(_loadFeed(_archiveFeed, reset: true));
+          },
           onOpenRandomView: () => setState(() => _randomViewing = true),
           onExitRandomView: () => setState(() => _randomViewing = false),
           onClearCategory: () => setState(() {
             _activeCategoryName = null;
             _archiveTab = 1;
             _randomViewing = false;
+            _archiveFeed.categoryId = null;
+            _archiveFeed.reset();
           }),
           onSearch: _openSearch,
           onOpenContent: _openDetail,
@@ -844,11 +1147,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onAddLink: _addLinkContent,
           onAddScreenshot: _addScreenshotContent,
           onOpenCategory: (category) {
-            setState(() {
-              _activeCategoryName = category.name;
-              _archiveTab = 0;
-              _randomViewing = false;
-            });
+            _selectArchiveCategory(category);
             if (category.id != null) {
               unawaited(_api.createCategoryFilterEvent(category.id!));
             }
@@ -856,9 +1155,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onTab: _selectRootTab,
         ),
         AppRoute.bookmark => BookmarkScreen(
-          contents: _contents
-              .where((content) => _bookmarkedIds.contains(content.id))
-              .toList(),
+          contents: _bookmarkFeed.items,
+          feed: _bookmarkFeed,
+          onLoadMore: () => _loadFeed(_bookmarkFeed),
+          onRetry: () =>
+              _loadFeed(_bookmarkFeed, reset: _bookmarkFeed.invalidCursor),
           bookmarkedIds: _bookmarkedIds,
           categories: _categories,
           onSearch: _openSearch,
@@ -872,12 +1173,22 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.search => SearchScreen(
           initialQuery: _searchQuery,
-          contents: _contents,
+          contents: _searchFeed.items,
+          feed: _searchFeed,
+          onLoadMore: () => _loadFeed(_searchFeed),
+          onRetry: () =>
+              _loadFeed(_searchFeed, reset: _searchFeed.invalidCursor),
           bookmarkedIds: _bookmarkedIds,
           categories: _categories,
           onSearch: _searchContents,
-          onQueryChanged: (value) => _searchQuery = value,
-          onClose: () => _go(_previousRoute),
+          onQueryChanged: (value) {
+            _searchQuery = value;
+            setState(() {
+              _searchFeed.reset();
+              _searchFeed.query = null;
+            });
+          },
+          onClose: () => _go(_searchReturnRoute),
           onOpenContent: _openDetail,
           onToggleBookmark: _toggleBookmark,
           onChangeContentCategory: _changeContentCategory,
@@ -886,7 +1197,16 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.detail => DetailScreen(
           content: _selectedContent ?? _contents.first,
-          contents: _contents,
+          contents: _detailFeed?.items ?? const [],
+          feed: _detailFeed,
+          moving: _movingDetail,
+          onRetry: () {
+            if (_detailFeed?.invalidCursor ?? false) {
+              unawaited(_loadFeed(_detailFeed!, reset: true));
+            } else {
+              _openAdjacentContent(1);
+            }
+          },
           categories: _categories,
           bookmarked: _isBookmarked(_selectedContent ?? _contents.first),
           onBack: _backFromDetail,
@@ -1626,6 +1946,10 @@ class InterestOptionTile extends StatelessWidget {
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
+    this.feed,
+    this.onRetry,
+    this.activeCategoryId,
+    this.onCategorySelected,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
@@ -1642,6 +1966,10 @@ class HomeScreen extends StatelessWidget {
   });
 
   final List<ContentItem> contents;
+  final FeedPage? feed;
+  final VoidCallback? onRetry;
+  final int? activeCategoryId;
+  final ValueChanged<CategoryItem?>? onCategorySelected;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final VoidCallback onSearch;
@@ -1679,6 +2007,10 @@ class HomeScreen extends StatelessWidget {
                     : showAddContentSheet,
               ),
               HomeContentPanel(
+                feed: feed,
+                onRetry: onRetry,
+                activeCategoryId: activeCategoryId,
+                onCategorySelected: onCategorySelected,
                 hasSavedContent: hasSavedContent,
                 contents: contents,
                 categories: categories,
@@ -1835,6 +2167,10 @@ class HomeHero extends StatelessWidget {
 
 class HomeContentPanel extends StatefulWidget {
   const HomeContentPanel({
+    this.feed,
+    this.onRetry,
+    this.activeCategoryId,
+    this.onCategorySelected,
     required this.hasSavedContent,
     required this.contents,
     required this.categories,
@@ -1847,6 +2183,10 @@ class HomeContentPanel extends StatefulWidget {
   });
 
   final bool hasSavedContent;
+  final FeedPage? feed;
+  final VoidCallback? onRetry;
+  final int? activeCategoryId;
+  final ValueChanged<CategoryItem?>? onCategorySelected;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
@@ -1860,20 +2200,18 @@ class HomeContentPanel extends StatefulWidget {
 }
 
 class _HomeContentPanelState extends State<HomeContentPanel> {
-  String _activeCategoryLabel = '전체보기';
-
-  List<ContentItem> get _filteredContents {
-    if (_activeCategoryLabel == '전체보기') {
-      return widget.contents;
-    }
-    return widget.contents
-        .where((content) => content.category.name == _activeCategoryLabel)
-        .toList();
-  }
+  String get _activeCategoryLabel =>
+      widget.categories
+          .where(
+            (item) => item.id != null && item.id == widget.activeCategoryId,
+          )
+          .firstOrNull
+          ?.name ??
+      '전체보기';
 
   @override
   Widget build(BuildContext context) {
-    final filteredContents = _filteredContents;
+    final filteredContents = widget.contents;
 
     return Container(
       width: double.infinity,
@@ -1898,10 +2236,19 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
             categories: ['전체보기', ...widget.categories.map((item) => item.name)],
             activeLabel: _activeCategoryLabel,
             onSelected: (label) {
-              setState(() => _activeCategoryLabel = label);
+              widget.onCategorySelected?.call(
+                label == '전체보기'
+                    ? null
+                    : widget.categories
+                          .where((item) => item.name == label)
+                          .first,
+              );
             },
           ),
-          if (widget.hasSavedContent && filteredContents.isNotEmpty) ...[
+          if (widget.feed != null &&
+              (widget.feed!.loading || widget.feed!.error != null))
+            _FeedStatus(page: widget.feed!, onRetry: widget.onRetry)
+          else if (filteredContents.isNotEmpty) ...[
             SizedBox(
               height: 218,
               child: ListView.separated(
@@ -1920,11 +2267,11 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
                 itemCount: filteredContents.take(4).length,
               ),
             ),
-            PageDots(count: filteredContents.take(5).length, activeIndex: 0),
-          ] else if (widget.hasSavedContent)
+            PageDots(count: filteredContents.take(4).length, activeIndex: 0),
+          ] else if (widget.activeCategoryId != null)
             HomeFilteredEmptyContent(
               label: _activeCategoryLabel,
-              onReset: () => setState(() => _activeCategoryLabel = '전체보기'),
+              onReset: () => widget.onCategorySelected?.call(null),
             )
           else
             const EmptyHomeContent(),
@@ -2080,6 +2427,9 @@ class WeeklyPickRail extends StatelessWidget {
 
 class ArchiveScreen extends StatelessWidget {
   const ArchiveScreen({
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     required this.activeTab,
     required this.contents,
     required this.categories,
@@ -2108,6 +2458,9 @@ class ArchiveScreen extends StatelessWidget {
   });
 
   final int activeTab;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
@@ -2145,9 +2498,7 @@ class ArchiveScreen extends StatelessWidget {
     }
 
     if (activeCategoryName != null && randomViewing && activeTab == 0) {
-      final categoryContents = contents
-          .where((content) => content.category.name == activeCategoryName)
-          .toList();
+      final categoryContents = List.of(contents);
       categoryContents.shuffle();
       return PhoneFrame(
         child: CategoryCardReviewScreen(
@@ -2191,6 +2542,9 @@ class ArchiveScreen extends StatelessWidget {
                       children: [
                         Positioned.fill(
                           child: ContentListView(
+                            feed: feed,
+                            onLoadMore: onLoadMore,
+                            onRetry: onRetry,
                             contents: contents,
                             bookmarkedIds: bookmarkedIds,
                             bookmarkedFirst: bookmarkedFirst,
@@ -2205,11 +2559,7 @@ class ArchiveScreen extends StatelessWidget {
                             onGoHome: () => onTab(AppRoute.home),
                           ),
                         ),
-                        if (activeCategoryName != null &&
-                            contents.any(
-                              (content) =>
-                                  content.category.name == activeCategoryName,
-                            ))
+                        if (activeCategoryName != null && contents.isNotEmpty)
                           Positioned(
                             right: 16,
                             bottom: 24,
@@ -2256,6 +2606,9 @@ class BookmarkScreen extends StatelessWidget {
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onTab,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     super.key,
   });
 
@@ -2271,6 +2624,9 @@ class BookmarkScreen extends StatelessWidget {
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final ValueChanged<AppRoute> onTab;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -2293,33 +2649,46 @@ class BookmarkScreen extends StatelessWidget {
                 onBack: () => onTab(AppRoute.home),
                 onSearch: onSearch,
               ),
-              Expanded(
-                child: contents.isEmpty
-                    ? EmptyStatePanel(
-                        title: '즐겨찾기한 콘텐츠가 없어요',
-                        body: '중요한 콘텐츠의 별 아이콘을 누르면 이곳에 모아둘 수 있어요.',
-                        actionLabel: '아카이브 보러가기',
-                        onAction: () => onTab(AppRoute.archive),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.only(top: 8),
-                        itemBuilder: (context, index) {
-                          final content = contents[index];
-                          return ContentListCard(
-                            content: content,
-                            bookmarked: bookmarkedIds.contains(content.id),
-                            onToggleBookmark: () => onToggleBookmark(content),
-                            categories: categories,
-                            onChangeCategory: (category) =>
-                                onChangeContentCategory(content, category),
-                            onDelete: () => onDeleteContent(content),
-                            onTap: () => onOpenContent(content),
-                          );
-                        },
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 8),
-                        itemCount: contents.length,
+              if (feed != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '불러온 ${contents.length}개',
+                      style: const TextStyle(
+                        color: AppColors.subtle,
+                        fontSize: 14,
                       ),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: _PagedContentList(
+                  feed: feed,
+                  contents: contents,
+                  onLoadMore: onLoadMore,
+                  onRetry: onRetry,
+                  empty: EmptyStatePanel(
+                    title: '즐겨찾기한 콘텐츠가 없어요',
+                    body: '중요한 콘텐츠의 별 아이콘을 누르면 이곳에 모아둘 수 있어요.',
+                    actionLabel: '아카이브 보러가기',
+                    onAction: () => onTab(AppRoute.archive),
+                  ),
+                  itemBuilder: (content) => ContentListCard(
+                    content: content,
+                    bookmarked: bookmarkedIds.contains(content.id),
+                    onToggleBookmark: () => onToggleBookmark(content),
+                    categories: categories,
+                    onChangeCategory: (category) =>
+                        onChangeContentCategory(content, category),
+                    onDelete: () => onDeleteContent(content),
+                    onTap: () => onOpenContent(content),
+                  ),
+                ),
               ),
             ],
           ),
@@ -2336,6 +2705,9 @@ class BookmarkScreen extends StatelessWidget {
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     required this.initialQuery,
     required this.contents,
     required this.bookmarkedIds,
@@ -2352,6 +2724,9 @@ class SearchScreen extends StatefulWidget {
   });
 
   final String initialQuery;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final Set<String> bookmarkedIds;
   final List<CategoryItem> categories;
@@ -2374,6 +2749,7 @@ class _SearchScreenState extends State<SearchScreen> {
   late List<String> _terms;
   List<ContentItem>? _serverResults;
   var _isSearching = false;
+  int _requestVersion = 0;
 
   @override
   void initState() {
@@ -2393,6 +2769,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _submitQuery(String value) async {
     final term = value.trim();
     if (term.isEmpty) return;
+    final version = ++_requestVersion;
     widget.onQueryChanged(term);
     setState(() {
       _terms
@@ -2408,13 +2785,15 @@ class _SearchScreenState extends State<SearchScreen> {
     });
     try {
       final results = await widget.onSearch(term);
-      if (!mounted || _controller.text.trim() != term) return;
+      if (!mounted || version != _requestVersion) return;
       setState(() {
         _serverResults = results;
         _isSearching = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _isSearching = false);
+      if (mounted && version == _requestVersion) {
+        setState(() => _isSearching = false);
+      }
     }
   }
 
@@ -2423,19 +2802,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (query.isEmpty) {
       return const [];
     }
-    if (_serverResults != null) return _serverResults!;
-    final normalizedQuery = query.toLowerCase();
-    return widget.contents.where((content) {
-      final searchableText = [
-        content.title,
-        content.summary,
-        content.category.name,
-        content.source,
-        content.originalUrl,
-        ...content.tags,
-      ].join(' ').toLowerCase();
-      return searchableText.contains(normalizedQuery);
-    }).toList();
+    if (widget.feed != null) return widget.contents;
+    return _serverResults ?? const [];
   }
 
   @override
@@ -2470,6 +2838,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 controller: _controller,
                                 autofocus: true,
                                 onChanged: (value) {
+                                  _requestVersion++;
                                   widget.onQueryChanged(value);
                                   setState(() {
                                     _serverResults = null;
@@ -2498,6 +2867,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             if (_hasQuery)
                               GestureDetector(
                                 onTap: () {
+                                  _requestVersion++;
                                   _controller.clear();
                                   widget.onQueryChanged('');
                                   setState(() {
@@ -2539,64 +2909,108 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               const SizedBox(height: 32),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    if (!_hasQuery) ...[
-                      const Text(
-                        '최근 검색어',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      for (final term in _terms)
-                        SearchHistoryRow(
-                          term: term,
-                          onTap: () {
-                            _controller.text = term;
-                            unawaited(_submitQuery(term));
-                            widget.onQueryChanged(term);
-                          },
-                          onRemove: () => setState(() => _terms.remove(term)),
-                        ),
-                    ] else ...[
-                      if (_isSearching)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 72),
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.mainDeep,
-                            ),
-                          ),
-                        )
-                      else ...[
-                        for (final content in _results)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: ContentListCard(
-                              content: content,
-                              bookmarked: widget.bookmarkedIds.contains(
-                                content.id,
+                child: _hasQuery && widget.feed != null
+                    ? (widget.feed!.query == null
+                          ? const Center(child: Text('검색어를 입력하고 검색해 주세요.'))
+                          : Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Text('불러온 ${_results.length}개'),
+                                ),
+                                Expanded(
+                                  child: _PagedContentList(
+                                    feed: widget.feed,
+                                    contents: _results,
+                                    onLoadMore: widget.onLoadMore,
+                                    onRetry: widget.onRetry,
+                                    empty: EmptySearchResult(
+                                      onOpenArchive: widget.onOpenArchive,
+                                    ),
+                                    itemBuilder: (content) => ContentListCard(
+                                      content: content,
+                                      bookmarked: widget.bookmarkedIds.contains(
+                                        content.id,
+                                      ),
+                                      onToggleBookmark: () =>
+                                          widget.onToggleBookmark(content),
+                                      categories: widget.categories,
+                                      onChangeCategory: (category) =>
+                                          widget.onChangeContentCategory(
+                                            content,
+                                            category,
+                                          ),
+                                      onDelete: () =>
+                                          widget.onDeleteContent(content),
+                                      onTap: () =>
+                                          widget.onOpenContent(content),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ))
+                    : ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          if (!_hasQuery) ...[
+                            const Text(
+                              '최근 검색어',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
                               ),
-                              onToggleBookmark: () =>
-                                  widget.onToggleBookmark(content),
-                              categories: widget.categories,
-                              onChangeCategory: (category) => widget
-                                  .onChangeContentCategory(content, category),
-                              onDelete: () => widget.onDeleteContent(content),
-                              onTap: () => widget.onOpenContent(content),
                             ),
-                          ),
-                        if (_results.isEmpty)
-                          EmptySearchResult(
-                            onOpenArchive: widget.onOpenArchive,
-                          ),
-                      ],
-                    ],
-                  ],
-                ),
+                            const SizedBox(height: 16),
+                            for (final term in _terms)
+                              SearchHistoryRow(
+                                term: term,
+                                onTap: () {
+                                  _controller.text = term;
+                                  unawaited(_submitQuery(term));
+                                },
+                                onRemove: () =>
+                                    setState(() => _terms.remove(term)),
+                              ),
+                          ] else ...[
+                            if (_isSearching)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 72),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.mainDeep,
+                                  ),
+                                ),
+                              )
+                            else ...[
+                              for (final content in _results)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ContentListCard(
+                                    content: content,
+                                    bookmarked: widget.bookmarkedIds.contains(
+                                      content.id,
+                                    ),
+                                    onToggleBookmark: () =>
+                                        widget.onToggleBookmark(content),
+                                    categories: widget.categories,
+                                    onChangeCategory: (category) =>
+                                        widget.onChangeContentCategory(
+                                          content,
+                                          category,
+                                        ),
+                                    onDelete: () =>
+                                        widget.onDeleteContent(content),
+                                    onTap: () => widget.onOpenContent(content),
+                                  ),
+                                ),
+                              if (_results.isEmpty)
+                                EmptySearchResult(
+                                  onOpenArchive: widget.onOpenArchive,
+                                ),
+                            ],
+                          ],
+                        ],
+                      ),
               ),
             ],
           ),
@@ -2608,6 +3022,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
+    this.feed,
+    this.moving = false,
+    this.onRetry,
     required this.content,
     required this.contents,
     required this.categories,
@@ -2626,6 +3043,9 @@ class DetailScreen extends StatefulWidget {
   });
 
   final ContentItem content;
+  final FeedPage? feed;
+  final bool moving;
+  final VoidCallback? onRetry;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final bool bookmarked;
@@ -2927,11 +3347,21 @@ class _DetailScreenState extends State<DetailScreen> {
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.feed?.error != null || widget.moving)
+              _FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
             DetailPager(
-              currentIndex: currentIndex == -1 ? 0 : currentIndex,
+              currentIndex: currentIndex,
               totalCount: widget.contents.length,
-              onPrevious: () => widget.onOpenAdjacent(-1),
-              onNext: () => widget.onOpenAdjacent(1),
+              onPrevious: !widget.moving && currentIndex > 0
+                  ? () => widget.onOpenAdjacent(-1)
+                  : null,
+              onNext:
+                  !widget.moving &&
+                      currentIndex >= 0 &&
+                      (currentIndex + 1 < widget.contents.length ||
+                          (widget.feed?.hasMore ?? false))
+                  ? () => widget.onOpenAdjacent(1)
+                  : null,
             ),
             ClipbackNavigationBar(
               activeIndex: 1,
@@ -3948,6 +4378,201 @@ class HomeContentCard extends StatelessWidget {
   }
 }
 
+class _PagedContentList extends StatefulWidget {
+  const _PagedContentList({
+    required this.contents,
+    required this.itemBuilder,
+    required this.empty,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
+  });
+
+  final FeedPage? feed;
+  final List<ContentItem> contents;
+  final Widget Function(ContentItem) itemBuilder;
+  final Widget empty;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
+
+  @override
+  State<_PagedContentList> createState() => _PagedContentListState();
+}
+
+class _PagedContentListState extends State<_PagedContentList> {
+  late final ScrollController _controller;
+  int? _feedVersion;
+  double _restoreOffset = 0;
+  bool _restorePending = true;
+  bool _checkScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedVersion = widget.feed?.version;
+    _restoreOffset = widget.feed?.scrollOffset ?? 0;
+    _controller = ScrollController(
+      initialScrollOffset: _restoreOffset,
+      keepScrollOffset: false,
+    )..addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PagedContentList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.feed, widget.feed) ||
+        _feedVersion != widget.feed?.version) {
+      if (!identical(oldWidget.feed, widget.feed) &&
+          !_restorePending &&
+          _controller.hasClients &&
+          oldWidget.feed?.version == _feedVersion) {
+        oldWidget.feed?.scrollOffset = _controller.offset;
+      }
+      _feedVersion = widget.feed?.version;
+      _restoreOffset = widget.feed?.scrollOffset ?? 0;
+      _restorePending = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveOffset();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _saveOffset() {
+    if (_restorePending ||
+        !_controller.hasClients ||
+        _feedVersion != widget.feed?.version) {
+      return;
+    }
+    widget.feed?.scrollOffset = _controller.offset;
+  }
+
+  void _onScroll() {
+    _saveOffset();
+    _maybeLoadMore();
+  }
+
+  void _scheduleViewportCheck() {
+    if (_checkScheduled) return;
+    _checkScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkScheduled = false;
+      if (!mounted || !_controller.hasClients) return;
+      if (_restorePending) {
+        final offset = _restoreOffset
+            .clamp(0.0, _controller.position.maxScrollExtent)
+            .toDouble();
+        _restorePending = false;
+        _controller.jumpTo(offset);
+      }
+      _saveOffset();
+      _maybeLoadMore();
+    });
+  }
+
+  void _maybeLoadMore() {
+    final page = widget.feed;
+    final loadMore = widget.onLoadMore;
+    if (_restorePending ||
+        !_controller.hasClients ||
+        page == null ||
+        loadMore == null ||
+        _feedVersion != page.version ||
+        !page.initialized ||
+        page.loading ||
+        page.error != null ||
+        !page.hasMore ||
+        _controller.position.extentAfter > 300) {
+      return;
+    }
+    unawaited(_loadMore(loadMore));
+  }
+
+  Future<void> _loadMore(Future<void> Function() loadMore) async {
+    try {
+      await loadMore();
+    } finally {
+      if (mounted) _scheduleViewportCheck();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _scheduleViewportCheck();
+    final page = widget.feed;
+    if (widget.contents.isEmpty) {
+      if (page != null &&
+          (!page.initialized || page.loading || page.error != null)) {
+        return Center(
+          child: _FeedStatus(page: page, onRetry: widget.onRetry),
+        );
+      }
+      return widget.empty;
+    }
+    return ListView.separated(
+      controller: _controller,
+      padding: EdgeInsets.zero,
+      itemCount: widget.contents.length + (page == null ? 0 : 1),
+      itemBuilder: (context, index) {
+        if (index == widget.contents.length) {
+          return _FeedStatus(page: page!, onRetry: widget.onRetry);
+        }
+        final content = widget.contents[index];
+        return KeyedSubtree(
+          key: ValueKey(content.id),
+          child: widget.itemBuilder(content),
+        );
+      },
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+    );
+  }
+}
+
+class _FeedStatus extends StatelessWidget {
+  const _FeedStatus({required this.page, this.onRetry});
+
+  final FeedPage page;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (page.loading || (!page.initialized && page.error == null)) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (page.error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            page.items.isEmpty ? '콘텐츠를 불러오지 못했어요.' : '콘텐츠를 더 불러오지 못했어요.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(page.invalidCursor ? '처음부터 다시 불러오기' : '다시 시도'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ContentListView extends StatelessWidget {
   const ContentListView({
     required this.contents,
@@ -3962,6 +4587,9 @@ class ContentListView extends StatelessWidget {
     required this.onChangeContentCategory,
     required this.onDeleteContent,
     required this.onGoHome,
+    this.feed,
+    this.onLoadMore,
+    this.onRetry,
     super.key,
   });
 
@@ -3978,17 +4606,22 @@ class ContentListView extends StatelessWidget {
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onGoHome;
+  final FeedPage? feed;
+  final Future<void> Function()? onLoadMore;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final visibleContents = contents
-        .where(
-          (content) =>
-              activeCategoryName == null ||
-              content.category.name == activeCategoryName,
-        )
-        .toList();
-    if (bookmarkedFirst) {
+    final visibleContents = feed == null
+        ? contents
+              .where(
+                (content) =>
+                    activeCategoryName == null ||
+                    content.category.name == activeCategoryName,
+              )
+              .toList()
+        : contents;
+    if (feed == null && bookmarkedFirst) {
       visibleContents.sort((a, b) {
         final aMarked = bookmarkedIds.contains(a.id) ? 0 : 1;
         final bMarked = bookmarkedIds.contains(b.id) ? 0 : 1;
@@ -4000,45 +4633,41 @@ class ContentListView extends StatelessWidget {
     return Column(
       children: [
         ArchiveToolbar(
-          countLabel: '총 ${visibleContents.length}개',
+          countLabel: feed == null
+              ? '총 ${visibleContents.length}개'
+              : '불러온 ${visibleContents.length}개',
           sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
           onSortChanged: onSortChanged,
         ),
         Expanded(
-          child: visibleContents.isEmpty
-              ? EmptyStatePanel(
-                  title: activeCategoryName == null
-                      ? '저장한 콘텐츠가 없어요'
-                      : isUnclassified
-                      ? '분류가 필요한 콘텐츠가 없어요'
-                      : '$activeCategoryName 콘텐츠가 없어요',
-                  body: activeCategoryName == null
-                      ? '홈의 + 버튼에서 링크나 스크린샷 목데이터를 추가해 보세요.'
-                      : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
-                  actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
-                  onAction: activeCategoryName == null
-                      ? onGoHome
-                      : onClearCategory,
-                )
-              : ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemBuilder: (context, index) {
-                    final content = visibleContents[index];
-                    return ContentListCard(
-                      content: content,
-                      bookmarked: bookmarkedIds.contains(content.id),
-                      onToggleBookmark: () => onToggleBookmark(content),
-                      categories: categories,
-                      onChangeCategory: (category) =>
-                          onChangeContentCategory(content, category),
-                      onDelete: () => onDeleteContent(content),
-                      onTap: () => onOpenContent(content),
-                    );
-                  },
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 8),
-                  itemCount: visibleContents.length,
-                ),
+          child: _PagedContentList(
+            feed: feed,
+            contents: visibleContents,
+            onLoadMore: onLoadMore,
+            onRetry: onRetry,
+            empty: EmptyStatePanel(
+              title: activeCategoryName == null
+                  ? '저장한 콘텐츠가 없어요'
+                  : isUnclassified
+                  ? '분류가 필요한 콘텐츠가 없어요'
+                  : '$activeCategoryName 콘텐츠가 없어요',
+              body: activeCategoryName == null
+                  ? '홈의 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
+                  : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
+              actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
+              onAction: activeCategoryName == null ? onGoHome : onClearCategory,
+            ),
+            itemBuilder: (content) => ContentListCard(
+              content: content,
+              bookmarked: bookmarkedIds.contains(content.id),
+              onToggleBookmark: () => onToggleBookmark(content),
+              categories: categories,
+              onChangeCategory: (category) =>
+                  onChangeContentCategory(content, category),
+              onDelete: () => onDeleteContent(content),
+              onTap: () => onOpenContent(content),
+            ),
+          ),
         ),
       ],
     );
@@ -5039,10 +5668,14 @@ class CategoryArchiveToolbar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            ArchiveSortButton(
-              label: bookmarkedFirst ? '북마크 우선' : '최신순',
-              bookmarkedFirst: bookmarkedFirst,
-              onSelected: onSortChanged,
+            const Text(
+              '최신순',
+              style: TextStyle(
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.35,
+              ),
             ),
             const Spacer(),
             SvgIconButton(
@@ -5298,11 +5931,7 @@ class CategoryManagementScreen extends StatelessWidget {
                     onMore: () => showCategoryActionSheet(
                       context: context,
                       category: category,
-                      contentCount: contents
-                          .where(
-                            (content) => content.category.id == category.id,
-                          )
-                          .length,
+                      contentCount: category.contentCount,
                       onUpdate: onUpdateCategory,
                       onDelete: onDeleteCategory,
                     ),
@@ -5601,24 +6230,21 @@ class CategoryArchiveView extends StatelessWidget {
       (category) => category.name == catUncategorized.name,
       orElse: () => catUncategorized,
     );
-    final unclassifiedCount = contents
-        .where((content) => content.category.name == catUncategorized.name)
-        .length;
-    if (bookmarkedFirst) {
-      visibleCategories.sort((a, b) {
-        final aHasBookmarked = contents.any(
-          (content) =>
-              content.category.name == a.name &&
-              bookmarkedIds.contains(content.id),
-        );
-        final bHasBookmarked = contents.any(
-          (content) =>
-              content.category.name == b.name &&
-              bookmarkedIds.contains(content.id),
-        );
-        return (aHasBookmarked ? 0 : 1).compareTo(bHasBookmarked ? 0 : 1);
-      });
-    }
+    visibleCategories.sort((a, b) {
+      final aSavedAt = a.rawLastSavedAt;
+      final bSavedAt = b.rawLastSavedAt;
+      if (aSavedAt != null && bSavedAt != null) {
+        final timeOrder = bSavedAt.compareTo(aSavedAt);
+        if (timeOrder != 0) return timeOrder;
+      } else if (aSavedAt != bSavedAt) {
+        return aSavedAt == null ? 1 : -1;
+      }
+      final aId = a.id;
+      final bId = b.id;
+      if (aId == null) return bId == null ? 0 : 1;
+      if (bId == null) return -1;
+      return aId.compareTo(bId);
+    });
 
     return Column(
       children: [
@@ -5633,7 +6259,7 @@ class CategoryArchiveView extends StatelessWidget {
           ),
         ),
         UnclassifiedCategoryRow(
-          count: unclassifiedCount,
+          count: unclassifiedCategory.contentCount,
           onTap: () => onOpenCategory(unclassifiedCategory),
         ),
         const SizedBox(height: 16),
@@ -5648,9 +6274,7 @@ class CategoryArchiveView extends StatelessWidget {
                 onMore: () => showCategoryActionSheet(
                   context: context,
                   category: category,
-                  contentCount: contents
-                      .where((content) => content.category.id == category.id)
-                      .length,
+                  contentCount: category.contentCount,
                   onUpdate: onUpdateCategory,
                   onDelete: onDeleteCategory,
                 ),
@@ -5848,6 +6472,11 @@ class CategoryRow extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
+                Text(
+                  '${category.contentCount}',
+                  style: const TextStyle(color: AppColors.subtle, fontSize: 14),
+                ),
+                const SizedBox(width: 8),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: onMore,
@@ -8093,8 +8722,8 @@ class DetailPager extends StatelessWidget {
 
   final int currentIndex;
   final int totalCount;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -8108,21 +8737,27 @@ class DetailPager extends StatelessWidget {
             rotate: true,
             onPressed: onPrevious,
           ),
-          Container(
-            width: 61,
-            height: 35,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: Text(
-              '${currentIndex + 1} / $totalCount',
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                height: 19 / 14,
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              height: 35,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Text(
+                currentIndex < 0
+                    ? '현재 목록에 없는 콘텐츠'
+                    : '${currentIndex + 1} / 불러온 $totalCount개',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.subtle,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  height: 19 / 14,
+                ),
               ),
             ),
           ),
@@ -8535,12 +9170,16 @@ class RoundIconButton extends StatelessWidget {
   });
 
   final String asset;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool rotate;
 
   @override
   Widget build(BuildContext context) {
-    final icon = SvgIcon(asset: asset, size: 28);
+    final icon = SvgIcon(
+      asset: asset,
+      size: 28,
+      color: onPressed == null ? AppColors.subSubtle : AppColors.text,
+    );
     return InkWell(
       onTap: onPressed,
       customBorder: const CircleBorder(),
@@ -8800,6 +9439,8 @@ class CategoryItem {
   const CategoryItem({
     this.id,
     this.lastSavedAt,
+    this.contentCount = 0,
+    this.rawLastSavedAt,
     required this.name,
     required this.color,
     required this.tint,
@@ -8808,6 +9449,8 @@ class CategoryItem {
 
   final int? id;
   final String? lastSavedAt;
+  final int contentCount;
+  final DateTime? rawLastSavedAt;
   final String name;
   final Color color;
   final Color tint;
@@ -8821,6 +9464,8 @@ class CategoryItem {
   }) => CategoryItem(
     id: id,
     lastSavedAt: lastSavedAt,
+    contentCount: contentCount,
+    rawLastSavedAt: rawLastSavedAt,
     name: name ?? this.name,
     color: color ?? this.color,
     tint: tint ?? this.tint,
