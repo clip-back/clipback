@@ -39,6 +39,7 @@ class ApiSession {
 }
 
 class ApiSessionStorage {
+  static const _sessionKey = 'clipback.session';
   static const _accessTokenKey = 'clipback.access_token';
   static const _refreshTokenKey = 'clipback.refresh_token';
   static const _expiresInKey = 'clipback.expires_in';
@@ -46,6 +47,12 @@ class ApiSessionStorage {
 
   Future<ApiSession?> read() async {
     final preferences = await SharedPreferences.getInstance();
+    final storedSession = preferences.getString(_sessionKey);
+    if (storedSession != null) {
+      return ApiSession.fromJson(
+        Map<String, dynamic>.from(jsonDecode(storedSession) as Map),
+      );
+    }
     final accessToken = preferences.getString(_accessTokenKey);
     final refreshToken = preferences.getString(_refreshTokenKey);
     if (accessToken == null || refreshToken == null) return null;
@@ -59,12 +66,16 @@ class ApiSessionStorage {
 
   Future<void> write(ApiSession session) async {
     final preferences = await SharedPreferences.getInstance();
-    await Future.wait([
-      preferences.setString(_accessTokenKey, session.accessToken),
-      preferences.setString(_refreshTokenKey, session.refreshToken),
-      preferences.setInt(_expiresInKey, session.expiresIn),
-      preferences.setInt(_refreshExpiresInKey, session.refreshExpiresIn),
-    ]);
+    final saved = await preferences.setString(
+      _sessionKey,
+      jsonEncode({
+        'access_token': session.accessToken,
+        'refresh_token': session.refreshToken,
+        'expires_in': session.expiresIn,
+        'refresh_expires_in': session.refreshExpiresIn,
+      }),
+    );
+    if (!saved) throw StateError('Could not persist session');
   }
 
   int _readInt(SharedPreferences preferences, String key) {
@@ -78,12 +89,18 @@ class ApiSessionStorage {
 
   Future<void> clear() async {
     final preferences = await SharedPreferences.getInstance();
-    await Future.wait([
+    final removedLegacy = await Future.wait([
       preferences.remove(_accessTokenKey),
       preferences.remove(_refreshTokenKey),
       preferences.remove(_expiresInKey),
       preferences.remove(_refreshExpiresInKey),
     ]);
+    if (removedLegacy.any((removed) => !removed)) {
+      throw StateError('Could not clear stored session');
+    }
+    if (!await preferences.remove(_sessionKey)) {
+      throw StateError('Could not clear stored session');
+    }
   }
 }
 
@@ -240,7 +257,11 @@ class ApiUserStats {
 }
 
 class ClipbackApi {
-  ClipbackApi({http.Client? client}) : _client = client ?? http.Client();
+  ClipbackApi({
+    http.Client? client,
+    Future<void> Function(ApiSession)? onSessionChanged,
+  }) : _client = client ?? http.Client(),
+       _onSessionChanged = onSessionChanged;
 
   static const _requestTimeout = Duration(seconds: 10);
   static const _baseUrl = String.fromEnvironment(
@@ -249,6 +270,7 @@ class ClipbackApi {
   );
 
   final http.Client _client;
+  final Future<void> Function(ApiSession)? _onSessionChanged;
   ApiSession? _session;
 
   bool get hasSession => _session != null;
@@ -258,6 +280,12 @@ class ClipbackApi {
 
   void clearSession() => _session = null;
 
+  Future<ApiSession> _setSession(ApiSession session) async {
+    _session = session;
+    await _onSessionChanged?.call(session);
+    return session;
+  }
+
   Future<Map<String, String>> health() => _getPublic('/health');
 
   Future<Map<String, String>> readiness() => _getPublic('/health/ready');
@@ -266,8 +294,7 @@ class ClipbackApi {
     final session = ApiSession.fromJson(
       await _json('POST', '/auth/guest', authenticated: false),
     );
-    _session = session;
-    return session;
+    return _setSession(session);
   }
 
   Future<ApiSession> refreshSession() async {
@@ -281,8 +308,7 @@ class ClipbackApi {
         body: {'refresh_token': session.refreshToken},
       ),
     );
-    _session = refreshed;
-    return refreshed;
+    return _setSession(refreshed);
   }
 
   Future<void> logout() async {
@@ -310,8 +336,7 @@ class ClipbackApi {
         body: {'token': token},
       ),
     );
-    _session = session;
-    return session;
+    return _setSession(session);
   }
 
   Future<ApiSession> upgradeGuestWithSocial({
@@ -325,8 +350,7 @@ class ClipbackApi {
         body: {'token': token},
       ),
     );
-    _session = session;
-    return session;
+    return _setSession(session);
   }
 
   Future<ApiUser> readMe() async =>
