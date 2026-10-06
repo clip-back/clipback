@@ -23,6 +23,27 @@ typedef SaveScreenshotCallback =
       CategoryItem? category,
     });
 
+enum _ContentMutationKind { bookmark, category, delete }
+
+class _ContentMutation {
+  _ContentMutation(this.original, this.kind, this.accountVersion);
+
+  final ContentItem original;
+  final _ContentMutationKind kind;
+  final int accountVersion;
+  bool requestFinished = false;
+
+  String get label => kind == _ContentMutationKind.delete ? '삭제 중…' : '변경 중…';
+}
+
+// Only changed fields survive until older reads finish. This is not a content cache.
+class _ContentChange {
+  _ContentMutation? pending;
+  ({int version, bool value})? bookmark;
+  ({int version, CategoryItem value})? category;
+  int? deletedVersion;
+}
+
 /// One bounded list, including the query that owns its opaque server cursor.
 class FeedPage {
   final List<ContentItem> items = [];
@@ -91,6 +112,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
   final _bookmarkFeed = FeedPage()..isFavorite = true;
   final _searchFeed = FeedPage();
   FeedPage? _detailFeed;
+  int _contentVersion = 0;
+  final _contentChanges = <String, _ContentChange>{};
+  final _contentReads = <Object, int>{};
   int _accountVersion = 0;
   int _refreshVersion = 0;
   int _detailNavigationVersion = 0;
@@ -306,6 +330,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   void _invalidateAccountFeeds() {
     _accountVersion++;
+    _contentVersion++;
+    _contentChanges.clear();
+    _contentReads.clear();
     _refreshVersion++;
     _detailNavigationVersion++;
     _movingDetail = false;
@@ -322,6 +349,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Future<void> _loadFeed(FeedPage page, {bool reset = false}) {
     if (reset) page.reset();
     if (page._pending != null) return page._pending!;
+    // Metadata is still loading for a write-triggered first-page refresh.
+    if (page.loading) return Future.value();
     if (!page.hasMore || !mounted) return Future.value();
     final version = page.version;
     final accountVersion = _accountVersion;
@@ -338,39 +367,50 @@ class _ClipbackAppState extends State<ClipbackApp> {
         // Empty favorites must fall through to the ordinary segment. Otherwise
         // one request advances one page, without prefetching the whole segment.
         do {
-          final feed = await _api.readFeed(
-            limit: 20,
-            query: page.query,
-            categoryId: page.categoryId,
-            isFavorite: page.bookmarkedFirst
-                ? page._favoritePhase
-                : page.isFavorite,
-            cursor: page.nextCursor,
-          );
-          if (!current()) return;
-          final knownIds = page.items.map((item) => item.id).toSet();
-          final items = feed.items.map(
-            (item) => _contentFromApi(item, _categoryById),
-          );
-          setState(() {
-            for (final item in items) {
-              if (knownIds.add(item.id)) page.items.add(item);
-              if (item.bookmarked) {
-                _bookmarkedIds.add(item.id);
-              } else {
-                _bookmarkedIds.remove(item.id);
+          final read = _beginContentRead();
+          try {
+            final feed = await _api.readFeed(
+              limit: 20,
+              query: page.query,
+              categoryId: page.categoryId,
+              isFavorite: page.bookmarkedFirst
+                  ? page._favoritePhase
+                  : page.isFavorite,
+              cursor: page.nextCursor,
+            );
+            if (!current()) return;
+            if (!page.initialized) page.items.clear();
+            final knownIds = page.items.map((item) => item.id).toSet();
+            final items = feed.items
+                .map(
+                  (item) => _reconcileContentRead(
+                    _contentFromApi(item, _categoryById),
+                    read.version,
+                  ),
+                )
+                .whereType<ContentItem>();
+            setState(() {
+              for (final item in items) {
+                if (knownIds.add(item.id)) page.items.add(item);
+                if (item.bookmarked) {
+                  _bookmarkedIds.add(item.id);
+                } else {
+                  _bookmarkedIds.remove(item.id);
+                }
               }
-            }
-            page.initialized = true;
-            page.nextCursor = feed.nextCursor;
-            if (feed.nextCursor == null) {
-              if (page.bookmarkedFirst && page._favoritePhase) {
-                page._favoritePhase = false;
-              } else {
-                page.hasMore = false;
+              page.initialized = true;
+              page.nextCursor = feed.nextCursor;
+              if (feed.nextCursor == null) {
+                if (page.bookmarkedFirst && page._favoritePhase) {
+                  page._favoritePhase = false;
+                } else {
+                  page.hasMore = false;
+                }
               }
-            }
-          });
+            });
+          } finally {
+            _endContentRead(read.key);
+          }
         } while (page.items.isEmpty && page.hasMore);
       } catch (error) {
         if (current()) setState(() => page.error = error);
@@ -476,38 +516,26 @@ class _ClipbackAppState extends State<ClipbackApp> {
       _bookmarkedIds.contains(content.id);
 
   void _toggleBookmark(ContentItem content) {
-    final apiId = content.apiId;
-    if (apiId == null) return;
-    final wasBookmarked = _bookmarkedIds.contains(content.id);
-    setState(() {
-      if (!_bookmarkedIds.remove(content.id)) {
-        _bookmarkedIds.add(content.id);
-      }
-    });
-    unawaited(_saveBookmark(content, !wasBookmarked));
-  }
-
-  Future<void> _saveBookmark(ContentItem content, bool isFavorite) async {
-    final accountVersion = _accountVersion;
-    try {
-      final updated = await _api.updateContentFavorite(
-        content.apiId!,
-        isFavorite,
-      );
-      if (!mounted || accountVersion != _accountVersion) return;
-      _replaceContent(_contentFromApi(updated, _categoryById));
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      if (!mounted || accountVersion != _accountVersion) return;
-      setState(() {
-        if (isFavorite) {
-          _bookmarkedIds.remove(content.id);
-        } else {
-          _bookmarkedIds.add(content.id);
-        }
-      });
-      _showError(error.message);
-    }
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.bookmark,
+    );
+    if (mutation == null) return;
+    final next = !mutation.original.bookmarked;
+    _contentChanges[content.id]!.bookmark = (
+      version: ++_contentVersion,
+      value: next,
+    );
+    _updateExistingContent(
+      content.id,
+      (item) => item.copyWith(bookmarked: next, mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(
+        mutation,
+        () => _api.updateContentFavorite(mutation.original.apiId!, next),
+      ),
+    );
   }
 
   void _addContent(ContentItem content) {
@@ -723,95 +751,243 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _changeContentCategory(ContentItem content, CategoryItem category) {
-    final apiId = content.apiId;
-    final categoryId = category.id;
-    if (apiId == null || categoryId == null) return;
-    _replaceContent(content.copyWith(category: category));
-    unawaited(_saveContentCategory(content, category));
-  }
-
-  Future<void> _saveContentCategory(
-    ContentItem original,
-    CategoryItem category,
-  ) async {
-    final versions = {for (final page in _feeds) page: page.version};
-    final accountVersion = _accountVersion;
-    try {
-      final updated = await _api.updateContentCategories(original.apiId!, [
-        category.id!,
-      ]);
-      if (!mounted || accountVersion != _accountVersion) return;
-      _replaceContent(_contentFromApi(updated, _categoryById));
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      if (!mounted || accountVersion != _accountVersion) return;
-      setState(() {
-        for (final page in _feeds) {
-          if (page.version != versions[page]) continue;
-          final index = page.items.indexWhere((item) => item.id == original.id);
-          if (index != -1) page.items[index] = original;
-        }
-      });
-      _showError(error.message);
-    }
+    if (category.id == null) return;
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.category,
+    );
+    if (mutation == null) return;
+    _contentChanges[content.id]!.category = (
+      version: ++_contentVersion,
+      value: category,
+    );
+    _updateExistingContent(
+      content.id,
+      (item) =>
+          item.copyWith(category: category, mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(
+        mutation,
+        () => _api.updateContentCategories(mutation.original.apiId!, [
+          category.id!,
+        ]),
+      ),
+    );
   }
 
   void _deleteContent(ContentItem content) {
-    final apiId = content.apiId;
-    if (apiId == null) return;
-    final positions = {
-      for (final page in _feeds)
-        if (page.items.any((item) => item.id == content.id))
-          page: (
-            page.version,
-            page.items.indexWhere((item) => item.id == content.id),
-          ),
-    };
-    setState(() {
-      final deletingOpenDetail =
-          _route == AppRoute.detail && _selectedContent?.id == content.id;
-      for (final page in _feeds) {
-        page.items.removeWhere((item) => item.id == content.id);
-      }
-      _bookmarkedIds.remove(content.id);
-      if (deletingOpenDetail) {
-        _detailNavigationVersion++;
-        _selectedContent = null;
-        _route = _previousRoute == AppRoute.detail
-            ? AppRoute.home
-            : _previousRoute;
-      }
-    });
-    unawaited(_removeContent(content, positions));
+    final mutation = _beginContentMutation(
+      content,
+      _ContentMutationKind.delete,
+    );
+    if (mutation == null) return;
+    _updateExistingContent(
+      content.id,
+      (item) => item.copyWith(mutationLabel: mutation.label),
+    );
+    unawaited(
+      _runContentMutation(mutation, () async {
+        await _api.deleteContent(mutation.original.apiId!);
+        return null;
+      }),
+    );
   }
 
-  Future<void> _removeContent(
-    ContentItem content,
-    Map<FeedPage, (int, int)> positions,
-  ) async {
-    final accountVersion = _accountVersion;
-    try {
-      await _api.deleteContent(content.apiId!);
-      if (!mounted || accountVersion != _accountVersion) return;
-      await _refreshRemoteAfterContentChange();
-    } on ClipbackApiException catch (error) {
-      if (!mounted || accountVersion != _accountVersion) return;
-      setState(() {
-        for (final entry in positions.entries) {
-          final page = entry.key;
-          if (page.version != entry.value.$1 ||
-              page.items.any((item) => item.id == content.id)) {
-            continue;
-          }
-          page.items.insert(
-            entry.value.$2.clamp(0, page.items.length),
-            content,
-          );
-        }
-        if (content.bookmarked) _bookmarkedIds.add(content.id);
-      });
-      _showError(error.message);
+  ContentItem? _currentContent(String id) {
+    if (_selectedContent?.id == id) return _selectedContent;
+    for (final page in _feeds) {
+      for (final item in page.items) {
+        if (item.id == id) return item;
+      }
     }
+    return null;
+  }
+
+  _ContentMutation? _beginContentMutation(
+    ContentItem content,
+    _ContentMutationKind kind,
+  ) {
+    final current = _currentContent(content.id);
+    if (!mounted ||
+        current?.apiId == null ||
+        _contentChanges[content.id]?.pending != null) {
+      return null;
+    }
+    final mutation = _ContentMutation(current!, kind, _accountVersion);
+    (_contentChanges[content.id] ??= _ContentChange()).pending = mutation;
+    return mutation;
+  }
+
+  bool _isCurrentMutation(_ContentMutation mutation) =>
+      mounted &&
+      mutation.accountVersion == _accountVersion &&
+      identical(_contentChanges[mutation.original.id]?.pending, mutation);
+
+  Future<void> _runContentMutation(
+    _ContentMutation mutation,
+    Future<ApiContent?> Function() request,
+  ) async {
+    final id = mutation.original.id;
+    try {
+      ApiContent? response;
+      try {
+        response = await request();
+      } catch (error) {
+        if (!_isCurrentMutation(mutation)) return;
+        mutation.requestFinished = true;
+        final change = _contentChanges[id]!;
+        final version = ++_contentVersion;
+        switch (mutation.kind) {
+          case _ContentMutationKind.bookmark:
+            change.bookmark = (
+              version: version,
+              value: mutation.original.bookmarked,
+            );
+            _updateExistingContent(
+              id,
+              (item) => item.copyWith(bookmarked: mutation.original.bookmarked),
+            );
+          case _ContentMutationKind.category:
+            change.category = (
+              version: version,
+              value: mutation.original.category,
+            );
+            _updateExistingContent(
+              id,
+              (item) => item.copyWith(category: mutation.original.category),
+            );
+          case _ContentMutationKind.delete:
+            break;
+        }
+        _showError(
+          error is ClipbackApiException
+              ? error.message
+              : '콘텐츠 변경을 완료하지 못했어요. 다시 시도해 주세요.',
+        );
+        return;
+      }
+      if (!_isCurrentMutation(mutation)) return;
+      mutation.requestFinished = true;
+      final change = _contentChanges[id]!;
+      final version = ++_contentVersion;
+      if (mutation.kind == _ContentMutationKind.delete) {
+        change.deletedVersion = version;
+        setState(() {
+          for (final page in _feeds) {
+            page.items.removeWhere((item) => item.id == id);
+          }
+          _bookmarkedIds.remove(id);
+          if (_route == AppRoute.detail && _selectedContent?.id == id) {
+            _detailNavigationVersion++;
+            _movingDetail = false;
+            _selectedContent = null;
+            _route = _previousRoute == AppRoute.detail
+                ? AppRoute.home
+                : _previousRoute;
+          }
+        });
+      } else {
+        final updated = _contentFromApi(response!, _categoryById);
+        if (mutation.kind == _ContentMutationKind.bookmark) {
+          change.bookmark = (version: version, value: updated.bookmarked);
+        } else {
+          change.category = (version: version, value: updated.category);
+        }
+        _replaceContent(updated.copyWith(mutationLabel: mutation.label));
+      }
+      // A failed follow-up read must not roll back an already committed write.
+      await _refreshRemoteAfterContentChange();
+    } finally {
+      if (_isCurrentMutation(mutation)) {
+        _contentChanges[id]!.pending = null;
+        _updateExistingContent(
+          id,
+          (item) => item.copyWith(clearMutationLabel: true),
+        );
+        _pruneContentChanges();
+      }
+    }
+  }
+
+  void _updateExistingContent(
+    String id,
+    ContentItem Function(ContentItem) update,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      for (final page in _feeds) {
+        final index = page.items.indexWhere((item) => item.id == id);
+        if (index != -1) page.items[index] = update(page.items[index]);
+      }
+      if (_selectedContent?.id == id) {
+        _selectedContent = update(_selectedContent!);
+      }
+      final current = _currentContent(id);
+      final bookmarked =
+          current?.bookmarked ?? _contentChanges[id]?.bookmark?.value;
+      if (bookmarked != null) {
+        if (bookmarked) {
+          _bookmarkedIds.add(id);
+        } else {
+          _bookmarkedIds.remove(id);
+        }
+      }
+    });
+  }
+
+  ({Object key, int version}) _beginContentRead() {
+    final key = Object();
+    _contentReads[key] = _contentVersion;
+    return (key: key, version: _contentVersion);
+  }
+
+  void _endContentRead(Object key) {
+    _contentReads.remove(key);
+    _pruneContentChanges();
+  }
+
+  void _pruneContentChanges() {
+    final oldestRead = _contentReads.values.fold(_contentVersion, math.min);
+    _contentChanges.removeWhere((id, change) {
+      if (change.pending != null) return false;
+      if ((change.bookmark?.version ?? 0) <= oldestRead) change.bookmark = null;
+      if ((change.category?.version ?? 0) <= oldestRead) change.category = null;
+      if ((change.deletedVersion ?? 0) <= oldestRead) {
+        change.deletedVersion = null;
+      }
+      return change.bookmark == null &&
+          change.category == null &&
+          change.deletedVersion == null;
+    });
+  }
+
+  ContentItem? _reconcileContentRead(ContentItem item, int readVersion) {
+    final change = _contentChanges[item.id];
+    if (change == null) return item;
+    if (change.deletedVersion != null && readVersion < change.deletedVersion!) {
+      return null;
+    }
+    final pending = change.pending;
+    final writing = pending != null && !pending.requestFinished;
+    final bookmark = change.bookmark;
+    final category = change.category;
+    return item.copyWith(
+      bookmarked:
+          bookmark != null &&
+              (readVersion < bookmark.version ||
+                  (writing && pending.kind == _ContentMutationKind.bookmark))
+          ? bookmark.value
+          : null,
+      category:
+          category != null &&
+              (readVersion < category.version ||
+                  (writing && pending.kind == _ContentMutationKind.category))
+          ? category.value
+          : null,
+      mutationLabel: pending?.label,
+      clearMutationLabel: pending == null,
+    );
   }
 
   Map<int, CategoryItem> get _categoryById => {
@@ -837,10 +1013,13 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<void> _refreshStats() async {
     final accountVersion = _accountVersion;
+    final refreshVersion = _refreshVersion;
     try {
       final stats = await _api.readStats();
       final user = await _api.readMe();
-      if (mounted && accountVersion == _accountVersion) {
+      if (mounted &&
+          accountVersion == _accountVersion &&
+          refreshVersion == _refreshVersion) {
         setState(() => _user = _userFromApi(user, stats));
       }
     } catch (_) {
@@ -868,7 +1047,11 @@ class _ClipbackAppState extends State<ClipbackApp> {
     // while this refresh is waiting for metadata.
     setState(() {
       for (final page in pages) {
+        final previousItems = List<ContentItem>.of(page.items);
         page.reset();
+        // Keep current values usable for other content actions until the first
+        // response replaces this list. General query/filter resets still clear it.
+        page.items.addAll(previousItems);
         // Metadata is part of this reload. A subsequent write must still see
         // this page as active while its first feed request has not started.
         page.loading = true;
@@ -888,9 +1071,12 @@ class _ClipbackAppState extends State<ClipbackApp> {
     }
     if (!current()) return;
     await Future.wait(
-      pages.where((page) => page.version == versions[page]).map(_loadFeed),
+      pages.where((page) => page.version == versions[page]).map((page) {
+        page.loading = false;
+        return _loadFeed(page);
+      }),
     );
-    await _refreshStats();
+    if (current()) await _refreshStats();
   }
 
   void _openAdjacentContent(int delta) async {
@@ -989,6 +1175,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   void _openDetail(ContentItem content) {
+    content = _currentContent(content.id) ?? content;
     setState(() {
       if (_route != AppRoute.detail) {
         _previousRoute = _route;
@@ -1026,15 +1213,22 @@ class _ClipbackAppState extends State<ClipbackApp> {
     final accountVersion = _accountVersion;
     final refreshVersion = _refreshVersion;
     final navigationVersion = _detailNavigationVersion;
+    final read = _beginContentRead();
     try {
       final content = await _api.readContent(contentId);
       if (accountVersion == _accountVersion &&
           refreshVersion == _refreshVersion &&
           navigationVersion == _detailNavigationVersion) {
-        _replaceContent(_contentFromApi(content, _categoryById));
+        final updated = _reconcileContentRead(
+          _contentFromApi(content, _categoryById),
+          read.version,
+        );
+        if (updated != null) _replaceContent(updated);
       }
     } catch (_) {
       // Feed data is still enough to keep the detail screen usable.
+    } finally {
+      _endContentRead(read.key);
     }
   }
 
@@ -2852,7 +3046,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             Expanded(
                               child: TextField(
                                 controller: _controller,
-                                autofocus: true,
+                                autofocus: widget.initialQuery.trim().isEmpty,
                                 onChanged: (value) {
                                   _requestVersion++;
                                   widget.onQueryChanged(value);
@@ -4287,15 +4481,21 @@ class DetailTopBar extends StatelessWidget {
         children: [
           SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
           const Spacer(),
+          if (content.mutationLabel != null) ...[
+            _ContentMutationStatus(label: content.mutationLabel!),
+            const SizedBox(width: 12),
+          ],
           BookmarkActionButton(
             initialActive: bookmarked,
             onToggle: onToggleBookmark,
+            enabled: content.mutationLabel == null,
             size: 24,
             hitSize: 24,
           ),
           const SizedBox(width: 12),
           SvgIconButton(
             asset: Assets.more,
+            enabled: content.mutationLabel == null,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
               backgroundColor: Colors.transparent,
@@ -4315,10 +4515,25 @@ class DetailTopBar extends StatelessWidget {
   }
 }
 
+class _ContentMutationStatus extends StatelessWidget {
+  const _ContentMutationStatus({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(color: AppColors.subtle, fontSize: 11),
+  );
+}
+
 class BookmarkActionButton extends StatefulWidget {
   const BookmarkActionButton({
     this.initialActive = false,
     this.onToggle,
+    this.enabled = true,
     this.size = 28,
     this.hitSize = 44,
     super.key,
@@ -4326,6 +4541,7 @@ class BookmarkActionButton extends StatefulWidget {
 
   final bool initialActive;
   final VoidCallback? onToggle;
+  final bool enabled;
   final double size;
   final double hitSize;
 
@@ -4354,7 +4570,9 @@ class _BookmarkActionButtonState extends State<BookmarkActionButton> {
   Widget build(BuildContext context) {
     return SvgIconButton(
       asset: _active ? Assets.starFilled : Assets.star,
+      enabled: widget.enabled,
       onPressed: () {
+        if (!widget.enabled) return;
         widget.onToggle?.call();
         if (widget.onToggle == null) {
           setState(() => _active = !_active);
@@ -4569,12 +4787,26 @@ class HomeContentCard extends StatelessWidget {
                 key: ValueKey('home-bookmark-${content.title}'),
                 initialActive: bookmarked,
                 onToggle: onToggleBookmark,
+                enabled: content.mutationLabel == null,
               ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CategoryBadge(category: content.category),
+                Padding(
+                  padding: const EdgeInsets.only(right: 28),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: CategoryBadge(category: content.category),
+                      ),
+                      if (content.mutationLabel != null) ...[
+                        const SizedBox(width: 8),
+                        _ContentMutationStatus(label: content.mutationLabel!),
+                      ],
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   content.title,
@@ -4586,7 +4818,7 @@ class HomeContentCard extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   content.summary,
                   maxLines: 3,
@@ -4949,10 +5181,12 @@ class ContentListCard extends StatelessWidget {
                       initialActive: bookmarked,
                       hitSize: 28,
                       onToggle: onToggleBookmark,
+                      enabled: content.mutationLabel == null,
                     ),
                     const SizedBox(width: 4),
                     SvgIconButton(
                       asset: Assets.more,
+                      enabled: content.mutationLabel == null,
                       onPressed: () => showModalBottomSheet<void>(
                         context: context,
                         backgroundColor: Colors.transparent,
@@ -5015,15 +5249,23 @@ class ContentListCard extends StatelessWidget {
                 bottom: 16,
                 left: 20,
                 right: 20,
-                child: Text(
-                  content.savedAt,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFA9A9A9),
-                    fontSize: 14,
-                    letterSpacing: -0.35,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        content.savedAt,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFA9A9A9),
+                          fontSize: 14,
+                          letterSpacing: -0.35,
+                        ),
+                      ),
+                    ),
+                    if (content.mutationLabel != null)
+                      _ContentMutationStatus(label: content.mutationLabel!),
+                  ],
                 ),
               ),
             ],
@@ -5073,12 +5315,17 @@ class CategoryFeaturedCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CategoryBadge(category: content.category),
+                Flexible(child: CategoryBadge(category: content.category)),
                 const Spacer(),
+                if (content.mutationLabel != null) ...[
+                  _ContentMutationStatus(label: content.mutationLabel!),
+                  const SizedBox(width: 8),
+                ],
                 BookmarkActionButton(
                   initialActive: bookmarked,
                   hitSize: 28,
                   onToggle: onToggleBookmark,
+                  enabled: content.mutationLabel == null,
                 ),
               ],
             ),
@@ -5503,8 +5750,12 @@ class CategoryReviewCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  CategoryBadge(category: content.category),
+                  Flexible(child: CategoryBadge(category: content.category)),
                   const Spacer(),
+                  if (content.mutationLabel != null) ...[
+                    _ContentMutationStatus(label: content.mutationLabel!),
+                    const SizedBox(width: 8),
+                  ],
                   if (compact)
                     SvgPicture.asset(
                       Assets.categoryCardStarSmall,
@@ -5516,7 +5767,9 @@ class CategoryReviewCard extends StatelessWidget {
                       width: 28,
                       height: 28,
                       child: InkWell(
-                        onTap: onToggleBookmark,
+                        onTap: content.mutationLabel == null
+                            ? onToggleBookmark
+                            : null,
                         customBorder: const CircleBorder(),
                         child: Center(
                           child: SvgPicture.asset(
@@ -8088,10 +8341,13 @@ class ContentActionSheet extends StatelessWidget {
     return AppSheet(
       title: '콘텐츠 관리',
       children: [
+        if (content.mutationLabel != null)
+          _ContentMutationStatus(label: content.mutationLabel!),
         SheetActionTile(
           icon: Assets.archive,
           title: '카테고리 변경',
           description: '이 콘텐츠를 다른 카테고리로 옮겨요.',
+          enabled: content.mutationLabel == null,
           onTap: () {
             Navigator.pop(context);
             showModalBottomSheet<void>(
@@ -8102,6 +8358,7 @@ class ContentActionSheet extends StatelessWidget {
                 current: content.category,
                 categories: categories,
                 onChange: onChangeCategory,
+                enabled: content.mutationLabel == null,
               ),
             );
           },
@@ -8110,6 +8367,7 @@ class ContentActionSheet extends StatelessWidget {
           icon: Assets.close,
           title: '삭제',
           description: '저장한 콘텐츠 목록에서 제거해요.',
+          enabled: content.mutationLabel == null,
           onTap: () {
             onDelete();
             Navigator.pop(context);
@@ -8379,6 +8637,7 @@ class SheetActionTile extends StatelessWidget {
     required this.title,
     required this.description,
     required this.onTap,
+    this.enabled = true,
     super.key,
   });
 
@@ -8386,11 +8645,12 @@ class SheetActionTile extends StatelessWidget {
   final String title;
   final String description;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -8524,12 +8784,14 @@ class CategoryChangeSheet extends StatelessWidget {
     required this.current,
     required this.categories,
     required this.onChange,
+    this.enabled = true,
     super.key,
   });
 
   final CategoryItem current;
   final List<CategoryItem> categories;
   final ValueChanged<CategoryItem> onChange;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -8549,6 +8811,7 @@ class CategoryChangeSheet extends StatelessWidget {
           CategoryChangeTile(
             category: category,
             selected: category.id == current.id,
+            enabled: enabled,
             onTap: () {
               onChange(category);
               Navigator.pop(context);
@@ -8564,12 +8827,14 @@ class CategoryChangeTile extends StatelessWidget {
     required this.category,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
     super.key,
   });
 
   final CategoryItem category;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -8578,7 +8843,7 @@ class CategoryChangeTile extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
+          onTap: enabled ? onTap : null,
           borderRadius: BorderRadius.circular(8),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
@@ -9224,6 +9489,8 @@ class CategoryBadge extends StatelessWidget {
       ),
       child: Text(
         category.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: category.deep,
           fontSize: 12,
@@ -9444,6 +9711,7 @@ class SvgIconButton extends StatelessWidget {
   const SvgIconButton({
     required this.asset,
     required this.onPressed,
+    this.enabled = true,
     this.size = 24,
     this.hitSize = 44,
     this.color = AppColors.text,
@@ -9452,6 +9720,7 @@ class SvgIconButton extends StatelessWidget {
 
   final String asset;
   final VoidCallback onPressed;
+  final bool enabled;
   final double size;
   final double hitSize;
   final Color color;
@@ -9464,7 +9733,7 @@ class SvgIconButton extends StatelessWidget {
       child: IconButton(
         padding: EdgeInsets.zero,
         constraints: BoxConstraints.tight(Size(hitSize, hitSize)),
-        onPressed: onPressed,
+        onPressed: enabled ? onPressed : null,
         icon: SvgIcon(asset: asset, size: size, color: color),
       ),
     );
@@ -9578,6 +9847,7 @@ class ContentItem {
     this.isScreenshot = false,
     this.assets = const [],
     this.summaryStatus = 'not_requested',
+    this.mutationLabel,
   });
 
   final String id;
@@ -9596,8 +9866,14 @@ class ContentItem {
   final bool isScreenshot;
   final List<ApiAsset> assets;
   final String summaryStatus;
+  final String? mutationLabel;
 
-  ContentItem copyWith({CategoryItem? category, bool? bookmarked}) {
+  ContentItem copyWith({
+    CategoryItem? category,
+    bool? bookmarked,
+    String? mutationLabel,
+    bool clearMutationLabel = false,
+  }) {
     return ContentItem(
       id: id,
       apiId: apiId,
@@ -9615,6 +9891,9 @@ class ContentItem {
       isScreenshot: isScreenshot,
       assets: assets,
       summaryStatus: summaryStatus,
+      mutationLabel: clearMutationLabel
+          ? null
+          : mutationLabel ?? this.mutationLabel,
     );
   }
 }
