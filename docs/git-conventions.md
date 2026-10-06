@@ -41,10 +41,10 @@ Clipback 팀의 브랜치, 커밋, PR 작성 규칙입니다.
 예시:
 
 ```text
-feat: implement content persistence
-fix: align content classification with categories
-docs: add git conventions
-chore: add local postgres compose
+feat: 콘텐츠 저장 및 조회 추가
+fix: 콘텐츠 카테고리 분류 오류 수정
+docs: Git 협업 규칙 정리
+chore: 로컬 PostgreSQL 실행 환경 추가
 ```
 
 권장 타입:
@@ -62,7 +62,7 @@ chore: add local postgres compose
 
 규칙:
 
-- summary는 영어 소문자로 시작하고 마침표를 붙이지 않습니다.
+- 타입은 영어를 유지하고 summary는 한글로 작성하며 마침표를 붙이지 않습니다.
 - 한 커밋은 가능한 하나의 의도만 담습니다.
 - 커밋 제목은 72자 이내를 권장합니다.
 - `.env`, `.venv`, 로컬 DB 데이터, 개인 설정 파일은 커밋하지 않습니다.
@@ -73,23 +73,23 @@ chore: add local postgres compose
 PR 제목은 대표 커밋 메시지와 같은 형식을 사용합니다.
 
 ```text
-feat: implement content persistence
+feat: 콘텐츠 저장 및 조회 추가
 ```
 
 PR 본문은 기본적으로 아래 템플릿을 사용합니다.
 
 ```md
-## Summary
+## 변경 사항
 
-- What changed.
-- Why it changed.
-- User or developer impact.
+- 변경한 기능과 동작을 설명합니다.
+- 변경이 필요한 이유를 설명합니다.
+- 사용자 또는 개발자에게 미치는 영향을 설명합니다.
 
-## Validation
+## 검증
 
-- cd backend && .venv/bin/python -m pytest -q
-- cd backend && .venv/bin/python -m compileall app alembic tests
-- cd backend && .venv/bin/alembic check
+- 실제 실행한 검증과 결과를 기록합니다. 예: 관련 pytest 통과
+- 실행하지 않은 검증은 미실행으로 표시하고 이유를 적습니다.
+- 운영 배포·실기기 검증 여부를 자동 테스트 결과와 구분합니다.
 ```
 
 규칙:
@@ -97,7 +97,8 @@ PR 본문은 기본적으로 아래 템플릿을 사용합니다.
 - base 브랜치는 `main`으로 둡니다.
 - PR은 draft가 아니라 바로 리뷰 가능한 상태로 올리는 것을 기본으로 합니다.
 - 작업 범위가 아직 불확실하거나 테스트가 깨진 상태라면 draft로 올립니다.
-- PR 본문에는 변경 내용과 검증 명령을 반드시 적습니다.
+- PR 제목과 본문은 한글로 작성합니다. 코드 식별자·명령·경로는 원문을 유지합니다.
+- PR 본문에는 변경 내용과 실제 수행한 검증 명령·결과를 적습니다.
 - DB 구조 변경이 있으면 migration 여부와 실행 결과를 적습니다.
 - 리뷰 반영 커밋도 같은 브랜치에 추가합니다.
 
@@ -108,15 +109,15 @@ PR 본문은 기본적으로 아래 템플릿을 사용합니다.
 예시:
 
 ```text
-feat: implement content persistence
+feat: 콘텐츠 저장 및 조회 추가
 ```
 
 본문을 넣을 수 있다면 한 줄 요약을 추가합니다.
 
 ```text
-feat: implement content persistence
+feat: 콘텐츠 저장 및 조회 추가
 
-Persist saved contents and serve detail/feed responses from the database.
+콘텐츠를 DB에 저장하고 상세·피드 조회를 제공합니다.
 ```
 
 규칙:
@@ -133,9 +134,9 @@ git switch main
 git pull --ff-only origin main
 git switch -c feature/backend-example
 
-# work, test, commit
+# 작업, 검증 후 변경 파일을 지정해 커밋
 git add <files>
-git commit -m "feat: implement backend example"
+git commit -m "feat: 백엔드 예제 기능 추가"
 
 git push -u origin feature/backend-example
 gh pr create --base main --head feature/backend-example

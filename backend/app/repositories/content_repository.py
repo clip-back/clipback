@@ -1,13 +1,19 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_category import content_categories
+from app.models.recommendation import RecommendationType
+from app.models.tag import Tag
+from app.schemas.feed import FeedCursor
+from app.schemas.recommendation import TodayCandidate
+
+SEARCH_PATTERN_ESCAPE = "\\"
 
 
 class ContentRepository:
@@ -27,6 +33,7 @@ class ContentRepository:
         original_url: str | None,
         is_favorite: bool,
         categories: Sequence[Category],
+        tags: Sequence[Tag],
     ) -> Content:
         content = Content(
             user_id=user_id,
@@ -38,28 +45,131 @@ class ContentRepository:
             is_favorite=is_favorite,
         )
         content.categories = list(categories)
+        content.tags = list(tags)
         self.session.add(content)
         await self.session.flush()
         return content
 
-    async def get_owned(self, *, user_id: int, content_id: int) -> Content | None:
+    async def get_owned(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        for_update: bool = False,
+    ) -> Content | None:
+        if for_update:
+            await self.session.execute(
+                select(Content.id)
+                .where(
+                    Content.id == content_id,
+                    Content.user_id == user_id,
+                )
+                .with_for_update()
+            )
         result = await self.session.scalars(
             select(Content)
-            .options(selectinload(Content.categories))
+            .options(
+                selectinload(Content.categories),
+                selectinload(Content.tags),
+                selectinload(Content.assets),
+                selectinload(Content.summary_job),
+            )
             .where(Content.id == content_id, Content.user_id == user_id)
+            .execution_options(populate_existing=True)
         )
         return result.first()
+
+    async def get_feed_cursor(self, *, user_id: int, content_id: int) -> FeedCursor | None:
+        result = await self.session.execute(
+            select(Content.saved_at, Content.id).where(
+                Content.user_id == user_id, Content.id == content_id
+            )
+        )
+        row = result.one_or_none()
+        return FeedCursor(saved_at=row.saved_at, id=row.id) if row is not None else None
+
+    async def count_owned(self, user_id: int) -> int:
+        return await self.session.scalar(
+            select(func.count()).select_from(Content).where(Content.user_id == user_id)
+        )
+
+    async def list_owned_ids_for_share(self, user_id: int) -> list[int]:
+        return list(await self.session.scalars(
+            select(Content.id)
+            .where(Content.user_id == user_id)
+            .order_by(Content.id)
+            .with_for_update(read=True, of=Content)
+        ))
+
+    async def list_today_candidates_for_share(self, user_id: int) -> list[TodayCandidate]:
+        # Match classification/deletion lock order and hold this snapshot through batch commit.
+        rows = (
+            await self.session.execute(
+                select(
+                    Content.id,
+                    Content.saved_at,
+                    Content.last_viewed_at,
+                    Content.open_count,
+                    Content.last_recommended_at,
+                    Content.is_favorite,
+                )
+                .where(Content.user_id == user_id)
+                .order_by(Content.id)
+                .with_for_update(read=True, of=Content)
+            )
+        ).all()
+        category_ids: dict[int, list[int]] = {row.id: [] for row in rows}
+        if category_ids:
+            relations = await self.session.execute(
+                select(content_categories.c.content_id, content_categories.c.category_id)
+                .join(Content, Content.id == content_categories.c.content_id)
+                .where(Content.user_id == user_id)
+                .order_by(content_categories.c.category_id)
+            )
+            for content_id, category_id in relations:
+                # A concurrent save may commit after the locked statement's snapshot.
+                if content_id in category_ids:
+                    category_ids[content_id].append(category_id)
+        return [
+            TodayCandidate(**row._mapping, category_ids=tuple(category_ids[row.id]))
+            for row in rows
+        ]
+
+    async def list_owned_by_ids(self, *, user_id: int, content_ids: Sequence[int]) -> list[Content]:
+        if not content_ids:
+            return []
+        result = await self.session.scalars(
+            select(Content)
+            .where(Content.user_id == user_id, Content.id.in_(content_ids))
+            .options(
+                selectinload(Content.categories),
+                selectinload(Content.tags),
+                selectinload(Content.assets),
+                selectinload(Content.summary_job),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return list(result)
 
     async def list_feed(
         self,
         *,
         user_id: int,
         category_id: int | None,
-        cursor_id: int | None,
+        cursor: FeedCursor | None,
         limit: int,
+        is_favorite: bool | None = None,
+        search_query: str | None = None,
     ) -> list[Content]:
-        statement = select(Content).options(selectinload(Content.categories)).where(
-            Content.user_id == user_id
+        statement = (
+            select(Content)
+            .options(
+                selectinload(Content.categories),
+                selectinload(Content.tags),
+                selectinload(Content.assets),
+                selectinload(Content.summary_job),
+            )
+            .where(Content.user_id == user_id)
         )
 
         if category_id is not None:
@@ -68,15 +178,97 @@ class ContentRepository:
                 Content.id == content_categories.c.content_id,
             ).where(content_categories.c.category_id == category_id)
 
-        if cursor_id is not None:
-            statement = statement.where(Content.id < cursor_id)
+        if is_favorite is not None:
+            statement = statement.where(Content.is_favorite == is_favorite)
+
+        if search_query is not None:
+            pattern = self._build_search_pattern(search_query)
+            tag_pattern = self._build_search_pattern(search_query.casefold())
+            statement = statement.where(
+                or_(
+                    Content.title.ilike(pattern, escape=SEARCH_PATTERN_ESCAPE),
+                    Content.summary.ilike(pattern, escape=SEARCH_PATTERN_ESCAPE),
+                    Content.tags.any(
+                        Tag.normalized_name.ilike(
+                            tag_pattern,
+                            escape=SEARCH_PATTERN_ESCAPE,
+                        )
+                    ),
+                )
+            )
+
+        if cursor is not None:
+            statement = statement.where(
+                or_(
+                    Content.saved_at < cursor.saved_at,
+                    and_(Content.saved_at == cursor.saved_at, Content.id < cursor.id),
+                )
+            )
 
         statement = statement.order_by(Content.saved_at.desc(), Content.id.desc()).limit(limit)
 
         result = await self.session.scalars(statement)
         return list(result)
 
-    async def mark_viewed(self, content: Content) -> Content:
-        content.last_viewed_at = datetime.now(UTC)
+    @staticmethod
+    def _build_search_pattern(search_query: str) -> str:
+        escaped = search_query.replace(SEARCH_PATTERN_ESCAPE, "\\\\")
+        escaped = escaped.replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    async def mark_viewed(self, content: Content, *, viewed_at: datetime) -> Content:
+        content.open_count += 1
+        content.last_viewed_at = viewed_at
         await self.session.flush()
         return content
+
+    async def mark_recommended(
+        self, content: Content, *, recommended_at: datetime, surface: RecommendationType
+    ) -> Content:
+        content.recommendation_count += 1
+        content.last_recommended_at = recommended_at
+        content.last_recommended_surface = surface
+        await self.session.flush()
+        return content
+
+    async def set_favorite(self, *, content: Content, is_favorite: bool) -> Content:
+        content.is_favorite = is_favorite
+        await self.session.flush()
+        return content
+
+    async def delete(self, content: Content) -> None:
+        await self.session.delete(content)
+        await self.session.flush()
+
+    async def replace_categories(
+        self,
+        *,
+        content: Content,
+        categories: Sequence[Category],
+    ) -> Content:
+        content.categories = list(categories)
+        await self.session.flush()
+        return content
+
+    async def replace_tags(
+        self,
+        *,
+        content: Content,
+        tags: Sequence[Tag],
+    ) -> Content:
+        content.tags = list(tags)
+        await self.session.flush()
+        return content
+
+    async def lock_category_contents(self, user_id: int, category_id: int) -> list[int]:
+        result = await self.session.scalars(
+            select(Content.id)
+            .join(content_categories)
+            .where(
+                Content.user_id == user_id,
+                content_categories.c.category_id == category_id,
+            )
+            .order_by(Content.id)
+            .with_for_update(of=Content)
+        )
+        return list(result)

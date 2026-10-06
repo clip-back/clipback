@@ -4,7 +4,6 @@ from fastapi import HTTPException
 
 from app.schemas.content import ContentSource
 
-
 INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
 INSTAGRAM_CONTENT_PATH_PREFIXES = ("/p/", "/reel/", "/tv/", "/stories/")
 URL_TRAILING_CHARS = ".,;:!?)]}>"

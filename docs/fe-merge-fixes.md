@@ -5,9 +5,9 @@
 FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수정하고, 검증 결과를 이 문서에 기록한다.
 문서 준비일은 **2026-10-05 (KST)**다. 문서 PR #36과 PR 1의 수정 PR #37은 FE에 병합되었으며,
 PR 2의 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)도 FE에 병합되었다.
-현재 PR 3의 동시 토큰 갱신 중복 방지는 구현·검증·푸시 후 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)를 생성했다.
-PR 4~10은 미착수이며,
-백엔드 API·DB 스키마·기존 데이터는 PR 3에서 변경하지 않는다.
+PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-10-06 FE에 병합되었다.
+현재 `chore/fe-sync-main`에서 최신 main을 FE에 동기화하고 통합 검증한다.
+PR 4~10은 미착수다. 동기화에는 main의 기존 백엔드·migration·문서가 포함되며 새 기능은 추가하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
 [프론트 README](../frontend/README.md), 백엔드 구현 범위는
@@ -22,8 +22,9 @@ PR 4~10은 미착수이며,
 | 비교 대상 | `origin/main` — `8c759d1f4a02f43966f4d692d0541d5feb74dcdc` |
 | 2026-10-05 원격 확인 | FE 전용 3개 / main 전용 60개 커밋으로 분기됨 |
 
-FE의 백엔드 코드는 최신 main보다 이전 상태다. 이후 API 계약 대조와 최종 통합 검증은
-그 시점의 최신 main 백엔드를 기준으로 한다. 위 SHA와 과거 결과를 새 검증 결과로 재사용하지 않는다.
+위 표는 최초 계획의 기준이다. 2026-10-06 동기화 브랜치는 FE `8f3f2f4`에 main `8c759d1`을 병합한다.
+이후에는 동기화된 FE의 프론트·백엔드를 함께 검증하며, 최종 main 병합 전에도 최신 변경을 확인한다.
+위 SHA와 과거 결과를 새 검증 결과로 재사용하지 않는다.
 
 ## 2. 브랜치·PR 진행 방식
 
@@ -35,7 +36,8 @@ FE의 백엔드 코드는 최신 main보다 이전 상태다. 이후 API 계약 
 4. 해당 PR의 상태·변경 내용·실제 검증 결과를 이 문서에 함께 기록한다.
 5. 수정 PR은 **base `FE`**로 검토·병합한다. 병합 여부와 결과 커밋은 다음 작업 시작 시 기록한다.
 6. 다음 수정은 갱신된 FE에서 시작한다. PR 2 → 3 → 4는 의존성을 지켜 순서대로 진행한다.
-7. 수정이 끝나면 최신 main과의 병합 결과를 검증하고 **최종 `FE → main` PR**을 만든다.
+7. PR 3 이후 main을 FE에 먼저 동기화하고 통합 테스트한 뒤, 이후 수정은 동기화된 FE에서 시작한다.
+8. 수정이 끝나면 최신 main과의 병합 결과를 다시 검증하고 **최종 `FE → main` PR**을 만든다.
 
 [공통 Git 규칙](git-conventions.md)의 PR base `main` 원칙에 대해,
 이 FE 병합 준비 작업의 문서·수정 PR만 base `FE`를 사용하는 예외다. 최종 통합 PR의 base는 `main`이다.
@@ -57,7 +59,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | --- | --- | --- | --- | --- | --- |
 | PR 1 | P1 | 일시 오류에서 기존 세션 보존 | 없음 | FE 병합 | `fix/fe-session-restore` / [#37](https://github.com/clip-back/clipback/pull/37) |
 | PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | FE 병합 | `fix/fe-refresh-persistence` / [#38](https://github.com/clip-back/clipback/pull/38) |
-| PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | PR 생성 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
+| PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | FE 병합 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | PR 3 | 예정 | 미생성 |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | 없음 | 예정 | 미생성 |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 예정 | 미생성 |
@@ -112,6 +114,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 - 완료 조건: 선택 없는 링크·사진 저장은 자동 분류 경로를 사용하고, 명시적 선택은 유지된다.
   YouTube의 비동기 분류와 분류 실패 시 미분류 처리를 성공한 자동 분류로 잘못 표시하지 않는다.
   기존 카테고리 접근 권한·복수 분류·미분류 혼합 거절 계약은 유지한다.
+  `###`처럼 카테고리로는 유효하지만 태그 정규화 시 빈 값이 되는 이름도 저장되는지 회귀 검증한다.
 
 ### PR 6 — `fix: 피드 커서 기반 추가 조회 구현`
 
@@ -483,6 +486,31 @@ flutter build web --no-pub
 - 사용자 `AGENTS.md`, 잠금파일, 화면·로그 산출물은 PR에 포함하지 않았다. migration은 필요하지 않다.
 - 이 링크와 상태 기록을 추가 커밋·푸시하고 최종 원격 head·파일 범위·Checks를 다시 확인한다.
   다음 수정은 PR #39의 FE 병합을 확인한 뒤 PR 4 스크린샷 인증 갱신·재시도를 진행한다.
+
+### main → FE 동기화 시작 — 2026-10-06
+
+- 사용자 요청: main을 FE에 먼저 병합하고 합쳐진 코드로 테스트한 뒤 FE 대상 PR을 생성한다.
+- 출발 FE: `8f3f2f4ed3ae8b372f40fc4cc5aed8c8621c3209`.
+  PR #39는 2026-10-06 11:56 KST에 이 커밋으로 병합되었다.
+- 병합 main: `8c759d1f4a02f43966f4d692d0541d5feb74dcdc`. 시작 시 FE 전용 16개 / main 전용 60개 커밋이다.
+- 브랜치: 별도 worktree의 `chore/fe-sync-main`. 원래 체크아웃과 사용자 `AGENTS.md`는 건드리지 않는다.
+- 충돌: `frontend/README.md`의 현재 구현 설명과 실행·연동 안내만 충돌했다.
+  FE의 PR 1~3 설명·명령과 main의 API·추천·배포 경계를 함께 보존했고, 오래된 mock 전용 설명을 바로잡았다.
+  루트 README도 현재 API 연동 상태에 맞췄다.
+- 범위: 백엔드·CI·migration·공유 테스트 앱 제거는 main에서 이미 완료된 변경을 그대로 가져온다.
+  프론트 제품 코드·테스트·의존성·잠금파일은 FE 그대로 유지한다. PR 4~10 구현을 섞지 않는다.
+- 프론트 검증: Flutter 3.44.9 / Dart 3.12.2의 `flutter pub get --enforce-lockfile`,
+  `flutter analyze --no-pub`(No issues found), `flutter test --no-pub`(**100 passed, skip 0**),
+  `flutter build web --no-pub`(Wasm dry run 포함) 모두 통과했다. 기존 SVG·CupertinoIcons 폰트 경고는 남아 있다.
+- 백엔드 검증 진행: 전용 DB migration·스키마 검사·전체 pytest·Ruff·compileall 및 로컬 API 연결 확인.
+  Docker daemon 미가동으로 로컬은 PostgreSQL 17.7을 사용한다.
+  FE 대상 PR은 자동 CI 대상이 아니므로, 푸시 후 기존 workflow_dispatch로 PostgreSQL 16·Docker 검증을 병행한다.
+  백엔드와 원격 검사 결과는 완료 후 아래에 기록한다.
+- 동기화 PR의 base는 `FE`이며 원격 FE·main 병합은 PR 검토 후 별도로 진행한다.
+  main의 공통 이력을 보존하도록 동기화 PR은 merge commit 방식으로 병합하는 것을 권장한다.
+- 정적 계약 검토: 주요 인증·카테고리·피드·콘텐츠·계정·통계 요청/응답은 일치한다.
+  기존 PR 4~10 문제는 남아 있다. 특히 카테고리 이름을 태그로 자동 주입하면 `###`가 태그 정규화 후
+  빈 값으로 거절될 수 있으므로, PR 5의 자동 태그 제거와 회귀 테스트에 포함한다. 이번 동기화에서 수정하지 않는다.
 
 ### 다음 작업 기록 양식
 
