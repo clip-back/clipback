@@ -72,7 +72,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | FE 병합 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | FE 병합 | `fix/fe-feed-pagination` / [#43](https://github.com/clip-back/clipback/pull/43) |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | FE 병합 | `fix/fe-screenshot-original` / [#44](https://github.com/clip-back/clipback/pull/44) |
-| PR 8·9 | P2 | 콘텐츠 변경 상태 동기화·실패 복구 | PR 6·7 | 검증 완료 | `fix/fe-content-state-sync` / 미생성 |
+| PR 8·9 | P2 | 콘텐츠 변경 상태 동기화·실패 복구 | PR 6·7 | PR 생성 | `fix/fe-content-state-sync` / [#45](https://github.com/clip-back/clipback/pull/45) |
 | PR 10 | P2 | 카테고리 삭제 안내·동작 일치 | 없음 | 예정 | 미생성 |
 
 ## 4. PR별 수정 범위와 완료 조건
@@ -886,3 +886,8 @@ flutter build web --no-pub
   다음 정상 조회에서 서버 상태를 반영한다. 운영 배포·실제 외부 AI/OAuth·실기기는 미검증이다.
   다음 작업은 PR 10의 카테고리 삭제 안내·동작 수정이다.
 - 검증용 API와 PostgreSQL은 정상 종료했고 증거 파일은 보존했다.
+- 관련 5개 파일을 `116322f`로 커밋·푸시하고 FE 대상 일반
+  [PR #45](https://github.com/clip-back/clipback/pull/45)를 생성했다.
+  이 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행한다.
+  실행 링크·PostgreSQL 16·Docker 결과는 PR 본문과 작업 대화에 남긴다.
+  FE 대상 PR의 자동 Checks와 수동 CI를 구분하고 PR은 병합하지 않는다.
