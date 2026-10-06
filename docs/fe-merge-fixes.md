@@ -9,7 +9,8 @@ PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-1
 [동기화 PR #40](https://github.com/clip-back/clipback/pull/40)은 2026-10-06 FE에 병합되었다.
 [수정 PR #41](https://github.com/clip-back/clipback/pull/41)은 2026-10-06 FE에 병합되었다.
 [수정 PR #42](https://github.com/clip-back/clipback/pull/42)는 2026-10-06 FE에 병합되었다
-(`550833e01253010102e05fee614bb724b222e376`). PR 6의 커서 기반 추가 조회는 로컬 검증을 마쳤다.
+(`550833e01253010102e05fee614bb724b222e376`). PR 6의 커서 기반 추가 조회는 로컬 검증을 마치고
+[수정 PR #43](https://github.com/clip-back/clipback/pull/43)으로 FE 리뷰를 기다린다.
 PR 7~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -66,7 +67,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | 동기화 | P1 | main → FE 병합·통합 검증 | PR 3 | FE 병합 | `chore/fe-sync-main` / [#40](https://github.com/clip-back/clipback/pull/40) |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | FE 병합 | `fix/fe-screenshot-auth` / [#41](https://github.com/clip-back/clipback/pull/41) |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | FE 병합 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
-| PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 검증 완료 | `fix/fe-feed-pagination` |
+| PR 6 | P2 | 커서 기반 추가 조회 | 없음 | PR 생성 | `fix/fe-feed-pagination` / [#43](https://github.com/clip-back/clipback/pull/43) |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | 예정 | 미생성 |
 | PR 8 | P2 | 검색 결과 변경 상태 동기화 | PR 6 이후 권장 | 예정 | 미생성 |
 | PR 9 | P2 | 분류 변경 실패 시 상세 복구 | 없음 | 예정 | 미생성 |
@@ -700,7 +701,7 @@ flutter build web --no-pub
   이 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행하며,
   실제 결과·실행 링크는 PR 본문과 작업 대화에 기록한다. PR은 병합하지 않는다.
 
-### 2026-10-06 / PR 6 / 검증 완료
+### 2026-10-06 / PR 6 / PR 생성
 
 - PR #42의 FE 병합을 확인하고 `550833e`에서 `fix/fe-feed-pagination`을 만들었다.
   `AGENTS.md`의 사용자 변경은 원래 체크아웃에 보존하고 구현과 커밋에서 제외한다.
@@ -747,6 +748,13 @@ flutter build web --no-pub
   인증값·로그·DB·화면 파일은 커밋하지 않는다. 실제 OCR/AI 호출과 외부 HTTP 시도는 0이었다.
 - 실제 화면과 결과를 작업 대화에 공유했다. 사용자 `AGENTS.md` 변경의 SHA-256이 작업 전과 같음을
   확인했으며, 관련 제품·테스트·README·진행 문서 4개 파일만 커밋·푸시한다.
+- 관련 4개 파일을 `a05e8d2`로 커밋·푸시하고 FE 대상 일반
+  [PR #43](https://github.com/clip-back/clipback/pull/43)을 생성했다.
+  최종 화면 재확인까지 동일 사용자/세션 1개, 콘텐츠/저장 이벤트 105개를 유지했으며,
+  상세 경계의 두 차례 검증으로 열람/클릭 이벤트와 open_count 합계는 각각 4가 됐다.
+  검증 전용 API·PostgreSQL·웹 서버와 Chrome 탭은 종료하고 증거 파일은 보존했다.
+  이 PR 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행한다.
+  실행 링크·PostgreSQL 16/Docker 결과는 PR 본문과 작업 대화에 남기며 PR은 병합하지 않는다.
 - 커서는 요청 사이 DB 스냅샷을 보장하지 않으며, 다른 기기에서 추가한 최신 항목은 새 조회에 반영된다.
   운영 배포·실제 외부 OCR/AI·OAuth·실기기는 이번 검증 범위가 아니다. migration은 필요 없다.
 
