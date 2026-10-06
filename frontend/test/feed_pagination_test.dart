@@ -1855,7 +1855,13 @@ void main() {
           } else {
             expect(
               _archiveItems(tester).any((content) => content.id == target.id),
-              isFalse,
+              isTrue,
+            );
+            expect(
+              _archiveItems(
+                tester,
+              ).singleWhere((content) => content.id == target.id).mutationLabel,
+              '삭제 중…',
             );
           }
           gate.complete(_json({'detail': '콘텐츠 변경 거절'}, 503));
