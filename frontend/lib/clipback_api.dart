@@ -585,28 +585,35 @@ class ClipbackApi {
     List<int> categoryIds = const [],
     List<String> tagNames = const [],
   }) async {
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$_baseUrl/uploads/screenshots'),
-    );
-    request.headers['Authorization'] = _authorizationHeader();
-    request.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: filename),
-    );
-    for (final id in categoryIds) {
-      request.fields.putIfAbsent('category_ids', () => '$id');
-    }
-    for (final name in tagNames) {
-      request.fields.putIfAbsent('tag_names', () => name);
-    }
+    final fileBytes = Uint8List.fromList(bytes);
+    final selectedCategoryIds = List<int>.of(categoryIds, growable: false);
+    final selectedTagNames = List<String>.of(tagNames, growable: false);
     late http.Response response;
     try {
-      final streamedResponse = await _client
-          .send(request)
-          .timeout(_requestTimeout);
-      response = await http.Response.fromStream(
-        streamedResponse,
-      ).timeout(_requestTimeout);
+      response = await _sendWithSessionRetry((session) async {
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse('$_baseUrl/uploads/screenshots'),
+        );
+        request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
+        request.files.add(
+          http.MultipartFile.fromBytes('file', fileBytes, filename: filename),
+        );
+        for (final id in selectedCategoryIds) {
+          request.files.add(
+            http.MultipartFile.fromString('category_ids', '$id'),
+          );
+        }
+        for (final name in selectedTagNames) {
+          request.files.add(http.MultipartFile.fromString('tag_names', name));
+        }
+        final streamedResponse = await _client
+            .send(request)
+            .timeout(_requestTimeout);
+        return http.Response.fromStream(
+          streamedResponse,
+        ).timeout(_requestTimeout);
+      });
     } on TimeoutException {
       throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
     } on http.ClientException {
@@ -692,14 +699,7 @@ class ClipbackApi {
     String path, {
     bool authenticated = true,
     Map<String, dynamic>? body,
-    bool retried = false,
-  }) async {
-    final generation = _sessionGeneration;
-    final session = _session;
-    if (authenticated) {
-      _checkSessionGeneration(generation);
-      if (session == null) throw const ClipbackApiException('로그인이 필요합니다.');
-    }
+  }) => _sendWithSessionRetry((session) async {
     final request = http.Request(method, Uri.parse('$_baseUrl$path'));
     request.headers['Accept'] = 'application/json';
     if (authenticated) {
@@ -709,9 +709,23 @@ class ClipbackApi {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
+    return http.Response.fromStream(await _client.send(request));
+  }, authenticated: authenticated);
+
+  Future<http.Response> _sendWithSessionRetry(
+    Future<http.Response> Function(ApiSession?) send, {
+    bool authenticated = true,
+    bool retried = false,
+  }) async {
+    final generation = _sessionGeneration;
+    final session = _session;
+    if (authenticated) {
+      _checkSessionGeneration(generation);
+      if (session == null) throw const ClipbackApiException('로그인이 필요합니다.');
+    }
     late final http.Response response;
     try {
-      response = await http.Response.fromStream(await _client.send(request));
+      response = await send(session);
     } catch (_) {
       if (authenticated) _checkSessionGeneration(generation);
       rethrow;
@@ -731,21 +745,13 @@ class ClipbackApi {
         rethrow;
       }
       _checkSessionGeneration(generation);
-      return _request(
-        method,
-        path,
+      return _sendWithSessionRetry(
+        send,
         authenticated: authenticated,
-        body: body,
         retried: true,
       );
     }
     return response;
-  }
-
-  String _authorizationHeader() {
-    final session = _session;
-    if (session == null) throw const ClipbackApiException('로그인이 필요합니다.');
-    return 'Bearer ${session.accessToken}';
   }
 
   void _throwForError(http.Response response) {

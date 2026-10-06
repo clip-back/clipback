@@ -380,14 +380,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
     await _ensureGuestSessionForSave();
-    try {
-      return await request();
-    } on ClipbackApiException catch (error) {
-      if (error.statusCode != 401) rethrow;
-      _api.clearSession();
-      await _ensureGuestSessionForSave();
-      return request();
-    }
+    return request();
   }
 
   Future<ContentItem> _addLinkContent({
