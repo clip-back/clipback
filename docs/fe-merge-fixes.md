@@ -15,7 +15,8 @@ PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-1
 [수정 PR #44](https://github.com/clip-back/clipback/pull/44)는 2026-10-06 FE에 병합되었다
 (`ab45071aaefc9defb89938a1e8fd99e727f01a22`). PR 8과 PR 9는 공통 콘텐츠 변경 처리로 통합하여
 완료했다. [수정 PR #45](https://github.com/clip-back/clipback/pull/45)는 2026-10-06 FE에 병합되었다
-(`6fbfcce4b79fc64342a93fad98062319cd3b9198`). PR 10에서 카테고리 삭제 안내와 콘텐츠 보존 동작을 수정한다.
+(`6fbfcce4b79fc64342a93fad98062319cd3b9198`). PR 10의 카테고리 삭제 안내·콘텐츠 보존 수정은
+[PR #46](https://github.com/clip-back/clipback/pull/46)으로 검토 중이다.
 백엔드·DB·HTTP 계약·의존성·잠금파일은 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -75,7 +76,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 6 | P2 | 커서 기반 추가 조회 | 없음 | FE 병합 | `fix/fe-feed-pagination` / [#43](https://github.com/clip-back/clipback/pull/43) |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | FE 병합 | `fix/fe-screenshot-original` / [#44](https://github.com/clip-back/clipback/pull/44) |
 | PR 8·9 | P2 | 콘텐츠 변경 상태 동기화·실패 복구 | PR 6·7 | FE 병합 | `fix/fe-content-state-sync` / [#45](https://github.com/clip-back/clipback/pull/45) |
-| PR 10 | P2 | 카테고리 삭제 안내·동작 일치 | PR 8·9 | 진행 중 | `fix/fe-category-delete` / 미생성 |
+| PR 10 | P2 | 카테고리 삭제 안내·동작 일치 | PR 8·9 | PR 생성 | `fix/fe-category-delete` / [#46](https://github.com/clip-back/clipback/pull/46) |
 
 ## 4. PR별 수정 범위와 완료 조건
 
@@ -952,3 +953,8 @@ flutter build web --no-pub
   연결 종료·응답 파싱 실패는 서버 삭제 취소를 보장하지 않으며 다음 정상 조회에서 서버 상태를 반영한다.
   운영 배포·실제 외부 AI/OAuth·실기기는 미검증이다. 로컬 PostgreSQL 17.7 결과와 최종 head의
   PostgreSQL 16·Docker 수동 CI 및 FE PR 자동 Checks를 구분해 기록한다.
+- 검증용 API·PostgreSQL·웹 서버와 Chrome 탭을 정상 종료하고 증거 파일은 보존했다.
+- 관련 4개 파일을 `effef47`로 커밋·푸시하고 FE 대상 일반
+  [PR #46](https://github.com/clip-back/clipback/pull/46)을 생성했다.
+  이 PR 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행한다.
+  실행 링크와 PostgreSQL 16·Docker 결과는 PR 본문과 작업 대화에 기록한다. PR은 병합하지 않는다.
