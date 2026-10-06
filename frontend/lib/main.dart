@@ -36,9 +36,15 @@ class ClipbackApp extends StatefulWidget {
 }
 
 class _ClipbackAppState extends State<ClipbackApp> {
-  final _api = ClipbackApi();
+  late final ClipbackApi _api;
   late final ApiSessionStorage _sessionStorage;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final _isSessionStorageBusy = ValueNotifier(false);
+  Future<void> _sessionStorageQueue = Future.value();
+  int _pendingSessionStorageOperations = 0;
+  ApiSession? _sessionNeedingPersistence;
+  bool _persistenceBannerVisible = false;
+  bool _persistenceBannerUpdateScheduled = false;
   AppRoute _route = AppRoute.home;
   AppRoute _previousRoute = AppRoute.home;
   int _archiveTab = 0;
@@ -58,6 +64,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   void initState() {
     super.initState();
     _sessionStorage = widget.sessionStorage ?? ApiSessionStorage();
+    _api = ClipbackApi(onSessionChanged: (_) => _persistCurrentSession());
     _categories = List.of(initialCategories);
     _contents = List.of(initialContents);
     _bookmarkedIds = {
@@ -65,6 +72,96 @@ class _ClipbackAppState extends State<ClipbackApp> {
         if (content.bookmarked) content.id,
     };
     unawaited(_restoreSession());
+  }
+
+  @override
+  void dispose() {
+    _isSessionStorageBusy.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enqueueSessionStorage(Future<void> Function() operation) {
+    _pendingSessionStorageOperations++;
+    if (mounted) _isSessionStorageBusy.value = true;
+    final result = _sessionStorageQueue.then((_) => operation());
+    // A failed clear must reach its caller without blocking later storage work.
+    _sessionStorageQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace stackTrace) {},
+    );
+    return result.whenComplete(() {
+      _pendingSessionStorageOperations--;
+      if (mounted) {
+        _isSessionStorageBusy.value = _pendingSessionStorageOperations > 0;
+      }
+    });
+  }
+
+  Future<void> _persistCurrentSession() => _enqueueSessionStorage(() async {
+    // Read at execution time so a retry never writes an obsolete token snapshot.
+    final session = _api.session;
+    if (session == null) return;
+    try {
+      await _sessionStorage.write(session);
+      if (identical(_api.session, session)) _sessionNeedingPersistence = null;
+    } catch (_) {
+      if (identical(_api.session, session)) {
+        _sessionNeedingPersistence = session;
+      }
+      // The server has already issued these tokens; keep using them in memory.
+    }
+    _schedulePersistenceBannerUpdate();
+  });
+
+  Future<void> _clearStoredSession() => _enqueueSessionStorage(() async {
+    try {
+      await _sessionStorage.clear();
+      _sessionNeedingPersistence = null;
+    } finally {
+      _schedulePersistenceBannerUpdate();
+    }
+  });
+
+  void _retrySessionPersistence() {
+    if (_isSessionStorageBusy.value || !_api.hasSession) return;
+    unawaited(_persistCurrentSession());
+  }
+
+  void _schedulePersistenceBannerUpdate() {
+    if (!mounted || _persistenceBannerUpdateScheduled) return;
+    _persistenceBannerUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _persistenceBannerUpdateScheduled = false;
+      if (!mounted) return;
+      final messenger = _messengerKey.currentState;
+      if (messenger == null) return;
+      final showBanner =
+          _sessionNeedingPersistence != null &&
+          identical(_api.session, _sessionNeedingPersistence);
+      if (!showBanner) {
+        if (_persistenceBannerVisible) messenger.removeCurrentMaterialBanner();
+        _persistenceBannerVisible = false;
+        return;
+      }
+      if (_persistenceBannerVisible) return;
+      _persistenceBannerVisible = true;
+      messenger.showMaterialBanner(
+        MaterialBanner(
+          backgroundColor: AppColors.surface,
+          content: const Text('로그인 정보를 기기에 저장하지 못했어요. 앱을 종료하기 전에 다시 저장해 주세요.'),
+          actions: [
+            ValueListenableBuilder<bool>(
+              valueListenable: _isSessionStorageBusy,
+              builder: (context, busy, child) => TextButton(
+                onPressed: busy ? null : _retrySessionPersistence,
+                child: const Text('다시 저장'),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   Future<void> _restoreSession() async {
@@ -80,7 +177,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
       }
 
       if (!_api.hasSession) {
-        await _createGuestForRestore();
+        await _api.createGuestSession();
         await _loadRemoteData();
         return;
       }
@@ -90,9 +187,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
       } on ClipbackApiException catch (error) {
         if (error.statusCode != 401) rethrow;
         // Keep the current session if removing invalid stored credentials fails.
-        await _sessionStorage.clear();
+        await _clearStoredSession();
         _api.clearSession();
-        await _createGuestForRestore();
+        await _api.createGuestSession();
         // A new guest's failure must not trigger another replacement in this attempt.
         await _loadRemoteData();
       }
@@ -109,23 +206,13 @@ class _ClipbackAppState extends State<ClipbackApp> {
     }
   }
 
-  Future<void> _createGuestForRestore() async {
-    final session = await _api.createGuestSession();
-    try {
-      await _sessionStorage.write(session);
-    } catch (_) {
-      // Continue with the in-memory guest session when persistence is unavailable.
-    }
-  }
-
   void _finishSplash() {
     if (_route == AppRoute.splash) _go(AppRoute.home);
   }
 
   Future<void> _continueAsGuest() async {
     try {
-      final session = await _api.createGuestSession();
-      await _sessionStorage.write(session);
+      await _api.createGuestSession();
       await _loadRemoteData();
       if (mounted) _go(AppRoute.onboarding);
     } on ClipbackApiException catch (error) {
@@ -138,14 +225,6 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Future<void> _loadRemoteData() async {
     final apiCategories = await _api.listCategories();
     final feed = await _api.readFeed();
-    final session = _api.session;
-    if (session != null) {
-      try {
-        await _sessionStorage.write(session);
-      } catch (_) {
-        // The current session remains usable even when local persistence fails.
-      }
-    }
     if (!mounted) return;
 
     final categories = apiCategories.map(_categoryFromApi).toList();
@@ -292,12 +371,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<void> _ensureGuestSessionForSave() async {
     if (_api.hasSession) return;
-    final session = await _api.createGuestSession();
-    try {
-      await _sessionStorage.write(session);
-    } catch (_) {
-      // Saving can continue with the in-memory guest session.
-    }
+    await _api.createGuestSession();
   }
 
   Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
@@ -466,7 +540,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Future<void> _logout() async {
     try {
       await _api.logout();
-      await _sessionStorage.clear();
+      await _clearStoredSession();
       if (!mounted) return;
       setState(() {
         _categories
@@ -489,6 +563,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
       });
     } on ClipbackApiException catch (error) {
       _showError(error.message);
+    } catch (_) {
+      _showError('로그아웃하지 못했어요. 다시 시도해 주세요.');
     }
   }
 

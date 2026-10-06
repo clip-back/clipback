@@ -459,7 +459,7 @@ void main() {
           expect(server.calls(_guest), isEmpty);
           expect(
             (await ApiSessionStorage().read())?.refreshToken,
-            'test-refresh',
+            refreshSucceeds ? 'rotated-refresh' : 'test-refresh',
           );
           rejectSession = false;
           await _retry(tester);
@@ -475,23 +475,19 @@ void main() {
     );
   }
 
-  testWidgets(
-    'storage write failure does not discard a usable restored session',
-    (tester) async {
-      final storage = _Storage()..failWrite = true;
-      final server = _Server();
-      await _runApp(tester, server, (_) async {
-        _expectLoaded(tester);
-        expect(storage.writes, greaterThan(0));
-        expect(storage.clears, 0);
-        expect(server.calls(_guest), isEmpty);
-        expect(
-          (await ApiSessionStorage().read())?.refreshToken,
-          'test-refresh',
-        );
-      }, storage: storage);
-    },
-  );
+  testWidgets('restoring a persisted session does not rewrite credentials', (
+    tester,
+  ) async {
+    final storage = _Storage()..failWrite = true;
+    final server = _Server();
+    await _runApp(tester, server, (_) async {
+      _expectLoaded(tester);
+      expect(storage.writes, 0);
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+      expect((await ApiSessionStorage().read())?.refreshToken, 'test-refresh');
+    }, storage: storage);
+  });
 
   for (final hasStoredSession in [false, true]) {
     for (final failure in ['503', '401']) {
