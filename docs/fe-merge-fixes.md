@@ -8,9 +8,9 @@ PR 2의 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)도 FE에 
 PR 3의 [수정 PR #39](https://github.com/clip-back/clipback/pull/39)도 2026-10-06 FE에 병합되었다.
 [동기화 PR #40](https://github.com/clip-back/clipback/pull/40)은 2026-10-06 FE에 병합되었다.
 [수정 PR #41](https://github.com/clip-back/clipback/pull/41)은 2026-10-06 FE에 병합되었다.
-PR 5의 선택 없는 저장과 서버 분류 결과 표시는 로컬 검증을 마치고
-[수정 PR #42](https://github.com/clip-back/clipback/pull/42)로 FE 리뷰를 기다린다.
-PR 6~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
+[수정 PR #42](https://github.com/clip-back/clipback/pull/42)는 2026-10-06 FE에 병합되었다
+(`550833e01253010102e05fee614bb724b222e376`). PR 6의 커서 기반 추가 조회는 로컬 검증을 마쳤다.
+PR 7~10은 미착수이며, 이번 PR에서는 백엔드·DB·의존성·잠금파일을 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
 [프론트 README](../frontend/README.md), 백엔드 구현 범위는
@@ -65,8 +65,8 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | FE 병합 | `fix/fe-refresh-single-flight` / [#39](https://github.com/clip-back/clipback/pull/39) |
 | 동기화 | P1 | main → FE 병합·통합 검증 | PR 3 | FE 병합 | `chore/fe-sync-main` / [#40](https://github.com/clip-back/clipback/pull/40) |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | 동기화 | FE 병합 | `fix/fe-screenshot-auth` / [#41](https://github.com/clip-back/clipback/pull/41) |
-| PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | PR 생성 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
-| PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 예정 | 미생성 |
+| PR 5 | P1 | 선택 없는 저장의 자동 분류 | PR 4 | FE 병합 | `fix/fe-auto-category` / [#42](https://github.com/clip-back/clipback/pull/42) |
+| PR 6 | P2 | 커서 기반 추가 조회 | 없음 | 검증 완료 | `fix/fe-feed-pagination` |
 | PR 7 | P2 | 저장한 스크린샷 원본 재조회 | PR 4 이후 권장 | 예정 | 미생성 |
 | PR 8 | P2 | 검색 결과 변경 상태 동기화 | PR 6 이후 권장 | 예정 | 미생성 |
 | PR 9 | P2 | 분류 변경 실패 시 상세 복구 | 없음 | 예정 | 미생성 |
@@ -139,11 +139,11 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 
 ### PR 8 — `fix: 검색 결과의 콘텐츠 변경 상태 동기화`
 
-- 위치: `main.dart`의 `SearchScreen._serverResults`, `_replaceContent()`와 수정·삭제 처리.
-- 수정: 성공한 삭제·분류 변경을 검색 결과에도 반영한다. 전역 피드 목록에 없는 검색 항목도
-  열린 상세 화면을 서버 응답으로 갱신할 수 있게 한다.
-- 완료 조건: 삭제 성공 후 검색 카드가 사라지고, 분류 변경 후 검색·목록·상세가 일치한다.
-  첫 페이지 밖의 검색 항목도 상세 데이터가 갱신되며, 실패 시 성공 상태가 남지 않는다.
+- PR 6에서 검색 페이지 상태·수정/삭제 성공 후 동일 검색의 첫 페이지 재조회와
+  홈 첫 페이지 밖에서 연 콘텐츠의 상세 응답 반영을 처리한다.
+- 남은 범위는 검색 중 낙관적 변경·연속 수정의 세부 동기화와 실패 복구다.
+  PR 9의 분류 변경 실패 시 목록·상세 동시 복구와 중복되지 않도록 재점검하고,
+  PR 6 이후에도 재현되는 문제만 별도 수정한다.
 
 ### PR 9 — `fix: 분류 변경 실패 시 상세 화면 상태 복구`
 
@@ -699,6 +699,56 @@ flutter build web --no-pub
   [PR #42](https://github.com/clip-back/clipback/pull/42)를 생성했다.
   이 링크 기록을 추가 푸시한 최종 head에서 Backend Validation을 수동 실행하며,
   실제 결과·실행 링크는 PR 본문과 작업 대화에 기록한다. PR은 병합하지 않는다.
+
+### 2026-10-06 / PR 6 / 검증 완료
+
+- PR #42의 FE 병합을 확인하고 `550833e`에서 `fix/fe-feed-pagination`을 만들었다.
+  `AGENTS.md`의 사용자 변경은 원래 체크아웃에 보존하고 구현과 커밋에서 제외한다.
+- 변경 전 재현: `feed_pagination_test.dart` 1건 실패. 서버가 첫 100개와 `next_cursor`를
+  반환해도 아카이브 끝 스크롤에서 다음 요청이 없어 101번째 콘텐츠에 접근하지 못했다.
+- 홈·아카이브·북마크·검색에 분리된 페이지 상태와 요청 버전을 두고, 20개씩 커서를 전달한다.
+  북마크 우선은 북마크 구간을 먼저 읽고 일반 구간으로 이어가며 전체를 미리 받지 않는다.
+  서버 분류 필터 결과를 대표 분류 이름으로 다시 거르지 않는다.
+- 로딩·빈 결과·오류를 구분하고, 추가 조회 실패에는 기존 카드/커서를 유지한다.
+  상세의 이전·다음은 진입 목록을 사용하며 페이지 경계 조회와 뒤로 가기 경합을 보호한다.
+  성공한 쓰기는 같은 조건의 첫 페이지부터 갱신한다. 개수는 불러온 수와 서버 분류 집계를 구분한다.
+- Flutter 3.44.9 / Dart 3.12.2에서 `flutter pub get --enforce-lockfile`,
+  `flutter analyze --no-pub`, `flutter test --no-pub`를 통과했다.
+  한 번의 전체 실행에서 기존 188개와 새 회귀 51개, 총 **239개**가 통과했다.
+  새 테스트는 필터/정렬/계정 전환, 같은 검색어 재제출, 추가 실패·422·최종401, 복수 분류,
+  북마크 구간 전환, 상세 경계/뒤로 가기, 짧은 화면, 쓰기 후 초기화, 서버 집계/원본 시각 정렬을 포함한다.
+- 리뷰와 테스트에서 초기화 직후 이전 스크롤이 새 페이지를 더 읽는 경합, 연속 쓰기와 카테고리 메타데이터
+  응답 순서 경합, 삭제된 분류 필터 잔존, 성공한 쓰기를 늦은 상세 GET이 덮는 문제를 추가로 막았다.
+  두 번째 페이지의 수정/삭제 실패도 원래 목록에 복구하며 홈에 잘못 삽입하지 않는다.
+  분류 변경 실패 시 열린 상세 복구와 연속 낙관적 수정의 세부 동기화는 PR 9/PR 8에 남긴다.
+- `flutter build web --no-pub`에 로컬 API 주소를 명시해 빌드했고,
+  `git diff --check`와 신규 테스트의 공백 검사도 통과했다. 잠금파일 SHA-256은 변경 전과 동일하다.
+  기존 `CupertinoIcons` 폰트 경고가 있으나 빌드는 성공했다.
+- 전용 PostgreSQL 17.7의 새 DB에서 migration·`alembic check` 및 인증·피드·콘텐츠 흐름·업로드 격리·
+  콘텐츠/카테고리 저장소 테스트 36개 통과, skip 0. 로컬 Docker daemon이 실행되지 않아
+  PostgreSQL 16·Docker 검증은 최종 head의 Backend Validation에서 별도로 실행한다.
+- Chrome의 전용 계정에 105개를 준비했다. 검색어 `경계`/취업/북마크에 일치하는 101개,
+  일반 콘텐츠 4개, 동일 저장 시각과 복수 분류를 포함했다. 실제 API 응답을 DB의
+  `(saved_at DESC, id DESC)` 예상 ID와 대조해 아카이브 105개, 검색/취업/북마크 각 101개의
+  전체 순서·누락 없음·중복 없음·동일 계정을 확인했다. 공부 6개에는 대표 분류가 취업인 2개도 표시됐다.
+- 북마크 우선은 북마크 101개를 모두 조회한 뒤 일반 4개로 이어졌다. 다음 페이지 503에서
+  기존 20개를 유지하고 자동 반복 없이 같은 커서·필터를 재시도해 40개로 복구했다.
+  단순 페이지 조회 때 DB 열람/클릭 이벤트와 `open_count`는 모두 0이었다.
+- 상세에서 20번째 `페이지 경계 077` → 21번째 `페이지 경계 070`으로 이동했다.
+  두 콘텐츠는 저장 시각이 같으며 ID 내림차순 경계다. 첫 검증 구간에서 각각 상세 GET 200·열람 POST 201·
+  클릭 POST 201, DB 열람/클릭 각 2건·open_count 합계 2를 확인했다.
+  Chrome에서 발견한 상세 개수 문구의 줄바꿈도 조정한 뒤 같은 경계를 최종 빌드에서 재확인했다.
+- 북마크 변경 성공 후 현재 상세를 유지하고, 첫 페이지 밖의 현재 항목은 이전/다음을 비활성화했다.
+  돌아온 아카이브는 같은 조건의 첫 20개와 맨 위 위치로 초기화됐다.
+- 화면 증거는 원래 체크아웃의 ignored `frontend/build/verification/pr6/`에 저장했다:
+  `01-initial-list.jpg`, `02-after-100.jpg`, `03-search-filter.jpg`, `04-bookmarks.jpg`,
+  `05-category.jpg`, `06-multi-category.jpg`, `07-page-error.jpg`, `08-page-recovered.jpg`,
+  `09-bookmark-first-boundary.jpg`, `10-detail-next-page.jpg`, `11-write-reset.jpg`.
+  인증값·로그·DB·화면 파일은 커밋하지 않는다. 실제 OCR/AI 호출과 외부 HTTP 시도는 0이었다.
+- 실제 화면과 결과를 작업 대화에 공유했다. 사용자 `AGENTS.md` 변경의 SHA-256이 작업 전과 같음을
+  확인했으며, 관련 제품·테스트·README·진행 문서 4개 파일만 커밋·푸시한다.
+- 커서는 요청 사이 DB 스냅샷을 보장하지 않으며, 다른 기기에서 추가한 최신 항목은 새 조회에 반영된다.
+  운영 배포·실제 외부 OCR/AI·OAuth·실기기는 이번 검증 범위가 아니다. migration은 필요 없다.
 
 ### 다음 작업 기록 양식
 
