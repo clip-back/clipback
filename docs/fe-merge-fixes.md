@@ -4,7 +4,8 @@
 
 FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수정하고, 검증 결과를 이 문서에 기록한다.
 문서 준비일은 **2026-10-05 (KST)**다. 문서 PR #36과 PR 1의 수정 PR #37은 FE에 병합되었으며,
-PR 2의 갱신 토큰 영속 저장은 구현·로컬 검증 후 작업 브랜치에 커밋·푸시했다. 수정 PR은 아직 생성하지 않았다.
+PR 2의 갱신 토큰 영속 저장은 구현·로컬 검증 후 [수정 PR #38](https://github.com/clip-back/clipback/pull/38)을
+생성했으며 리뷰와 FE 병합을 기다린다.
 PR 3~10은 미착수이며, 백엔드 API·DB 스키마·기존 데이터는 PR 2에서 변경하지 않는다.
 
 이 문서는 FE 수정 계획과 실행 기록을 관리한다. 화면·실행 안내는
@@ -54,7 +55,7 @@ PR 제목은 아래의 한글 Conventional Commits 형식을 사용하며, 하�
 | 작업 | 우선순위 | 수정 주제 | 선행 작업 | 상태 | 브랜치 / PR |
 | --- | --- | --- | --- | --- | --- |
 | PR 1 | P1 | 일시 오류에서 기존 세션 보존 | 없음 | FE 병합 | `fix/fe-session-restore` / [#37](https://github.com/clip-back/clipback/pull/37) |
-| PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | 검증 완료 | `fix/fe-refresh-persistence` 푸시 완료 / PR 미생성 |
+| PR 2 | P1 | 갱신 토큰 영속 저장 | 없음 | PR 생성 | `fix/fe-refresh-persistence` / [#38](https://github.com/clip-back/clipback/pull/38) |
 | PR 3 | P1 | 동시 토큰 갱신 중복 방지 | PR 2 | 예정 | 미생성 |
 | PR 4 | P1 | 스크린샷 인증 갱신·재시도 | PR 3 | 예정 | 미생성 |
 | PR 5 | P1 | 선택 없는 저장의 자동 분류 | 없음 | 예정 | 미생성 |
@@ -376,6 +377,20 @@ flutter build web --no-pub
 - 작업 방식 갱신: 사용자 요청에 따라 앞으로 계획 구현은 검증·문서 기록·커밋·푸시까지 진행한다.
   PR 생성과 병합은 별도 요청에 따른다.
 - 다음 단계: 요청 시 `FE` 대상 PR을 생성하고, FE 병합 후 PR 3을 진행한다.
+
+### PR 2 PR 생성 — 2026-10-06
+
+- 상태: [#38 — fix: 갱신된 인증 토큰 영속 저장](https://github.com/clip-back/clipback/pull/38) 생성.
+  draft가 아닌 일반 PR이며 리뷰와 FE 병합을 기다린다.
+- 브랜치: `fix/fe-refresh-persistence` → `FE`.
+- 생성 시 PR head: `08cf0f8d3d0d1786e316bf3bed41405dfc0476ef`.
+  구현 커밋 `958e6d1`과 푸시 결과 기록 `08cf0f8`을 포함한다.
+- 검증: 원격 head와 PR head 일치, PR base·파일 범위 확인, `git diff --check origin/FE...HEAD` 통과.
+  사용자 `AGENTS.md` 변경은 PR에 포함하지 않았다.
+- GitHub 상태: 생성 후 조회 시 충돌 없음(`MERGEABLE`), Checks 기록 없음.
+  원격 CI 통과로 취급하지 않는다. 제품 변경 없이 PR을 생성했으므로 앱·DB·Chrome 검증은 재실행하지 않았다.
+- PR 본문에 변경 이유·저장 실패 정책·실제 검증 결과·미검증 범위를 기록했다. migration은 필요하지 않다.
+- 다음 단계: PR #38 리뷰·FE 병합 후 최신 FE에서 PR 3을 진행한다. FE 병합은 실행하지 않았다.
 
 ### 다음 작업 기록 양식
 
