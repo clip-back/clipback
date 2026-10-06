@@ -1,13 +1,28 @@
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import UUID, uuid4
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, SystemConfigurationError
+from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
-from app.schemas.content import ContentCreate, ContentSource, ContentType
-from app.services.content_service import ContentService
+from app.schemas.content import (
+    ContentCategoryUpdate,
+    ContentCreate,
+    ContentFavoriteUpdate,
+    ContentSource,
+    ContentTagUpdate,
+    ContentType,
+    ContentViewCreate,
+)
+from app.services.category_recommendation_service import (
+    CategoryAssignmentMethod,
+    CategoryRecommendationResult,
+)
+from app.services.content_service import ContentService, PendingContentAsset
 
 
 class FakeSession:
@@ -27,6 +42,11 @@ class FakeContentRepository:
         self.session = FakeSession()
         self.contents = {content.id: content for content in contents or []}
         self.created_categories: list[SimpleNamespace] = []
+        self.created_tags: list[SimpleNamespace] = []
+        self.created_assets: list[SimpleNamespace] = []
+        self.deleted_content_ids: list[int] = []
+        self.owned_requests: list[tuple[int, int, bool]] = []
+        self.tag_replacements = 0
 
     async def create(
         self,
@@ -39,6 +59,7 @@ class FakeContentRepository:
         original_url: str | None,
         is_favorite: bool,
         categories: list[SimpleNamespace],
+        tags: list[SimpleNamespace],
     ) -> SimpleNamespace:
         content = SimpleNamespace(
             id=max(self.contents, default=0) + 1,
@@ -50,22 +71,99 @@ class FakeContentRepository:
             original_url=original_url,
             is_favorite=is_favorite,
             categories=categories,
+            tags=tags,
+            assets=[],
             saved_at=datetime.now(UTC),
             last_viewed_at=None,
+            open_count=0,
         )
         self.contents[content.id] = content
         self.created_categories = categories
+        self.created_tags = tags
         return content
 
-    async def get_owned(self, *, user_id: int, content_id: int) -> SimpleNamespace | None:
+    async def get_owned(
+        self, *, user_id: int, content_id: int, for_update: bool = False,
+    ) -> SimpleNamespace | None:
+        self.owned_requests.append((user_id, content_id, for_update))
         content = self.contents.get(content_id)
         if content is None or content.user_id != user_id:
             return None
         return content
 
-    async def mark_viewed(self, content: SimpleNamespace) -> SimpleNamespace:
-        content.last_viewed_at = datetime.now(UTC)
+    async def mark_viewed(
+        self, content: SimpleNamespace, *, viewed_at: datetime,
+    ) -> SimpleNamespace:
+        content.last_viewed_at = viewed_at
+        content.open_count += 1
         return content
+
+    async def set_favorite(
+        self,
+        *,
+        content: SimpleNamespace,
+        is_favorite: bool,
+    ) -> SimpleNamespace:
+        content.is_favorite = is_favorite
+        return content
+
+    async def delete(self, content: SimpleNamespace) -> None:
+        self.deleted_content_ids.append(content.id)
+        self.contents.pop(content.id)
+
+    async def replace_categories(
+        self,
+        *,
+        content: SimpleNamespace,
+        categories: list[SimpleNamespace],
+    ) -> SimpleNamespace:
+        content.categories = categories
+        return content
+
+    async def replace_tags(
+        self,
+        *,
+        content: SimpleNamespace,
+        tags: list[SimpleNamespace],
+    ) -> SimpleNamespace:
+        self.tag_replacements += 1
+        content.tags = tags
+        return content
+
+
+class FakeContentAssetRepository:
+    def __init__(self, content_repository: FakeContentRepository) -> None:
+        self.content_repository = content_repository
+
+    async def create(
+        self,
+        *,
+        content_id: int,
+        asset_type: AssetType,
+        storage_key: str,
+        mime_type: str | None,
+    ) -> SimpleNamespace:
+        asset = SimpleNamespace(
+            id=len(self.content_repository.created_assets) + 1,
+            content_id=content_id,
+            asset_type=asset_type,
+            storage_key=storage_key,
+            mime_type=mime_type,
+        )
+        self.content_repository.created_assets.append(asset)
+        self.content_repository.contents[content_id].assets.append(asset)
+        return asset
+
+
+class FakeStorageClient:
+    def __init__(self, *, fail_keys: set[str] | None = None) -> None:
+        self.fail_keys = fail_keys or set()
+        self.deleted_keys: list[str] = []
+
+    async def delete_file(self, storage_key: str) -> None:
+        self.deleted_keys.append(storage_key)
+        if storage_key in self.fail_keys:
+            raise OSError("storage unavailable")
 
 
 class FakeCategoryRepository:
@@ -103,15 +201,97 @@ class FakeEventRepository:
         event_type: ContentEventType,
         content_id: int | None = None,
         metadata_json: str | None = None,
+        client_event_id: UUID | None = None,
+        category_ids_at_event: list[int] | None = None,
+        recommendation_item_id: int | None = None,
+        created_at: datetime | None = None,
     ) -> SimpleNamespace:
         event = SimpleNamespace(
+            id=len(self.events) + 1,
             user_id=user_id,
             event_type=event_type,
             content_id=content_id,
             metadata_json=metadata_json,
+            client_event_id=client_event_id,
+            category_ids_at_event=category_ids_at_event,
+            recommendation_item_id=recommendation_item_id,
+            created_at=created_at or datetime.now(UTC),
         )
         self.events.append(event)
         return event
+
+    async def get_by_client_event_id(
+        self, *, user_id: int, client_event_id: UUID,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                event
+                for event in self.events
+                if event.user_id == user_id and event.client_event_id == client_event_id
+            ),
+            None,
+        )
+
+    async def create_reopened_once(
+        self,
+        *,
+        user_id: int,
+        content_id: int,
+        client_event_id: UUID,
+        category_ids_at_event: list[int],
+        recommendation_item_id: int | None,
+        created_at: datetime,
+    ) -> SimpleNamespace | None:
+        existing = await self.get_by_client_event_id(
+            user_id=user_id, client_event_id=client_event_id,
+        )
+        if existing is not None:
+            return None
+        return await self.create(
+            user_id=user_id,
+            content_id=content_id,
+            event_type=ContentEventType.CONTENT_REOPENED,
+            client_event_id=client_event_id,
+            category_ids_at_event=category_ids_at_event,
+            recommendation_item_id=recommendation_item_id,
+            created_at=created_at,
+        )
+
+
+class FakeTagRepository:
+    def __init__(self) -> None:
+        self.tags: dict[tuple[int, str], SimpleNamespace] = {}
+
+    async def get_or_create_many(
+        self,
+        *,
+        user_id: int,
+        names: list[str],
+    ) -> list[SimpleNamespace]:
+        resolved: list[SimpleNamespace] = []
+        for name in names:
+            key = (user_id, name.casefold())
+            if key not in self.tags:
+                self.tags[key] = SimpleNamespace(
+                    id=len(self.tags) + 1,
+                    user_id=user_id,
+                    name=name,
+                    normalized_name=name.casefold(),
+                )
+            resolved.append(self.tags[key])
+        return resolved
+
+
+class FakeRecommendationService:
+    def __init__(self, result: CategoryRecommendationResult) -> None:
+        self.result = result
+        self.calls = 0
+        self.shared_text: str | None = None
+
+    async def recommend(self, *, user_id: int, payload, shared_text: str | None = None):
+        self.calls += 1
+        self.shared_text = shared_text
+        return self.result
 
 
 def build_service(
@@ -119,6 +299,8 @@ def build_service(
     categories: list[SimpleNamespace] | None = None,
     uncategorized: SimpleNamespace | None = None,
     contents: list[SimpleNamespace] | None = None,
+    recommendation_service: FakeRecommendationService | None = None,
+    storage_client: FakeStorageClient | None = None,
 ) -> tuple[ContentService, FakeContentRepository, FakeEventRepository]:
     content_repository = FakeContentRepository(contents)
     event_repository = FakeEventRepository()
@@ -126,6 +308,10 @@ def build_service(
         content_repository=content_repository,
         category_repository=FakeCategoryRepository(categories or [], uncategorized),
         event_repository=event_repository,
+        content_asset_repository=FakeContentAssetRepository(content_repository),
+        category_recommendation_service=recommendation_service,
+        tag_repository=FakeTagRepository(),
+        storage_client=storage_client,
     )
     return service, content_repository, event_repository
 
@@ -150,8 +336,11 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
         original_url="https://example.com/original",
         is_favorite=False,
         categories=[category(1, "취업", is_default=True)],
+        tags=[],
+        assets=[],
         saved_at=datetime.now(UTC),
         last_viewed_at=None,
+        open_count=0,
     )
 
 
@@ -177,13 +366,154 @@ async def test_create_content_links_available_categories_and_records_event() -> 
     assert [category.id for category in content_repository.created_categories] == [2, 1]
     assert [category.id for category in result.categories] == [1, 2]
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
+    assert len(event_repository.events) == 1
+    assert event_repository.events[0].category_ids_at_event == [1, 2]
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "category_assignment_method": "user",
+        "recommended_category_id": None,
+        "category_recommendation_failure_reason": None,
+    }
     assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category_ids", [[9, 2], [2, 9], [9, 2, 9, 2]])
+async def test_create_content_rejects_uncategorized_with_other_categories(category_ids) -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(9, "미분류", is_default=True)],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                content_type=ContentType.SCREENSHOT,
+                source=ContentSource.SCREENSHOT,
+                category_ids=category_ids,
+                tag_names=["저장되면 안 되는 태그"],
+            ),
+            asset=PendingContentAsset(
+                asset_type=AssetType.SCREENSHOT,
+                storage_key="screenshots/invalid.png",
+                mime_type="image/png",
+            ),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Uncategorized category cannot be combined with other categories"
+    )
+    assert content_repository.contents == {}
+    assert service.tag_repository.tags == {}
+    assert content_repository.created_assets == []
+    assert event_repository.events == []
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("category_ids", [[9], [9, 9]])
+async def test_content_categories_accept_uncategorized_alone(operation, category_ids) -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    service, content_repository, event_repository = build_service(
+        categories=[uncategorized],
+        contents=[content(1)] if operation == "update" else [],
+    )
+
+    if operation == "create":
+        result = await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                original_url="https://example.com/post", category_ids=category_ids,
+            ),
+        )
+    else:
+        result = await service.update_categories(
+            user_id=1, content_id=1,
+            payload=ContentCategoryUpdate(category_ids=category_ids),
+        )
+
+    assert [item.id for item in result.categories] == [9]
+    assert [item.id for item in content_repository.contents[1].categories] == [9]
+    assert len(event_repository.events) == 1
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_create_content_creates_normalized_tags_in_same_transaction() -> None:
+    service, content_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True)]
+    )
+
+    result = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/post",
+            category_ids=[1],
+            tag_names=[" Flutter ", "#flutter", "백   엔드"],
+        ),
+    )
+
+    assert [tag.name for tag in content_repository.created_tags] == ["Flutter", "백 엔드"]
+    assert [tag.name for tag in result.tags] == ["Flutter", "백 엔드"]
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_create_content_scopes_same_tag_name_to_each_user() -> None:
+    service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
+
+    first = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/first",
+            category_ids=[1],
+            tag_names=["Flutter"],
+        ),
+    )
+    second = await service.create_content(
+        user_id=2,
+        payload=ContentCreate(
+            original_url="https://example.com/second",
+            category_ids=[1],
+            tag_names=["flutter"],
+        ),
+    )
+
+    assert first.tags[0].id != second.tags[0].id
+    assert first.tags[0].name == "Flutter"
+    assert second.tags[0].name == "flutter"
+
+
+@pytest.mark.asyncio
+async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> None:
+    service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
+
+    first = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/first",
+            category_ids=[1],
+            tag_names=["Flutter"],
+        ),
+    )
+    second = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/second",
+            category_ids=[1],
+            tag_names=["flutter"],
+        ),
+    )
+
+    assert first.tags[0].id == second.tags[0].id
+    assert second.tags[0].name == "Flutter"
 
 
 @pytest.mark.asyncio
 async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -> None:
     uncategorized = category(9, "미분류", is_default=True)
-    service, content_repository, _ = build_service(uncategorized=uncategorized)
+    service, content_repository, event_repository = build_service(uncategorized=uncategorized)
 
     result = await service.create_content(
         user_id=1,
@@ -193,6 +523,7 @@ async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -
     assert [category.name for category in result.categories] == ["미분류"]
     assert content_repository.contents[1].title == "저장한 콘텐츠"
     assert content_repository.contents[1].summary == "요약 정보가 아직 없습니다."
+    assert event_repository.events[0].category_ids_at_event == [uncategorized.id]
 
 
 @pytest.mark.asyncio
@@ -210,13 +541,243 @@ async def test_create_content_records_event_metadata_json() -> None:
         event_metadata_json='{"url_source":"url"}',
     )
 
-    assert event_repository.events[0].metadata_json == '{"url_source":"url"}'
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "url_source": "url",
+        "category_assignment_method": "user",
+        "recommended_category_id": None,
+        "category_recommendation_failure_reason": None,
+    }
 
 
 @pytest.mark.asyncio
-async def test_create_content_rejects_inaccessible_categories() -> None:
+async def test_create_content_uses_ai_recommendation_and_revalidates_category() -> None:
+    recommended = category(2, "나만의 자료")
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        categories=[recommended],
+        uncategorized=category(9, "미분류", is_default=True),
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/post",
+            title="개인 프로젝트 자료",
+        ),
+    )
+
+    assert content_repository.created_categories == [recommended]
+    assert event_repository.events[0].category_ids_at_event == [recommended.id]
+    assert recommendation_service.calls == 1
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "category_assignment_method": "ai",
+        "recommended_category_id": 2,
+        "category_recommendation_failure_reason": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_content_falls_back_when_recommended_category_disappears() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        uncategorized=uncategorized,
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(original_url="https://example.com/post", title="제목"),
+    )
+
+    assert content_repository.created_categories == [uncategorized]
+    assert event_repository.events[0].category_ids_at_event == [uncategorized.id]
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["category_assignment_method"] == "uncategorized"
+    assert metadata["recommended_category_id"] == 2
+    assert metadata["category_recommendation_failure_reason"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_create_content_skips_ai_for_user_categories() -> None:
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
     service, content_repository, _ = build_service(
-        categories=[category(1, "취업", is_default=True)]
+        categories=[category(1, "취업"), category(3, "공부")],
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            original_url="https://example.com/post",
+            category_ids=[3, 1],
+        ),
+    )
+
+    assert [item.id for item in content_repository.created_categories] == [3, 1]
+    assert recommendation_service.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        uncategorized=uncategorized,
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(content_type=ContentType.SCREENSHOT),
+    )
+
+    assert content_repository.created_categories == [uncategorized]
+    assert recommendation_service.calls == 0
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["category_assignment_method"] == "uncategorized"
+    assert metadata["category_recommendation_failure_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_uses_ai_recommendation_when_ocr_text_is_available() -> None:
+    recommended = category(2, "취업")
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        categories=[recommended],
+        uncategorized=category(9, "미분류", is_default=True),
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            source=ContentSource.SCREENSHOT,
+            title="백엔드 채용 공고",
+            summary="백엔드 개발자를 모집합니다.",
+        ),
+        event_metadata_json='{"ocr_status":"success","ocr_failure_reason":null}',
+        recommendation_shared_text="채용 공고\n백엔드 엔지니어",
+    )
+
+    assert content_repository.created_categories == [recommended]
+    assert recommendation_service.calls == 1
+    assert recommendation_service.shared_text == "채용 공고\n백엔드 엔지니어"
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["ocr_status"] == "success"
+    assert metadata["ocr_failure_reason"] is None
+    assert metadata["category_assignment_method"] == "ai"
+    assert metadata["recommended_category_id"] == 2
+    assert "채용 공고" not in event_repository.events[0].metadata_json
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_user_category_wins_over_ocr_recommendation() -> None:
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    selected = category(3, "공부")
+    service, content_repository, _ = build_service(
+        categories=[selected],
+        recommendation_service=recommendation_service,
+    )
+
+    await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            category_ids=[3],
+        ),
+        recommendation_shared_text="OCR 원문",
+    )
+
+    assert content_repository.created_categories == [selected]
+    assert recommendation_service.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")]
+    )
+
+    result = await service.create_content(
+        user_id=1,
+        payload=ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            source=ContentSource.SCREENSHOT,
+            category_ids=[2],
+        ),
+        asset=PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key="screenshots/1/image.png",
+            mime_type="image/png",
+        ),
+    )
+
+    assert result.assets[0].download_url == "/api/v1/uploads/assets/1"
+    assert result.assets[0].mime_type == "image/png"
+    assert content_repository.created_assets[0].storage_key == "screenshots/1/image.png"
+    assert event_repository.events[0].event_type == ContentEventType.CONTENT_CREATED
+    assert event_repository.events[0].category_ids_at_event == [2]
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_create_content_fails_when_uncategorized_is_missing() -> None:
+    service, content_repository, _ = build_service()
+
+    with pytest.raises(SystemConfigurationError) as exc_info:
+        await service.create_content(
+            user_id=1,
+            payload=ContentCreate(original_url="https://example.com/post"),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert content_repository.contents == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category_ids", [[1, 99], [9, 1, 99]])
+async def test_create_content_rejects_inaccessible_categories(category_ids) -> None:
+    service, content_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True), category(9, "미분류", is_default=True)]
     )
 
     with pytest.raises(NotFoundError):
@@ -224,7 +785,7 @@ async def test_create_content_rejects_inaccessible_categories() -> None:
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
-                category_ids=[1, 99],
+                category_ids=category_ids,
             ),
         )
 
@@ -253,16 +814,534 @@ async def test_read_content_rejects_other_user_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_view_updates_content_and_records_event() -> None:
+async def test_update_categories_replaces_categories_and_records_event() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(3, "공부")],
+        contents=[content(1)],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[3, 2, 3]),
+    )
+
+    assert [item.id for item in result.categories] == [2, 3]
+    assert [item.id for item in content_repository.contents[1].categories] == [3, 2]
+    assert event_repository.events[0].event_type == ContentEventType.CATEGORY_CHANGED
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "before_category_ids": [1],
+        "after_category_ids": [2, 3],
+    }
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_update_categories_uses_uncategorized_for_empty_ids() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    service, content_repository, event_repository = build_service(
+        uncategorized=uncategorized,
+        contents=[content(1)],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[]),
+    )
+
+    assert [item.id for item in result.categories] == [9]
+    assert content_repository.session.committed is True
+    assert event_repository.events[0].event_type == ContentEventType.CATEGORY_CHANGED
+
+
+@pytest.mark.asyncio
+async def test_update_categories_skips_unchanged_set() -> None:
+    existing_content = content(1)
+    existing_content.categories = [category(2, "여행"), category(3, "공부")]
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(3, "공부")],
+        contents=[existing_content],
+    )
+
+    result = await service.update_categories(
+        user_id=1,
+        content_id=1,
+        payload=ContentCategoryUpdate(category_ids=[3, 2, 3]),
+    )
+
+    assert [item.id for item in result.categories] == [2, 3]
+    assert event_repository.events == []
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category_ids", [[9, 2], [2, 9], [9, 2, 9, 2]])
+async def test_update_categories_rejects_uncategorized_with_other_categories(category_ids) -> None:
+    existing_content = content(1)
+    existing_content.summary_job = SimpleNamespace(apply_category=True)
+    service, content_repository, event_repository = build_service(
+        categories=[
+            category(2, "여행"),
+            category(9, "미분류", is_default=True),
+        ],
+        contents=[existing_content],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=category_ids),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Uncategorized category cannot be combined with other categories"
+    )
+    assert [item.id for item in existing_content.categories] == [1]
+    assert existing_content.summary_job.apply_category is True
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category_ids", [[2, 99], [9, 2, 99]])
+async def test_update_categories_rejects_inaccessible_category(category_ids) -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행"), category(9, "미분류", is_default=True)],
+        contents=[content(1)],
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=category_ids),
+        )
+
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rejects_other_user_content() -> None:
+    service, _, _ = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1, user_id=2)],
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rolls_back_when_replacement_fails() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1)],
+    )
+
+    async def fail_replacement(*, content, categories):
+        raise RuntimeError("replacement failed")
+
+    content_repository.replace_categories = fail_replacement
+
+    with pytest.raises(RuntimeError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_categories_rolls_back_when_event_creation_fails() -> None:
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "여행")],
+        contents=[content(1)],
+    )
+
+    async def fail_event_creation(**kwargs):
+        raise RuntimeError("event creation failed")
+
+    event_repository.create = fail_event_creation
+
+    with pytest.raises(RuntimeError):
+        await service.update_categories(
+            user_id=1,
+            content_id=1,
+            payload=ContentCategoryUpdate(category_ids=[2]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_tags_replaces_tags() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=9, name="기존", normalized_name="기존")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=[" Flutter ", "#백엔드"]),
+    )
+
+    assert [tag.name for tag in result.tags] == ["Flutter", "백엔드"]
+    assert [tag.name for tag in content_repository.contents[1].tags] == ["Flutter", "백엔드"]
+    assert content_repository.session.committed is True
+    assert content_repository.owned_requests == [(1, 1, True)]
+    assert content_repository.tag_replacements == 1
+
+
+@pytest.mark.asyncio
+async def test_update_tags_removes_all_links_but_keeps_tags() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=9, name="기존", normalized_name="기존")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=[]),
+    )
+
+    assert result.tags == []
+    assert content_repository.contents[1].tags == []
+    assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_update_tags_skips_unchanged_set() -> None:
+    existing_content = content(1)
+    existing_content.tags = [SimpleNamespace(id=1, name="Flutter", normalized_name="flutter")]
+    service, content_repository, _ = build_service(contents=[existing_content])
+
+    result = await service.update_tags(
+        user_id=1,
+        content_id=1,
+        payload=ContentTagUpdate(tag_names=["#flutter"]),
+    )
+
+    assert [tag.name for tag in result.tags] == ["Flutter"]
+    assert content_repository.session.committed is True
+    assert content_repository.tag_replacements == 0
+
+
+@pytest.mark.asyncio
+async def test_update_tags_rejects_other_user_content() -> None:
+    service, content_repository, _ = build_service(contents=[content(1, user_id=2)])
+
+    with pytest.raises(NotFoundError):
+        await service.update_tags(
+            user_id=1,
+            content_id=1,
+            payload=ContentTagUpdate(tag_names=["Flutter"]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.tag_replacements == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["lookup", "commit"])
+async def test_update_tags_rolls_back_lookup_and_commit_failures(failure_stage) -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail(**kwargs):
+        raise RuntimeError("injected transaction failure")
+
+    if failure_stage == "lookup":
+        content_repository.get_owned = fail
+    else:
+        content_repository.session.commit = fail
+
+    with pytest.raises(RuntimeError, match="injected transaction failure"):
+        await service.update_tags(
+            user_id=1, content_id=1, payload=ContentTagUpdate(tag_names=["Flutter"])
+        )
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_tags_rolls_back_when_replacement_fails() -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail_replacement(*, content, tags):
+        raise RuntimeError("replacement failed")
+
+    content_repository.replace_tags = fail_replacement
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        await service.update_tags(
+            user_id=1,
+            content_id=1,
+            payload=ContentTagUpdate(tag_names=["Flutter"]),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_create_content_rolls_back_when_write_fails_after_resolving_tags() -> None:
+    service, content_repository, _ = build_service(
+        categories=[category(1, "취업", is_default=True)]
+    )
+
+    async def fail_create(**kwargs):
+        raise RuntimeError("database unavailable")
+
+    content_repository.create = fail_create
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await service.create_content(
+            user_id=1,
+            payload=ContentCreate(
+                original_url="https://example.com/post",
+                category_ids=[1],
+                tag_names=["Flutter"],
+            ),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_sets_requested_state() -> None:
     service, content_repository, event_repository = build_service(contents=[content(1)])
+
+    result = await service.update_favorite(
+        user_id=1,
+        content_id=1,
+        payload=ContentFavoriteUpdate(is_favorite=True),
+    )
+
+    assert result.is_favorite is True
+    assert content_repository.contents[1].is_favorite is True
+    assert content_repository.session.committed is True
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_skips_unchanged_state() -> None:
+    existing_content = content(1)
+    existing_content.is_favorite = True
+    service, content_repository, event_repository = build_service(contents=[existing_content])
+
+    result = await service.update_favorite(
+        user_id=1,
+        content_id=1,
+        payload=ContentFavoriteUpdate(is_favorite=True),
+    )
+
+    assert result.is_favorite is True
+    assert content_repository.session.committed is False
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_rejects_other_user_content() -> None:
+    service, content_repository, _ = build_service(contents=[content(1, user_id=2)])
+
+    with pytest.raises(NotFoundError):
+        await service.update_favorite(
+            user_id=1,
+            content_id=1,
+            payload=ContentFavoriteUpdate(is_favorite=True),
+        )
+
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_rolls_back_when_write_fails() -> None:
+    service, content_repository, _ = build_service(contents=[content(1)])
+
+    async def fail_update(*, content, is_favorite):
+        raise RuntimeError("favorite update failed")
+
+    content_repository.set_favorite = fail_update
+
+    with pytest.raises(RuntimeError, match="favorite update failed"):
+        await service.update_favorite(
+            user_id=1,
+            content_id=1,
+            payload=ContentFavoriteUpdate(is_favorite=True),
+        )
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_delete_content_removes_link_content_without_storage_access() -> None:
+    service, content_repository, event_repository = build_service(contents=[content(1)])
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.deleted_content_ids == [1]
+    assert content_repository.contents == {}
+    assert content_repository.session.committed is True
+    assert event_repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_delete_content_removes_all_asset_files_after_database_commit() -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/first.png"),
+        SimpleNamespace(id=11, storage_key="screenshots/1/second.png"),
+    ]
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.committed is True
+    assert storage_client.deleted_keys == [
+        "screenshots/1/first.png",
+        "screenshots/1/second.png",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_content_rolls_back_without_deleting_files_when_database_fails() -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+    ]
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    async def fail_delete(content):
+        raise RuntimeError("content delete failed")
+
+    content_repository.delete = fail_delete
+
+    with pytest.raises(RuntimeError, match="content delete failed"):
+        await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.rolled_back is True
+    assert content_repository.session.committed is False
+    assert storage_client.deleted_keys == []
+
+
+@pytest.mark.asyncio
+async def test_delete_content_logs_file_failure_and_keeps_successful_response(caplog) -> None:
+    existing_content = content(1)
+    existing_content.assets = [
+        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+    ]
+    storage_client = FakeStorageClient(fail_keys={"screenshots/1/image.png"})
+    service, content_repository, _ = build_service(
+        contents=[existing_content],
+        storage_client=storage_client,
+    )
+
+    await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.session.committed is True
+    assert storage_client.deleted_keys == ["screenshots/1/image.png"]
+    assert "Failed to delete content asset file" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_delete_content_rejects_other_user_content() -> None:
+    storage_client = FakeStorageClient()
+    service, content_repository, _ = build_service(
+        contents=[content(1, user_id=2)],
+        storage_client=storage_client,
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.delete_content(user_id=1, content_id=1)
+
+    assert content_repository.deleted_content_ids == []
+    assert content_repository.session.committed is False
+    assert storage_client.deleted_keys == []
+
+
+@pytest.mark.asyncio
+async def test_record_view_updates_content_and_records_event() -> None:
+    existing = content(1)
+    existing.categories = [category(3, "여행"), category(1, "취업")]
+    service, content_repository, event_repository = build_service(contents=[existing])
 
     result = await service.record_view(user_id=1, content_id=1)
 
     assert result.content_id == 1
     assert result.event_type == ContentEventType.CONTENT_REOPENED.value
-    assert content_repository.contents[1].last_viewed_at is not None
+    assert existing.open_count == 1
+    assert existing.last_viewed_at is not None
     assert event_repository.events[0].event_type == ContentEventType.CONTENT_REOPENED
+    assert event_repository.events[0].category_ids_at_event == [1, 3]
+    assert event_repository.events[0].created_at == existing.last_viewed_at
+    assert (1, 1, True) in content_repository.owned_requests
     assert content_repository.session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_views_count_each_entry_and_keep_category_snapshots() -> None:
+    existing = content(1)
+    service, _, events = build_service(contents=[existing])
+
+    await service.record_view(user_id=1, content_id=1)
+    first_time = events.events[0].created_at
+    existing.categories = [category(3, "여행")]
+    await service.record_view(user_id=1, content_id=1)
+
+    assert existing.open_count == 2
+    assert [event.category_ids_at_event for event in events.events] == [[1], [3]]
+    assert events.events[0].created_at == first_time
+    assert existing.last_viewed_at == events.events[1].created_at
+    assert all(event.client_event_id is None for event in events.events)
+
+
+@pytest.mark.asyncio
+async def test_view_retry_preserves_first_snapshot_until_a_new_entry() -> None:
+    existing = content(1)
+    service, _, events = build_service(contents=[existing])
+    payload = ContentViewCreate(client_event_id=uuid4())
+
+    first = await service.record_view(user_id=1, content_id=1, payload=payload)
+    first_time = existing.last_viewed_at
+    existing.categories = [category(3, "여행")]
+    retried = await service.record_view(user_id=1, content_id=1, payload=payload)
+
+    assert retried == first
+    assert existing.open_count == 1
+    assert existing.last_viewed_at == first_time
+    assert len(events.events) == 1
+    assert events.events[0].category_ids_at_event == [1]
+    assert events.events[0].created_at == first_time
+
+    await service.record_view(
+        user_id=1, content_id=1, payload=ContentViewCreate(client_event_id=uuid4()),
+    )
+
+    assert existing.open_count == 2
+    assert [event.category_ids_at_event for event in events.events] == [[1], [3]]
+    assert existing.last_viewed_at == events.events[1].created_at
 
 
 @pytest.mark.asyncio
@@ -271,3 +1350,29 @@ async def test_record_view_rejects_other_user_content() -> None:
 
     with pytest.raises(NotFoundError):
         await service.record_view(user_id=1, content_id=1)
+
+
+@pytest.mark.asyncio
+async def test_create_content_rechecks_url_from_unvalidated_model_copy():
+    recommendation = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=None,
+            assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+            failure_reason=None,
+        )
+    )
+    service, contents, events = build_service(recommendation_service=recommendation)
+    payload = ContentCreate(original_url="https://example.com/", tag_names=["새 태그"]).model_copy(
+        update={"original_url": "https://example.com/" + "a" * 2050},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_content(user_id=1, payload=payload)
+
+    assert exc_info.value.status_code == 422
+    assert "2048" in exc_info.value.detail
+    assert recommendation.calls == 0
+    assert contents.contents == {}
+    assert service.tag_repository.tags == {}
+    assert events.events == []
+    assert not contents.session.committed

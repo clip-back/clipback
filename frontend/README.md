@@ -5,6 +5,9 @@ Flutter mobile frontend for the Clipback MVP.
 FE 병합 전 수정 순서와 PR별 검증 결과는
 [FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
 
+현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
+추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
+
 The current implementation mirrors the supplied Figma flows:
 
 - Onboarding
@@ -88,3 +91,18 @@ flutter build web --no-pub
 `test/session_refresh_test.dart`에서 HTTP와 저장소 오류를 대체해 확인합니다.
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
+
+## Backend integration boundaries
+
+Use the backend public HTTPS domain and `/api/v1` exactly once in request URLs.
+Protected APIs require the backend-issued Bearer access token. Account data and
+statistics should come from `/users/me` and `/users/me/stats`; display statistics as
+누적 저장 / 누적 열람, not current content totals.
+
+The existing similar-content section filters already-loaded items by category;
+today's content opens the first local item. Neither is a server recommendation.
+The feed has no total-count field. Reminder and notification screens use mock data.
+See [MVP scope decisions](../docs/backend-mvp-plan.md) before adding APIs for these.
+
+For public URL and web CORS configuration, follow the
+[deployment guide](../docs/railway-deployment.md).

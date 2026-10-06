@@ -1,20 +1,31 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession
+from app.core.config import settings
+from app.integrations.ai_client import get_ai_client
+from app.integrations.storage_client import LocalStorageClient
 from app.repositories.category_repository import CategoryRepository
+from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.tag_repository import TagRepository
 from app.schemas.content import (
+    ContentCategoryUpdate,
     ContentCreate,
+    ContentFavoriteUpdate,
     ContentRead,
     ContentShareCreate,
+    ContentTagUpdate,
     ContentType,
+    ContentViewCreate,
     ContentViewEvent,
 )
+from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
+from app.services.youtube_url import is_youtube_url
 
 router = APIRouter()
 
@@ -25,7 +36,9 @@ async def create_content(
     db: DatabaseSession,
     current_user_id: CurrentUserId,
 ) -> ContentRead:
-    if payload.content_type != ContentType.LINK:
+    if payload.content_type != ContentType.LINK or (
+        payload.original_url and is_youtube_url(str(payload.original_url))
+    ):
         return await _build_content_service(db).create_content(
             user_id=current_user_id,
             payload=payload,
@@ -67,6 +80,61 @@ async def read_content(
     )
 
 
+@router.put("/{content_id}/categories", response_model=ContentRead)
+async def update_content_categories(
+    content_id: int,
+    payload: ContentCategoryUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_categories(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
+    )
+
+
+@router.put("/{content_id}/tags", response_model=ContentRead)
+async def update_content_tags(
+    content_id: int,
+    payload: ContentTagUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_tags(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
+    )
+
+
+@router.put("/{content_id}/favorite", response_model=ContentRead)
+async def update_content_favorite(
+    content_id: int,
+    payload: ContentFavoriteUpdate,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> ContentRead:
+    return await _build_content_service(db).update_favorite(
+        user_id=current_user_id,
+        content_id=content_id,
+        payload=payload,
+    )
+
+
+@router.delete("/{content_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_content(
+    content_id: int,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+) -> Response:
+    await _build_content_service(db).delete_content(
+        user_id=current_user_id,
+        content_id=content_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/{content_id}/view",
     response_model=ContentViewEvent,
@@ -76,16 +144,26 @@ async def record_content_view(
     content_id: int,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
+    payload: ContentViewCreate | None = None,
 ) -> ContentViewEvent:
     return await _build_content_service(db).record_view(
         user_id=current_user_id,
         content_id=content_id,
+        payload=payload,
     )
 
 
 def _build_content_service(db: AsyncSession) -> ContentService:
+    category_repository = CategoryRepository(db)
     return ContentService(
         content_repository=ContentRepository(db),
-        category_repository=CategoryRepository(db),
+        category_repository=category_repository,
         event_repository=EventRepository(db),
+        content_asset_repository=ContentAssetRepository(db),
+        category_recommendation_service=CategoryRecommendationService(
+            category_repository=category_repository,
+            ai_client=get_ai_client(),
+        ),
+        tag_repository=TagRepository(db),
+        storage_client=LocalStorageClient(settings.storage_root),
     )

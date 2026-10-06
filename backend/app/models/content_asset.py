@@ -18,7 +18,10 @@ class ContentAsset(Base):
     __tablename__ = "content_assets"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    content_id: Mapped[int] = mapped_column(ForeignKey("contents.id"), index=True)
+    content_id: Mapped[int] = mapped_column(
+        ForeignKey("contents.id", ondelete="CASCADE"),
+        index=True,
+    )
     asset_type: Mapped[AssetType] = mapped_column(
         Enum(
             AssetType,

@@ -1,10 +1,11 @@
 import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
 
+from app.integrations.metadata_client import MetadataResult
 from app.schemas.content import (
     ContentCreate,
     ContentRead,
@@ -13,7 +14,6 @@ from app.schemas.content import (
     ContentType,
     ShareAttachment,
 )
-from app.integrations.metadata_client import MetadataResult
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
@@ -23,16 +23,19 @@ class FakeContentService:
         self.user_id: int | None = None
         self.payload: ContentCreate | None = None
         self.event_metadata_json: str | None = None
+        self.recommendation_shared_text: str | None = None
 
     async def create_content(
         self,
         user_id: int,
         payload: ContentCreate,
         event_metadata_json: str | None = None,
+        recommendation_shared_text: str | None = None,
     ) -> ContentRead:
         self.user_id = user_id
         self.payload = payload
         self.event_metadata_json = event_metadata_json
+        self.recommendation_shared_text = recommendation_shared_text
 
         return ContentRead(
             id=1,
@@ -82,6 +85,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
             platform="android",
             attachments=[ShareAttachment(filename="preview.jpg", mime_type="image/jpeg")],
             category_ids=[2, 3],
+            tag_names=[" Flutter ", "#flutter", "백엔드"],
             is_favorite=True,
         ),
     )
@@ -96,6 +100,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
     assert content_service.payload.summary == "Instagram 설명"
     assert str(content_service.payload.original_url) == "https://www.instagram.com/reel/SHORTCODE/"
     assert content_service.payload.category_ids == [2, 3]
+    assert content_service.payload.tag_names == ["Flutter", "백엔드"]
     assert content_service.payload.is_favorite is True
 
     assert content_service.event_metadata_json is not None
@@ -112,6 +117,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
         "resolved_url": "https://www.instagram.com/reel/SHORTCODE/",
     }
     assert "raw text should not be persisted" not in content_service.event_metadata_json
+    assert content_service.recommendation_shared_text == "raw text should not be persisted"
 
 
 @pytest.mark.asyncio
@@ -178,3 +184,16 @@ async def test_create_instagram_content_rejects_unsupported_instagram_path() -> 
         )
 
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_share_does_not_hide_non_url_validation_errors():
+    service, content_service = build_service()
+    payload = ContentShareCreate(url="https://instagram.com/p/ABC/").model_copy(
+        update={"tag_names": ["x" * 41]},
+    )
+
+    with pytest.raises(ValidationError):
+        await service.create_instagram_content(user_id=1, payload=payload)
+
+    assert content_service.payload is None

@@ -7,9 +7,8 @@ Create Date: 2026-07-05 00:00:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "202607050001"
 down_revision: str | None = None
@@ -61,8 +60,18 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("email", sa.String(length=255), nullable=True),
         sa.Column("display_name", sa.String(length=80), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
     )
@@ -75,7 +84,12 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=40), nullable=False),
         sa.Column("color", sa.String(length=20), nullable=True),
         sa.Column("is_default", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "name", name="uq_categories_user_id_name"),
@@ -104,7 +118,12 @@ def upgrade() -> None:
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("original_url", sa.String(length=2048), nullable=True),
         sa.Column("is_favorite", sa.Boolean(), server_default=sa.false(), nullable=False),
-        sa.Column("saved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "saved_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("last_viewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["category_id"], ["categories.id"]),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
@@ -123,11 +142,21 @@ def upgrade() -> None:
         sa.Column("asset_type", asset_type_enum, nullable=False),
         sa.Column("storage_key", sa.String(length=512), nullable=False),
         sa.Column("mime_type", sa.String(length=120), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["content_id"], ["contents.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_content_assets_content_id"), "content_assets", ["content_id"], unique=False)
+    op.create_index(
+        op.f("ix_content_assets_content_id"),
+        "content_assets",
+        ["content_id"],
+        unique=False,
+    )
     op.create_index(op.f("ix_content_assets_id"), "content_assets", ["id"], unique=False)
 
     op.create_table(
@@ -137,13 +166,28 @@ def upgrade() -> None:
         sa.Column("content_id", sa.Integer(), nullable=True),
         sa.Column("event_type", content_event_type_enum, nullable=False),
         sa.Column("metadata_json", sa.String(length=1000), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["content_id"], ["contents.id"]),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_content_events_content_id"), "content_events", ["content_id"], unique=False)
-    op.create_index(op.f("ix_content_events_event_type"), "content_events", ["event_type"], unique=False)
+    op.create_index(
+        op.f("ix_content_events_content_id"),
+        "content_events",
+        ["content_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_content_events_event_type"),
+        "content_events",
+        ["event_type"],
+        unique=False,
+    )
     op.create_index(op.f("ix_content_events_id"), "content_events", ["id"], unique=False)
     op.create_index(op.f("ix_content_events_user_id"), "content_events", ["user_id"], unique=False)
 
