@@ -447,6 +447,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
       originalText: content.summary,
       bookmarked: content.isFavorite,
       isScreenshot: content.contentType == 'screenshot',
+      assets: List.unmodifiable(content.assets),
       summaryStatus: content.summaryStatus,
     );
   }
@@ -1037,6 +1038,19 @@ class _ClipbackAppState extends State<ClipbackApp> {
     }
   }
 
+  Future<Uint8List> _readScreenshotAsset(int assetId) async {
+    final accountVersion = _accountVersion;
+    final navigationVersion = _detailNavigationVersion;
+    final bytes = await _api.readAsset(assetId);
+    if (!mounted ||
+        _route != AppRoute.detail ||
+        accountVersion != _accountVersion ||
+        navigationVersion != _detailNavigationVersion) {
+      throw const ClipbackApiException('화면이 변경되어 원본 조회를 취소했어요.');
+    }
+    return bytes;
+  }
+
   void _backFromDetail() {
     setState(() {
       _detailNavigationVersion++;
@@ -1196,6 +1210,8 @@ class _ClipbackAppState extends State<ClipbackApp> {
           onOpenArchive: () => _openArchive(),
         ),
         AppRoute.detail => DetailScreen(
+          key: ValueKey((_accountVersion, _selectedContent?.id)),
+          onReadAsset: _readScreenshotAsset,
           content: _selectedContent ?? _contents.first,
           contents: _detailFeed?.items ?? const [],
           feed: _detailFeed,
@@ -3022,6 +3038,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
+    required this.onReadAsset,
     this.feed,
     this.moving = false,
     this.onRetry,
@@ -3043,6 +3060,7 @@ class DetailScreen extends StatefulWidget {
   });
 
   final ContentItem content;
+  final Future<Uint8List> Function(int) onReadAsset;
   final FeedPage? feed;
   final bool moving;
   final VoidCallback? onRetry;
@@ -3068,9 +3086,100 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   final _relatedKey = GlobalKey();
   bool _showFullText = false;
+  late _ScreenshotAssetController _originalImage;
+  Route<void>? _originalSheetRoute;
+  bool _showingOriginalSheet = false;
+  int _originalSheetVersion = 0;
+
+  int? get _assetId => widget.content.isScreenshot
+      ? widget.content.assets
+            .where((asset) => asset.assetType == 'screenshot')
+            .firstOrNull
+            ?.id
+      : null;
+
+  @override
+  void initState() {
+    super.initState();
+    _originalImage = _ScreenshotAssetController(_assetId, widget.onReadAsset);
+  }
+
+  @override
+  void didUpdateWidget(covariant DetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.content.id != widget.content.id ||
+        _originalImage.assetId != _assetId) {
+      _closeOriginalSheet();
+      _originalImage.dispose();
+      _originalImage = _ScreenshotAssetController(_assetId, widget.onReadAsset);
+      _showFullText = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _closeOriginalSheet();
+    _originalImage.dispose();
+    super.dispose();
+  }
+
+  void _closeOriginalSheet() {
+    _originalSheetVersion++;
+    _showingOriginalSheet = false;
+    final route = _originalSheetRoute;
+    _originalSheetRoute = null;
+    if (route == null) return;
+    // A modal route can outlive the detail widget beneath it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (route.isActive) route.navigator?.removeRoute(route);
+    });
+  }
 
   void _showOriginal() {
     setState(() => _showFullText = !_showFullText);
+    if (_showFullText && widget.content.isScreenshot) {
+      unawaited(_originalImage.load());
+    }
+  }
+
+  Future<void> _showOriginalSheet() async {
+    if (_showingOriginalSheet) return;
+    _showingOriginalSheet = true;
+    final version = ++_originalSheetVersion;
+    final content = widget.content;
+    final image = _originalImage;
+    if (content.isScreenshot) {
+      unawaited(image.load());
+    } else if (content.originalUrl.isNotEmpty) {
+      widget.onOpenOriginalLink();
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: content.isScreenshot,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final route = ModalRoute.of<void>(sheetContext);
+        if (!mounted || version != _originalSheetVersion) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (route != null && route.isActive) {
+              route.navigator?.removeRoute(route);
+            }
+          });
+          return const SizedBox.shrink();
+        }
+        _originalSheetRoute = route;
+        return OriginalContentSheet(
+          content: content,
+          originalImage: content.isScreenshot
+              ? _ScreenshotAssetView(controller: image)
+              : null,
+        );
+      },
+    );
+    if (version == _originalSheetVersion) {
+      _originalSheetRoute = null;
+      _showingOriginalSheet = false;
+    }
   }
 
   void _scrollToRelated() {
@@ -3165,17 +3274,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           const Spacer(),
                           SvgIconButton(
                             asset: Assets.link,
-                            onPressed: () {
-                              if (content.originalUrl.isNotEmpty) {
-                                widget.onOpenOriginalLink();
-                              }
-                              showModalBottomSheet<void>(
-                                context: context,
-                                backgroundColor: Colors.transparent,
-                                builder: (context) =>
-                                    OriginalContentSheet(content: content),
-                              );
-                            },
+                            onPressed: _showOriginalSheet,
                             size: 32,
                             hitSize: 32,
                             color: AppColors.subtle,
@@ -3233,9 +3332,9 @@ class _DetailScreenState extends State<DetailScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Row(
                           children: [
-                            const Text(
-                              '전문 보기',
-                              style: TextStyle(
+                            Text(
+                              content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
+                              style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: -0.4,
@@ -3258,7 +3357,9 @@ class _DetailScreenState extends State<DetailScreen> {
                     const SizedBox(height: 16),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: FullContentPreview(content: content),
+                      child: content.isScreenshot
+                          ? _ScreenshotAssetView(controller: _originalImage)
+                          : FullContentPreview(content: content),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -3373,6 +3474,133 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
     );
   }
+}
+
+/// Only the open detail owns these bytes; its two image surfaces share one load.
+class _ScreenshotAssetController extends ChangeNotifier {
+  _ScreenshotAssetController(this.assetId, this._read);
+
+  final int? assetId;
+  final Future<Uint8List> Function(int) _read;
+  Uint8List? bytes;
+  String? error;
+  bool loading = false;
+  bool _disposed = false;
+  Future<void>? _pending;
+
+  Future<void> load({bool retry = false}) {
+    if (_disposed || assetId == null) return Future.value();
+    if (_pending != null) return _pending!;
+    if (!retry && (bytes != null || error != null)) return Future.value();
+    return _pending = _download();
+  }
+
+  void _clearBytes() {
+    final previous = bytes;
+    bytes = null;
+    if (previous != null) {
+      PaintingBinding.instance.imageCache.evict(MemoryImage(previous));
+    }
+  }
+
+  Future<void> _download() async {
+    _clearBytes();
+    error = null;
+    loading = true;
+    notifyListeners();
+    try {
+      final result = await _read(assetId!);
+      if (_disposed) return;
+      bytes = result;
+    } catch (failure) {
+      if (_disposed) return;
+      error = failure is ClipbackApiException && failure.statusCode == 404
+          ? '원본 이미지를 찾을 수 없어요.'
+          : '원본 이미지를 불러오지 못했어요.';
+    } finally {
+      if (!_disposed) {
+        loading = false;
+        _pending = null;
+        notifyListeners();
+      }
+    }
+  }
+
+  void reportDecodeFailure(Uint8List rejectedBytes) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !identical(bytes, rejectedBytes)) return;
+      _clearBytes();
+      error = '원본 이미지를 표시하지 못했어요.';
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _clearBytes();
+    error = null;
+    super.dispose();
+  }
+}
+
+class _ScreenshotAssetView extends StatelessWidget {
+  const _ScreenshotAssetView({required this.controller});
+
+  final _ScreenshotAssetController controller;
+
+  Widget _message(String message, {bool retry = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(message, textAlign: TextAlign.center),
+        if (retry)
+          TextButton(
+            onPressed: () => controller.load(retry: true),
+            child: const Text('다시 시도'),
+          ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, child) {
+      if (controller.assetId == null) {
+        return _message('저장된 원본 이미지가 없어요.');
+      }
+      if (controller.loading) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('원본 이미지를 불러오는 중이에요.'),
+            ],
+          ),
+        );
+      }
+      if (controller.error != null) {
+        return _message(controller.error!, retry: true);
+      }
+      final bytes = controller.bytes;
+      if (bytes == null) return const SizedBox.shrink();
+      return Image.memory(
+        bytes,
+        width: double.infinity,
+        fit: BoxFit.contain,
+        semanticLabel: '저장한 스크린샷 원본',
+        errorBuilder: (context, error, stackTrace) {
+          controller.reportDecodeFailure(bytes);
+          return _message('원본 이미지를 표시하지 못했어요.', retry: true);
+        },
+      );
+    },
+  );
 }
 
 class FullContentPreview extends StatelessWidget {
@@ -7893,18 +8121,26 @@ class ContentActionSheet extends StatelessWidget {
 }
 
 class OriginalContentSheet extends StatelessWidget {
-  const OriginalContentSheet({required this.content, super.key});
+  const OriginalContentSheet({
+    required this.content,
+    this.originalImage,
+    super.key,
+  });
 
   final ContentItem content;
+  final Widget? originalImage;
 
   @override
   Widget build(BuildContext context) {
     return AppSheet(
-      title: '원문 보기',
+      title: content.isScreenshot ? '원본 이미지' : '원문 보기',
       children: [
         Row(
           children: [
-            SvgPicture.asset(Assets.instagram, width: 18, height: 18),
+            if (content.isScreenshot)
+              const Icon(Icons.image_outlined, size: 18)
+            else
+              SvgPicture.asset(Assets.instagram, width: 18, height: 18),
             const SizedBox(width: 6),
             Text(
               content.source,
@@ -7919,20 +8155,26 @@ class OriginalContentSheet extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Container(
-          constraints: const BoxConstraints(maxHeight: 280),
+          constraints: BoxConstraints(
+            maxHeight: content.isScreenshot
+                ? MediaQuery.sizeOf(context).height * 0.55
+                : 280,
+          ),
           width: double.infinity,
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(content.isScreenshot ? 0 : 16),
           decoration: BoxDecoration(
             color: AppColors.bg,
             borderRadius: BorderRadius.circular(8),
           ),
           child: SingleChildScrollView(
-            child: Text(
-              content.originalText.isEmpty
-                  ? content.summary
-                  : content.originalText,
-              style: const TextStyle(fontSize: 15, height: 1.6),
-            ),
+            child: content.isScreenshot
+                ? originalImage ?? const Text('저장된 원본 이미지가 없어요.')
+                : Text(
+                    content.originalText.isEmpty
+                        ? content.summary
+                        : content.originalText,
+                    style: const TextStyle(fontSize: 15, height: 1.6),
+                  ),
           ),
         ),
         if (content.originalUrl.isNotEmpty) ...[
@@ -9334,6 +9576,7 @@ class ContentItem {
     required this.originalText,
     this.bookmarked = false,
     this.isScreenshot = false,
+    this.assets = const [],
     this.summaryStatus = 'not_requested',
   });
 
@@ -9351,6 +9594,7 @@ class ContentItem {
   final String originalText;
   final bool bookmarked;
   final bool isScreenshot;
+  final List<ApiAsset> assets;
   final String summaryStatus;
 
   ContentItem copyWith({CategoryItem? category, bool? bookmarked}) {
@@ -9369,6 +9613,7 @@ class ContentItem {
       originalText: originalText,
       bookmarked: bookmarked ?? this.bookmarked,
       isScreenshot: isScreenshot,
+      assets: assets,
       summaryStatus: summaryStatus,
     );
   }
