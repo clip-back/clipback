@@ -15,15 +15,12 @@ void main() {
 }
 
 typedef SaveLinkCallback =
-    Future<ContentItem> Function({
-      required String url,
-      required CategoryItem category,
-    });
+    Future<ContentItem> Function({required String url, CategoryItem? category});
 typedef SaveScreenshotCallback =
     Future<ContentItem> Function({
       required Uint8List bytes,
       required String filename,
-      required CategoryItem category,
+      CategoryItem? category,
     });
 
 class ClipbackApp extends StatefulWidget {
@@ -305,6 +302,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
       originalText: content.summary,
       bookmarked: content.isFavorite,
       isScreenshot: content.contentType == 'screenshot',
+      summaryStatus: content.summaryStatus,
     );
   }
 
@@ -385,13 +383,12 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   Future<ContentItem> _addLinkContent({
     required String url,
-    required CategoryItem category,
+    CategoryItem? category,
   }) async {
     final content = await _runSaveRequest(
       () => _api.createContent(
         originalUrl: url,
-        categoryIds: category.id == null ? const [] : [category.id!],
-        tagNames: [category.name],
+        categoryIds: category?.id == null ? const [] : [category!.id!],
       ),
     );
     final item = _contentFromApi(content, _categoryById);
@@ -404,14 +401,13 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Future<ContentItem> _addScreenshotContent({
     required Uint8List bytes,
     required String filename,
-    required CategoryItem category,
+    CategoryItem? category,
   }) async {
     final content = await _runSaveRequest(
       () => _api.uploadScreenshot(
         bytes: bytes,
         filename: filename,
-        categoryIds: category.id == null ? const [] : [category.id!],
-        tagNames: [category.name],
+        categoryIds: category?.id == null ? const [] : [category!.id!],
       ),
     );
     final item = _contentFromApi(content, _categoryById);
@@ -911,7 +907,6 @@ class _ClipbackAppState extends State<ClipbackApp> {
         ),
         AppRoute.my => MyScreen(
           user: _user,
-          categories: _categories,
           onAddLink: _addLinkContent,
           onAddScreenshot: _addScreenshotContent,
           onOpenAccount: () => _go(AppRoute.account),
@@ -1665,7 +1660,6 @@ class HomeScreen extends StatelessWidget {
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
-        categories: categories,
         onAddLink: onAddLink,
         onAddScreenshot: onAddScreenshot,
       );
@@ -2145,7 +2139,6 @@ class ArchiveScreen extends StatelessWidget {
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
-        categories: categories,
         onAddLink: onAddLink,
         onAddScreenshot: onAddScreenshot,
       );
@@ -2284,7 +2277,6 @@ class BookmarkScreen extends StatelessWidget {
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
-        categories: categories,
         onAddLink: onAddLink,
         onAddScreenshot: onAddScreenshot,
       );
@@ -2688,7 +2680,6 @@ class _DetailScreenState extends State<DetailScreen> {
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
-        categories: widget.categories,
         onAddLink: widget.onAddLink,
         onAddScreenshot: widget.onAddScreenshot,
       );
@@ -2985,7 +2976,6 @@ class FullContentPreview extends StatelessWidget {
 class MyScreen extends StatelessWidget {
   const MyScreen({
     required this.user,
-    required this.categories,
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onOpenAccount,
@@ -2995,7 +2985,6 @@ class MyScreen extends StatelessWidget {
   });
 
   final AppUser user;
-  final List<CategoryItem> categories;
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
@@ -3007,7 +2996,6 @@ class MyScreen extends StatelessWidget {
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
-        categories: categories,
         onAddLink: onAddLink,
         onAddScreenshot: onAddScreenshot,
       );
@@ -6101,7 +6089,6 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
 
 Future<void> showContentSaveScreen({
   required BuildContext context,
-  required List<CategoryItem> categories,
   required SaveLinkCallback onAddLink,
   required SaveScreenshotCallback onAddScreenshot,
 }) {
@@ -6110,23 +6097,18 @@ Future<void> showContentSaveScreen({
     barrierDismissible: false,
     barrierColor: Colors.transparent,
     transitionDuration: Duration.zero,
-    pageBuilder: (context, _, _) => AddContentSheet(
-      categories: categories,
-      onAddLink: onAddLink,
-      onAddScreenshot: onAddScreenshot,
-    ),
+    pageBuilder: (context, _, _) =>
+        AddContentSheet(onAddLink: onAddLink, onAddScreenshot: onAddScreenshot),
   );
 }
 
 class AddContentSheet extends StatefulWidget {
   const AddContentSheet({
-    required this.categories,
     required this.onAddLink,
     required this.onAddScreenshot,
     super.key,
   });
 
-  final List<CategoryItem> categories;
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
 
@@ -6142,21 +6124,11 @@ class _AddContentSheetState extends State<AddContentSheet> {
   var _activeTab = 0;
   var _linkStage = SaveFlowStage.editing;
   var _photoStage = SaveFlowStage.editing;
-  late CategoryItem _selectedCategory;
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
   var _isSaving = false;
   String? _saveError;
   ContentItem? _savedContent;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedCategory = widget.categories.firstWhere(
-      (category) => category.name != catUncategorized.name,
-      orElse: () => catUncategorized,
-    );
-  }
 
   @override
   void dispose() {
@@ -6217,10 +6189,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
     try {
       late final ContentItem savedContent;
       if (isLink) {
-        savedContent = await widget.onAddLink(
-          url: _urlController.text.trim(),
-          category: _selectedCategory,
-        );
+        savedContent = await widget.onAddLink(url: _urlController.text.trim());
       } else {
         final bytes = _selectedPhotoBytes;
         final filename = _selectedPhotoFilename;
@@ -6231,7 +6200,6 @@ class _AddContentSheetState extends State<AddContentSheet> {
         savedContent = await widget.onAddScreenshot(
           bytes: bytes,
           filename: filename,
-          category: _selectedCategory,
         );
       }
       if (mounted) {
@@ -6605,6 +6573,15 @@ class SavedContentConfirmation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
+    final processingVideo =
+        content.source == _sourceLabel('youtube') &&
+        (content.summaryStatus == 'queued' ||
+            content.summaryStatus == 'processing');
+    final categoryMessage = processingVideo
+        ? '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.'
+        : content.category.name == catUncategorized.name
+        ? '아직 분류되지 않았어요.'
+        : '저장된 카테고리';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -6705,7 +6682,8 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 30),
-        Row(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
               '카테고리',
@@ -6715,10 +6693,10 @@ class SavedContentConfirmation extends StatelessWidget {
                 letterSpacing: -0.4,
               ),
             ),
-            const SizedBox(width: 8),
-            const Text(
-              '허투루가 자동으로 분류했어요!',
-              style: TextStyle(
+            const SizedBox(height: 8),
+            Text(
+              categoryMessage,
+              style: const TextStyle(
                 color: AppColors.subtle,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -6751,26 +6729,13 @@ class SavedContentConfirmation extends StatelessWidget {
                   ),
                 ),
               ),
-              Container(
-                height: 26,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.subtle),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  '변경',
-                  style: TextStyle(
-                    color: AppColors.subtle,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.35,
-                  ),
-                ),
-              ),
             ],
           ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '분류는 상세 화면에서 변경할 수 있어요.',
+          style: TextStyle(color: AppColors.subtle, fontSize: 14),
         ),
       ],
     );
@@ -8730,6 +8695,7 @@ class ContentItem {
     required this.originalText,
     this.bookmarked = false,
     this.isScreenshot = false,
+    this.summaryStatus = 'not_requested',
   });
 
   final String id;
@@ -8746,6 +8712,7 @@ class ContentItem {
   final String originalText;
   final bool bookmarked;
   final bool isScreenshot;
+  final String summaryStatus;
 
   ContentItem copyWith({CategoryItem? category, bool? bookmarked}) {
     return ContentItem(
@@ -8763,6 +8730,7 @@ class ContentItem {
       originalText: originalText,
       bookmarked: bookmarked ?? this.bookmarked,
       isScreenshot: isScreenshot,
+      summaryStatus: summaryStatus,
     );
   }
 }

@@ -328,7 +328,6 @@ Future<_Picker> _selectPhoto(WidgetTester tester) async {
   unawaited(
     showContentSaveScreen(
       context: tester.element(find.byType(HomeScreen)),
-      categories: home.categories,
       onAddLink: home.onAddLink,
       onAddScreenshot: home.onAddScreenshot,
     ),
@@ -1099,8 +1098,8 @@ void main() {
         for (final upload in uploads) {
           expect(upload.file.filename, 'screen.png');
           expect(upload.file.bytes, orderedEquals(_png));
-          expect(upload.values('category_ids'), ['101']);
-          expect(upload.values('tag_names'), ['공부']);
+          expect(upload.values('category_ids'), isEmpty);
+          expect(upload.values('tag_names'), isEmpty);
         }
         expect(server.calls(_refresh), isEmpty);
         expect(server.calls(_guest), isEmpty);

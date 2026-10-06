@@ -168,6 +168,7 @@ class ApiContent {
     required this.isFavorite,
     required this.savedAt,
     required this.lastViewedAt,
+    this.summaryStatus = 'not_requested',
   });
 
   final int id;
@@ -182,6 +183,7 @@ class ApiContent {
   final bool isFavorite;
   final DateTime savedAt;
   final DateTime? lastViewedAt;
+  final String summaryStatus;
 
   factory ApiContent.fromJson(Map<String, dynamic> json) {
     return ApiContent(
@@ -201,6 +203,7 @@ class ApiContent {
       isFavorite: json['is_favorite'] as bool? ?? false,
       savedAt: _dateTime(json['saved_at'])!,
       lastViewedAt: _dateTime(json['last_viewed_at']),
+      summaryStatus: json['summary_status'] as String? ?? 'not_requested',
     );
   }
 }
