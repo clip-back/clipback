@@ -2,6 +2,7 @@
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+*.iml
 build/
 flutter-preview*.png
 preview-*.png
