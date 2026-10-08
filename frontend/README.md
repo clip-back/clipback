@@ -188,6 +188,88 @@ flutter build web --no-pub
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
 
+## Android 개발 실행
+
+Android SDK Platform 36을 설치하고, 실제 기기는 개발자 옵션의 USB 디버깅을 켠 뒤
+Mac의 디버깅 연결을 허용합니다. `flutter doctor --android-licenses`로 필요한 라이선스를
+확인하고 동의한 다음 실행합니다.
+
+```bash
+# frontend/에서 실행
+flutter pub get --enforce-lockfile
+flutter devices
+flutter run -d <Android-device-id> --debug --no-pub
+```
+
+실행 중 터미널에서 `r`로 hot reload, `R`로 hot restart를 할 수 있습니다.
+Android Gradle 설정·네이티브 플러그인을 바꿨다면 실행을 종료한 뒤 다시 빌드합니다.
+기기 없이 APK 빌드만 확인하려면 `flutter build apk --debug --no-pub`를 사용합니다.
+
+현재 잠금파일의 `file_picker` 8.3.7은 API 34로 컴파일하도록 설정되어 있지만,
+`flutter_plugin_android_lifecycle` 2.0.35는 API 36 이상을 요구합니다.
+`android/build.gradle.kts`에서 `file_picker` 모듈에만
+[`finalizeDsl`](https://developer.android.com/reference/tools/gradle-api/9.0/com/android/build/api/variant/LibraryAndroidComponentsExtension)을 적용해
+compileSdk를 36으로 맞춥니다. 앱의 minSdk·targetSdk와 패키지 잠금파일은 유지합니다.
+`file_picker`를 업데이트할 때 플러그인 자체의 compileSdk를 확인하고 이 보정의 필요성을 재검토합니다.
+
+2026-10-08 검증 환경은 Flutter 3.44.9 / Dart 3.12.2, AGP 9.0.1 / Gradle 9.1.0입니다.
+수정 전 `:file_picker:checkDebugAarMetadata` 실패를 재현하고 수정 후 통과를 확인했습니다.
+`flutter build apk --debug --no-pub`, `flutter analyze --no-pub`, `flutter test --no-pub`의
+기존 테스트 400개가 통과했습니다. `flutter run --debug --no-pub --no-resident`로
+연결된 SM-S938N(Android 16)에 설치·실행하고 홈의 빈 콘텐츠 화면을 확인했습니다.
+사진 선택·업로드, 다른 앱에서 공유받기와 Release 빌드는 이번 검증에 포함하지 않습니다.
+
+## iOS 개발 실행
+
+iOS 프로젝트는 `ios/Runner.xcworkspace`로 엽니다. 앱 이름은 **허투루**, Bundle ID는
+`com.clipback.app`입니다. Runner의 Deployment Target은 현재 Xcode의 `Recommended` 설정을
+사용합니다(Xcode 27.0에서는 iOS 17). Xcode 버전을 바꾸면 실제 최소 버전을 다시 확인합니다.
+
+이번 준비에는 Flutter **3.44.9 / Dart 3.12.2**를 사용했습니다. 터미널의 `flutter --version`으로
+SDK를 먼저 확인하세요. 더 오래된 Flutter로 잠금파일을 다시 생성하지 않습니다.
+
+```bash
+# frontend/에서 실행
+flutter pub get --enforce-lockfile
+flutter analyze --no-pub
+flutter test --no-pub
+flutter build ios --simulator --debug --no-pub
+open ios/Runner.xcworkspace
+```
+
+첫 빌드에서 Flutter 설정·플러그인 등록 파일과 Swift 패키지를 생성하고, Xcode가 네이티브
+의존성을 내려받습니다. `Generated.xcconfig`, `GeneratedPluginRegistrant.*`,
+`Flutter/ephemeral/`은 자동 생성물이므로 직접 작성하거나 커밋하지 않습니다.
+
+실제 iPhone은 Mac에 연결하고 기기에서 신뢰·개발자 모드를 설정한 뒤, Xcode의 Runner 타깃에서
+본인의 Team과 자동 서명을 확인합니다. 실행 대상으로 연결된 iPhone을 선택해 Run하거나
+다음 명령을 사용합니다. 기기 설정은 [Flutter iOS 준비 문서](https://docs.flutter.dev/platform-integration/ios/setup)를 따릅니다.
+
+```bash
+flutter devices
+flutter run -d <iPhone-device-id> --no-pub
+```
+
+Personal Team은 직접 연결한 기기의 개발 테스트에 사용할 수 있습니다. TestFlight 배포에는
+Apple Developer Program에 가입된 팀이 필요합니다([Apple 계정 안내](https://developer.apple.com/help/account/basics/about-your-developer-account)).
+시뮬레이터 빌드 성공만으로 기기 서명이나 설치 성공을 판단하지 않습니다.
+기본 API는 HTTPS Railway 주소이며, 실제 기기에서 로컬 서버에
+연결할 때는 `127.0.0.1` 대신 기기가 접근할 수 있는 서버 주소를 사용합니다.
+
+2026-10-08 로컬 준비 검증: Flutter 3.44.9에서 `pub get --enforce-lockfile`, `analyze --no-pub`,
+기존 테스트 400개와 iOS 시뮬레이터 Debug 빌드를 통과했습니다. `flutter run --debug --no-pub
+--no-resident`로 iPhone 16 Pro(iOS 18.6) 시뮬레이터에 설치·실행하고 홈의 빈 콘텐츠 화면을
+확인했습니다. 실제 iPhone 서명·설치, 사진 선택·업로드, TestFlight 업로드와 갤럭시 설치는
+이 검증에 포함하지 않습니다.
+
+이 Mac에서는 생성된 `Flutter.framework`에 `com.apple.FinderInfo`가 반복 부착되어 서명이
+실패했습니다([Apple의 오류 설명](https://developer.apple.com/library/archive/qa/qa1940/_index.html)).
+프로젝트 소스와 전역 Flutter 설정은 유지하고, `build/ios` 생성물만
+`~/Library/Caches/Clipback/` 아래로 옮겨 원래 경로에 심볼릭 링크를 만들고,
+이전 위치의 속성이 남은 생성 프레임워크를 재생성한 뒤 빌드·실행했습니다.
+이 링크는 로컬 환경용이며 Git에 포함하지 않습니다. `flutter clean` 등으로 빌드 폴더를
+다시 만들면 동일 오류가 재발하는지 확인하고, 필요한 경우 출력 경로를 다시 분리합니다.
+
 ## Backend integration boundaries
 
 Use the backend public HTTPS domain and `/api/v1` exactly once in request URLs.
