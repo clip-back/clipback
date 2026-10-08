@@ -188,6 +188,37 @@ flutter build web --no-pub
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
 
+## Android 개발 실행
+
+Android SDK Platform 36을 설치하고, 실제 기기는 개발자 옵션의 USB 디버깅을 켠 뒤
+Mac의 디버깅 연결을 허용합니다. `flutter doctor --android-licenses`로 필요한 라이선스를
+확인하고 동의한 다음 실행합니다.
+
+```bash
+# frontend/에서 실행
+flutter pub get --enforce-lockfile
+flutter devices
+flutter run -d <Android-device-id> --debug --no-pub
+```
+
+실행 중 터미널에서 `r`로 hot reload, `R`로 hot restart를 할 수 있습니다.
+Android Gradle 설정·네이티브 플러그인을 바꿨다면 실행을 종료한 뒤 다시 빌드합니다.
+기기 없이 APK 빌드만 확인하려면 `flutter build apk --debug --no-pub`를 사용합니다.
+
+현재 잠금파일의 `file_picker` 8.3.7은 API 34로 컴파일하도록 설정되어 있지만,
+`flutter_plugin_android_lifecycle` 2.0.35는 API 36 이상을 요구합니다.
+`android/build.gradle.kts`에서 `file_picker` 모듈에만
+[`finalizeDsl`](https://developer.android.com/reference/tools/gradle-api/9.0/com/android/build/api/variant/LibraryAndroidComponentsExtension)을 적용해
+compileSdk를 36으로 맞춥니다. 앱의 minSdk·targetSdk와 패키지 잠금파일은 유지합니다.
+`file_picker`를 업데이트할 때 플러그인 자체의 compileSdk를 확인하고 이 보정의 필요성을 재검토합니다.
+
+2026-10-08 검증 환경은 Flutter 3.44.9 / Dart 3.12.2, AGP 9.0.1 / Gradle 9.1.0입니다.
+수정 전 `:file_picker:checkDebugAarMetadata` 실패를 재현하고 수정 후 통과를 확인했습니다.
+`flutter build apk --debug --no-pub`, `flutter analyze --no-pub`, `flutter test --no-pub`의
+기존 테스트 400개가 통과했습니다. `flutter run --debug --no-pub --no-resident`로
+연결된 SM-S938N(Android 16)에 설치·실행하고 홈의 빈 콘텐츠 화면을 확인했습니다.
+사진 선택·업로드, 다른 앱에서 공유받기와 Release 빌드는 이번 검증에 포함하지 않습니다.
+
 ## iOS 개발 실행
 
 iOS 프로젝트는 `ios/Runner.xcworkspace`로 엽니다. 앱 이름은 **허투루**, Bundle ID는
