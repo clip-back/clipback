@@ -41,8 +41,8 @@ PRD·IA·User Flow·화면 정책을 공통 개발 기준으로 정리했습니�
 | 담당 | 역할 |
 | --- | --- |
 | [정지윤](https://github.com/just-stopyoon) · PM / Product Design | 사용자 리서치, 문제 정의, MVP 우선순위, 제품 사양·화면 설계 |
-| Backend | API·데이터 모델·인증·콘텐츠 처리 구현 |
-| Frontend / AI | 앱 화면·사용자 흐름·AI 알고리즘 구현 |
+| [이현규](https://github.com/leegusrb) · Backend | API·데이터 모델·인증·콘텐츠 처리 구현 |
+| [박상규](https://github.com/sangkyu39) · Frontend / AI | 앱 화면·사용자 흐름·AI 알고리즘 구현 |
 
 ## 현재 개발 현황
 
