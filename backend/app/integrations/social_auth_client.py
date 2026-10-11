@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
 
 import httpx
 from email_validator import EmailNotValidError, validate_email
-from jose import JWTError, jwt
+from jose import JWSError, JWTError, jwt
 
 from app.core.config import Settings, settings
 from app.models.social_identity import SocialProvider
@@ -18,6 +21,9 @@ GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 KAKAO_JWKS_URL = "https://kauth.kakao.com/.well-known/jwks.json"
 KAKAO_ISSUERS = {"https://kauth.kakao.com"}
 NAVER_PROFILE_URL = "https://openapi.naver.com/v1/nid/me"
+APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token"
+APPLE_ISSUER = "https://appleid.apple.com"
 DEFAULT_JWKS_TTL_SECONDS = 3600
 MAX_JWKS_TTL_SECONDS = 86400
 CACHE_MAX_AGE_PATTERN = re.compile(r"(?:^|,)\s*max-age=(\d+)\s*(?:,|$)", re.IGNORECASE)
@@ -50,6 +56,13 @@ class SocialProfile:
     subject: str
     email: str | None
     display_name: str
+
+
+@dataclass(frozen=True)
+class AppleTokenGrant:
+    id_token: str = field(repr=False)
+    refresh_token: str | None = field(default=None, repr=False)
+    access_token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -106,17 +119,19 @@ class SocialAuthClient:
         )
 
     async def _verify_kakao(self, token: str) -> SocialProfile:
-        if self.config.kakao_rest_api_key is None:
-            raise SocialAuthNotConfiguredError
-        audience = self.config.kakao_rest_api_key.get_secret_value().strip()
-        if not audience:
+        audiences = {value.strip() for value in self.config.kakao_client_ids if value.strip()}
+        if not audiences and self.config.kakao_rest_api_key is not None:
+            legacy_audience = self.config.kakao_rest_api_key.get_secret_value().strip()
+            if legacy_audience:
+                audiences.add(legacy_audience)
+        if not audiences:
             raise SocialAuthNotConfiguredError
 
         claims = await self._decode_oidc_token(
             token=token,
             jwks_url=KAKAO_JWKS_URL,
             issuers=KAKAO_ISSUERS,
-            audiences={audience},
+            audiences=audiences,
         )
         email = claims.get("email") if claims.get("email_verified") is True else None
         return self._build_profile(
@@ -124,6 +139,107 @@ class SocialAuthClient:
             subject=claims["sub"],
             email=email,
             display_name=claims.get("nickname"),
+        )
+
+    def apple_client_id(self) -> str:
+        values = (
+            self.config.apple_client_id,
+            self.config.apple_team_id,
+            self.config.apple_key_id,
+            self.config.apple_private_key.get_secret_value()
+            if self.config.apple_private_key else None,
+        )
+        if any(not value or not value.strip() for value in values):
+            raise SocialAuthNotConfiguredError
+        return self.config.apple_client_id.strip()
+
+    async def verify_apple_identity(
+        self, token: str, *, nonce_hash: str | None = None, display_name: str | None = None,
+        access_token: str | None = None,
+    ) -> SocialProfile:
+        client_id = self.apple_client_id()
+        claims = await self._decode_oidc_token(
+            token=token, jwks_url=APPLE_JWKS_URL,
+            issuers={APPLE_ISSUER}, audiences={client_id},
+            access_token=access_token,
+        )
+        if claims.get("aud") != client_id:
+            raise SocialAuthInvalidCredentialError
+        if nonce_hash is not None:
+            nonce = claims.get("nonce")
+            if not isinstance(nonce, str) or not hmac.compare_digest(
+                hashlib.sha256(nonce.encode()).hexdigest(), nonce_hash
+            ):
+                raise SocialAuthInvalidCredentialError
+        verified_email = claims.get("email_verified")
+        email = claims.get("email") if verified_email is True or verified_email == "true" else None
+        return self._build_profile(
+            provider=SocialProvider.APPLE, subject=claims["sub"],
+            email=email, display_name=display_name,
+        )
+
+    async def exchange_apple_code(self, code: str) -> AppleTokenGrant:
+        return await self._request_apple_token({"grant_type": "authorization_code", "code": code})
+
+    async def refresh_apple_token(self, refresh_token: str) -> AppleTokenGrant:
+        return await self._request_apple_token(
+            {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        )
+
+    def _apple_client_secret(self) -> str:
+        client_id = self.apple_client_id()
+        now = datetime.now(UTC)
+        try:
+            return jwt.encode(
+                {
+                    "iss": self.config.apple_team_id.strip(), "sub": client_id,
+                    "aud": APPLE_ISSUER, "iat": now, "exp": now + timedelta(minutes=5),
+                },
+                self.config.apple_private_key.get_secret_value(), algorithm="ES256",
+                headers={"kid": self.config.apple_key_id.strip()},
+            )
+        except (JWSError, JWTError, ValueError, TypeError) as exc:
+            raise SocialAuthNotConfiguredError from exc
+
+    async def _request_apple_token(self, fields: dict[str, str]) -> AppleTokenGrant:
+        body = {
+            "client_id": self.apple_client_id(), "client_secret": self._apple_client_secret(),
+            **fields,
+        }
+        try:
+            response = await self._client.post(APPLE_TOKEN_URL, data=body)
+        except httpx.TimeoutException as exc:
+            raise SocialAuthTimeoutError from exc
+        except httpx.HTTPError as exc:
+            raise SocialAuthUpstreamError from exc
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise SocialAuthUpstreamError from exc
+        if not isinstance(data, dict):
+            raise SocialAuthUpstreamError
+        if response.status_code == 400:
+            if data.get("error") == "invalid_grant":
+                raise SocialAuthInvalidCredentialError
+            if data.get("error") in {"invalid_client", "unauthorized_client"}:
+                raise SocialAuthNotConfiguredError
+        if response.status_code != 200:
+            raise SocialAuthUpstreamError
+        id_token = data.get("id_token")
+        refresh_token = data.get("refresh_token")
+        access_token = data.get("access_token")
+        if not isinstance(id_token, str) or not id_token.strip():
+            raise SocialAuthUpstreamError
+        if refresh_token is not None and (
+            not isinstance(refresh_token, str) or not refresh_token.strip()
+        ):
+            raise SocialAuthUpstreamError
+        if access_token is not None and (
+            not isinstance(access_token, str) or not access_token.strip()
+        ):
+            raise SocialAuthUpstreamError
+        return AppleTokenGrant(
+            id_token=id_token, refresh_token=refresh_token, access_token=access_token
         )
 
     async def _verify_naver(self, token: str) -> SocialProfile:
@@ -167,6 +283,7 @@ class SocialAuthClient:
         jwks_url: str,
         issuers: set[str],
         audiences: set[str],
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         try:
             header = jwt.get_unverified_header(token)
@@ -177,11 +294,15 @@ class SocialAuthClient:
                 token,
                 key,
                 algorithms=["RS256"],
+                access_token=access_token,
                 options={
                     "require_exp": True,
                     "require_sub": True,
                     "verify_aud": False,
                     "verify_iss": False,
+                    # SDK login supplies only an ID token. For Apple's server grants,
+                    # validate at_hash when the corresponding access token is available.
+                    "verify_at_hash": access_token is not None,
                 },
             )
         except SocialAuthClientError:

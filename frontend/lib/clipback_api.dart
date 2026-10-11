@@ -38,6 +38,34 @@ class ApiSession {
   }
 }
 
+class ApiSocialSession extends ApiSession {
+  const ApiSocialSession({
+    required super.accessToken,
+    required super.refreshToken,
+    required super.expiresIn,
+    required super.refreshExpiresIn,
+    required this.isNewUser,
+  });
+
+  final bool isNewUser;
+
+  factory ApiSocialSession.fromJson(Map<String, dynamic> json) =>
+      ApiSocialSession(
+        accessToken: json['access_token'] as String,
+        refreshToken: json['refresh_token'] as String,
+        expiresIn: json['expires_in'] as int,
+        refreshExpiresIn: json['refresh_expires_in'] as int,
+        isNewUser: json['is_new_user'] as bool,
+      );
+}
+
+class ApiAppleChallenge {
+  const ApiAppleChallenge({required this.id, required this.nonce});
+
+  final String id;
+  final String nonce;
+}
+
 class ApiSessionStorage {
   static const _sessionKey = 'clipback.session';
   static const _accessTokenKey = 'clipback.access_token';
@@ -263,8 +291,10 @@ class ClipbackApi {
   ClipbackApi({
     http.Client? client,
     Future<void> Function(ApiSession)? onSessionChanged,
+    Future<void> Function()? onSessionInvalidated,
   }) : _client = client ?? http.Client(),
-       _onSessionChanged = onSessionChanged;
+       _onSessionChanged = onSessionChanged,
+       _onSessionInvalidated = onSessionInvalidated;
 
   static const _requestTimeout = Duration(seconds: 10);
   static const _baseUrl = String.fromEnvironment(
@@ -274,6 +304,7 @@ class ClipbackApi {
 
   final http.Client _client;
   final Future<void> Function(ApiSession)? _onSessionChanged;
+  final Future<void> Function()? _onSessionInvalidated;
   ApiSession? _session;
   int _sessionGeneration = 0;
   Future<ApiSession>? _refreshFuture;
@@ -325,7 +356,8 @@ class ClipbackApi {
 
   Future<Map<String, String>> readiness() => _getPublic('/health/ready');
 
-  Future<ApiSession> createGuestSession() => _issueSession('/auth/guest');
+  Future<ApiSession> createGuestSession() =>
+      _issueSession('/auth/guest', decode: ApiSession.fromJson);
 
   Future<ApiSession> refreshSession() {
     final generation = _sessionGeneration;
@@ -405,22 +437,68 @@ class ClipbackApi {
     }
   }
 
-  Future<ApiSession> socialLogin({
-    required String provider,
-    required String token,
-  }) => _issueSession('/auth/social/$provider', body: {'token': token});
+  Future<ApiAppleChallenge> createAppleChallenge({
+    required bool upgrade,
+  }) async {
+    final generation = _sessionGeneration;
+    _checkSessionGeneration(generation);
+    final response = await _json(
+      'POST',
+      '/auth/social/apple/challenge',
+      authenticated: upgrade,
+      body: {'purpose': upgrade ? 'upgrade' : 'login'},
+    );
+    _checkSessionGeneration(generation);
+    return ApiAppleChallenge(
+      id: response['challenge_id'] as String,
+      nonce: response['nonce'] as String,
+    );
+  }
 
-  Future<ApiSession> upgradeGuestWithSocial({
+  Future<ApiSocialSession> socialLogin({
     required String provider,
     required String token,
+    String? authorizationCode,
+    String? challengeId,
+    String? displayName,
   }) => _issueSession(
-    '/auth/social/$provider/upgrade',
-    authenticated: true,
-    body: {'token': token},
+    '/auth/social/$provider',
+    decode: ApiSocialSession.fromJson,
+    body: {
+      'token': token,
+      if (provider == 'apple' && authorizationCode != null)
+        'authorization_code': authorizationCode,
+      if (provider == 'apple' && challengeId != null)
+        'challenge_id': challengeId,
+      if (provider == 'apple' && displayName != null)
+        'display_name': displayName,
+    },
   );
 
-  Future<ApiSession> _issueSession(
+  Future<ApiSocialSession> upgradeGuestWithSocial({
+    required String provider,
+    required String token,
+    String? authorizationCode,
+    String? challengeId,
+    String? displayName,
+  }) => _issueSession(
+    '/auth/social/$provider/upgrade',
+    decode: ApiSocialSession.fromJson,
+    authenticated: true,
+    body: {
+      'token': token,
+      if (provider == 'apple' && authorizationCode != null)
+        'authorization_code': authorizationCode,
+      if (provider == 'apple' && challengeId != null)
+        'challenge_id': challengeId,
+      if (provider == 'apple' && displayName != null)
+        'display_name': displayName,
+    },
+  );
+
+  Future<T> _issueSession<T extends ApiSession>(
     String path, {
+    required T Function(Map<String, dynamic>) decode,
     bool authenticated = false,
     Map<String, dynamic>? body,
   }) async {
@@ -433,13 +511,16 @@ class ClipbackApi {
         path,
         authenticated: authenticated,
         body: body,
+        retryUnauthorized: !path.endsWith('/upgrade'),
       );
     } catch (_) {
       _checkSessionGeneration(generation);
       rethrow;
     }
     _checkSessionGeneration(generation);
-    return _setSession(ApiSession.fromJson(response), generation: generation);
+    final session = decode(response);
+    await _setSession(session, generation: generation);
+    return session;
   }
 
   Future<ApiUser> readMe() async =>
@@ -705,12 +786,14 @@ class ClipbackApi {
     bool authenticated = true,
     Map<String, dynamic>? body,
     bool allowEmpty = false,
+    bool retryUnauthorized = true,
   }) async {
     final response = await _request(
       method,
       path,
       authenticated: authenticated,
       body: body,
+      retryUnauthorized: retryUnauthorized,
     );
     _throwForError(response);
     if (allowEmpty && response.body.isEmpty) return const {};
@@ -722,23 +805,29 @@ class ClipbackApi {
     String path, {
     bool authenticated = true,
     Map<String, dynamic>? body,
-  }) => _sendWithSessionRetry((session) async {
-    final request = http.Request(method, Uri.parse('$_baseUrl$path'));
-    request.headers['Accept'] = 'application/json';
-    if (authenticated) {
-      request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
-    }
-    if (body != null) {
-      request.headers['Content-Type'] = 'application/json';
-      request.body = jsonEncode(body);
-    }
-    return http.Response.fromStream(await _client.send(request));
-  }, authenticated: authenticated);
+    bool retryUnauthorized = true,
+  }) => _sendWithSessionRetry(
+    (session) async {
+      final request = http.Request(method, Uri.parse('$_baseUrl$path'));
+      request.headers['Accept'] = 'application/json';
+      if (authenticated) {
+        request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
+      }
+      if (body != null) {
+        request.headers['Content-Type'] = 'application/json';
+        request.body = jsonEncode(body);
+      }
+      return http.Response.fromStream(await _client.send(request));
+    },
+    authenticated: authenticated,
+    retryUnauthorized: retryUnauthorized,
+  );
 
   Future<http.Response> _sendWithSessionRetry(
     Future<http.Response> Function(ApiSession?) send, {
     bool authenticated = true,
     bool retried = false,
+    bool retryUnauthorized = true,
   }) async {
     final generation = _sessionGeneration;
     final session = _session;
@@ -754,7 +843,10 @@ class ClipbackApi {
       rethrow;
     }
     if (authenticated) _checkSessionGeneration(generation);
-    if (response.statusCode == 401 && authenticated && !retried) {
+    if (response.statusCode == 401 &&
+        authenticated &&
+        !retried &&
+        retryUnauthorized) {
       try {
         final activeRefresh = _refreshFuture;
         if (activeRefresh != null) {
@@ -763,8 +855,11 @@ class ClipbackApi {
         } else if (session!.accessToken == _session!.accessToken) {
           await refreshSession();
         }
-      } catch (_) {
+      } catch (error) {
         _checkSessionGeneration(generation);
+        if (error is ClipbackApiException && error.statusCode == 401) {
+          await _onSessionInvalidated?.call();
+        }
         rethrow;
       }
       _checkSessionGeneration(generation);
@@ -772,7 +867,11 @@ class ClipbackApi {
         send,
         authenticated: authenticated,
         retried: true,
+        retryUnauthorized: retryUnauthorized,
       );
+    }
+    if (response.statusCode == 401 && authenticated && retryUnauthorized) {
+      await _onSessionInvalidated?.call();
     }
     return response;
   }

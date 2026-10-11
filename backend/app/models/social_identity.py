@@ -12,6 +12,7 @@ class SocialProvider(StrEnum):
     GOOGLE = "google"
     NAVER = "naver"
     KAKAO = "kakao"
+    APPLE = "apple"
 
 
 class SocialIdentity(Base):

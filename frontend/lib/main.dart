@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'clipback_api.dart';
+import 'social_auth.dart';
 
 void main() {
   runApp(const ClipbackApp());
@@ -95,17 +96,29 @@ class FeedPage {
 }
 
 class ClipbackApp extends StatefulWidget {
-  const ClipbackApp({this.sessionStorage, super.key});
+  const ClipbackApp({this.sessionStorage, this.socialAuth, super.key});
 
   final ApiSessionStorage? sessionStorage;
+  final SocialAuth? socialAuth;
 
   @override
   State<ClipbackApp> createState() => _ClipbackAppState();
 }
 
-class _ClipbackAppState extends State<ClipbackApp> {
+class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final ClipbackApi _api;
   late final ApiSessionStorage _sessionStorage;
+  late final SocialAuth _socialAuth;
+  StreamSubscription<void>? _appleRevocations;
+  Future<void>? _invalidationFuture;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  ApiUser? _authenticatedUser;
+  bool _authBusy = false;
+  bool _linkingGuest = false;
+  bool _checkingAppleCredential = false;
+  bool _pendingSessionClear = false;
+  int _authEpoch = 0;
+  AppRoute? _postAuthRoute;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
   Future<void> _sessionStorageQueue = Future.value();
@@ -153,8 +166,19 @@ class _ClipbackAppState extends State<ClipbackApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _socialAuth = widget.socialAuth ?? PlatformSocialAuth();
     _sessionStorage = widget.sessionStorage ?? ApiSessionStorage();
-    _api = ClipbackApi(onSessionChanged: (_) => _persistCurrentSession());
+    _api = ClipbackApi(
+      onSessionChanged: (_) => _persistCurrentSession(),
+      onSessionInvalidated: _invalidateSession,
+    );
+    _appleRevocations = _socialAuth.appleCredentialRevocations.listen(
+      (_) => unawaited(_checkAppleCredential()),
+      onError: (Object _) {
+        // Device channel failures are not proof that the account was revoked.
+      },
+    );
     _categories = List.of(initialCategories);
     _bookmarkedIds = {};
     unawaited(_restoreSession());
@@ -162,6 +186,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
 
   @override
   void dispose() {
+    _authEpoch++;
+    unawaited(_appleRevocations?.cancel());
+    WidgetsBinding.instance.removeObserver(this);
     _isSessionStorageBusy.dispose();
     super.dispose();
   }
@@ -254,13 +281,98 @@ class _ClipbackAppState extends State<ClipbackApp> {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkAppleCredential());
+    }
+  }
+
+  Future<void> _checkAppleCredential() async {
+    if (_checkingAppleCredential ||
+        _authBusy ||
+        !(_authenticatedUser?.linkedProviders.contains('apple') ?? false)) {
+      return;
+    }
+    final epoch = _authEpoch;
+    _checkingAppleCredential = true;
+    try {
+      final state = await _socialAuth.appleCredentialState();
+      if (!mounted || epoch != _authEpoch) return;
+      if (state == AppleCredentialStatus.revoked ||
+          state == AppleCredentialStatus.notFound) {
+        setState(() => _authBusy = true);
+        try {
+          await _api.logout();
+        } catch (_) {
+          // A confirmed device revocation blocks local access even while offline.
+        }
+        if (mounted && epoch == _authEpoch) await _invalidateSession();
+      }
+    } catch (_) {
+      // An unavailable device/provider check does not invalidate a server session.
+    } finally {
+      _checkingAppleCredential = false;
+    }
+  }
+
+  Future<void> _invalidateSession() {
+    final pending = _invalidationFuture;
+    if (pending != null) return pending;
+    late final Future<void> operation;
+    operation = _clearInvalidSession().whenComplete(() {
+      if (identical(_invalidationFuture, operation)) _invalidationFuture = null;
+    });
+    _invalidationFuture = operation;
+    return operation;
+  }
+
+  Future<void> _clearInvalidSession() async {
+    _pendingSessionClear = true;
+    _authEpoch++;
+    if (mounted) setState(() => _authBusy = false);
+    try {
+      await _clearStoredSession();
+      _api.clearSession();
+      _pendingSessionClear = false;
+      if (mounted) setState(_showLoginChoice);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.');
+      }
+    }
+  }
+
+  void _showLoginChoice() {
+    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    _authEpoch++;
+    _invalidateAccountFeeds();
+    _authenticatedUser = null;
+    _user = defaultUser;
+    _categories
+      ..clear()
+      ..addAll(initialCategories);
+    _selectedContent = null;
+    _linkingGuest = false;
+    _postAuthRoute = null;
+    _previousRoute = AppRoute.login;
+    _route = AppRoute.login;
+  }
+
   Future<void> _restoreSession() async {
-    if (_isRestoringSession) return;
+    if (_isRestoringSession || _authBusy) return;
     setState(() {
       _isRestoringSession = true;
       _apiConnectionError = null;
     });
     try {
+      if (_pendingSessionClear) {
+        await _clearStoredSession();
+        _api.clearSession();
+        _pendingSessionClear = false;
+        _showLoginChoice();
+        return;
+      }
       if (!_api.hasSession) {
         final session = await _sessionStorage.read();
         if (session != null) {
@@ -268,36 +380,31 @@ class _ClipbackAppState extends State<ClipbackApp> {
           _api.restoreSession(session);
         }
       }
-
       if (!_api.hasSession) {
-        _invalidateAccountFeeds();
-        await _api.createGuestSession();
-        await _loadRemoteData();
+        _showLoginChoice();
         return;
       }
-
       try {
         await _loadRemoteData();
+        if (!mounted || !_api.hasSession) return;
+        _route = _postAuthRoute ?? AppRoute.home;
+        _postAuthRoute = null;
+        await _checkAppleCredential();
       } on ClipbackApiException catch (error) {
-        if (error.statusCode != 401) rethrow;
-        // Keep the current session if removing invalid stored credentials fails.
-        await _clearStoredSession();
-        _invalidateAccountFeeds();
-        _api.clearSession();
-        await _api.createGuestSession();
-        // A new guest's failure must not trigger another replacement in this attempt.
-        await _loadRemoteData();
+        if (error.statusCode != 401 || _pendingSessionClear) rethrow;
+        if (_api.hasSession) await _invalidateSession();
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted &&
+          (_api.hasSession ||
+              _pendingSessionClear ||
+              _route != AppRoute.login)) {
         setState(() {
           _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.';
         });
       }
     } finally {
-      if (mounted) {
-        setState(() => _isRestoringSession = false);
-      }
+      if (mounted) setState(() => _isRestoringSession = false);
     }
   }
 
@@ -306,16 +413,195 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _continueAsGuest() async {
+    if (_authBusy || _isRestoringSession) return;
+    final epoch = ++_authEpoch;
+    setState(() => _authBusy = true);
     try {
-      _invalidateAccountFeeds();
-      await _api.createGuestSession();
-      await _loadRemoteData();
-      if (mounted) _go(AppRoute.onboarding);
+      if (!_api.hasSession) {
+        await _api.createGuestSession();
+        if (!mounted || epoch != _authEpoch) return;
+        _invalidateAccountFeeds();
+        _authenticatedUser = null;
+        _postAuthRoute = AppRoute.onboarding;
+      } else {
+        _postAuthRoute = AppRoute.home;
+      }
+      await _reloadAfterAuthentication();
     } on ClipbackApiException catch (error) {
-      _showError(error.message);
+      if (mounted && epoch == _authEpoch) _showError(error.message);
     } catch (_) {
-      _showError('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      if (mounted && epoch == _authEpoch) {
+        _showError('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      }
+    } finally {
+      if (mounted && epoch == _authEpoch) setState(() => _authBusy = false);
     }
+  }
+
+  Future<void> _reloadAfterAuthentication() async {
+    try {
+      await _loadRemoteData();
+      if (!mounted || !_api.hasSession) return;
+      setState(() {
+        _route = _postAuthRoute ?? AppRoute.home;
+        _postAuthRoute = null;
+        _linkingGuest = false;
+      });
+    } catch (_) {
+      // Token issuance already succeeded. Retry only data loading, never login.
+      if (mounted && (_api.hasSession || _pendingSessionClear)) {
+        setState(() => _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.');
+      }
+    }
+  }
+
+  Future<void> _authenticateSocial(
+    SocialLoginProvider provider, {
+    bool switchAccount = false,
+  }) async {
+    if (_authBusy ||
+        _isRestoringSession ||
+        !_socialAuth.supportedProviders.contains(provider)) {
+      return;
+    }
+    final upgrade = _linkingGuest && !switchAccount;
+    if (upgrade && _authenticatedUser?.isGuest != true) return;
+    final epoch = ++_authEpoch;
+    final accountVersion = _accountVersion;
+    setState(() => _authBusy = true);
+    bool conflict = false;
+    try {
+      final challenge = provider == SocialLoginProvider.apple
+          ? await _api.createAppleChallenge(upgrade: upgrade)
+          : null;
+      if (!mounted ||
+          epoch != _authEpoch ||
+          accountVersion != _accountVersion) {
+        return;
+      }
+      final credential = await _socialAuth.authenticate(
+        provider,
+        nonce: challenge?.nonce,
+      );
+      if (!mounted ||
+          epoch != _authEpoch ||
+          accountVersion != _accountVersion ||
+          credential == null) {
+        return;
+      }
+      final session = upgrade
+          ? await _api.upgradeGuestWithSocial(
+              provider: provider.name,
+              token: credential.token,
+              authorizationCode: credential.authorizationCode,
+              challengeId: challenge?.id,
+              displayName: credential.displayName,
+            )
+          : await _api.socialLogin(
+              provider: provider.name,
+              token: credential.token,
+              authorizationCode: credential.authorizationCode,
+              challengeId: challenge?.id,
+              displayName: credential.displayName,
+            );
+      if (!mounted ||
+          epoch != _authEpoch ||
+          accountVersion != _accountVersion) {
+        return;
+      }
+      _invalidateAccountFeeds();
+      _authenticatedUser = null;
+      _user = defaultUser;
+      _selectedContent = null;
+      _postAuthRoute = session.isNewUser ? AppRoute.onboarding : AppRoute.home;
+      try {
+        await _socialAuth.rememberAppleUserId(
+          provider == SocialLoginProvider.apple
+              ? credential.providerUserId
+              : null,
+        );
+      } catch (_) {
+        _showError('기기의 계정 확인 정보를 저장하지 못했어요. 로그인은 완료됐어요.');
+      }
+      if (!mounted || epoch != _authEpoch) return;
+      await _reloadAfterAuthentication();
+    } on SocialAuthException catch (error) {
+      if (mounted && epoch == _authEpoch) _showError(error.message);
+    } on ClipbackApiException catch (error) {
+      if (mounted && epoch == _authEpoch) {
+        if (upgrade && error.statusCode == 401) {
+          // Provider rejection and expired guest credentials share HTTP 401.
+          // Check the guest independently; never replay a one-use Apple code.
+          try {
+            await _api.readMe();
+          } catch (sessionError) {
+            if (mounted && epoch == _authEpoch) {
+              _showError(
+                sessionError is ClipbackApiException
+                    ? sessionError.message
+                    : '계정 정보를 확인하지 못했어요. 다시 시도해 주세요.',
+              );
+            }
+            return;
+          }
+          if (!mounted || epoch != _authEpoch) return;
+        }
+        conflict = upgrade && error.statusCode == 409;
+        if (!conflict) _showError(error.message);
+      }
+    } catch (_) {
+      if (mounted && epoch == _authEpoch) {
+        _showError('로그인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      }
+    } finally {
+      if (mounted && epoch == _authEpoch) setState(() => _authBusy = false);
+    }
+    if (conflict && mounted && epoch == _authEpoch) {
+      final context = _navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('이미 연결된 계정이에요'),
+          content: const Text(
+            '기존 계정으로 전환하면 현재 게스트의 저장 데이터는 합쳐지지 않으며, 이 기기에서 다시 접근하지 못할 수 있어요. 기존 계정으로 로그인할까요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('게스트 유지'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('기존 계정으로 전환'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true && mounted && epoch == _authEpoch) {
+        // A consumed Apple challenge/code (and every other credential) is never reused.
+        await _authenticateSocial(provider, switchAccount: true);
+      }
+    }
+  }
+
+  Future<void> _openAccountLogin() async {
+    if (_authBusy) return;
+    if (_authenticatedUser == null) {
+      try {
+        final user = await _api.readMe();
+        if (!mounted) return;
+        setState(() => _authenticatedUser = user);
+      } catch (_) {
+        _showError('계정 정보를 불러오지 못했어요. 다시 시도해 주세요.');
+        return;
+      }
+    }
+    if (_authenticatedUser?.isGuest != true) return;
+    setState(() {
+      _linkingGuest = true;
+      _route = AppRoute.login;
+    });
   }
 
   Future<void> _loadRemoteData() async {
@@ -329,19 +615,33 @@ class _ClipbackAppState extends State<ClipbackApp> {
     });
     await _loadFeed(_homeFeed, reset: true);
     if (_homeFeed.error != null) throw _homeFeed.error!;
-    AppUser? remoteUser;
+    ApiUser? remoteUser;
+    ApiUserStats? remoteStats;
     try {
-      final user = await _api.readMe();
-      final stats = await _api.readStats();
-      remoteUser = _userFromApi(user, stats);
+      remoteUser = await _api.readMe();
     } catch (error) {
       if (error is ClipbackApiException && error.statusCode == 401) rethrow;
-      // Categories and saved content remain available without profile statistics.
     }
     if (!mounted || accountVersion != _accountVersion) return;
-
+    if (remoteUser != null) {
+      setState(() {
+        _authenticatedUser = remoteUser;
+        _user = _userFromApi(
+          remoteUser!,
+          const ApiUserStats(savedCount: 0, reopenedCount: 0),
+        );
+      });
+    }
+    try {
+      remoteStats = await _api.readStats();
+    } catch (error) {
+      if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+    }
+    if (!mounted || accountVersion != _accountVersion) return;
     setState(() {
-      if (remoteUser != null) _user = remoteUser;
+      if (remoteUser != null && remoteStats != null) {
+        _user = _userFromApi(remoteUser, remoteStats);
+      }
       _apiConnectionError = null;
     });
   }
@@ -577,14 +877,14 @@ class _ClipbackAppState extends State<ClipbackApp> {
     });
   }
 
-  Future<void> _ensureGuestSessionForSave() async {
+  Future<void> _requireSessionForSave() async {
+    if (_authBusy) throw const ClipbackApiException('계정 변경이 끝난 뒤 다시 시도해 주세요.');
     if (_api.hasSession) return;
-    _invalidateAccountFeeds();
-    await _api.createGuestSession();
+    throw const ClipbackApiException('로그인하거나 게스트로 시작해 주세요.');
   }
 
   Future<T> _runSaveRequest<T>(Future<T> Function() request) async {
-    await _ensureGuestSessionForSave();
+    await _requireSessionForSave();
     final accountVersion = _accountVersion;
     final result = await request();
     if (accountVersion != _accountVersion) {
@@ -871,24 +1171,40 @@ class _ClipbackAppState extends State<ClipbackApp> {
   }
 
   Future<void> _logout() async {
+    if (_authBusy) return;
+    final epoch = ++_authEpoch;
+    final providers = _authenticatedUser?.linkedProviders ?? const <String>[];
+    final provider = SocialLoginProvider.values
+        .where((value) => providers.contains(value.name))
+        .firstOrNull;
+    setState(() => _authBusy = true);
     try {
       await _api.logout();
+      _pendingSessionClear = true;
       await _clearStoredSession(afterLogout: true);
-      if (!mounted || _api.hasSession) return;
-      setState(() {
-        _invalidateAccountFeeds();
-        _categories
-          ..clear()
-          ..addAll(initialCategories);
-        _user = defaultUser;
-        _selectedContent = null;
-        _previousRoute = AppRoute.home;
-        _route = AppRoute.home;
-      });
+      if (!mounted || epoch != _authEpoch || _api.hasSession) return;
+      _pendingSessionClear = false;
+      try {
+        await _socialAuth.signOut(provider);
+      } catch (_) {
+        // Clipback logout is already complete; provider sign-out is best effort.
+      }
+      if (!mounted || epoch != _authEpoch) return;
+      setState(_showLoginChoice);
     } on ClipbackApiException catch (error) {
-      _showError(error.message);
+      if (mounted) _showError(error.message);
     } catch (_) {
-      _showError('로그아웃하지 못했어요. 다시 시도해 주세요.');
+      if (mounted) {
+        if (_pendingSessionClear) {
+          setState(
+            () => _apiConnectionError = '로그아웃 상태를 저장하지 못했어요. 다시 시도해 주세요.',
+          );
+        } else {
+          _showError('로그아웃하지 못했어요. 다시 시도해 주세요.');
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _authBusy = false);
     }
   }
 
@@ -1454,6 +1770,7 @@ class _ClipbackAppState extends State<ClipbackApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
@@ -1480,7 +1797,14 @@ class _ClipbackAppState extends State<ClipbackApp> {
             onRetry: _restoreSession,
           ),
         AppRoute.splash => SplashScreen(onDone: _finishSplash),
-        AppRoute.login => LoginScreen(onContinue: _continueAsGuest),
+        AppRoute.login => LoginScreen(
+          onContinue: _continueAsGuest,
+          onSocialLogin: _authenticateSocial,
+          providers: _socialAuth.supportedProviders,
+          busy: _authBusy,
+          linkingGuest: _linkingGuest,
+          onBack: _linkingGuest ? () => _go(AppRoute.account) : null,
+        ),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),
         ),
@@ -1643,6 +1967,9 @@ class _ClipbackAppState extends State<ClipbackApp> {
           user: _user,
           onBack: () => _go(AppRoute.my),
           onLogout: _logout,
+          isGuest: _authenticatedUser?.isGuest,
+          onConnect: _openAccountLogin,
+          busy: _authBusy,
         ),
         AppRoute.categoryManagement => CategoryManagementScreen(
           categories: _categories,
@@ -2125,80 +2452,101 @@ class _OnboardingPage extends StatelessWidget {
 }
 
 class LoginScreen extends StatelessWidget {
-  const LoginScreen({required this.onContinue, super.key});
+  const LoginScreen({
+    required this.onContinue,
+    required this.onSocialLogin,
+    required this.providers,
+    this.busy = false,
+    this.linkingGuest = false,
+    this.onBack,
+    super.key,
+  });
 
   final Future<void> Function() onContinue;
+  final Future<void> Function(SocialLoginProvider) onSocialLogin;
+  final List<SocialLoginProvider> providers;
+  final bool busy;
+  final bool linkingGuest;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
-    return EntrySurface(
-      backgroundColor: AppColors.bg,
-      children: [
-        Positioned(
-          left: 98,
-          top: 245,
-          width: 179,
-          height: 99,
-          child: Column(
-            children: [
-              SvgPicture.asset(
-                Assets.entryLogo,
-                width: 178.525,
-                height: 60,
-                fit: BoxFit.fill,
-              ),
-              const SizedBox(height: 16),
-              const EntryTagline(color: AppColors.subtle),
-            ],
+    return PhoneFrame(
+      child: Scaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+            child: Column(
+              children: [
+                if (onBack != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: busy ? null : onBack,
+                      child: const Text('뒤로'),
+                    ),
+                  ),
+                const SizedBox(height: 70),
+                SvgPicture.asset(Assets.entryLogo, width: 179, height: 60),
+                const SizedBox(height: 16),
+                const EntryTagline(color: AppColors.subtle),
+                const SizedBox(height: 72),
+                if (linkingGuest) ...[
+                  const Text(
+                    '게스트의 저장 데이터를 계정에 연결해요.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+                for (final provider in providers) ...[
+                  SocialButton(
+                    label: switch (provider) {
+                      SocialLoginProvider.apple => 'Apple로 계속하기',
+                      SocialLoginProvider.google => '구글로 계속하기',
+                      SocialLoginProvider.kakao => '카카오로 계속하기',
+                    },
+                    color: switch (provider) {
+                      SocialLoginProvider.apple => Colors.black,
+                      SocialLoginProvider.kakao => const Color(0xFFFEE500),
+                      SocialLoginProvider.google => Colors.white,
+                    },
+                    foreground: provider == SocialLoginProvider.apple
+                        ? Colors.white
+                        : AppColors.text,
+                    iconAsset: switch (provider) {
+                      SocialLoginProvider.apple => null,
+                      SocialLoginProvider.google => Assets.googleLogin,
+                      SocialLoginProvider.kakao => Assets.kakaoLogin,
+                    },
+                    icon: provider == SocialLoginProvider.apple
+                        ? Icons.apple
+                        : null,
+                    iconLeft: 18,
+                    iconTop: 14,
+                    iconSize: 24,
+                    borderColor: provider == SocialLoginProvider.google
+                        ? AppColors.subtler
+                        : null,
+                    onPressed: busy
+                        ? null
+                        : () => unawaited(onSocialLogin(provider)),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (busy)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(),
+                  ),
+                TextButton(
+                  onPressed: busy ? null : () => unawaited(onContinue()),
+                  child: Text(linkingGuest ? '게스트로 계속 사용' : '게스트로 시작하기'),
+                ),
+              ],
+            ),
           ),
         ),
-        Positioned(
-          left: 16,
-          top: 590,
-          width: 343,
-          child: SocialButton(
-            label: '카카오로 계속하기',
-            color: const Color(0xFFFDDC3F),
-            foreground: AppColors.text,
-            iconAsset: Assets.kakaoLogin,
-            iconLeft: 8,
-            iconTop: 7,
-            iconSize: 38,
-            onPressed: onContinue,
-          ),
-        ),
-        Positioned(
-          left: 16,
-          top: 650,
-          width: 343,
-          child: SocialButton(
-            label: '네이버로 계속하기',
-            color: const Color(0xFF00BF18),
-            foreground: Colors.white,
-            iconAsset: Assets.naverLogin,
-            iconLeft: 13,
-            iconTop: 12,
-            iconSize: 28,
-            onPressed: onContinue,
-          ),
-        ),
-        Positioned(
-          left: 16,
-          top: 710,
-          width: 343,
-          child: SocialButton(
-            label: '구글로 계속하기',
-            color: Colors.white,
-            foreground: AppColors.text,
-            iconAsset: Assets.googleLogin,
-            iconLeft: 18,
-            iconTop: 17,
-            iconSize: 18,
-            borderColor: AppColors.subtler,
-            onPressed: onContinue,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -4206,43 +4554,35 @@ class MyProfileRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  user.name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  height: 18,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFDDC3F),
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  child: Row(
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'K',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
+                      Text(
+                        user.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.4,
                         ),
                       ),
-                      const SizedBox(width: 2),
+                      const SizedBox(height: 4),
                       Text(
                         user.providerLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: AppColors.subtle,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 const SvgIcon(
                   asset: Assets.chevronRight,
                   size: 24,
@@ -6373,12 +6713,18 @@ class AccountManagementScreen extends StatelessWidget {
     required this.user,
     required this.onBack,
     required this.onLogout,
+    required this.onConnect,
+    required this.isGuest,
+    this.busy = false,
     super.key,
   });
 
   final AppUser user;
   final VoidCallback onBack;
   final Future<void> Function() onLogout;
+  final Future<void> Function() onConnect;
+  final bool? isGuest;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -6426,9 +6772,14 @@ class AccountManagementScreen extends StatelessWidget {
             const SizedBox(height: 12),
             AccountManagementTile(
               leading: user.providerLabel,
-              trailing: '연결됨',
+              trailing: isGuest == false ? '연결됨' : null,
               onTap: null,
             ),
+            if (isGuest != false)
+              AccountManagementTile(
+                leading: isGuest == true ? '계정 연결하기' : '계정 정보 다시 확인',
+                onTap: busy ? null : () => unawaited(onConnect()),
+              ),
             const SizedBox(height: 24),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
@@ -6443,7 +6794,7 @@ class AccountManagementScreen extends StatelessWidget {
             const SizedBox(height: 12),
             AccountManagementTile(
               leading: '로그아웃',
-              onTap: () => unawaited(onLogout()),
+              onTap: busy ? null : () => unawaited(onLogout()),
             ),
             AccountManagementTile(
               leading: '회원 탈퇴',
@@ -9780,7 +10131,8 @@ class SocialButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.foreground,
-    required this.iconAsset,
+    this.iconAsset,
+    this.icon,
     required this.iconLeft,
     required this.iconTop,
     required this.iconSize,
@@ -9792,11 +10144,12 @@ class SocialButton extends StatelessWidget {
   final String label;
   final Color color;
   final Color foreground;
-  final String iconAsset;
+  final String? iconAsset;
+  final IconData? icon;
   final double iconLeft;
   final double iconTop;
   final double iconSize;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Color? borderColor;
 
   @override
@@ -9825,12 +10178,14 @@ class SocialButton extends StatelessWidget {
                   top: iconTop,
                   width: iconSize,
                   height: iconSize,
-                  child: Image.asset(
-                    iconAsset,
-                    width: iconSize,
-                    height: iconSize,
-                    fit: BoxFit.cover,
-                  ),
+                  child: icon != null
+                      ? Icon(icon, color: foreground, size: iconSize)
+                      : Image.asset(
+                          iconAsset!,
+                          width: iconSize,
+                          height: iconSize,
+                          fit: BoxFit.cover,
+                        ),
                 ),
                 Text(
                   label,
@@ -10150,11 +10505,11 @@ class MockSettingItem {
 }
 
 const defaultUser = AppUser(
-  name: '정지윤',
-  providerLabel: '카카오 계정 연동 중',
-  joinedAt: '2026. 03. 07',
-  savedContentCount: 218,
-  revisitedContentCount: 72,
+  name: '계정 정보 확인 중',
+  providerLabel: '계정 정보 확인 중',
+  joinedAt: '-',
+  savedContentCount: 0,
+  revisitedContentCount: 0,
   appVersion: 'ver. 1.1',
 );
 

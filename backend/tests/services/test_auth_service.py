@@ -138,6 +138,10 @@ class FakeSocialIdentityRepository:
     def __init__(self) -> None:
         self.identities: dict[tuple[SocialProvider, str], SimpleNamespace] = {}
 
+    async def list_providers(self, user_id: int) -> list[SocialProvider]:
+        return [identity.provider for identity in self.identities.values()
+                if identity.user_id == user_id]
+
     async def get_by_provider_subject(
         self,
         *,

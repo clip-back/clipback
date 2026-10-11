@@ -1,5 +1,29 @@
 # 허투루 백엔드 MVP 진행 현황
 
+## 모바일 소셜 로그인 구현 범위 (2026-10-11)
+
+- 승인 범위: iOS Apple·Google·Kakao, Android Google·Kakao. 네이버 신규 인증은 제외하고 기존 identity 데이터는 보존한다.
+- 첫 실행·로그아웃·최종 인증 만료는 로그인/게스트 선택 화면으로 이동한다. 게스트 생성은 명시적으로 선택할 때만 수행한다.
+- 계정당 제공자 하나를 사용하며, 게스트 승격은 사용자 ID·저장 데이터를 보존한다. 기존 계정 충돌은 경고 후 새 공급자 인증으로 계정을 전환하고 데이터를 병합하지 않는다.
+- Apple은 5분 일회용 서버 challenge/nonce, 인가코드 교환, 암호화된 공급자 refresh token, 앱 복귀 credential state와 24시간 간격의 요청 시점 재검증을 구현한다.
+- Kakao Native/REST audience 허용 목록을 추가하고 기존 REST API key 설정은 호환을 유지한다.
+- 완료 조건: 인증·세션·충돌 자동 테스트, 전용 PostgreSQL migration/동시성 검증, Flutter 분석·테스트·Android/iOS 빌드, 설정 및 실행 문서 갱신.
+- 공급자 콘솔 등록·키 설정·실제 기기 OAuth 성공은 별도 확인한다. 다중 제공자 연결·데이터 병합·웹 소셜 로그인·계정 탈퇴·스토어 출시는 이번 범위 밖이다.
+
+구현 및 로컬 검증 완료:
+
+- 전용 PostgreSQL 16.15: 빈 DB 전체 upgrade와 `202609240012`에서 `202610110013` upgrade 모두 통과, 두 DB `alembic check` 차이 없음. 기존 revision에 넣은 합성 Naver identity·사용자는 보존됐다.
+- Apple challenge 저장소 테스트 8건: 목적·게스트 바인딩, 만료 경계, 재사용 거절, 만료 정리, 독립 트랜잭션 4개의 동시 소비 중 정확히 1회 성공을 확인했다.
+- Python 3.12.7에서 전용 `TEST_DATABASE_URL`을 지정한 전체 `pytest -q` **960건 통과, skip 0건**. 실제 PostgreSQL repository·API·동시성 검증을 포함한다. 공급자 응답은 대역이다.
+- `ruff check app alembic tests`, `python -m compileall -q app alembic tests`, `git diff --check` 통과.
+- Flutter 3.44.9 / Dart 3.12.2: `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` **434건 통과**. `flutter build apk --debug --no-pub`, `flutter build ios --simulator --no-pub` 통과.
+- `flutter run --debug --no-pub --no-resident`로 임시 iPhone 16 Pro(iOS 18.6)에 설치·실행해 Google·Kakao·Apple 및 게스트 선택 화면을 확인했다. 테스트 기기와 DB는 검증 후 정리했다.
+- 게스트 승격의 공급자 401은 코드 재전송 없이 `/users/me`로 세션을 별도 확인한다. Apple 서버 grant의 `at_hash` 검증과 인증 422 응답의 민감 입력 제외도 회귀 테스트로 확인했다.
+- 미검증: 실제 공급자 콘솔·키·SDK 발급 토큰, Galaxy/iPhone 실기기 OAuth, Release/TestFlight, 원격 CI·Railway 배포. 로컬 검증을 실제 로그인 성공이나 출시 완료로 해석하지 않는다.
+
+실기기 연결 전 [프론트 공개 ID·URL scheme 설정](../frontend/README.md#공개-앱-설정),
+[서버 인증 설정](../backend/README.md#mobile-social-authentication)을 적용하고 migration `202610110013`을 준비한다.
+
 ## 1. 확인 기준
 
 기능별 현황은 2026-09-21 로컬 코드(`9fbadd8`)와 API·테스트·CI 구성을 대조해 정리했다.
@@ -61,6 +85,7 @@ PR #32가 머지된 `f5d3e96`을 기준으로 URL 길이 검증을 수정한 결
 | `POST` | `/api/v1/auth/guest` | 게스트 생성과 JWT 발급 | 구현 |
 | `POST` | `/api/v1/auth/refresh` | refresh token 회전 | 구현 |
 | `POST` | `/api/v1/auth/logout` | 인증 세션 폐기 | 구현 |
+| `POST` | `/api/v1/auth/social/apple/challenge` | Apple 로그인·게스트 승격용 5분 일회용 nonce 발급 | 구현 |
 | `POST` | `/api/v1/auth/social/{provider}` | 소셜 가입·로그인 | 구현 |
 | `POST` | `/api/v1/auth/social/{provider}/upgrade` | 게스트 데이터 유지 소셜 전환 | 구현 |
 | `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자 조회 | 구현 |
@@ -95,7 +120,7 @@ PR #32가 머지된 `f5d3e96`을 기준으로 URL 길이 검증을 수정한 결
 ## 5. 다음 진행 순서
 
 1. 프론트의 공개 HTTPS API 주소와 웹 CORS 설정을 확인하고 실제 요청 실패 원인을 해결한다.
-2. 실제 Google·Kakao SDK 토큰으로 가입·재로그인·게스트 전환·로그아웃을 검증한다.
+2. 실제 Google·Kakao SDK 토큰과 iPhone Apple 인증으로 가입·재로그인·게스트 전환·로그아웃을 검증한다.
 3. 실기기에서 공유·직접 링크·스크린샷 저장 → 검색·분류·즐겨찾기 → 재열람·삭제를 연결 검증한다.
 4. 재배포 후 이미지·콘텐츠 유지, 운영 백업 활성화와 복구 절차를 확인한다.
 5. 외부 metadata·AI·OCR의 실제 성공률과 저장 지연을 관찰하고 발견한 결함을 수정한다.

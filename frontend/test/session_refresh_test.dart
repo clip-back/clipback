@@ -38,6 +38,7 @@ Map<String, Object> _tokens(ApiSession session) => {
   'refresh_token': session.refreshToken,
   'expires_in': session.expiresIn,
   'refresh_expires_in': session.refreshExpiresIn,
+  'is_new_user': false,
 };
 
 http.Response _unauthorized() =>

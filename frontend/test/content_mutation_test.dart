@@ -1,3 +1,6 @@
+import 'package:clipback_frontend/clipback_api.dart';
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -425,7 +428,9 @@ void main() {
   for (final action in ['favorite', 'category', 'delete']) {
     for (final failure in ['401', '403', '404', '503', 'network', 'JSON']) {
       testWidgets(
-        '$action $failure preserves the account and restores state before unlocking',
+        failure == '401'
+            ? '$action final 401 returns to login without a replacement guest'
+            : '$action $failure preserves the account and restores state before unlocking',
         (tester) async {
           var fails = true;
           final server = _Server(
@@ -442,6 +447,13 @@ void main() {
             final before = _currentDetail(tester);
             _change(before, action);
             await tester.pumpAndSettle();
+            if (failure == '401') {
+              expect(find.byType(LoginScreen), findsOneWidget);
+              expect(server.calls('/api/v1/auth/guest'), isEmpty);
+              expect(_mutations(server), hasLength(2));
+              expect(await ApiSessionStorage().read(), isNull);
+              return;
+            }
             final after = _currentDetail(tester);
             expect(after.content.id, before.content.id);
             expect(after.content.category.id, 101);
@@ -832,6 +844,7 @@ void main() {
             );
             await tester.pumpAndSettle();
             server.records.clear();
+            await startGuestAndFinishOnboarding(tester);
             unawaited(
               tester
                   .widget<HomeScreen>(find.byType(HomeScreen))

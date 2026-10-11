@@ -114,6 +114,36 @@ def test_refresh_rejects_invalid_token(
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+@pytest.mark.parametrize(("path", "status"), [("naver", 422), ("naver/upgrade", 401)])
+def test_naver_new_auth_is_disabled(client, path, status):
+    # Unknown provider is rejected; upgrade can fail authentication first when unauthenticated.
+    response = client.post(f"/api/v1/auth/social/{path}", json={"token": "legacy-token"})
+    assert response.status_code == status
+
+
+@pytest.mark.parametrize("code", ["", " ", "\n"])
+def test_apple_rejects_blank_code_before_challenge_is_consumed(client, code):
+    response = client.post("/api/v1/auth/social/apple", json={
+        "token": "identity", "authorization_code": code,
+        "challenge_id": "7ce2d92f-1403-4ae3-8a58-ae4d0dff99fa",
+    })
+    assert response.status_code == 422
+
+
+def test_apple_challenge_requires_authentication_for_upgrade(client):
+    response = client.post("/api/v1/auth/social/apple/challenge", json={"purpose": "upgrade"})
+    assert response.status_code == 401
+
+
+def test_unconfigured_apple_challenge_returns_503_without_database_access(client, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "apple_client_id", None)
+    response = client.post("/api/v1/auth/social/apple/challenge", json={"purpose": "login"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Apple authentication is not configured"}
+
+
 def test_protected_endpoint_requires_bearer_token(client: TestClient) -> None:
     response = client.get("/api/v1/users/me")
 
@@ -236,6 +266,48 @@ def test_social_login_rejects_invalid_token_without_echoing_it(
 
     assert response.status_code == 422
     assert token not in response.text or not token
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("authorization_code", "secret-code-" + "x" * 8192),
+        ("authorization_code", {"nested": "secret-code-value"}),
+        ("authorization_code", None),
+        ("challenge_id", "secret-code-invalid-uuid"),
+        ("challenge_id", None),
+        ("token", {"nested": "secret-identity-value"}),
+        ("token", None),
+        ("display_name", "secret-name-" + "x" * 80),
+        ("unexpected", {"nested": "secret-extra-value"}),
+    ],
+)
+def test_apple_request_validation_never_echoes_sensitive_inputs(client, field, value):
+    payload = {
+        "token": "secret-identity-value",
+        "authorization_code": "secret-code-value",
+        "challenge_id": "00000000-0000-0000-0000-000000000001",
+    }
+    if value is None:
+        payload.pop(field)
+    else:
+        payload[field] = value
+    response = client.post("/api/v1/auth/social/apple", json=payload)
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid authentication request"}
+    assert response.headers["cache-control"] == "no-store"
+    assert "secret-" not in response.text
+
+
+def test_malformed_auth_json_does_not_echo_tokens(client):
+    response = client.post(
+        "/api/v1/auth/social/apple",
+        content='{"token":"secret-identity-value","authorization_code":"secret-code-value",',
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid authentication request"}
+    assert "secret-" not in response.text
 
 
 def test_social_upgrade_requires_authentication(client: TestClient) -> None:

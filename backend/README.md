@@ -103,20 +103,102 @@ Use `POST /api/v1/auth/refresh` to rotate the refresh token and issue a new toke
 pair. Use `POST /api/v1/auth/logout` to revoke the refresh session and all access
 tokens issued for that session.
 
-Social sign-in uses credentials obtained by the Flutter provider SDKs. Send a Google
-or Kakao ID token, or a Naver access token, to `POST /api/v1/auth/social/{provider}`.
-The response uses the same Clipback access and refresh tokens and adds `is_new_user`.
-An authenticated guest can preserve existing data by calling
-`POST /api/v1/auth/social/{provider}/upgrade`; the previous guest sessions are revoked
-after a successful upgrade. Provider tokens are verified for the request and are not
-stored.
-
 The root, health, OpenAPI, and authentication endpoints are public except for guest
-social upgrades. User, content, category, feed, upload, and metric endpoints require
-Bearer authentication.
+social upgrades and Apple challenges with `purpose=upgrade`. User, content, category,
+feed, upload, and metric endpoints require Bearer authentication.
 
 Production must set `APP_ENVIRONMENT=production` and replace the example
 `SECRET_KEY`; startup validation rejects the default production secret.
+
+## Mobile Social Authentication
+
+Google and Kakao sign-in use their Flutter SDKs on iOS and Android. Send the provider
+**ID token** in `{ "token": "<id-token>" }` to
+`POST /api/v1/auth/social/google` or `/kakao`. Access tokens are not accepted in place
+of OIDC ID tokens. Successful responses are 200 with the same Clipback access/refresh
+token fields as guest authentication, plus `is_new_user`.
+
+An authenticated guest preserves the same user ID and saved data through
+`POST /api/v1/auth/social/{provider}/upgrade`. A successful upgrade revokes every
+previous guest session and returns a new token pair. A provider account already
+linked elsewhere returns 409 and leaves the guest data and sessions intact. There
+is no automatic account merge, email-based linking, or second-provider linking.
+New Naver login and upgrade requests are rejected; historical Naver identities
+remain readable and are not deleted by the migration.
+
+Google requires `GOOGLE_CLIENT_IDS`, an allowlist of the audiences actually used by
+the registered clients. Kakao requires OIDC enabled and `KAKAO_CLIENT_IDS`, an
+allowlist of registered Native/REST app keys used by the clients. An SDK-issued
+Kakao ID token uses that SDK's initialization key as its audience. A nonempty
+`KAKAO_CLIENT_IDS` list is authoritative; when empty, `KAKAO_REST_API_KEY` remains
+the legacy single-audience fallback. Neither provider's ID/access tokens are stored.
+
+### Apple iOS authentication
+
+Apple sign-in currently targets iOS only. Configure all of `APPLE_CLIENT_ID` (the
+iOS bundle ID), `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` (server-only
+`.p8` PEM), and `APPLE_TOKEN_ENCRYPTION_KEY` (a dedicated Fernet key). Keep both
+private keys out of the Flutter build and logs. Preserve the encryption key across
+deployments and with protected backups; replacing it without re-encrypting existing
+credentials makes them unreadable. Apple settings remain optional at app startup
+so existing Google/Kakao deployments continue to start. Apple endpoints return
+503 while required configuration is unavailable.
+
+1. Call `POST /api/v1/auth/social/apple/challenge` with `{ "purpose": "login" }`,
+   or `{ "purpose": "upgrade" }` and the guest Bearer token. The 201 response is
+   `{ "challenge_id": "<uuid>", "nonce": "<random-value>", "expires_at": "<utc>" }`.
+   Pass the returned nonce unchanged to the native Apple request. An upgrade
+   challenge is bound to its guest; a login challenge cannot be used for upgrade.
+2. Send the resulting credentials to `POST /api/v1/auth/social/apple`, or to
+   `/api/v1/auth/social/apple/upgrade` with the guest Bearer token:
+
+   ```json
+   {
+     "token": "<apple-identity-token>",
+     "authorization_code": "<single-use-authorization-code>",
+     "challenge_id": "<uuid>",
+     "display_name": "Optional first-authorization name"
+   }
+   ```
+
+The server checks the JWT signature, issuer, exact configured audience, expiry,
+subject and nonce, exchanges the code with Apple, and requires the exchanged token's
+subject and nonce to match. `display_name` is optional user-supplied profile text,
+normalized only on initial signup/guest upgrade; subsequent login does not overwrite
+the profile. Email comes only from verified token claims and can be absent or an
+Apple private relay address. The identity key is `(apple, sub)`, never email.
+SDK requests carry only an ID token, so `at_hash` is not checked on that input. Apple
+server grants also supply an access token when available: it is used to verify any
+`at_hash` claim and then discarded without storage. Authentication validation errors
+return a generic 422 message without echoing request tokens, codes, or other input.
+
+Challenges expire after five minutes and are consumed atomically **before** external
+validation. A failed exchange or 409 therefore requires a new challenge and a fresh
+Apple authorization; clients must not blindly resend the previous code. An incorrect
+purpose/guest binding does not consume another attempt's challenge. Expired
+challenges are removed when issuing a new one. Success responses use `no-store`.
+
+Apple refresh tokens are encrypted in `apple_credentials` and never returned to
+clients. They are separate from rotating Clipback refresh tokens. When an Apple
+account calls `/api/v1/auth/refresh`, the server checks Apple only if the last successful
+verification is at least 24 hours old. Concurrent refreshes serialize on the user
+before session/credential locks. Confirmed invalid grants or mismatched subjects
+revoke all Clipback sessions and clear the unusable provider token, returning 401.
+Provider outages return 502; missing/mismatched configuration or unreadable encrypted
+credentials return 503. These errors preserve existing credentials and do not log
+the user out. A refresh response without a replacement Apple refresh token preserves
+the old one; an initial code exchange without one fails without changing an account.
+
+Ordinary logout revokes only the Clipback session. Apple connection removal/account
+deletion, web/Android Apple callbacks and scheduled provider polling are outside
+this implementation. The iOS client also handles credential revocation locally.
+
+Apply migration `202610110013` before enabling Apple clients. It extends the provider
+CHECK while retaining historical Naver values and adds challenge/credential tables.
+Downgrade refuses to remove the schema when Apple identities exist; use a compatible
+app/database backup for rollback. Automated tests replace providers; actual SDK
+configuration, Apple entitlements, Google signing IDs, Kakao app keys and real-device
+login/cancel/restart/revocation still require separate verification.
 
 ## My Page Account and Statistics
 

@@ -1,0 +1,3 @@
+// Safe build defaults; the Dart adapter rejects missing/mismatched login config.
+CLIPBACK_GOOGLE_IOS_URL_SCHEME = clipback-google-unconfigured
+CLIPBACK_KAKAO_IOS_URL_SCHEME = clipback-kakao-unconfigured

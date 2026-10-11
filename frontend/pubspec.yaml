@@ -11,8 +11,11 @@ dependencies:
     sdk: flutter
   file_picker: ^8.1.7
   flutter_svg: ^2.3.0
+  google_sign_in: ^7.2.0
   http: ^1.5.0
+  kakao_flutter_sdk_user: ^2.0.1
   shared_preferences: ^2.5.3
+  sign_in_with_apple: ^8.2.0
 
 dev_dependencies:
   flutter_test:

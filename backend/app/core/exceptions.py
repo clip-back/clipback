@@ -28,3 +28,8 @@ class SystemConfigurationError(HTTPException):
 class ExternalServiceError(HTTPException):
     def __init__(self, detail: str = "External service unavailable") -> None:
         super().__init__(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+
+
+class ServiceUnavailableError(HTTPException):
+    def __init__(self, detail: str = "Service is not configured") -> None:
+        super().__init__(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)

@@ -1,3 +1,5 @@
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -451,7 +453,7 @@ void main() {
   });
 
   testWidgets(
-    'final screenshot 401 keeps the selected file without a new guest',
+    'final screenshot 401 closes account-owned UI and asks for login',
     (tester) async {
       final server = _Server(
         respond: (call) async =>
@@ -466,15 +468,9 @@ void main() {
         expect(server.calls(_refresh), hasLength(1));
         expect(server.calls(_upload), hasLength(2));
         expect(find.byType(SavedContentConfirmation), findsNothing);
-        expect(find.byType(SaveErrorToast), findsOneWidget);
-        final preview = tester.widget<SelectedPhotoPreview>(
-          find.byType(SelectedPhotoPreview),
-        );
-        expect(preview.photoBytes, orderedEquals(_png));
-        expect(
-          tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).enabled,
-          isTrue,
-        );
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.byType(SelectedPhotoPreview), findsNothing);
+        expect(await ApiSessionStorage().read(), isNull);
         expect(picker.calls, 1);
         expect(picker.requestedType, FileType.image);
         expect(picker.requestedData, isTrue);
@@ -1215,6 +1211,8 @@ void main() {
       final backing = _BackingStore(empty: true);
       final server = _Server();
       await _withApp(tester, server, () async {
+        expect(server.calls(_guest), isEmpty);
+        await startGuestAndFinishOnboarding(tester);
         expect(server.calls(_guest), hasLength(1));
         await _selectPhoto(tester);
         await tester.tap(find.text('허투루에 저장하기'));
@@ -1262,7 +1260,9 @@ void main() {
         expect(server.calls('/api/v1/contents'), hasLength(2));
         expect(server.calls(_refresh), hasLength(1));
         expect(server.calls(_guest), isEmpty);
-        expect(find.byType(HomeScreen), findsOneWidget);
+        await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(await ApiSessionStorage().read(), isNull);
         expect(find.byType(OnboardingScreen), findsNothing);
       });
     },

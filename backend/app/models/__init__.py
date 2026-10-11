@@ -1,3 +1,4 @@
+from app.models.apple_auth import AppleAuthChallenge, AppleCredential
 from app.models.auth_session import AuthSession
 from app.models.category import Category
 from app.models.content import Content, ContentSource, ContentType
@@ -19,6 +20,8 @@ from app.models.tag import Tag
 from app.models.user import User
 
 __all__ = [
+    "AppleAuthChallenge",
+    "AppleCredential",
     "AssetType",
     "AuthSession",
     "Category",

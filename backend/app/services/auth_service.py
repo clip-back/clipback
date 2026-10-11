@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
@@ -7,6 +8,7 @@ from app.core.exceptions import (
     AuthenticationError,
     ExternalServiceError,
     InvalidStateError,
+    ServiceUnavailableError,
     SystemConfigurationError,
 )
 from app.core.security import create_access_token, generate_refresh_token, hash_refresh_token
@@ -22,7 +24,8 @@ from app.models.social_identity import SocialProvider
 from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import SocialTokenResponse, TokenResponse
+from app.schemas.auth import AppleTokenRequest, SocialTokenResponse, TokenResponse
+from app.services.apple_auth_service import AppleAuthService, VerifiedAppleLogin
 
 
 class AuthService:
@@ -33,11 +36,13 @@ class AuthService:
         auth_session_repository: AuthSessionRepository,
         social_identity_repository: SocialIdentityRepository,
         social_auth_client: SocialAuthClient,
+        apple_auth_service: AppleAuthService | None = None,
     ) -> None:
         self.user_repository = user_repository
         self.auth_session_repository = auth_session_repository
         self.social_identity_repository = social_identity_repository
         self.social_auth_client = social_auth_client
+        self.apple_auth_service = apple_auth_service
 
     async def create_guest_session(self) -> TokenResponse:
         refresh_token = generate_refresh_token()
@@ -64,6 +69,8 @@ class AuthService:
 
     async def refresh_session(self, refresh_token: str) -> TokenResponse:
         now = datetime.now(UTC)
+        if self.apple_auth_service is not None:
+            await self.apple_auth_service.lock_user_for_refresh(hash_refresh_token(refresh_token))
         auth_session = await self.auth_session_repository.get_by_refresh_token_hash_for_update(
             hash_refresh_token(refresh_token)
         )
@@ -82,6 +89,8 @@ class AuthService:
 
         new_refresh_token = generate_refresh_token()
         try:
+            if self.apple_auth_service is not None:
+                await self.apple_auth_service.validate_refresh(user.id)
             await self.auth_session_repository.rotate(
                 auth_session,
                 refresh_token_hash=hash_refresh_token(new_refresh_token),
@@ -121,6 +130,17 @@ class AuthService:
         token: str,
     ) -> SocialTokenResponse:
         profile = await self._verify_social_token(provider=provider, token=token)
+        return await self._login_with_profile(profile)
+
+    async def apple_login(self, payload: AppleTokenRequest) -> SocialTokenResponse:
+        if self.apple_auth_service is None:
+            raise ServiceUnavailableError("Apple authentication is not configured")
+        login = await self.apple_auth_service.authenticate(payload, purpose="login")
+        return await self._login_with_profile(login.profile, apple_login=login)
+
+    async def _login_with_profile(
+        self, profile: SocialProfile, *, apple_login: VerifiedAppleLogin | None = None
+    ) -> SocialTokenResponse:
         creating_identity = False
 
         try:
@@ -134,16 +154,21 @@ class AuthService:
                     email=profile.email,
                     display_name=profile.display_name,
                 )
-                await self.social_identity_repository.create(
+                identity = await self.social_identity_repository.create(
                     user_id=user.id,
                     provider=profile.provider,
                     provider_subject=profile.subject,
                 )
             else:
-                user = await self.user_repository.get(identity.user_id)
+                user = await (
+                    self.user_repository.get_for_update(identity.user_id)
+                    if apple_login else self.user_repository.get(identity.user_id)
+                )
                 if user is None:
                     raise AuthenticationError()
 
+            if apple_login is not None:
+                await self.apple_auth_service.save_login(identity, apple_login)
             response = await self._create_social_token_response(
                 user_id=user.id,
                 is_new_user=creating_identity,
@@ -154,7 +179,9 @@ class AuthService:
             await self.auth_session_repository.session.rollback()
             if not creating_identity:
                 raise
-            return await self._complete_concurrent_social_login(profile=profile, error=exc)
+            return await self._complete_concurrent_social_login(
+                profile=profile, error=exc, apple_login=apple_login
+            )
         except Exception:
             await self.auth_session_repository.session.rollback()
             raise
@@ -167,6 +194,24 @@ class AuthService:
         token: str,
     ) -> SocialTokenResponse:
         profile = await self._verify_social_token(provider=provider, token=token)
+        return await self._upgrade_guest_with_profile(user_id=user_id, profile=profile)
+
+    async def upgrade_guest_with_apple(
+        self, *, user_id: int, payload: AppleTokenRequest
+    ) -> SocialTokenResponse:
+        if self.apple_auth_service is None:
+            raise ServiceUnavailableError("Apple authentication is not configured")
+        login = await self.apple_auth_service.authenticate(
+            payload, purpose="upgrade", user_id=user_id
+        )
+        return await self._upgrade_guest_with_profile(
+            user_id=user_id, profile=login.profile, apple_login=login
+        )
+
+    async def _upgrade_guest_with_profile(
+        self, *, user_id: int, profile: SocialProfile,
+        apple_login: VerifiedAppleLogin | None = None,
+    ) -> SocialTokenResponse:
 
         try:
             user = await self.user_repository.get_for_update(user_id)
@@ -179,11 +224,9 @@ class AuthService:
                 provider=profile.provider,
                 provider_subject=profile.subject,
             )
-            user_provider_identity = await self.social_identity_repository.get_by_user_provider(
-                user_id=user.id,
-                provider=profile.provider,
-            )
-            if existing_identity is not None or user_provider_identity is not None:
+            # Upgrade is the only linking operation. An account can acquire one provider only.
+            linked_providers = await self.social_identity_repository.list_providers(user.id)
+            if existing_identity is not None or linked_providers:
                 raise InvalidStateError("Social account is already linked")
 
             await self.user_repository.promote_guest(
@@ -191,11 +234,13 @@ class AuthService:
                 email=profile.email,
                 display_name=profile.display_name,
             )
-            await self.social_identity_repository.create(
+            identity = await self.social_identity_repository.create(
                 user_id=user.id,
                 provider=profile.provider,
                 provider_subject=profile.subject,
             )
+            if apple_login is not None:
+                await self.apple_auth_service.save_login(identity, apple_login)
             await self.auth_session_repository.revoke_all_for_user(user.id)
             response = await self._create_social_token_response(
                 user_id=user.id,
@@ -215,6 +260,7 @@ class AuthService:
         *,
         profile: SocialProfile,
         error: IntegrityError,
+        apple_login: VerifiedAppleLogin | None = None,
     ) -> SocialTokenResponse:
         try:
             identity = await self.social_identity_repository.get_by_provider_subject(
@@ -223,9 +269,14 @@ class AuthService:
             )
             if identity is None:
                 raise error
-            user = await self.user_repository.get(identity.user_id)
+            user = await (
+                self.user_repository.get_for_update(identity.user_id)
+                if apple_login else self.user_repository.get(identity.user_id)
+            )
             if user is None:
                 raise error
+            if apple_login is not None:
+                await self.apple_auth_service.save_login(identity, apple_login)
             response = await self._create_social_token_response(
                 user_id=user.id,
                 is_new_user=False,
@@ -264,6 +315,8 @@ class AuthService:
         provider: SocialProvider,
         token: str,
     ) -> SocialProfile:
+        if provider not in {SocialProvider.GOOGLE, SocialProvider.KAKAO}:
+            raise HTTPException(422, "Unsupported social provider")
         try:
             return await self.social_auth_client.verify(provider=provider, token=token)
         except SocialAuthNotConfiguredError as exc:

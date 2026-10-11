@@ -1,3 +1,6 @@
+import 'package:clipback_frontend/clipback_api.dart';
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -332,6 +335,7 @@ Future<void> _newAccount(
   );
   await tester.pumpAndSettle();
   server.records.clear();
+  await startGuestAndFinishOnboarding(tester);
   unawaited(_home(tester).onAddLink(url: 'https://example.com/new-account'));
   await tester.pumpAndSettle();
 }
@@ -615,7 +619,9 @@ void main() {
     'JSON',
   ]) {
     testWidgets(
-      'delete $failure preserves order account and favorites then permits manual retry',
+      failure == '401'
+          ? 'category delete final 401 returns to login without a replacement guest'
+          : 'delete $failure preserves order account and favorites then permits manual retry',
       (tester) async {
         var fail = true;
         final server = _Server(
@@ -631,6 +637,13 @@ void main() {
           final favorites = Set<String>.of(before.bookmarkedIds);
           before.onDeleteCategory(_categoryItem(before));
           await tester.pumpAndSettle();
+          if (failure == '401') {
+            expect(find.byType(LoginScreen), findsOneWidget);
+            expect(server.calls('/api/v1/auth/guest'), isEmpty);
+            expect(_deletes(server), hasLength(2));
+            expect(await ApiSessionStorage().read(), isNull);
+            return;
+          }
           final after = _archive(tester);
           expect(after.contents.map((item) => item.id).toList(), ids);
           expect(after.bookmarkedIds, favorites);
@@ -1424,7 +1437,10 @@ void main() {
           expect(bounds.contains(buttonBounds.bottomRight), isTrue);
         }
         expect(
-          find.descendant(of: dialog, matching: find.textContaining('저장된 콘텐츠는 삭제되지 않아요.')),
+          find.descendant(
+            of: dialog,
+            matching: find.textContaining('저장된 콘텐츠는 삭제되지 않아요.'),
+          ),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);

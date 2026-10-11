@@ -1,3 +1,5 @@
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -346,7 +348,7 @@ void main() {
   for (final path in [_categories, _feed, _me, _stats]) {
     for (final refreshSucceeds in [false, true]) {
       testWidgets(
-        '$path final 401 replaces the guest once (refresh=$refreshSucceeds)',
+        '$path final 401 waits for a new guest choice (refresh=$refreshSucceeds)',
         (tester) async {
           final server = _Server(
             respond: (request) async {
@@ -361,6 +363,9 @@ void main() {
             },
           );
           await _runApp(tester, server, (storage) async {
+            expect(find.byType(LoginScreen), findsOneWidget);
+            expect(server.calls(_guest), isEmpty);
+            await startGuestAndFinishOnboarding(tester);
             _expectLoaded(tester);
             expect(server.calls(_refresh), hasLength(1));
             expect(server.calls(_guest), hasLength(1));
@@ -438,7 +443,7 @@ void main() {
 
   for (final refreshSucceeds in [false, true]) {
     testWidgets(
-      'failed storage clear preserves memory for retry (refresh=$refreshSucceeds)',
+      'failed invalid-session clear blocks access until retry (refresh=$refreshSucceeds)',
       (tester) async {
         var rejectSession = true;
         final storage = _Storage()..failClear = true;
@@ -462,14 +467,12 @@ void main() {
             refreshSucceeds ? 'rotated-refresh' : 'test-refresh',
           );
           rejectSession = false;
+          storage.failClear = false;
           await _retry(tester);
-          _expectLoaded(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(await ApiSessionStorage().read(), isNull);
           expect(storage.reads, 1);
           expect(server.calls(_guest), isEmpty);
-          expect(
-            server.calls(_categories).last.headers['Authorization'],
-            refreshSucceeds ? 'Bearer rotated-access' : 'Bearer test-access',
-          );
         }, storage: storage);
       },
     );
@@ -492,7 +495,7 @@ void main() {
   for (final hasStoredSession in [false, true]) {
     for (final failure in ['503', '401']) {
       testWidgets(
-        'new guest lookup $failure keeps memory (stored=$hasStoredSession)',
+        'new guest lookup $failure follows recovery policy (stored=$hasStoredSession)',
         (tester) async {
           if (!hasStoredSession) _seedSession(null);
           var rejectGuest = true;
@@ -510,12 +513,33 @@ void main() {
             },
           );
           await _runApp(tester, server, (_) async {
+            expect(find.byType(LoginScreen), findsOneWidget);
+            await tester
+                .widget<LoginScreen>(find.byType(LoginScreen))
+                .onContinue();
+            await tester.pumpAndSettle();
+            if (failure == '401') {
+              expect(find.byType(LoginScreen), findsOneWidget);
+              expect(server.calls(_guest), hasLength(1));
+              expect(await ApiSessionStorage().read(), isNull);
+              return;
+            }
             _expectError();
             expect(server.calls(_guest), hasLength(1));
             expect(storage.clears, hasStoredSession ? 1 : 0);
             expect(await ApiSessionStorage().read(), isNull);
             rejectGuest = false;
             await _retry(tester);
+            tester
+                .widget<OnboardingScreen>(find.byType(OnboardingScreen))
+                .onDone();
+            await tester.pumpAndSettle();
+            tester
+                .widget<InterestSelectionScreen>(
+                  find.byType(InterestSelectionScreen),
+                )
+                .onDone();
+            await tester.pumpAndSettle();
             _expectLoaded(tester);
             expect(storage.reads, 1);
             expect(server.calls(_guest), hasLength(1));
@@ -545,6 +569,9 @@ void main() {
         },
       );
       await _runApp(tester, server, (storage) async {
+        expect(server.requests, isEmpty);
+        await tester.widget<LoginScreen>(find.byType(LoginScreen)).onContinue();
+        await tester.pumpAndSettle();
         _expectError();
         expect(server.calls(_guest), hasLength(1));
         final persisted = await ApiSessionStorage().read();
@@ -553,7 +580,14 @@ void main() {
         expect(storage.clears, 0);
 
         await _retry(tester);
-
+        tester.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
+        await tester.pumpAndSettle();
+        tester
+            .widget<InterestSelectionScreen>(
+              find.byType(InterestSelectionScreen),
+            )
+            .onDone();
+        await tester.pumpAndSettle();
         _expectLoaded(tester);
         expect(storage.reads, 1);
         expect(server.calls(_guest), hasLength(1));
