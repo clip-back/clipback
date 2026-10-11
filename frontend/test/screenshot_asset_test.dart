@@ -1,3 +1,5 @@
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -554,7 +556,9 @@ void main() {
     'decode',
   ]) {
     testWidgets(
-      '$failure original failure retries only the download in the same account',
+      failure == '401'
+          ? 'original download final 401 closes content and asks for login'
+          : '$failure original failure retries only the download in the same account',
       (tester) async {
         var fail = true;
         final server = _Server(
@@ -569,6 +573,15 @@ void main() {
         await _withApp(tester, server, () async {
           await _openFirst(tester);
           await _expandOriginal(tester);
+          if (failure == '401') {
+            expect(find.byType(LoginScreen), findsOneWidget);
+            expect(_memoryImages, findsNothing);
+            expect(await ApiSessionStorage().read(), isNull);
+            expect(server.at('/api/v1/auth/guest'), isEmpty);
+            expect(server.at('/api/v1/auth/refresh'), hasLength(1));
+            expect(server.at(_assetPath), hasLength(2));
+            return;
+          }
           final message = switch (failure) {
             '404' => '원본 이미지를 찾을 수 없어요.',
             'decode' || 'empty bytes' => '원본 이미지를 표시하지 못했어요.',
@@ -881,6 +894,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         server.contents[0] = _content(id: 8, assetId: 10);
+        await startGuestAndFinishOnboarding(tester);
         final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
         unawaited(
           home.onAddScreenshot(bytes: _png, filename: 'new-account.png'),

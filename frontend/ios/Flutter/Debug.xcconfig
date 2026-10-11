@@ -1,1 +1,3 @@
 #include "Generated.xcconfig"
+#include "SocialAuthDefaults.xcconfig"
+#include? "SocialAuth.xcconfig"

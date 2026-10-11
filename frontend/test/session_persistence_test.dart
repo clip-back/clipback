@@ -1,3 +1,5 @@
+import 'auth_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -420,7 +422,7 @@ void main() {
       final requests = <http.Request>[];
       final client = MockClient((request) async {
         requests.add(request);
-        return _json(_sessionJson(_rotated));
+        return _json({..._sessionJson(_rotated), 'is_new_user': false});
       });
       addTearDown(client.close);
       final api = ClipbackApi(
@@ -626,9 +628,11 @@ void main() {
         canClear = true;
         await tester.tap(find.text('다시 시도'));
         await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        await startGuestAndFinishOnboarding(tester);
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(server.calls('/api/v1/auth/guest'), hasLength(1));
-        expect(server.calls('/api/v1/auth/refresh'), hasLength(2));
+        expect(server.calls('/api/v1/auth/refresh'), hasLength(1));
         expect(backing.setters, hasLength(1));
         expect(backing.removedKeys.last, _sessionKey);
         _expectSession(await _readFromDisk(), _rotated);
@@ -746,7 +750,7 @@ void main() {
           reason:
               'The completed write must be cleared without restoring old credentials.',
         );
-        expect(backing.removedKeys.last, _sessionKey);
+        expect(backing.removedKeys, contains(_sessionKey));
         expect(
           jsonDecode(
             server.calls('/api/v1/auth/logout').single.body,
@@ -759,7 +763,7 @@ void main() {
   );
 
   testWidgets(
-    'a guest issued while logout waits retains its storage and screen',
+    'guest issuance waits until logout and its queued clear complete',
     (tester) async {
       const newGuest = ApiSession(
         accessToken: 'new-guest-access',
@@ -821,24 +825,20 @@ void main() {
         await tester.pump();
         expect(server.calls('/api/v1/auth/logout'), hasLength(1));
         expect(backing.removedKeys, isEmpty);
-        final guest = continueGuest();
+        await continueGuest();
         await tester.pump();
-        expect(server.calls('/api/v1/auth/guest'), hasLength(1));
+        expect(server.calls('/api/v1/auth/guest'), isEmpty);
         oldWrite.complete(true);
-        await tester.pump();
+        await tester.pumpAndSettle();
         await logout;
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(backing.removedKeys, contains(_sessionKey));
+        final guest = tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onContinue();
+        await tester.pump();
         await guestWriteStarted.future;
-        expect(
-          backing.removedKeys,
-          isEmpty,
-          reason: 'The newer guest owns the queued storage.',
-        );
-        expect(find.byType(AccountManagementScreen), findsOneWidget);
-        expect(
-          find.byType(HomeScreen),
-          findsNothing,
-          reason: 'Old logout must not reset the newer flow.',
-        );
+        expect(server.calls('/api/v1/auth/guest'), hasLength(1));
         guestWrite.complete(true);
         await tester.pumpAndSettle();
         await guest;

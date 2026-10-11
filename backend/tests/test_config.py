@@ -93,6 +93,25 @@ def test_social_auth_timeout_must_be_positive() -> None:
         Settings(social_auth_timeout_seconds=0, _env_file=None)
 
 
+def test_production_accepts_kakao_native_allowlist_without_rest_key_or_apple_settings():
+    settings = Settings(
+        _env_file=None, app_environment="production", secret_key="production-secret",
+        openai_api_key="test-key", database_url="postgresql+asyncpg://user:pass@db/test",
+        storage_root="/data/screenshots", google_client_ids=["google-web-client"],
+        kakao_client_ids=["native-key"], kakao_rest_api_key=None,
+        apple_client_id=None, apple_private_key=None, youtube_summary_enabled=False,
+    )
+    assert settings.kakao_client_ids == ["native-key"]
+
+
+def test_kakao_allowlist_does_not_disable_production_openai_validation():
+    with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
+        Settings(
+            _env_file=None, app_environment="production", secret_key="production-secret",
+            openai_api_key=None, kakao_client_ids=["native-key"], youtube_summary_enabled=False,
+        )
+
+
 def test_screenshot_storage_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     for variable in (
         "STORAGE_ROOT",

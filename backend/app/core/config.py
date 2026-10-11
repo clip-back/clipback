@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: float = Field(default=5.0, gt=0)
     ocr_max_output_tokens: int = Field(default=4096, gt=0)
     google_client_ids: list[str] = Field(default_factory=list)
+    kakao_client_ids: list[str] = Field(default_factory=list)
     kakao_rest_api_key: SecretStr | None = None
+    apple_client_id: str | None = None
+    apple_team_id: str | None = None
+    apple_key_id: str | None = None
+    apple_private_key: SecretStr | None = None
+    apple_token_encryption_key: SecretStr | None = None
     social_auth_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_root: Path = Path("storage")
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
@@ -62,11 +68,13 @@ class Settings(BaseSettings):
             client_id.strip() for client_id in self.google_client_ids
         ):
             raise ValueError("GOOGLE_CLIENT_IDS is required in production")
-        if self.app_environment == "production" and (
+        if self.app_environment == "production" and not any(
+            client_id.strip() for client_id in self.kakao_client_ids
+        ) and (
             self.kakao_rest_api_key is None
             or not self.kakao_rest_api_key.get_secret_value().strip()
         ):
-            raise ValueError("KAKAO_REST_API_KEY is required in production")
+            raise ValueError("KAKAO_CLIENT_IDS or KAKAO_REST_API_KEY is required in production")
         if self.app_environment == "production":
             if self.database_url == Settings.model_fields["database_url"].default:
                 raise ValueError("DATABASE_URL must be configured in production")

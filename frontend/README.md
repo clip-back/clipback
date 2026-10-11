@@ -29,11 +29,109 @@ Large exported illustration SVGs include embedded raster data, so matching PNG f
   “저장한 콘텐츠를 불러오지 못했어요.”와 “다시 시도” 버튼을 표시합니다.
 - 재시도는 현재 메모리 세션을 우선 사용합니다. 진행 중인 복원은 중복 실행하지 않으며,
   성공하면 서버 데이터가 반영된 홈으로 이동합니다.
-- API의 토큰 갱신·재요청 후에도 최종 401이면 저장소 삭제 성공 후 새 게스트로 전환합니다.
-  삭제에 실패하면 전환을 중단하고, 한 번의 복원에서 게스트를 반복 교체하지 않습니다.
-- 저장된 세션이 없는 최초 실행에서 생성한 게스트도 조회 실패 후 유지합니다.
+- API의 토큰 갱신·재요청 후에도 최종 401이면 저장소 삭제 성공 후 로그인·게스트 선택으로 돌아갑니다.
+  삭제에 실패하면 전환을 중단합니다. 만료된 세션을 새 게스트로 자동 교체하지 않습니다.
+- 저장된 세션이 없는 최초 실행은 로그인·게스트 선택을 표시합니다. 사용자가 게스트를 선택해
+  발급받은 세션은 조회 실패 후에도 유지합니다.
   프로필·통계의 비인증 오류는 홈 진입을 허용하고, 최종 401은 인증 만료로 처리합니다.
-- 저장 도중 최종 401이 발생하면 현재 계정을 유지하고 저장 오류를 안내합니다. 초기 복원의 게스트 전환과 구분합니다.
+- 저장·조회 중에도 보호 API의 최종 401이면 저장소 삭제 후 로그인 선택으로 돌아갑니다.
+  공급자 인증 자체의 401은 기존 게스트 세션 만료와 구분합니다.
+
+## 모바일 소셜 로그인
+
+Android는 Google·카카오, iOS는 Google·카카오·Apple을 지원합니다. 웹·데스크톱에는 소셜 버튼을
+표시하지 않으며 게스트 사용은 유지합니다. 최초 실행·로그아웃 후 로그인 또는 게스트 사용을 선택합니다.
+새 게스트·새 소셜 계정은 온보딩으로, 기존 계정·게스트의 소셜 승격은 홈으로 이동합니다.
+
+- 게스트의 계정 연결은 `/auth/social/{provider}/upgrade`를 사용해 기존 콘텐츠를 유지합니다.
+  이미 연결된 소셜 계정으로 409가 오면 게스트 데이터를 합치지 않는다는 경고를 표시합니다.
+  **기존 계정으로 전환**을 확인한 경우에만 SDK 인증부터 다시 시작합니다. 취소하면 게스트를 유지합니다.
+- 계정당 소셜 공급자는 한 종류입니다. 회원 화면에 다른 공급자를 추가 연결하는 기능은 없습니다.
+  Apple 계정은 이번 범위에서 iOS로만 로그인할 수 있습니다. 같은 이메일의 Google·카카오 계정을 자동으로 합치지 않습니다.
+- 게스트 승격의 401은 일회용 코드를 자동 재전송하지 않고 `/users/me`로 게스트 세션을 별도 확인합니다.
+  정상 게스트는 유지하며, 다시 연결하려면 새 SDK 인증부터 시작합니다.
+- SDK에서 사용자가 취소하면 화면과 세션을 유지합니다. 카카오톡 취소·동의 거절은 카카오계정 로그인으로
+  이어지지 않습니다. 카카오톡 미설치 또는 취소 이외의 실패 때만 계정 로그인으로 진행합니다.
+- Google·카카오의 ID token을 백엔드에 전달합니다. 카카오는 OpenID Connect 설정이 필요하며
+  `idToken`이 없으면 오류를 표시합니다. access token을 대신 보내지 않습니다.
+- Apple은 서버 challenge의 nonce를 네이티브 인증에 전달하고 identity token·authorization code·challenge ID를
+  백엔드에 전송합니다. 최초 제공되는 이름만 함께 보냅니다. 재시도와 계정 전환은 새 challenge·code를 사용합니다.
+- 성공한 Apple 로그인의 사용자 식별자는 `clipback.apple_user_id`에 별도 저장합니다. 기존
+  `clipback.session` JSON 형식은 유지합니다. 앱 복원·포그라운드 복귀·네이티브 취소 알림에서
+  Apple credential state를 확인합니다. `revoked`·`notFound`가 확인되면 로그인 선택으로 돌아가고,
+  조회 실패·로컬 식별자 없음은 취소로 판단하지 않습니다.
+- 일반 로그아웃은 Clipback 세션과 기기 SDK 상태를 정리합니다. Google은 `signOut`, 카카오는
+  로컬 token manager `clear`를 사용합니다. 공급자 연결 해제·동의 철회·회원 탈퇴는 하지 않습니다.
+
+### 공개 앱 설정
+
+`google_sign_in` 7.2.0, `kakao_flutter_sdk_user` 2.0.1, `sign_in_with_apple` 8.2.0을 사용합니다.
+`lib/social_auth.dart`의 SDK 어댑터는 초기화를 한 번만 수행하고, 설정 누락·불일치를 인증창 전에
+안내합니다. 설정을 생략해도 게스트 실행·빌드는 가능합니다. 공급자 비밀키는 프론트엔드에 넣지 않습니다.
+
+| Dart define | 용도 |
+| --- | --- |
+| `CLIPBACK_GOOGLE_SERVER_CLIENT_ID` | 양 모바일 공통 Google **웹 OAuth client ID**. 백엔드 ID token audience |
+| `CLIPBACK_GOOGLE_IOS_CLIENT_ID` | `com.clipback.app`용 iOS OAuth client ID. iOS에서 필수 |
+| `CLIPBACK_KAKAO_NATIVE_APP_KEY` | 양 모바일 공통 카카오 Native app key |
+
+공급자 콘솔에서 발급한 공개 값을 아래 환경변수에 지정한 뒤 실행합니다. 이 값들을 Dart define으로
+전달해도 앱에 포함되므로 서버 client secret·Apple `.p8`·토큰·암호화키를 넣지 않습니다.
+
+```bash
+# frontend/에서 실행. DEVICE_ID 및 각 공개 ID는 로컬에서 지정합니다.
+flutter run -d "$DEVICE_ID" --no-pub \
+  --dart-define="CLIPBACK_GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID" \
+  --dart-define="CLIPBACK_GOOGLE_IOS_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID" \
+  --dart-define="CLIPBACK_KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY"
+```
+
+Android의 `applicationId`는 `com.clipback.frontend`입니다. Google 콘솔에는 이 패키지와 실제
+Debug/Release 서명 SHA를, 카카오 콘솔에는 패키지와 해당 서명 key hash를 등록합니다.
+Google `serverClientId`를 명시하므로 `google-services.json`을 추가하지 않습니다.
+Gradle은 Flutter `dart-defines`에서 카카오 Native key를 읽어 manifest의
+`AuthCodeHandlerActivity` 콜백 `kakao{Native key}://oauth`를 구성합니다.
+([Google Android 설정](https://pub.dev/packages/google_sign_in_android),
+[카카오 Flutter 설정](https://developers.kakao.com/docs/en/flutter/getting-started))
+
+iOS는 같은 `com.clipback.app`을 Google·카카오 콘솔에 등록하고 다음 파일을 준비합니다.
+
+```bash
+# frontend/에서 최초 한 번. 기존 로컬 파일은 덮어쓰지 않습니다.
+test -f ios/Flutter/SocialAuth.xcconfig || \
+  cp ios/Flutter/SocialAuth.example.xcconfig ios/Flutter/SocialAuth.xcconfig
+```
+
+Git에서 제외된 `SocialAuth.xcconfig`의 `CLIPBACK_GOOGLE_IOS_URL_SCHEME`은 iOS OAuth
+`REVERSED_CLIENT_ID`, `CLIPBACK_KAKAO_IOS_URL_SCHEME`은 `kakao` 뒤에 Native key를 붙인
+값으로 바꿉니다. `Debug`·`Profile`·`Release`에서 이 설정을 포함합니다. Dart client ID를 전달해도
+네이티브 URL scheme은 별도로 필요합니다. 로그인 전에 Info.plist의 실제 scheme과 Dart define의
+일치를 검사하므로 한쪽만 수정하면 설정 오류를 표시합니다. `LSApplicationQueriesSchemes`에는
+카카오톡 확인용 `kakaokompassauth`가 있습니다. 설정 변경 후에는 앱을 완전히 다시 빌드합니다.
+([Google iOS 설정](https://pub.dev/packages/google_sign_in_ios))
+
+Apple은 Runner의 Sign in with Apple entitlement와 콘솔의 `com.clipback.app` App ID capability를
+모두 활성화하고, 해당 entitlement를 포함한 서명·프로비저닝을 준비합니다. 이 기능의 실제 기기 검증에는
+Sign in with Apple을 지원하는 Developer Program 팀이 필요합니다. Apple 로그인은 네이티브 iOS만
+사용하며 Services ID·웹 redirect는 설정하지 않습니다.
+([Apple capability 설정](https://developer.apple.com/help/account/capabilities/about-sign-in-with-apple))
+
+백엔드는 `GOOGLE_CLIENT_IDS`에 사용한 웹 OAuth client ID를 허용하고, `KAKAO_CLIENT_IDS`에는
+실제 SDK가 발급하는 ID token의 audience를 허용해야 합니다. 카카오 콘솔의 로그인·OpenID Connect
+활성화와 동의항목도 확인합니다. Apple 서버 설정·암호화키·migration은
+[백엔드 README](../backend/README.md)와 [MVP 계획](../docs/backend-mvp-plan.md)을 따릅니다.
+비밀키·서버 토큰은 앱과 로컬 공개 URL scheme 설정에 복사하지 않습니다.
+
+### 검증 범위
+
+`test/social_auth_test.dart`는 SDK 대역으로 플랫폼 제한, 초기화, 설정 불일치, 취소·카카오 fallback,
+ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로컬 로그아웃을 확인합니다.
+`test/social_login_test.dart`는 HTTP·SDK 대역으로 로그인 선택, 게스트 유지/승격, 409 확인·취소,
+새 인증 재시도, 로그아웃·세션 복원과 Apple 취소 상태 처리를 확인합니다.
+
+로컬 테스트·APK/iOS 빌드·로그인 선택 화면 실행은 실제 공급자 인증 성공을 뜻하지 않습니다.
+릴리스 전 실제 설정으로 양 모바일 Google/카카오, iPhone Apple 로그인·취소·재로그인·앱 재시작,
+카카오톡 설치/미설치, 게스트 승격/409 전환, Apple 연결 철회 후 복귀를 각각 검증해야 합니다.
 
 ## 갱신 토큰 저장
 
@@ -73,8 +171,8 @@ Large exported illustration SVGs include embedded raster data, so matching PNG f
   같은 계정으로 업로드를 한 번만 재전송합니다. 일반 API 요청과 겹쳐도 하나의 갱신을 공유합니다.
 - 파일 바이트·파일명·카테고리·태그를 보존해 매 시도마다 새로운 multipart 요청을 구성합니다.
   복수 카테고리·태그는 각각 반복 form part로 모두 보내며, 빈 목록은 생략합니다.
-- 링크·사진 저장의 최종 401에서 기존 세션을 삭제하거나 새 게스트로 다시 저장하지 않습니다.
-  저장 오류를 안내하고 입력과 선택 사진을 유지합니다. 저장 시작 시 세션이 전혀 없는 경우에만 게스트를 만듭니다.
+- 링크·사진 저장의 최종 401은 저장된 세션 삭제 후 로그인 선택으로 돌아갑니다.
+  자동 게스트 생성·다른 계정으로 재저장은 하지 않습니다. 인증 오류 이외의 저장 실패는 입력과 선택 사진을 유지합니다.
 - 업로드 전송 대기와 응답 본문 수신은 각각 10초입니다. 일반 HTTP 오류·연결 실패·시간 초과에는
   자동 재전송하지 않습니다. 실패 후 사용자가 다시 저장할 수 있으며 저장 중 중복 제출은 차단합니다.
 - 시간 초과·연결 종료·세션 변경은 서버 저장을 취소하지 않습니다. 서버에서 이미 저장됐다면 수동 재시도로
@@ -89,7 +187,7 @@ Large exported illustration SVGs include embedded raster data, so matching PNG f
 - 이미지 바이트는 기기에 영속 저장하지 않습니다. 상세 이탈·다른 콘텐츠/자산·계정 전환 시 정리하고,
   이전 화면의 늦은 응답은 표시하지 않습니다. 별도 확대·파일 다운로드·오프라인 보관은 제공하지 않습니다.
 - 다운로드 전송 대기와 본문 수신은 각각 10초입니다. 최초 401은 기존 공유 토큰 갱신과 저장 시도를
-  기다린 뒤 한 번만 재요청합니다. 최종 401이나 다운로드 실패는 기존 계정을 유지합니다.
+  기다린 뒤 한 번만 재요청합니다. 최종 401은 로그인 선택으로 돌아가며, 그 외 다운로드 실패는 세션을 유지합니다.
 - 자산 없음·404·통신 오류·이미지 디코딩 실패를 구분해 안내하며, 다운로드/표시 실패에는 **다시 시도**를
   제공합니다. 자동 반복이나 샘플 이미지 대체는 하지 않으며, 이미지 조회만으로 열람·클릭 이벤트를 늘리지 않습니다.
 - 시간 초과와 화면 이탈은 서버 전송 취소를 보장하지 않습니다. 원본은 서버의 소유권 검사와 저장 파일에
@@ -120,7 +218,7 @@ Large exported illustration SVGs include embedded raster data, so matching PNG f
 - 목록의 `불러온 N개`는 현재 내려받은 수입니다. 카테고리 폴더와 작업 메뉴의 개수는 서버 집계를
   사용하며, 폴더는 마지막 저장 시각 내림차순·동일 시각 ID 오름차순·저장 이력 없는 폴더는 마지막입니다.
 - 추가 조회 실패 시 기존 카드와 커서를 유지하고 다시 시도할 수 있습니다. 커서가 유효하지 않으면
-  처음부터 다시 불러옵니다. 조회의 최종 401만으로 계정을 삭제하거나 게스트로 전환하지 않습니다.
+  처음부터 다시 불러옵니다. 조회의 최종 401은 저장된 세션 삭제 후 로그인 선택으로 돌아갑니다.
 - 상세 이전·다음은 진입한 목록의 순서를 따릅니다. 마지막으로 불러온 카드의 다음을 누르면 추가 페이지를
   기다리며, 전체 끝에서는 순환하지 않습니다. 상세에서 돌아오면 목록과 스크롤 위치를 유지합니다.
 - 저장·삭제·분류·북마크 변경 성공 후에는 같은 조건의 첫 페이지를 새로 조회합니다. 열린 상세는 유지하지만
@@ -134,7 +232,7 @@ Large exported illustration SVGs include embedded raster data, so matching PNG f
   **변경 중…** 또는 **삭제 중…**을 표시하고 해당 콘텐츠의 변경 버튼을 잠급니다.
   다른 콘텐츠 변경과 화면 탐색은 계속 사용할 수 있습니다.
 - 북마크와 분류는 목록·검색·열린 상세에 즉시 반영합니다. 실패하면 변경한 필드만 함께 복구하며,
-  연결 오류·응답 파싱 오류도 안내하고 잠금을 해제합니다. 최종 401에서도 기존 계정을 보존합니다.
+  연결 오류·응답 파싱 오류도 안내하고 잠금을 해제합니다. 최종 401은 로그인 선택으로 돌아갑니다.
 - 삭제 중에는 항목과 상세를 유지하고 서버 성공 후 제거합니다. 실패하면 원래 화면과 순서를 유지하며,
   성공 시 그 콘텐츠 상세를 보고 있을 때만 진입 목록으로 돌아갑니다.
 - 먼저 시작한 조회가 늦게 끝나도 진행 중이거나 완료된 변경을 되돌리지 않습니다. 검색·필터·계정이
@@ -250,8 +348,9 @@ flutter devices
 flutter run -d <iPhone-device-id> --no-pub
 ```
 
-Personal Team은 직접 연결한 기기의 개발 테스트에 사용할 수 있습니다. TestFlight 배포에는
-Apple Developer Program에 가입된 팀이 필요합니다([Apple 계정 안내](https://developer.apple.com/help/account/basics/about-your-developer-account)).
+현재 Runner에는 Sign in with Apple entitlement가 있으므로 실제 기기 빌드는 해당 capability를
+지원하는 Apple Developer Program 팀과 프로비저닝이 필요합니다. TestFlight도 이 프로그램을 사용합니다
+([Apple 계정 안내](https://developer.apple.com/help/account/basics/about-your-developer-account)).
 시뮬레이터 빌드 성공만으로 기기 서명이나 설치 성공을 판단하지 않습니다.
 기본 API는 HTTPS Railway 주소이며, 실제 기기에서 로컬 서버에
 연결할 때는 `127.0.0.1` 대신 기기가 접근할 수 있는 서버 주소를 사용합니다.

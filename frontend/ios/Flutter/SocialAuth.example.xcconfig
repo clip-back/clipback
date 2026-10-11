@@ -1,0 +1,5 @@
+// Copy to SocialAuth.xcconfig (ignored by Git), then set public URL schemes.
+// Google: REVERSED_CLIENT_ID of the iOS OAuth client.
+// Kakao: kakao followed by CLIPBACK_KAKAO_NATIVE_APP_KEY, without a separator.
+CLIPBACK_GOOGLE_IOS_URL_SCHEME = clipback-google-unconfigured
+CLIPBACK_KAKAO_IOS_URL_SCHEME = clipback-kakao-unconfigured

@@ -1112,29 +1112,29 @@ void main() {
     },
   );
 
-  testWidgets('final additional-page 401 keeps the account and loaded cards', (
-    tester,
-  ) async {
-    final server = _Server(
-      count: 21,
-      respond: (request, server) {
-        if (request.url.path == _feed &&
-            request.url.queryParameters['cursor'] != null) {
-          return _json({'detail': 'Expired token'}, 401);
-        }
-        return null;
-      },
-    );
-    await _withApp(tester, server, () async {
-      await _openArchive(tester);
-      await _scrollArchiveToEnd(tester);
-      expect(_archiveItems(tester), hasLength(20));
-      expect(find.text('콘텐츠를 더 불러오지 못했어요.'), findsOneWidget);
-      expect(find.text('다시 시도'), findsOneWidget);
-      expect(server.calls('/api/v1/auth/refresh'), hasLength(1));
-      expect(server.calls('/api/v1/auth/guest'), isEmpty);
-    });
-  });
+  testWidgets(
+    'final additional-page 401 returns to login without an automatic guest',
+    (tester) async {
+      final server = _Server(
+        count: 21,
+        respond: (request, server) {
+          if (request.url.path == _feed &&
+              request.url.queryParameters['cursor'] != null) {
+            return _json({'detail': 'Expired token'}, 401);
+          }
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        await _scrollArchiveToEnd(tester);
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.byType(ArchiveScreen), findsNothing);
+        expect(server.calls('/api/v1/auth/refresh'), hasLength(1));
+        expect(server.calls('/api/v1/auth/guest'), isEmpty);
+      });
+    },
+  );
 
   testWidgets(
     'detail next at the loaded boundary fetches and advances without wrapping',
@@ -1440,19 +1440,24 @@ void main() {
       );
       await _withApp(tester, server, () async {
         final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
-        home.onTab(AppRoute.login);
-        await tester.pumpAndSettle();
-        final continueGuest = tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onContinue;
-        home.onTab(AppRoute.home);
-        await tester.pumpAndSettle();
         await _openArchive(tester);
         await _scrollToEnd(tester, ContentListView, settle: false);
         server.records
           ..clear()
           ..add({...server.item(0), 'id': 2001, 'title': '새 계정 콘텐츠'});
-        final guest = continueGuest();
+        home.onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+        await tester.pumpAndSettle();
+        await tester
+            .widget<AccountManagementScreen>(
+              find.byType(AccountManagementScreen),
+            )
+            .onLogout();
+        await tester.pumpAndSettle();
+        final guest = tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onContinue();
         await tester.pumpAndSettle();
         await guest;
         gate.complete(oldResponse!);
