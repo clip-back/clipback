@@ -4,7 +4,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
-import 'package:clipback_frontend/main.dart';
+import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
+import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/content/save_content_screen.dart';
+import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

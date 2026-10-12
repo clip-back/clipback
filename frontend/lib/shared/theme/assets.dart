@@ -1,0 +1,52 @@
+class Assets {
+  static const logo = 'assets/figma/hutureu-logo.svg';
+  static const appIcon = 'assets/figma/app-icon.svg';
+  static const entryLogo = 'assets/figma/entry-logo.svg';
+  static const kakaoLogin = 'assets/figma/kakao-login.png';
+  static const naverLogin = 'assets/figma/naver-login.png';
+  static const googleLogin = 'assets/figma/google-login.png';
+  static const statusCellular = 'assets/figma/status-cellular.svg';
+  static const statusWifi = 'assets/figma/status-wifi.svg';
+  static const statusBattery = 'assets/figma/status-battery.svg';
+  static const onboarding1 = 'assets/figma/onboarding-1.svg';
+  static const onboarding2 = 'assets/figma/onboarding-2.svg';
+  static const onboarding3 = 'assets/figma/onboarding-3.svg';
+  static const character1 = 'assets/figma/hutureu-character-1.svg';
+  static const character2 = 'assets/figma/hutureu-character-2.svg';
+  static const onboarding1Png = 'assets/figma/onboarding-1.png';
+  static const onboarding2Png = 'assets/figma/onboarding-2.png';
+  static const onboarding3Png = 'assets/figma/onboarding-3.png';
+  static const character1Png = 'assets/figma/hutureu-character-1.png';
+  static const character2Png = 'assets/figma/hutureu-character-2.png';
+  static const homeCharacter = 'assets/figma/home-character.png';
+
+  static const home = 'assets/icons/home.svg';
+  static const archive = 'assets/icons/archive.svg';
+  static const star = 'assets/icons/star.svg';
+  static const starFilled = 'assets/icons/star-filled.svg';
+  static const account = 'assets/icons/account.svg';
+  static const plus = 'assets/icons/plus.svg';
+  static const search = 'assets/icons/search.svg';
+  static const bell = 'assets/icons/bell.svg';
+  static const chevronRight = 'assets/icons/chevron-right.svg';
+  static const chevronDown = 'assets/icons/chevron-down.svg';
+  static const arrowRight = 'assets/icons/arrow-right.svg';
+  static const link = 'assets/icons/link-icon.svg';
+  static const back = 'assets/icons/back.svg';
+  static const more = 'assets/icons/more-vertical.svg';
+  static const moreHorizontal = 'assets/icons/more-horizontal.svg';
+  static const folderPlus = 'assets/icons/folder-plus.svg';
+  static const clock = 'assets/icons/clock.svg';
+  static const close = 'assets/icons/x.svg';
+  static const check = 'assets/icons/check.svg';
+  static const xCircle = 'assets/icons/x-circle.svg';
+  static const photoSelect = 'assets/icons/photo-select.svg';
+  static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';
+  static const savedPhotoPreview = 'assets/figma/saved-photo-preview.png';
+  static const saveLinkPreview = 'assets/figma/save-link-preview.png';
+  static const categoryCardFolder = 'assets/icons/category-card-folder.svg';
+  static const categoryCardStar = 'assets/icons/category-card-star.svg';
+  static const categoryCardStarSmall =
+      'assets/icons/category-card-star-small.svg';
+  static const instagram = 'assets/icons/instagram.svg';
+}

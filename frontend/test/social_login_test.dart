@@ -2,7 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
-import 'package:clipback_frontend/main.dart';
+import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

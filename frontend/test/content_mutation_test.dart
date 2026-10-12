@@ -4,7 +4,21 @@ import 'auth_navigation.dart';
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:clipback_frontend/main.dart';
+import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/content/detail_screen.dart';
+import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/features/search/search_screen.dart';
+import 'package:clipback_frontend/shared/category/category_widgets.dart';
+import 'package:clipback_frontend/shared/content/bookmark_button.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
+import 'package:clipback_frontend/shared/models/category_item.dart';
+import 'package:clipback_frontend/shared/models/content_item.dart';
+import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -303,6 +317,52 @@ Future<void> _loadMore(WidgetTester tester) async {
 }
 
 void main() {
+  for (final count in [1, 2]) {
+    testWidgets(
+      'a rendered card tapped after deletion stays in archive with ${count - 1} remaining items',
+      (tester) async {
+        final pendingDelete = Completer<http.Response?>();
+        final server = _Server(
+          count: count,
+          respond: (request, _) =>
+              request.method == 'DELETE' ? pendingDelete.future : null,
+        );
+        await _withApp(tester, server, () async {
+          await _archive(tester);
+          final before = _currentArchive(tester);
+          final deleted = before.contents.first;
+          before.onDeleteContent(deleted);
+          await tester.pump();
+          expect(find.text(deleted.title), findsOneWidget);
+
+          pendingDelete.complete(null);
+          // Complete the response while the previous frame still shows the card.
+          await tester.idle();
+          expect(_currentArchive(tester).contents, hasLength(count - 1));
+          expect(find.text(deleted.title), findsOneWidget);
+          await tester.tap(find.text(deleted.title));
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+          expect(find.byType(DetailScreen), findsNothing);
+          expect(find.byType(ArchiveScreen), findsOneWidget);
+          expect(_currentArchive(tester).contents, hasLength(count - 1));
+          expect(
+            server
+                .calls('/api/v1/contents/${deleted.apiId}')
+                .where((request) => request.method == 'GET'),
+            isEmpty,
+          );
+          expect(
+            server.calls('/api/v1/contents/${deleted.apiId}/view'),
+            isEmpty,
+          );
+          expect(server.calls('/api/v1/metrics/events'), isEmpty);
+        });
+      },
+    );
+  }
+
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     final fonts = FontLoader('Pretendard');

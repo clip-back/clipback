@@ -1,0 +1,14 @@
+enum AppRoute {
+  splash,
+  login,
+  onboarding,
+  interests,
+  home,
+  archive,
+  bookmark,
+  search,
+  detail,
+  my,
+  account,
+  categoryManagement,
+}

@@ -2,7 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
-import 'package:clipback_frontend/main.dart';
+import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/content/detail_screen.dart';
+import 'package:clipback_frontend/features/content/save_content_screen.dart';
+import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/shared/data/sample_categories.dart';
+import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import 'package:clipback_frontend/shared/models/category_item.dart';
+import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
