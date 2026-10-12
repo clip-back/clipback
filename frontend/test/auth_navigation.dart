@@ -1,4 +1,6 @@
-import 'package:clipback_frontend/main.dart';
+import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
+import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> startGuestAndFinishOnboarding(WidgetTester tester) async {
