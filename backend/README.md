@@ -144,6 +144,14 @@ credentials makes them unreadable. Apple settings remain optional at app startup
 so existing Google/Kakao deployments continue to start. Apple endpoints return
 503 while required configuration is unavailable.
 
+The current Flutter iOS app uses bundle ID `com.huturu.app`. Set `APPLE_CLIENT_ID`
+to this value and use `APPLE_TEAM_ID` and a Sign in with Apple key for the team
+that owns that App ID. Changing the Xcode project does not update deployed server
+settings or Apple provisioning. Recheck these settings when switching from the
+previous `com.clipback.app` identifier; keep the token encryption key unchanged.
+The backend validates one configured Apple audience, so switching `APPLE_CLIENT_ID`
+does not continue accepting Apple ID tokens issued for the previous bundle ID.
+
 1. Call `POST /api/v1/auth/social/apple/challenge` with `{ "purpose": "login" }`,
    or `{ "purpose": "upgrade" }` and the guest Bearer token. The 201 response is
    `{ "challenge_id": "<uuid>", "nonce": "<random-value>", "expires_at": "<utc>" }`.
