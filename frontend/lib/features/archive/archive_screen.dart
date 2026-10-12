@@ -103,74 +103,77 @@ class ArchiveScreen extends StatelessWidget {
 
     return PhoneFrame(
       child: Scaffold(
-        body: Column(
-          children: [
-            const DesignStatusBar(),
-            if (activeCategoryName == null)
-              AppTopBar(title: '아카이브', onSearch: onSearch)
-            else
-              CategoryTopBar(
-                title: activeCategoryName!,
-                onBack: onClearCategory,
-                onSearch: onSearch,
-                onMore: () => showModalBottomSheet<void>(
-                  context: context,
-                  backgroundColor: Colors.transparent,
-                  builder: (context) => SortSheet(
-                    activeBookmarkedFirst: bookmarkedFirst,
-                    onSelect: onSortChanged,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              if (activeCategoryName == null)
+                AppTopBar(title: '아카이브', onSearch: onSearch)
+              else
+                CategoryTopBar(
+                  title: activeCategoryName!,
+                  onBack: onClearCategory,
+                  onSearch: onSearch,
+                  onMore: () => showModalBottomSheet<void>(
+                    context: context,
+                    useSafeArea: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => SortSheet(
+                      activeBookmarkedFirst: bookmarkedFirst,
+                      onSelect: onSortChanged,
+                    ),
                   ),
                 ),
-              ),
-            const SizedBox(height: 8),
-            if (activeCategoryName == null)
-              ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
-            Expanded(
-              child: activeTab == 0
-                  ? Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ContentListView(
-                            feed: feed,
-                            onLoadMore: onLoadMore,
-                            onRetry: onRetry,
-                            contents: contents,
-                            bookmarkedIds: bookmarkedIds,
-                            bookmarkedFirst: bookmarkedFirst,
-                            activeCategoryName: activeCategoryName,
-                            onSortChanged: onSortChanged,
-                            onClearCategory: onClearCategory,
-                            onOpenContent: onOpenContent,
-                            onToggleBookmark: onToggleBookmark,
-                            categories: categories,
-                            onChangeContentCategory: onChangeContentCategory,
-                            onDeleteContent: onDeleteContent,
-                            onGoHome: () => onTab(AppRoute.home),
-                          ),
-                        ),
-                        if (activeCategoryName != null && contents.isNotEmpty)
-                          Positioned(
-                            right: 16,
-                            bottom: 24,
-                            child: RandomReviewButton(
-                              onPressed: onOpenRandomView,
+              const SizedBox(height: 8),
+              if (activeCategoryName == null)
+                ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
+              Expanded(
+                child: activeTab == 0
+                    ? Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ContentListView(
+                              feed: feed,
+                              onLoadMore: onLoadMore,
+                              onRetry: onRetry,
+                              contents: contents,
+                              bookmarkedIds: bookmarkedIds,
+                              bookmarkedFirst: bookmarkedFirst,
+                              activeCategoryName: activeCategoryName,
+                              onSortChanged: onSortChanged,
+                              onClearCategory: onClearCategory,
+                              onOpenContent: onOpenContent,
+                              onToggleBookmark: onToggleBookmark,
+                              categories: categories,
+                              onChangeContentCategory: onChangeContentCategory,
+                              onDeleteContent: onDeleteContent,
+                              onGoHome: () => onTab(AppRoute.home),
                             ),
                           ),
-                      ],
-                    )
-                  : CategoryArchiveView(
-                      categories: categories,
-                      contents: contents,
-                      bookmarkedIds: bookmarkedIds,
-                      bookmarkedFirst: bookmarkedFirst,
-                      onSortChanged: onSortChanged,
-                      onAddCategory: onAddCategory,
-                      onUpdateCategory: onUpdateCategory,
-                      onDeleteCategory: onDeleteCategory,
-                      onOpenCategory: onOpenCategory,
-                    ),
-            ),
-          ],
+                          if (activeCategoryName != null && contents.isNotEmpty)
+                            Positioned(
+                              right: 16,
+                              bottom: 24,
+                              child: RandomReviewButton(
+                                onPressed: onOpenRandomView,
+                              ),
+                            ),
+                        ],
+                      )
+                    : CategoryArchiveView(
+                        categories: categories,
+                        contents: contents,
+                        bookmarkedIds: bookmarkedIds,
+                        bookmarkedFirst: bookmarkedFirst,
+                        onSortChanged: onSortChanged,
+                        onAddCategory: onAddCategory,
+                        onUpdateCategory: onUpdateCategory,
+                        onDeleteCategory: onDeleteCategory,
+                        onOpenCategory: onOpenCategory,
+                      ),
+              ),
+            ],
+          ),
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 1,

@@ -64,6 +64,7 @@ class ContentListCard extends StatelessWidget {
                       enabled: content.mutationLabel == null,
                       onPressed: () => showModalBottomSheet<void>(
                         context: context,
+                        useSafeArea: true,
                         backgroundColor: Colors.transparent,
                         builder: (context) => ContentActionSheet(
                           content: content,

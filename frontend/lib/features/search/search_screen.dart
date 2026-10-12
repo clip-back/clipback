@@ -7,6 +7,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
@@ -121,98 +122,101 @@ class _SearchScreenState extends State<SearchScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 44,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Row(
-                          children: [
-                            SvgIcon(
-                              asset: Assets.search,
-                              size: 16,
-                              color: AppColors.subSubtle,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _controller,
-                                autofocus: widget.initialQuery.trim().isEmpty,
-                                onChanged: (value) {
-                                  _requestVersion++;
-                                  widget.onQueryChanged(value);
-                                  setState(() {
-                                    _serverResults = null;
-                                    _isSearching = false;
-                                  });
-                                },
-                                onSubmitted: (value) {
-                                  unawaited(_submitQuery(value));
-                                },
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  hintText: '찾고 싶은 정보를 검색해보세요',
-                                  hintStyle: TextStyle(
-                                    color: AppColors.subSubtle,
+              SizedBox(
+                height: appHeaderHeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            children: [
+                              SvgIcon(
+                                asset: Assets.search,
+                                size: 16,
+                                color: AppColors.subSubtle,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _controller,
+                                  autofocus: widget.initialQuery.trim().isEmpty,
+                                  onChanged: (value) {
+                                    _requestVersion++;
+                                    widget.onQueryChanged(value);
+                                    setState(() {
+                                      _serverResults = null;
+                                      _isSearching = false;
+                                    });
+                                  },
+                                  onSubmitted: (value) {
+                                    unawaited(_submitQuery(value));
+                                  },
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
                                   ),
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    hintText: '찾고 싶은 정보를 검색해보세요',
+                                    hintStyle: TextStyle(
+                                      color: AppColors.subSubtle,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                            if (_hasQuery)
-                              GestureDetector(
-                                onTap: () {
-                                  _requestVersion++;
-                                  _controller.clear();
-                                  widget.onQueryChanged('');
-                                  setState(() {
-                                    _serverResults = null;
-                                    _isSearching = false;
-                                  });
-                                },
-                                child: const SvgIcon(
-                                  asset: Assets.close,
-                                  size: 18,
-                                  color: AppColors.subSubtle,
+                              if (_hasQuery)
+                                GestureDetector(
+                                  onTap: () {
+                                    _requestVersion++;
+                                    _controller.clear();
+                                    widget.onQueryChanged('');
+                                    setState(() {
+                                      _serverResults = null;
+                                      _isSearching = false;
+                                    });
+                                  },
+                                  child: const SvgIcon(
+                                    asset: Assets.close,
+                                    size: 18,
+                                    color: AppColors.subSubtle,
+                                  ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: TextButton(
-                        onPressed: widget.onClose,
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFF595959),
-                          padding: EdgeInsets.zero,
-                        ),
-                        child: const Text(
-                          '취소',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: TextButton(
+                          onPressed: widget.onClose,
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF595959),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: const Text(
+                            '취소',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 32),

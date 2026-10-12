@@ -195,100 +195,103 @@ class _AddContentSheetState extends State<AddContentSheet> {
           child: SizedBox.expand(
             child: Material(
               color: AppColors.bg,
-              child: Column(
-                children: [
-                  SaveContentTopBar(onClose: () => Navigator.pop(context)),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SaveTab(
-                          label: '링크 첨부',
-                          active: _activeTab == 0,
-                          onTap: () => _changeTab(0),
-                        ),
-                      ),
-                      Expanded(
-                        child: _SaveTab(
-                          label: '사진 첨부',
-                          active: _activeTab == 1,
-                          onTap: () => _changeTab(1),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Expanded(
-                    child: Stack(
+              child: SafeArea(
+                bottom: false,
+                child: Column(
+                  children: [
+                    SaveContentTopBar(onClose: () => Navigator.pop(context)),
+                    Row(
                       children: [
-                        Positioned.fill(
-                          bottom: 90,
-                          child: SingleChildScrollView(
-                            controller: _bodyScrollController,
-                            padding: EdgeInsets.fromLTRB(
-                              16,
-                              savedContent == null ? 32 : 80,
-                              16,
-                              24,
-                            ),
-                            child: savedContent != null
-                                ? SavedContentConfirmation(
-                                    content: savedContent,
-                                    originalUrl: _activeTab == 0
-                                        ? _urlController.text.trim()
-                                        : _selectedPhotoFilename ?? '',
-                                    photoBytes: _activeTab == 1
-                                        ? _selectedPhotoBytes
-                                        : null,
-                                  )
-                                : _activeTab == 0
-                                ? LinkSaveBody(
-                                    controller: _urlController,
-                                    stage: _linkStage,
-                                    onChanged: _validateLink,
-                                    onClear: _clearLink,
-                                    onPaste: _paste,
-                                  )
-                                : PhotoSaveBody(
-                                    stage: _photoStage,
-                                    onSelect: _selectPhoto,
-                                    photoBytes: _selectedPhotoBytes,
-                                  ),
+                        Expanded(
+                          child: _SaveTab(
+                            label: '링크 첨부',
+                            active: _activeTab == 0,
+                            onTap: () => _changeTab(0),
                           ),
                         ),
-                        Positioned(
-                          left: 16,
-                          right: 16,
-                          bottom: 66,
-                          height: 56,
-                          child: SaveFlowButton(
-                            label: savedContent == null ? '허투루에 저장하기' : '닫기',
-                            enabled: enabled,
-                            loading: _isSaving,
-                            onPressed: savedContent == null
-                                ? _submit
-                                : () => Navigator.of(
-                                    context,
-                                    rootNavigator: true,
-                                  ).pop(),
+                        Expanded(
+                          child: _SaveTab(
+                            label: '사진 첨부',
+                            active: _activeTab == 1,
+                            onTap: () => _changeTab(1),
                           ),
-                        ),
-                        if (_saveError case final message?)
-                          Positioned(
-                            left: 40,
-                            right: 40,
-                            bottom: 138,
-                            child: SaveErrorToast(message: message),
-                          ),
-                        const Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: 34,
-                          child: Center(child: _SaveHomeIndicator()),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            bottom: 90,
+                            child: SingleChildScrollView(
+                              controller: _bodyScrollController,
+                              padding: EdgeInsets.fromLTRB(
+                                16,
+                                savedContent == null ? 32 : 80,
+                                16,
+                                24,
+                              ),
+                              child: savedContent != null
+                                  ? SavedContentConfirmation(
+                                      content: savedContent,
+                                      originalUrl: _activeTab == 0
+                                          ? _urlController.text.trim()
+                                          : _selectedPhotoFilename ?? '',
+                                      photoBytes: _activeTab == 1
+                                          ? _selectedPhotoBytes
+                                          : null,
+                                    )
+                                  : _activeTab == 0
+                                  ? LinkSaveBody(
+                                      controller: _urlController,
+                                      stage: _linkStage,
+                                      onChanged: _validateLink,
+                                      onClear: _clearLink,
+                                      onPaste: _paste,
+                                    )
+                                  : PhotoSaveBody(
+                                      stage: _photoStage,
+                                      onSelect: _selectPhoto,
+                                      photoBytes: _selectedPhotoBytes,
+                                    ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 16,
+                            right: 16,
+                            bottom: 66,
+                            height: 56,
+                            child: SaveFlowButton(
+                              label: savedContent == null ? '허투루에 저장하기' : '닫기',
+                              enabled: enabled,
+                              loading: _isSaving,
+                              onPressed: savedContent == null
+                                  ? _submit
+                                  : () => Navigator.of(
+                                      context,
+                                      rootNavigator: true,
+                                    ).pop(),
+                            ),
+                          ),
+                          if (_saveError case final message?)
+                            Positioned(
+                              left: 40,
+                              right: 40,
+                              bottom: 138,
+                              child: SaveErrorToast(message: message),
+                            ),
+                          const Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 34,
+                            child: Center(child: _SaveHomeIndicator()),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -350,7 +353,7 @@ class SaveContentTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: appHeaderHeight,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(

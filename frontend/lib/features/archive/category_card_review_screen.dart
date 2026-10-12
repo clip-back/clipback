@@ -6,7 +6,7 @@ import 'package:clipback_frontend/shared/content/mutation_status.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
-import 'package:clipback_frontend/shared/widgets/app_layout.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
@@ -37,6 +37,7 @@ class CategoryCardReviewScreen extends StatefulWidget {
 
 class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
   static const _cardTransitionDuration = Duration(milliseconds: 240);
+  static const _activeCardTop = appHeaderHeight + 134;
 
   var _activeIndex = 0;
   var _dragOffset = Offset.zero;
@@ -93,7 +94,7 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
     final promoting = _isAdvancing && distance == 1;
     return AnimatedPositioned(
       key: ValueKey('background-${content.id}-$distance'),
-      top: promoting ? 248 : top,
+      top: promoting ? _activeCardTop : top,
       left: 0,
       right: 0,
       duration: _cardTransitionDuration,
@@ -128,11 +129,14 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
     if (widget.contents.isEmpty) {
       return Scaffold(
         backgroundColor: AppColors.bg,
-        body: EmptyStatePanel(
-          title: '다시 볼 콘텐츠가 없어요',
-          body: '카테고리에 콘텐츠를 저장한 뒤 랜덤 보기를 이용해 보세요.',
-          actionLabel: '나가기',
-          onAction: widget.onExit,
+        body: SafeArea(
+          bottom: false,
+          child: EmptyStatePanel(
+            title: '다시 볼 콘텐츠가 없어요',
+            body: '카테고리에 콘텐츠를 저장한 뒤 랜덤 보기를 이용해 보세요.',
+            actionLabel: '나가기',
+            onAction: widget.onExit,
+          ),
         ),
       );
     }
@@ -141,121 +145,130 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: [
-          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
-          Positioned(
-            top: 50,
-            right: 16,
-            height: 64,
-            child: TextButton(
-              onPressed: widget.onExit,
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.text,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(48, 44),
-                textStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: -0.4,
+      body: SafeArea(
+        bottom: false,
+        child: ClipRect(
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned(
+                top: 0,
+                right: 16,
+                height: appHeaderHeight,
+                child: TextButton(
+                  onPressed: widget.onExit,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.text,
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(48, 44),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  child: const Text('나가기'),
                 ),
               ),
-              child: const Text('나가기'),
-            ),
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            top: 114,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '딱 5개만 다시 확인해볼까요?',
-                  style: TextStyle(
-                    color: AppColors.subSubtle,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
+              Positioned(
+                left: 16,
+                right: 16,
+                top: appHeaderHeight,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SvgPicture.asset(
-                      Assets.categoryCardFolder,
-                      width: 28.235,
-                      height: 24,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.categoryName,
-                      style: const TextStyle(
-                        fontSize: 24,
+                    const Text(
+                      '딱 5개만 다시 확인해볼까요?',
+                      style: TextStyle(
+                        color: AppColors.subSubtle,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        letterSpacing: -0.6,
+                        letterSpacing: -0.4,
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        SvgPicture.asset(
+                          Assets.categoryCardFolder,
+                          width: 28.235,
+                          height: 24,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.categoryName,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.6,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            top: 192,
-            child: CardPagerProgress(
-              activeIndex: _activeIndex,
-              count: widget.contents.length,
-            ),
-          ),
-          if (!_isComplete && remainingCount > 2) _backgroundCard(2, 224),
-          if (!_isComplete && remainingCount > 1) _backgroundCard(1, 236),
-          if (!_isComplete)
-            Positioned(
-              top: 248,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: _isAdvancing
-                      ? null
-                      : () => widget.onOpenContent(_activeContent),
-                  onPanUpdate: _updateDrag,
-                  onPanEnd: _finishDrag,
-                  child: AnimatedSlide(
-                    key: ValueKey(_activeContent.id),
-                    offset: Offset(_dragOffset.dx / 343, _dragOffset.dy / 496),
-                    duration: _isDragging
-                        ? Duration.zero
-                        : _cardTransitionDuration,
-                    curve: Curves.easeOutCubic,
-                    child: Transform.rotate(
-                      angle: 0.024 + _dragOffset.dx / 22000,
-                      child: CategoryReviewCard(
-                        content: _activeContent,
-                        bookmarked: widget.bookmarkedIds.contains(
-                          _activeContent.id,
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                top: appHeaderHeight + 78,
+                child: CardPagerProgress(
+                  activeIndex: _activeIndex,
+                  count: widget.contents.length,
+                ),
+              ),
+              if (!_isComplete && remainingCount > 2)
+                _backgroundCard(2, appHeaderHeight + 110),
+              if (!_isComplete && remainingCount > 1)
+                _backgroundCard(1, appHeaderHeight + 122),
+              if (!_isComplete)
+                Positioned(
+                  top: _activeCardTop,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: _isAdvancing
+                          ? null
+                          : () => widget.onOpenContent(_activeContent),
+                      onPanUpdate: _updateDrag,
+                      onPanEnd: _finishDrag,
+                      child: AnimatedSlide(
+                        key: ValueKey(_activeContent.id),
+                        offset: Offset(
+                          _dragOffset.dx / 343,
+                          _dragOffset.dy / 496,
                         ),
-                        onOpenContent: () =>
-                            widget.onOpenContent(_activeContent),
-                        onToggleBookmark: () =>
-                            widget.onToggleBookmark(_activeContent),
+                        duration: _isDragging
+                            ? Duration.zero
+                            : _cardTransitionDuration,
+                        curve: Curves.easeOutCubic,
+                        child: Transform.rotate(
+                          angle: 0.024 + _dragOffset.dx / 22000,
+                          child: CategoryReviewCard(
+                            content: _activeContent,
+                            bookmarked: widget.bookmarkedIds.contains(
+                              _activeContent.id,
+                            ),
+                            onOpenContent: () =>
+                                widget.onOpenContent(_activeContent),
+                            onToggleBookmark: () =>
+                                widget.onToggleBookmark(_activeContent),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: NavigationHomeIndicator(),
               ),
-            ),
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: NavigationHomeIndicator(),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

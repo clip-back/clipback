@@ -340,6 +340,41 @@ flutter build web --no-pub
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
 
+## 상단 안전 영역과 헤더
+
+일반 화면의 헤더 높이는 `shared/theme/layout.dart`의 `appHeaderHeight`(64 논리 픽셀)를
+사용합니다. 시스템 상태바·노치 높이는 이 64px에 포함하지 않습니다. 각 `Scaffold.body`에서
+상단 `SafeArea`를 한 번 적용하며, `PhoneFrame`이나 헤더 안에서 중복 적용하지 않습니다.
+기존 하단 내비게이션·저장 버튼 위치는 유지하고 검색 화면의 기존 하단 SafeArea도 유지합니다.
+
+전체 화면 저장 창은 별도 Navigator 경로이므로 자체 SafeArea를 가집니다. 하단 시트는 호출부의
+`useSafeArea: true`로 최대 높이를 보호하며, 시트 내용에 일반 화면의 64px 헤더를 강제하지 않습니다.
+로그인·온보딩·관심사 선택은 기존 배치를 유지합니다. 홈 헤더는 본문과 함께 스크롤하고,
+랜덤 보기는 기존 단일 Stack을 유지하되 안전 영역 내부의 ClipRect로 드래그 중 노치 침범을 막습니다.
+
+`top_safe_area_test.dart`는 상단 inset 0/20/44/59/62와 375×812·430×932에서 헤더 위치·높이·탭을
+검사하고, 스크롤·드래그 중 상태바 영역의 렌더링 픽셀을 비교합니다.
+`auth_safe_area_test.dart`, `save_search_safe_area_test.dart`, `sheet_safe_area_test.dart`는
+인증 배치, 입력·선택 사진 보존, 높은 시트와 상세 이미지 요청 공유를 검증합니다.
+
+기기에서 화면만 확인하려면 아래 테스트 전용 진입점을 사용합니다. 실제 `ClipbackApp`에 HTTP 대역과
+메모리 세션·인증을 연결하므로 운영 서버나 기기에 저장된 실제 세션을 사용하지 않습니다.
+지원하지 않는 HTTP 요청은 오류로 끝나며 실제 서버로 전달하지 않습니다. 새 의존성은 필요하지 않습니다.
+
+```bash
+# frontend/에서 실행. 연결된 기기의 ID를 지정합니다.
+flutter run --no-pub -d <iPhone-device-id> -t test/support/safe_area_preview.dart
+
+# 화면 콜백·합성 포인터로 자동 순회하고 기기 좌표 및 PNG를 기록합니다.
+flutter run --no-pub -d <iPhone-device-id> -t test/support/safe_area_device_check.dart
+```
+
+자동 순회는 앱 임시 폴더에 `report.json`과 PNG를 저장하고 경로 및 PASS/FAIL을 출력합니다.
+무선 iOS 실행에서 Flutter 터미널에 앱 로그가 보이지 않으면 Xcode 콘솔이나 기기의
+`tmp/clipback-safe-area-*` 결과 파일을 확인합니다.
+이 결과는 **실제 기기의 렌더링과 프로그램 입력 검증**이며 사람의 수동 탭·실제 OAuth·운영 API 검증과
+구분합니다. 이 진입점을 출시하지 않으며 제품 빌드의 진입점은 계속 `lib/main.dart`입니다.
+
 ## Android 개발 실행
 
 Android SDK Platform 36을 설치하고, 실제 기기는 개발자 옵션의 USB 디버깅을 켠 뒤
