@@ -66,6 +66,22 @@ class ApiAppleChallenge {
   final String nonce;
 }
 
+class ApiShareCredential {
+  const ApiShareCredential({
+    required this.token,
+    required this.expiresAt,
+    required this.userId,
+    required this.sessionId,
+    this.sessionIdentity,
+  });
+
+  final String token;
+  final DateTime expiresAt;
+  final int userId;
+  final int sessionId;
+  final Object? sessionIdentity;
+}
+
 class ApiSessionStorage {
   static const _sessionKey = 'clipback.session';
   static const _accessTokenKey = 'clipback.access_token';
@@ -312,6 +328,42 @@ class ClipbackApi {
 
   bool get hasSession => _session != null;
   ApiSession? get session => _session;
+  String get baseUrl => _baseUrl;
+
+  Future<ApiShareCredential> createShareCredential() async {
+    final generation = _sessionGeneration;
+    Future<Map<String, dynamic>> mint() => _json(
+      'POST',
+      '/auth/share-credential',
+      retryUnauthorized: false,
+    ).timeout(_requestTimeout);
+    late Map<String, dynamic> response;
+    var issuedFor = _session;
+    try {
+      response = await mint();
+    } on ClipbackApiException catch (error) {
+      if (error.statusCode != 401) rethrow;
+      _checkSessionGeneration(generation);
+      // Share preparation may refresh, but its failure does not clear login.
+      final activeRefresh = _refreshFuture;
+      if (activeRefresh != null) {
+        await activeRefresh;
+      } else if (identical(issuedFor, _session)) {
+        await refreshSession();
+      }
+      _checkSessionGeneration(generation);
+      issuedFor = _session;
+      response = await mint();
+    }
+    _checkSessionGeneration(generation);
+    return ApiShareCredential(
+      token: response['share_token'] as String,
+      expiresAt: DateTime.parse(response['expires_at'] as String),
+      userId: response['user_id'] as int,
+      sessionId: response['session_id'] as int,
+      sessionIdentity: issuedFor,
+    );
+  }
 
   void restoreSession(ApiSession session) => _replaceSession(session);
 

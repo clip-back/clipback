@@ -1,9 +1,11 @@
-from fastapi import APIRouter, File, Form, Response, UploadFile, status
+from uuid import UUID
+
+from fastapi import APIRouter, File, Form, Header, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUserId, DatabaseSession
+from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
 from app.core.config import settings
 from app.integrations.ai_client import get_ai_client
 from app.integrations.ocr_client import get_ocr_client
@@ -25,7 +27,8 @@ router = APIRouter()
 @router.post("/screenshots", response_model=ContentRead, status_code=status.HTTP_201_CREATED)
 async def upload_screenshot(
     db: DatabaseSession,
-    current_user_id: CurrentUserId,
+    current_user_id: ShareWriteUserId,
+    idempotency_key: UUID | None = Header(default=None),
     file: UploadFile = File(...),
     category_ids: list[int] = Form(default_factory=list),
     tag_names: list[str] = Form(default_factory=list),
@@ -35,6 +38,7 @@ async def upload_screenshot(
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
     return await _build_upload_service(db).upload_screenshot(
+        **({"idempotency_key": idempotency_key} if idempotency_key else {}),
         user_id=current_user_id,
         file=file,
         category_ids=category_ids,

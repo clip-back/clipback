@@ -24,6 +24,7 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
+import '../features/share/pending_share_prompt.dart';
 
 class ClipbackApp extends StatefulWidget {
   const ClipbackApp({this.sessionStorage, this.socialAuth, super.key});
@@ -76,6 +77,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
+      unawaited(_d.sharing.resume());
     }
   }
 
@@ -255,6 +257,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
+      builder: (context, child) => PendingSharePrompt(
+        navigatorKey: _navigatorKey,
+        promptVersion: _d.sharing.promptVersion,
+        drafts: _d.sharing.drafts,
+        error: _d.sharing.error,
+        busy: _d.sharing.busy,
+        onRetry: () => unawaited(_d.sharing.retry()),
+        onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+        child: child!,
+      ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,

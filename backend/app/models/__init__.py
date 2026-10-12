@@ -14,6 +14,7 @@ from app.models.recommendation import (
     RecommendationTargetKind,
     RecommendationType,
 )
+from app.models.share_receipt import ShareReceipt
 from app.models.social_identity import SocialIdentity, SocialProvider
 from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
@@ -37,6 +38,7 @@ __all__ = [
     "RecommendationExposure",
     "RecommendationTargetKind",
     "RecommendationType",
+    "ShareReceipt",
     "SocialIdentity",
     "SocialProvider",
     "Tag",

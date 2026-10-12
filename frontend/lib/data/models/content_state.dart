@@ -82,12 +82,14 @@ class RefreshTicket {
     required this.version,
     required Map<FeedKey, int> feedVersions,
     required this.categoryDetailsRequired,
+    this.preserveViewport = false,
   }) : feedVersions = Map.unmodifiable(feedVersions);
 
   final int accountVersion;
   final int version;
   final Map<FeedKey, int> feedVersions;
   final bool categoryDetailsRequired;
+  final bool preserveViewport;
 }
 
 class RefreshResult {

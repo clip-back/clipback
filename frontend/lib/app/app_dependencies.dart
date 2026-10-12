@@ -1,5 +1,8 @@
 import '../clipback_api.dart';
 import '../social_auth.dart';
+import '../data/repositories/share_repository.dart';
+import '../data/services/native_share_service.dart';
+import 'actions/share_coordinator.dart';
 import '../data/repositories/content_repository.dart';
 import '../data/repositories/session_repository.dart';
 import '../data/repositories/user_repository.dart';
@@ -18,10 +21,25 @@ import 'app_view_model.dart';
 
 /// Owns dependencies for one app lifetime. Requests start after view subscriptions.
 class AppDependencies {
-  AppDependencies({ApiSessionStorage? storage, SocialAuth? socialAuth}) {
+  AppDependencies({
+    ApiSessionStorage? storage,
+    SocialAuth? socialAuth,
+    NativeShareService? nativeShare,
+  }) {
     final api = ClipbackApi(
-      onSessionChanged: (_) => session.persistCurrentSession(),
-      onSessionInvalidated: () => session.invalidate(),
+      onSessionChanged: (_) async {
+        if (!_disposed) await session.persistCurrentSession();
+      },
+      onSessionInvalidated: () async {
+        if (_disposed) return;
+        try {
+          await sharing.blockForSessionChange();
+        } catch (_) {
+          // A native storage error cannot make a known-invalid login usable.
+          // The coordinator retains the retryable sharing error separately.
+        }
+        if (!_disposed) await session.invalidate();
+      },
     );
     session = RemoteSessionRepository(
       api: api,
@@ -36,7 +54,17 @@ class AppDependencies {
       session: session,
       users: users,
       initializeAccount: initializeAccount,
+      beforeSessionChange: () => sharing.blockForSessionChange(),
     );
+    sharing = ShareCoordinator(
+      shares: ShareRepository(api, nativeShare ?? NativeShareService()),
+      session: session,
+      users: users,
+      contentActions: contentActions,
+      canPrepare: () => !app.authBusy && !app.isRestoringSession,
+    );
+    app.addListener(sharing.sessionSettled);
+    session.addListener(sharing.sessionSettled);
     home = HomeViewModel(content, contentActions);
     archive = ArchiveViewModel(content, contentActions);
     bookmark = BookmarkViewModel(content, contentActions);
@@ -48,6 +76,8 @@ class AppDependencies {
   }
 
   late final SessionRepository session;
+  bool _disposed = false;
+  late final ShareCoordinator sharing;
   late final ContentRepository content;
   late final UserRepository users;
   late final AccountInitializationAction initializeAccount;
@@ -63,6 +93,7 @@ class AppDependencies {
   late final AccountViewModel account;
 
   List<ViewModel> get featureViewModels => [
+    sharing,
     home,
     archive,
     bookmark,
@@ -74,6 +105,9 @@ class AppDependencies {
   ];
 
   void dispose() {
+    _disposed = true;
+    app.removeListener(sharing.sessionSettled);
+    session.removeListener(sharing.sessionSettled);
     app.dispose();
     for (final viewModel in featureViewModels) {
       viewModel.dispose();

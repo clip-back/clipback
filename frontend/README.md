@@ -504,3 +504,89 @@ See [MVP scope decisions](../docs/backend-mvp-plan.md) before adding APIs for th
 
 For public URL and web CORS configuration, follow the
 [deployment guide](../docs/railway-deployment.md).
+
+## 모바일 공유 저장
+
+시스템 공유 목록에서 **허투루**를 선택하면 링크·이미지와 저장 계정을 확인하고 바로 저장합니다.
+iOS는 Swift Share Extension, Android는 Java `ShareActivity`를 사용합니다. 이 경로는 Flutter
+엔진을 새로 띄우거나 기존 수동 저장 화면·홈·상세로 이동하지 않습니다. 외부 공유를 닫으면 송신
+앱으로, 본앱에서 대기 초안을 재개한 경우에는 본앱의 원래 화면으로 돌아옵니다.
+
+- 지원: Instagram·YouTube 링크 하나 또는 PNG·JPEG·WebP 한 장(기본 10MiB).
+  여러 장·동영상·HEIC 변환·공유 화면 안의 로그인·분류 편집은 지원하지 않습니다.
+- 본앱의 기존 로그인/게스트 선택·세션 복원 후 저장 전용 자격을 준비합니다. 처음 업데이트한 뒤
+  본앱을 한 번 열어야 합니다. 자격이 없거나 만료되면 초안을 보관하고 본앱에서 확인하도록 안내하며,
+  본앱을 강제로 열거나 새 게스트를 자동 생성하지 않습니다.
+- 기기 공유 자격을 읽지 못한 경우 재시도는 공유 자격 차단·재발급을 먼저 시도합니다.
+  본앱 로그인이나 보관한 초안을 초기화하지 않습니다.
+- 본앱의 대기 항목 안내에서 초안을 선택하면 같은 네이티브 공유 UI로 재개합니다. 안내의 `나중에`는
+  현재 화면만 가리고 있던 안내를 닫습니다. 다음 앱 복귀 때 대기 항목을 다시 확인합니다.
+- 초안은 최대 10개·총 100MiB·7일입니다. 한도 초과 시 기존 항목을 임의로 지우지 않습니다.
+  이미 전송한 초안은 최초 저장 계정으로만 재시도합니다.
+- 요청은 30초 제한이며 응답 유실·전송 후 닫기는 결과 불명으로 보관합니다. 같은 초안의 UUID를
+  `Idempotency-Key`로 재사용하므로 새 저장을 반복하지 않습니다. 서버 생성 응답을 받으면 완료이며
+  YouTube 요약 완료나 자동 백그라운드 저장을 기다리지 않습니다.
+
+`lib/data/services/native_share_service.dart`의 `com.huturu.app/share` 채널은 자격 준비·차단,
+대기 초안·성공 영수증 조회, 네이티브 UI 재개만 연결합니다. 영속 원본은 각 플랫폼 저장소이며
+Dart Repository는 같은 데이터를 별도로 저장하지 않습니다. `app/actions/share_coordinator.dart`는
+세션 저장 콜백 밖에서 자격을 발급하고, 계정 변경 전에 영속 revision을 올려 이전 자격을 차단합니다.
+성공 영수증은 같은 계정·API 환경의 카테고리·활성 목록·통계 갱신 후 소비합니다. 목록은 이미 읽어 둔 범위를
+한 번에 갱신해 현재 화면·필터·스크롤을 보존하며, 실패 시 기존 항목·커서로 이어서 조회합니다.
+후속 조회 실패는 저장 재전송 사유가 아닙니다.
+
+자격은 `POST /auth/share-credential`에서 발급하며 본앱 access/refresh 토큰과 분리합니다.
+네이티브 코드는 공유 토큰으로 `/contents/share`, `/uploads/screenshots`만 호출합니다.
+백엔드 migration·권한·중복 방지 계약은 [백엔드 README](../backend/README.md)를 따릅니다.
+백엔드와 migration을 먼저 배포한 후 앱을 배포해야 합니다.
+
+### 플랫폼 설정
+
+- iOS: Runner `com.huturu.app`, 확장 `com.huturu.app.ShareExtension`, App Group
+  `group.com.huturu.app`, 공유 Keychain `$(AppIdentifierPrefix)com.huturu.app.share`.
+  기존 기본 Keychain 그룹과 소셜 설정은 유지합니다. 실기기·배포 시 Apple 개발자 계정에
+  App Group과 두 App ID의 capabilities를 등록하고 프로비저닝을 갱신해야 합니다.
+- Android: application ID `com.clipback.frontend` 유지. 공유 수신 Activity에만 `ACTION_SEND`
+  `text/plain`·`image/*`를 등록하며 복구 Activity는 외부에 공개하지 않습니다.
+  자격은 Android Keystore AES-GCM으로 암호화해 앱 전용 저장소에 기록합니다.
+- Dart와 두 네이티브 구현의 API 주소는 같은 `CLIPBACK_API_BASE_URL` 빌드 값을 사용합니다.
+  저장된 자격의 대상 환경이 빌드 주소와 다르면 저장하지 않습니다. 릴리스에서 로컬 HTTP를
+  허용하지 않으며, 웹·데스크톱은 네이티브 공유 연동 없이 기존 수동 저장을 사용합니다.
+
+### 로컬 공유 검증
+
+HTTP 대역은 Flutter와 네이티브 양쪽에서 실제 소켓으로 접근합니다. 운영 서버 fallback은 없습니다.
+
+```bash
+# frontend/ — 별도 터미널에서 유지
+python3 tool/share_fixture_server.py
+
+# iOS Simulator
+flutter run --no-pub -d <simulator-id> -t test/support/share_preview.dart \
+  --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:18765/api/v1
+
+# Android Emulator
+flutter run --no-pub -d <emulator-id> -t test/support/share_preview.dart \
+  --dart-define=CLIPBACK_API_BASE_URL=http://10.0.2.2:18765/api/v1
+```
+
+`SHARE_PREVIEW_SIGNED_OUT=true`를 추가하면 미로그인 초안 복구를 확인할 수 있습니다.
+실제 FastAPI·전용 PostgreSQL 검증은 백엔드 README의 `share_live_server`를 실행하고,
+주소를 18766 포트로 변경한 뒤 `SHARE_PREVIEW_REAL_BACKEND=true`를 추가합니다.
+이 경우 본앱의 게스트 시작 버튼으로 테스트 서버 세션을 발급받습니다.
+외부 OAuth·AI/OCR·metadata는 대역이며 실제 공급자 동작이나 운영 저장을 증명하지 않습니다.
+
+```bash
+flutter analyze --no-pub
+flutter test --no-pub
+flutter build web --no-pub
+flutter build apk --debug --no-pub
+flutter build ios --simulator --debug --no-pub
+```
+
+기존 Flutter 회귀 테스트에 공유 자격·계정 차단·오래된 발급·영수증·목록 범위 보존 테스트를
+추가했습니다. 네이티브 저장소와 실제 OS 공유 UI 검증은 각 플랫폼 테스트 타깃으로 별도 수행합니다.
+공유 확장·실제 Keychain·송신 앱 UI 테스트 명령은 [iOS 공유 검증 안내](ios/ShareVerification/README.md)를 참고합니다.
+Android의 Keystore·수신 Activity·HTTP 테스트와 API 33·36 재현 명령은
+[Android 공유 검증 안내](android/SHARE_TESTING.md)에 있습니다.
+실행 환경과 실제 결과는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.

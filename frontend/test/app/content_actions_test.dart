@@ -18,7 +18,7 @@ class _Content extends ContentRepository {
   int get accountVersion => generation;
 
   @override
-  RefreshTicket beginRefresh() => RefreshTicket(
+  RefreshTicket beginRefresh({bool preserveViewport = false}) => RefreshTicket(
     accountVersion: generation,
     version: ++refreshGeneration,
     feedVersions: const {},

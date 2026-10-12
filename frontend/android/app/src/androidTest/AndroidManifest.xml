@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Share Test Sender" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <uses-library android:name="android.test.runner" android:required="false" />
+        <activity android:name="com.clipback.frontend.share.ShareTestSenderActivity" android:exported="true" />
+        <provider android:name="com.clipback.frontend.share.ShareTestImageProvider" android:authorities="com.clipback.frontend.test.shareimage" android:exported="false" android:grantUriPermissions="true" />
+    </application>
+</manifest>
