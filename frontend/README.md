@@ -117,7 +117,7 @@ Android는 Google·카카오, iOS는 Google·카카오·Apple을 지원합니다
 | Dart define | 용도 |
 | --- | --- |
 | `CLIPBACK_GOOGLE_SERVER_CLIENT_ID` | 양 모바일 공통 Google **웹 OAuth client ID**. 백엔드 ID token audience |
-| `CLIPBACK_GOOGLE_IOS_CLIENT_ID` | `com.clipback.app`용 iOS OAuth client ID. iOS에서 필수 |
+| `CLIPBACK_GOOGLE_IOS_CLIENT_ID` | `com.huturu.app`용 iOS OAuth client ID. iOS에서 필수 |
 | `CLIPBACK_KAKAO_NATIVE_APP_KEY` | 양 모바일 공통 카카오 Native app key |
 
 공급자 콘솔에서 발급한 공개 값을 아래 환경변수에 지정한 뒤 실행합니다. 이 값들을 Dart define으로
@@ -139,7 +139,7 @@ Gradle은 Flutter `dart-defines`에서 카카오 Native key를 읽어 manifest�
 ([Google Android 설정](https://pub.dev/packages/google_sign_in_android),
 [카카오 Flutter 설정](https://developers.kakao.com/docs/en/flutter/getting-started))
 
-iOS는 같은 `com.clipback.app`을 Google·카카오 콘솔에 등록하고 다음 파일을 준비합니다.
+iOS는 같은 `com.huturu.app`을 Google·카카오 콘솔에 등록하고 다음 파일을 준비합니다.
 
 ```bash
 # frontend/에서 최초 한 번. 기존 로컬 파일은 덮어쓰지 않습니다.
@@ -155,7 +155,7 @@ Git에서 제외된 `SocialAuth.xcconfig`의 `CLIPBACK_GOOGLE_IOS_URL_SCHEME`은
 카카오톡 확인용 `kakaokompassauth`가 있습니다. 설정 변경 후에는 앱을 완전히 다시 빌드합니다.
 ([Google iOS 설정](https://pub.dev/packages/google_sign_in_ios))
 
-Apple은 Runner의 Sign in with Apple entitlement와 콘솔의 `com.clipback.app` App ID capability를
+Apple은 Runner의 Sign in with Apple entitlement와 콘솔의 `com.huturu.app` App ID capability를
 모두 활성화하고, 해당 entitlement를 포함한 서명·프로비저닝을 준비합니다. 이 기능의 실제 기기 검증에는
 Sign in with Apple을 지원하는 Developer Program 팀이 필요합니다. Apple 로그인은 네이티브 iOS만
 사용하며 Services ID·웹 redirect는 설정하지 않습니다.
@@ -166,6 +166,12 @@ Sign in with Apple을 지원하는 Developer Program 팀이 필요합니다. App
 활성화와 동의항목도 확인합니다. Apple 서버 설정·암호화키·migration은
 [백엔드 README](../backend/README.md)와 [MVP 계획](../docs/backend-mvp-plan.md)을 따릅니다.
 비밀키·서버 토큰은 앱과 로컬 공개 URL scheme 설정에 복사하지 않습니다.
+
+Bundle ID를 기존 `com.clipback.app`에서 `com.huturu.app`으로 변경했으므로 실제 로그인 전에는
+Google의 iOS OAuth client와 URL scheme, 카카오의 iOS 플랫폼 등록, Apple App ID·프로비저닝을
+새 식별자 기준으로 확인합니다. 백엔드 Apple 설정의 `APPLE_CLIENT_ID`도 `com.huturu.app`이어야 하며,
+`APPLE_TEAM_ID`·키는 해당 App ID에 사용할 개발자 팀과 일치해야 합니다. 저장소 설정 변경만으로
+공급자 콘솔이나 배포 환경변수가 변경되지는 않습니다. Android 패키지명은 그대로 유지합니다.
 
 ### 검증 범위
 
@@ -368,7 +374,9 @@ compileSdk를 36으로 맞춥니다. 앱의 minSdk·targetSdk와 패키지 잠�
 ## iOS 개발 실행
 
 iOS 프로젝트는 `ios/Runner.xcworkspace`로 엽니다. 앱 이름은 **허투루**, Bundle ID는
-`com.clipback.app`입니다. Runner의 Deployment Target은 현재 Xcode의 `Recommended` 설정을
+`com.huturu.app`이며, Debug·Profile·Release의 서명 Team은 `8X6N747PQM`으로 설정되어 있습니다.
+실제 기기 실행에는 해당 팀의 접근 권한과 유효한 서명·프로비저닝이 필요합니다.
+Runner의 Deployment Target은 현재 Xcode의 `Recommended` 설정을
 사용합니다(Xcode 27.0에서는 iOS 17). Xcode 버전을 바꾸면 실제 최소 버전을 다시 확인합니다.
 
 이번 준비에는 Flutter **3.44.9 / Dart 3.12.2**를 사용했습니다. 터미널의 `flutter --version`으로
