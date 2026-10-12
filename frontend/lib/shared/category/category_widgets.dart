@@ -3,6 +3,7 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
@@ -24,7 +25,7 @@ class CategoryTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: appHeaderHeight,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
@@ -217,6 +218,7 @@ class CategoryArchiveView extends StatelessWidget {
           onSortChanged: onSortChanged,
           onAddCategory: () => showModalBottomSheet<void>(
             context: context,
+            useSafeArea: true,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
             builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),

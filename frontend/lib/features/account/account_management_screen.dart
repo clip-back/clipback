@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
@@ -30,79 +31,87 @@ class AccountManagementScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return PhoneFrame(
       child: Scaffold(
-        body: Column(
-          children: [
-            const DesignStatusBar(),
-            SizedBox(
-              height: 48,
-              child: Row(
-                children: [
-                  SvgIconButton(
-                    asset: Assets.back,
-                    onPressed: onBack,
-                    size: 24,
-                    hitSize: 48,
-                    color: AppColors.text,
-                  ),
-                  const Text(
-                    '계정 관리',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-            Image.asset(Assets.character1Png, width: 140, height: 140),
-            const SizedBox(height: 10),
-            Text(
-              user.name,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 30),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '연결된 계정',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              SizedBox(
+                height: appHeaderHeight,
+                child: Row(
+                  children: [
+                    SvgIconButton(
+                      asset: Assets.back,
+                      onPressed: onBack,
+                      size: 24,
+                      hitSize: 48,
+                      color: AppColors.text,
+                    ),
+                    const Text(
+                      '계정 관리',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            AccountManagementTile(
-              leading: user.providerLabel,
-              trailing: isGuest == false ? '연결됨' : null,
-              onTap: null,
-            ),
-            if (isGuest != false)
+              const SizedBox(height: 30),
+              Image.asset(Assets.character1Png, width: 140, height: 140),
+              const SizedBox(height: 10),
+              Text(
+                user.name,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 30),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '연결된 계정',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               AccountManagementTile(
-                leading: isGuest == true ? '계정 연결하기' : '계정 정보 다시 확인',
-                onTap: busy ? null : () => unawaited(onConnect()),
+                leading: user.providerLabel,
+                trailing: isGuest == false ? '연결됨' : null,
+                onTap: null,
               ),
-            const SizedBox(height: 24),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '계정',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              if (isGuest != false)
+                AccountManagementTile(
+                  leading: isGuest == true ? '계정 연결하기' : '계정 정보 다시 확인',
+                  onTap: busy ? null : () => unawaited(onConnect()),
+                ),
+              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '계정',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            AccountManagementTile(
-              leading: '로그아웃',
-              onTap: busy ? null : () => unawaited(onLogout()),
-            ),
-            AccountManagementTile(
-              leading: '회원 탈퇴',
-              onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.')),
+              const SizedBox(height: 12),
+              AccountManagementTile(
+                leading: '로그아웃',
+                onTap: busy ? null : () => unawaited(onLogout()),
               ),
-            ),
-          ],
+              AccountManagementTile(
+                leading: '회원 탈퇴',
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.')),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
@@ -41,87 +42,94 @@ class MyScreen extends StatelessWidget {
 
     return PhoneFrame(
       child: Scaffold(
-        body: Column(
-          children: [
-            const DesignStatusBar(),
-            const SizedBox(height: 8),
-            MyPageTopBar(onMore: onOpenAccount),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
-                children: [
-                  MyProfileRow(user: user, onTap: onOpenAccount),
-                  const MySectionHeader(title: '나의 허투루'),
-                  MyStatsStrip(user: user),
-                  const SizedBox(height: 16),
-                  const MySectionHeader(title: '관리'),
-                  MyListGroup(
-                    children: [
-                      MyListTile(
-                        title: '리마인드 설정',
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const ReminderSheet(),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              MyPageTopBar(onMore: onOpenAccount),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+                  children: [
+                    MyProfileRow(user: user, onTap: onOpenAccount),
+                    const MySectionHeader(title: '나의 허투루'),
+                    MyStatsStrip(user: user),
+                    const SizedBox(height: 16),
+                    const MySectionHeader(title: '관리'),
+                    MyListGroup(
+                      children: [
+                        MyListTile(
+                          title: '리마인드 설정',
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const ReminderSheet(),
+                          ),
                         ),
-                      ),
-                      MyListTile(
-                        title: '카테고리 관리',
-                        onTap: onOpenCategoryManagement,
-                      ),
-                      MyListTile(
-                        title: '알림 및 앱 권한',
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const PermissionSheet(),
+                        MyListTile(
+                          title: '카테고리 관리',
+                          onTap: onOpenCategoryManagement,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const MySectionHeader(title: '고객지원'),
-                  MyListGroup(
-                    children: [
-                      MyListTile(
-                        title: '공지사항',
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const NoticeSheet(),
+                        MyListTile(
+                          title: '알림 및 앱 권한',
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const PermissionSheet(),
+                          ),
                         ),
-                      ),
-                      MyListTile(
-                        title: '문의하기',
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const ContactSheet(),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const MySectionHeader(title: '고객지원'),
+                    MyListGroup(
+                      children: [
+                        MyListTile(
+                          title: '공지사항',
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const NoticeSheet(),
+                          ),
                         ),
-                      ),
-                      MyListTile(
-                        title: '알림 및 앱 권한',
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const PermissionSheet(),
+                        MyListTile(
+                          title: '문의하기',
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const ContactSheet(),
+                          ),
                         ),
-                      ),
-                      MyListTile(
-                        title: '앱 버전',
-                        trailingText: user.appVersion,
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const AppVersionSheet(),
+                        MyListTile(
+                          title: '알림 및 앱 권한',
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const PermissionSheet(),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        MyListTile(
+                          title: '앱 버전',
+                          trailingText: user.appVersion,
+                          onTap: () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const AppVersionSheet(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         bottomNavigationBar: ClipbackNavigationBar(
           activeIndex: 3,
@@ -141,7 +149,7 @@ class MyPageTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: appHeaderHeight,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(

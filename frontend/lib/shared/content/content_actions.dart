@@ -36,6 +36,7 @@ class ContentActionSheet extends StatelessWidget {
             Navigator.pop(context);
             showModalBottomSheet<void>(
               context: context,
+              useSafeArea: true,
               isScrollControlled: true,
               backgroundColor: Colors.transparent,
               builder: (context) => CategoryChangeSheet(

@@ -10,6 +10,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
@@ -70,32 +71,35 @@ class HomeScreen extends StatelessWidget {
 
     return PhoneFrame(
       child: Scaffold(
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Column(
-            children: [
-              HomeHero(
-                hasSavedContent: hasSavedContent,
-                onSearch: onSearch,
-                onOpenToday: hasSavedContent
-                    ? onOpenToday
-                    : showAddContentSheet,
-              ),
-              HomeContentPanel(
-                feed: feed,
-                onRetry: onRetry,
-                activeCategoryId: activeCategoryId,
-                onCategorySelected: onCategorySelected,
-                hasSavedContent: hasSavedContent,
-                contents: contents,
-                categories: categories,
-                bookmarkedIds: bookmarkedIds,
-                onOpenArchive: onOpenArchive,
-                onOpenCategories: onOpenCategories,
-                onOpenContent: onOpenContent,
-                onToggleBookmark: onToggleBookmark,
-              ),
-            ],
+        body: SafeArea(
+          bottom: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              children: [
+                HomeHero(
+                  hasSavedContent: hasSavedContent,
+                  onSearch: onSearch,
+                  onOpenToday: hasSavedContent
+                      ? onOpenToday
+                      : showAddContentSheet,
+                ),
+                HomeContentPanel(
+                  feed: feed,
+                  onRetry: onRetry,
+                  activeCategoryId: activeCategoryId,
+                  onCategorySelected: onCategorySelected,
+                  hasSavedContent: hasSavedContent,
+                  contents: contents,
+                  categories: categories,
+                  bookmarkedIds: bookmarkedIds,
+                  onOpenArchive: onOpenArchive,
+                  onOpenCategories: onOpenCategories,
+                  onOpenContent: onOpenContent,
+                  onToggleBookmark: onToggleBookmark,
+                ),
+              ],
+            ),
           ),
         ),
         bottomNavigationBar: ClipbackNavigationBar(
@@ -122,16 +126,13 @@ class HomeHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: hasSavedContent ? 254 : 286,
-      child: Stack(
-        children: [
-          const Positioned(left: 0, right: 0, top: 0, child: DesignStatusBar()),
-          Positioned(
-            left: 16,
-            right: 16,
-            top: 58,
-            height: 56,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: appHeaderHeight,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 SvgPicture.asset(
@@ -154,6 +155,7 @@ class HomeHero extends StatelessWidget {
                     asset: Assets.bell,
                     onPressed: () => showModalBottomSheet<void>(
                       context: context,
+                      useSafeArea: true,
                       backgroundColor: Colors.transparent,
                       builder: (context) => const NotificationSheet(),
                     ),
@@ -164,78 +166,85 @@ class HomeHero extends StatelessWidget {
               ],
             ),
           ),
-          Positioned(
-            left: 24,
-            top: 122,
-            width: 168,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    height: 1.6,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                SizedBox(
-                  width: 168,
-                  child: FittedBox(
-                    alignment: Alignment.centerLeft,
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
-                      maxLines: 1,
-                      softWrap: false,
+        ),
+        SizedBox(
+          height: hasSavedContent ? 140 : 172,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 24,
+                top: 8,
+                width: 168,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
                       style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.45,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        height: 1.6,
+                        letterSpacing: -0.5,
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                GestureDetector(
-                  onTap: onOpenToday,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.text,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
-                      style: const TextStyle(
-                        color: AppColors.main,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                        letterSpacing: -0.35,
+                    SizedBox(
+                      width: 168,
+                      child: FittedBox(
+                        alignment: Alignment.centerLeft,
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
+                          maxLines: 1,
+                          softWrap: false,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: -0.45,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: onOpenToday,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.text,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
+                          style: const TextStyle(
+                            color: AppColors.main,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            height: 1.4,
+                            letterSpacing: -0.35,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Positioned(
+                right: hasSavedContent ? 24 : 30,
+                top: 0,
+                child: Image.asset(
+                  hasSavedContent ? Assets.homeCharacter : Assets.character2Png,
+                  width: hasSavedContent ? 99 : 81,
+                  height: 123,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ],
           ),
-          Positioned(
-            right: hasSavedContent ? 24 : 30,
-            top: 114,
-            child: Image.asset(
-              hasSavedContent ? Assets.homeCharacter : Assets.character2Png,
-              width: hasSavedContent ? 99 : 81,
-              height: 123,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

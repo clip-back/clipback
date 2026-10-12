@@ -21,6 +21,7 @@ void showCategoryActionSheet({
   if (category.mutationLabel != null) return;
   showModalBottomSheet<void>(
     context: context,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) => CategoryActionSheet(
       category: category,
@@ -31,6 +32,7 @@ void showCategoryActionSheet({
           if (!context.mounted) return;
           showModalBottomSheet<void>(
             context: context,
+            useSafeArea: true,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
             builder: (context) => CategoryEditSheet(

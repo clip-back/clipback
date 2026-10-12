@@ -15,6 +15,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
@@ -143,6 +144,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     await showModalBottomSheet<void>(
       context: context,
+      useSafeArea: true,
       isScrollControlled: content.isScreenshot,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
@@ -204,234 +206,235 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return PhoneFrame(
       child: Scaffold(
-        body: Column(
-          children: [
-            const DesignStatusBar(),
-            const SizedBox(height: 8),
-            DetailTopBar(
-              content: content,
-              categories: widget.categories,
-              bookmarked: widget.bookmarked,
-              onBack: widget.onBack,
-              onToggleBookmark: () => widget.onToggleBookmark(content),
-              onChangeCategory: (category) =>
-                  widget.onChangeCategory(content, category),
-              onDeleteContent: () => widget.onDeleteContent(content),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: CategoryBadge(category: content.category),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                    child: Text(
-                      content.title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                        height: 1.5,
-                        letterSpacing: -0.6,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              DetailTopBar(
+                content: content,
+                categories: widget.categories,
+                bookmarked: widget.bookmarked,
+                onBack: widget.onBack,
+                onToggleBookmark: () => widget.onToggleBookmark(content),
+                onChangeCategory: (category) =>
+                    widget.onChangeCategory(content, category),
+                onDeleteContent: () => widget.onDeleteContent(content),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: CategoryBadge(category: content.category),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
-                    child: SizedBox(
-                      height: 32,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                      child: Text(
+                        content.title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w600,
+                          height: 1.5,
+                          letterSpacing: -0.6,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
+                      child: SizedBox(
+                        height: 32,
+                        child: Row(
+                          children: [
+                            Text(
+                              '${content.savedAtFull} 저장',
+                              style: const TextStyle(
+                                color: AppColors.subtle,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                                letterSpacing: -0.35,
+                              ),
+                            ),
+                            const Spacer(),
+                            SvgIconButton(
+                              asset: Assets.link,
+                              onPressed: _showOriginalSheet,
+                              size: 32,
+                              hitSize: 32,
+                              color: AppColors.subtle,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        '요약',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          height: 19 / 16,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: SizedBox(
+                        height: 72,
+                        child: Text(
+                          content.summary,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.middle,
+                            fontSize: 15,
+                            height: 1.6,
+                            letterSpacing: -0.375,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: AppColors.faint,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    InkWell(
+                      onTap: _showOriginal,
+                      child: SizedBox(
+                        height: 24,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: [
+                              Text(
+                                content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                              const Spacer(),
+                              Transform.rotate(
+                                angle: _showFullText ? 3.14159 : 0,
+                                child: const SvgIcon(
+                                  asset: Assets.chevronDown,
+                                  size: 24,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_showFullText) ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: content.isScreenshot
+                            ? _ScreenshotAssetView(controller: _originalImage)
+                            : FullContentPreview(content: content),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: AppColors.faint,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
                         children: [
-                          Text(
-                            '${content.savedAtFull} 저장',
-                            style: const TextStyle(
-                              color: AppColors.subtle,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w400,
-                              letterSpacing: -0.35,
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8),
+                            child: Text(
+                              '태그',
+                              style: TextStyle(
+                                color: AppColors.middle,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: -0.4,
+                              ),
                             ),
                           ),
-                          const Spacer(),
-                          SvgIconButton(
-                            asset: Assets.link,
-                            onPressed: _showOriginalSheet,
-                            size: 32,
-                            hitSize: 32,
-                            color: AppColors.subtle,
+                          Expanded(
+                            child: Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: content.tags
+                                  .map((tag) => TagChip(label: '#$tag'))
+                                  .toList(),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24),
-                    child: Text(
-                      '요약',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        height: 19 / 16,
-                        letterSpacing: -0.4,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: SizedBox(
-                      height: 72,
-                      child: Text(
-                        content.summary,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.middle,
-                          fontSize: 15,
-                          height: 1.6,
-                          letterSpacing: -0.375,
+                    const SizedBox(height: 32),
+                    InkWell(
+                      key: _relatedKey,
+                      onTap: _scrollToRelated,
+                      child: SizedBox(
+                        height: 40,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: const [
+                              Text(
+                                '비슷한 태그를 가진 정보',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                              Spacer(),
+                              SvgIcon(asset: Assets.chevronRight, size: 24),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: AppColors.faint,
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  InkWell(
-                    onTap: _showOriginal,
-                    child: SizedBox(
-                      height: 24,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Row(
-                          children: [
-                            Text(
-                              content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                            const Spacer(),
-                            Transform.rotate(
-                              angle: _showFullText ? 3.14159 : 0,
-                              child: const SvgIcon(
-                                asset: Assets.chevronDown,
-                                size: 24,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_showFullText) ...[
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: content.isScreenshot
-                          ? _ScreenshotAssetView(controller: _originalImage)
-                          : FullContentPreview(content: content),
-                    ),
+                    const SizedBox(height: 8),
+                    if (relatedContents.isNotEmpty)
+                      for (final related in relatedContents)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: RelatedContentTile(
+                            category: related.category,
+                            title: related.title,
+                            onTap: () => widget.onOpenContent(related),
+                          ),
+                        )
+                    else
+                      const SizedBox.shrink(),
+                    const SizedBox(height: 18),
                   ],
-                  const SizedBox(height: 16),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: AppColors.faint,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(left: 8),
-                          child: Text(
-                            '태그',
-                            style: TextStyle(
-                              color: AppColors.middle,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: -0.4,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Wrap(
-                            alignment: WrapAlignment.end,
-                            spacing: 4,
-                            runSpacing: 4,
-                            children: content.tags
-                                .map((tag) => TagChip(label: '#$tag'))
-                                .toList(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  InkWell(
-                    key: _relatedKey,
-                    onTap: _scrollToRelated,
-                    child: SizedBox(
-                      height: 40,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: const [
-                            Text(
-                              '비슷한 태그를 가진 정보',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                            Spacer(),
-                            SvgIcon(asset: Assets.chevronRight, size: 24),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (relatedContents.isNotEmpty)
-                    for (final related in relatedContents)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                        child: RelatedContentTile(
-                          category: related.category,
-                          title: related.title,
-                          onTap: () => widget.onOpenContent(related),
-                        ),
-                      )
-                  else
-                    const SizedBox.shrink(),
-                  const SizedBox(height: 18),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         bottomNavigationBar: Column(
           mainAxisSize: MainAxisSize.min,
@@ -642,7 +645,7 @@ class DetailTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
+      height: appHeaderHeight,
       color: AppColors.bg,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
@@ -666,6 +669,7 @@ class DetailTopBar extends StatelessWidget {
             enabled: content.mutationLabel == null,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
+              useSafeArea: true,
               backgroundColor: Colors.transparent,
               builder: (context) => ContentActionSheet(
                 content: content,
