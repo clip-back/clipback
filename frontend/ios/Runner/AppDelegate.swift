@@ -5,6 +5,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let appleRevocations = AppleCredentialRevocations()
+  private var shareBridge: ShareBridge?
 
   override func application(
     _ application: UIApplication,
@@ -15,6 +16,9 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let shareRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "ClipbackShare") {
+      shareBridge = ShareBridge(registrar: shareRegistrar)
+    }
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ClipbackSocialAuth") else {
       return
     }

@@ -15,9 +15,11 @@ class AppViewModel extends ChangeNotifier {
     required SessionRepository session,
     required UserRepository users,
     required AccountInitializationAction initializeAccount,
+    Future<void> Function()? beforeSessionChange,
   }) : _session = session,
        _users = users,
-       _initializeAccount = initializeAccount {
+       _initializeAccount = initializeAccount,
+       _beforeSessionChange = beforeSessionChange {
     _users.addListener(_onUserChanged);
     _invalidations = session.invalidations.listen(_onSessionInvalidation);
     _appleRevocations = session.appleCredentialRevocations.listen(
@@ -31,6 +33,7 @@ class AppViewModel extends ChangeNotifier {
   final SessionRepository _session;
   final UserRepository _users;
   final AccountInitializationAction _initializeAccount;
+  final Future<void> Function()? _beforeSessionChange;
   late final StreamSubscription<SessionInvalidation> _invalidations;
   late final StreamSubscription<void> _appleRevocations;
   final List<UiEffect> _effects = [];
@@ -133,6 +136,7 @@ class AppViewModel extends ChangeNotifier {
     _notify();
     try {
       if (_session.pendingSessionClear) {
+        await _beforeSessionChange?.call();
         await _session.retryPendingClear();
         if (!_disposed) _showLoginChoice();
         return;
@@ -143,6 +147,8 @@ class AppViewModel extends ChangeNotifier {
         if (restored) _resetAccount();
       }
       if (!_session.hasSession) {
+        await _beforeSessionChange?.call();
+        if (_disposed) return;
         _showLoginChoice();
         return;
       }
@@ -218,6 +224,8 @@ class AppViewModel extends ChangeNotifier {
     _setAuthBusy(true);
     try {
       if (!_session.hasSession) {
+        await _beforeSessionChange?.call();
+        if (_disposed || epoch != _authEpoch) return;
         await _session.createGuestSession();
         if (_disposed || epoch != _authEpoch) return;
         _resetAccount();
@@ -277,6 +285,8 @@ class AppViewModel extends ChangeNotifier {
     _setAuthBusy(true);
     bool conflict = false;
     try {
+      await _beforeSessionChange?.call();
+      if (!current()) return;
       final result = await _session.authenticateSocial(
         provider,
         upgrade: upgrade,
@@ -372,6 +382,8 @@ class AppViewModel extends ChangeNotifier {
         .firstOrNull;
     _setAuthBusy(true);
     try {
+      await _beforeSessionChange?.call();
+      if (_disposed || epoch != _authEpoch) return;
       final loggedOut = await _session.logout(
         provider: provider,
         isCurrent: () => !_disposed && epoch == _authEpoch,
@@ -408,6 +420,12 @@ class AppViewModel extends ChangeNotifier {
       if (state == AppleCredentialStatus.revoked ||
           state == AppleCredentialStatus.notFound) {
         _setAuthBusy(true);
+        try {
+          await _beforeSessionChange?.call();
+        } catch (_) {
+          _showError('공유 인증 차단을 다시 확인해야 해요. 기기에서 철회한 로그인은 종료합니다.');
+        }
+        if (_disposed || epoch != _authEpoch) return;
         await _session.revokeAppleSession();
         if (!_disposed && epoch == _authEpoch) await _session.invalidate();
       }
@@ -415,6 +433,7 @@ class AppViewModel extends ChangeNotifier {
       // An unavailable provider check cannot invalidate a server session.
     } finally {
       _checkingAppleCredential = false;
+      if (!_disposed && epoch == _authEpoch) _setAuthBusy(false);
     }
   }
 

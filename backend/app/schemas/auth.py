@@ -60,3 +60,10 @@ class RefreshTokenRequest(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: str = Field(min_length=1)
+
+
+class ShareCredentialRead(BaseModel):
+    share_token: str
+    expires_at: datetime
+    user_id: int
+    session_id: int

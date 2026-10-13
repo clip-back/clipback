@@ -24,6 +24,24 @@ class ContentActions {
   bool _current(int generation) =>
       !_disposed && generation == content.accountVersion;
 
+  Future<bool> refreshExternal() async {
+    if (_disposed) return false;
+    final ticket = content.beginRefresh(preserveViewport: true);
+    final result = await content.refresh(ticket);
+    bool current() => !_disposed && content.isCurrentRefresh(ticket);
+    if (!current() ||
+        !result.current ||
+        result.metadataFailed ||
+        ticket.feedVersions.keys.any(
+          (key) => content.feed(key).error != null,
+        )) {
+      return false;
+    }
+    // A failed follow-up read leaves the native receipt available for retry.
+    await users.refresh(isCurrent: current);
+    return current();
+  }
+
   Future<void> refresh(ContentFeedback feedback) async {
     if (_disposed) return;
     final ticket = content.beginRefresh();

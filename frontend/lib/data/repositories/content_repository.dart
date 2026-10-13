@@ -29,7 +29,7 @@ abstract class ContentRepository extends ChangeNotifier {
   void resetFeed(FeedKey key);
   Future<void> loadNext(FeedKey key, {bool reset = false});
   void ensureFeed(FeedKey key);
-  RefreshTicket beginRefresh();
+  RefreshTicket beginRefresh({bool preserveViewport = false});
   Future<RefreshResult> refresh(RefreshTicket ticket);
   bool isCurrentRefresh(RefreshTicket ticket);
   ContentMutationHandle? beginBookmark(int contentId);
@@ -79,17 +79,21 @@ class _FeedState {
   bool hasMore = true;
   Object? error;
   int version = 0;
+  int viewportVersion = 0;
   Future<void>? pending;
 
-  void reset() {
+  void reset({bool preserveViewport = false}) {
     version++;
+    if (!preserveViewport) {
+      viewportVersion++;
+      nextCursor = null;
+      initialized = false;
+      hasMore = true;
+      favoritePhase = true;
+    }
     items.clear();
-    nextCursor = null;
-    initialized = false;
     loading = false;
-    hasMore = true;
     error = null;
-    favoritePhase = true;
     pending = null;
   }
 
@@ -104,7 +108,7 @@ class _FeedState {
     loading: loading,
     hasMore: hasMore,
     error: error,
-    version: version,
+    version: viewportVersion,
   );
 }
 
@@ -320,7 +324,7 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
-  RefreshTicket beginRefresh() {
+  RefreshTicket beginRefresh({bool preserveViewport = false}) {
     if (_disposed) {
       return RefreshTicket(
         accountVersion: _accountVersion,
@@ -342,7 +346,7 @@ class RemoteContentRepository extends ContentRepository {
       final page = entry.value;
       final previousItems = List<ApiContent>.of(page.items);
       // Older pages must be invalidated before category metadata is requested.
-      page.reset();
+      page.reset(preserveViewport: preserveViewport);
       page.items.addAll(previousItems);
       page.loading = true;
       versions[entry.key] = page.version;
@@ -352,6 +356,7 @@ class RemoteContentRepository extends ContentRepository {
       version: version,
       feedVersions: versions,
       categoryDetailsRequired: _categoryRefreshRequired,
+      preserveViewport: preserveViewport,
     );
     _notify();
     return ticket;
@@ -388,6 +393,9 @@ class RemoteContentRepository extends ContentRepository {
       ticket.feedVersions.entries
           .where((entry) => _feeds[entry.key]!.version == entry.value)
           .map((entry) {
+            if (ticket.preserveViewport) {
+              return _refreshVisiblePages(entry.key, entry.value, ticket);
+            }
             _feeds[entry.key]!.loading = false;
             return loadNext(entry.key);
           }),
@@ -402,6 +410,68 @@ class RemoteContentRepository extends ContentRepository {
       _categoryRefreshRequired = metadataFailed;
     }
     return result();
+  }
+
+  /// Read the already visible extent off-screen, then replace it atomically.
+  /// Keeping old items until all pages arrive avoids scroll clamping mid-refresh.
+  Future<void> _refreshVisiblePages(
+    FeedKey key,
+    int version,
+    RefreshTicket ticket,
+  ) async {
+    final page = _feeds[key]!;
+    final targetCount = page.items.length;
+    final read = _beginContentRead();
+    bool current() => isCurrentRefresh(ticket) && page.version == version;
+    final items = <ApiContent>[];
+    String? cursor;
+    var favoritePhase = true;
+    var hasMore = true;
+    try {
+      do {
+        final response = await _api.readFeed(
+          limit: 20,
+          query: page.query,
+          categoryId: page.categoryId,
+          isFavorite: page.bookmarkedFirst ? favoritePhase : page.isFavorite,
+          cursor: cursor,
+        );
+        if (!current()) return;
+        items.addAll(response.items);
+        cursor = response.nextCursor;
+        if (cursor == null) {
+          if (page.bookmarkedFirst && favoritePhase) {
+            favoritePhase = false;
+          } else {
+            hasMore = false;
+          }
+        }
+      } while (hasMore && (items.isEmpty || items.length < targetCount));
+      if (!current()) return;
+      final reconciled = <int, ApiContent>{};
+      for (final raw in items) {
+        final item = _reconcileContentRead(raw, read.version);
+        if (item != null) {
+          reconciled[item.id] = item;
+          _trackBookmark(item);
+        }
+      }
+      page.items
+        ..clear()
+        ..addAll(reconciled.values);
+      page.nextCursor = cursor;
+      page.favoritePhase = favoritePhase;
+      page.hasMore = hasMore;
+      page.initialized = true;
+    } catch (error) {
+      if (current()) page.error = error;
+    } finally {
+      _endContentRead(read.key);
+      if (current()) {
+        page.loading = false;
+        _notify();
+      }
+    }
   }
 
   @override

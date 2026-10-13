@@ -18,11 +18,17 @@ val dartDefines = providers.gradleProperty("dart-defines").orNull
     }
     ?.toMap().orEmpty()
 val kakaoNativeAppKey = dartDefines["CLIPBACK_KAKAO_NATIVE_APP_KEY"].orEmpty()
+val shareApiBaseUrl = dartDefines["CLIPBACK_API_BASE_URL"]
+    ?: "https://clipback-production.up.railway.app/api/v1"
 
 android {
     namespace = "com.clipback.frontend"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+    buildFeatures { buildConfig = true }
+    useLibrary("android.test.runner", false)
+    useLibrary("android.test.base", false)
+    useLibrary("android.test.mock", false)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -35,6 +41,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
+        buildConfigField("String", "SHARE_API_BASE_URL", "\"${shareApiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         manifestPlaceholders["kakaoLoginScheme"] = if (kakaoNativeAppKey.isNotBlank()) {
             "kakao$kakaoNativeAppKey"
         } else {

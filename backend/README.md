@@ -104,7 +104,8 @@ pair. Use `POST /api/v1/auth/logout` to revoke the refresh session and all acces
 tokens issued for that session.
 
 The root, health, OpenAPI, and authentication endpoints are public except for guest
-social upgrades and Apple challenges with `purpose=upgrade`. User, content, category,
+social upgrades, share-credential issuance, and Apple challenges with `purpose=upgrade`.
+User, content, category,
 feed, upload, and metric endpoints require Bearer authentication.
 
 Production must set `APP_ENVIRONMENT=production` and replace the example
@@ -207,6 +208,60 @@ Downgrade refuses to remove the schema when Apple identities exist; use a compat
 app/database backup for rollback. Automated tests replace providers; actual SDK
 configuration, Apple entitlements, Google signing IDs, Kakao app keys and real-device
 login/cancel/restart/revocation still require separate verification.
+
+## Native Mobile Share Authentication and Retries
+
+`POST /api/v1/auth/share-credential` requires an ordinary access Bearer token and
+returns `200` with `Cache-Control: no-store`:
+
+```json
+{
+  "share_token": "<share-only-jwt>",
+  "expires_at": "2026-10-12T12:00:00Z",
+  "user_id": 123,
+  "session_id": 456
+}
+```
+
+The JWT has `type=share`, `scope=share:write`, and the issuing user's parent session
+ID. Its expiry never exceeds the issuing access token or parent session expiry.
+There is no share refresh token. Only `POST /contents/share` and
+`POST /uploads/screenshots` accept this credential; both also retain ordinary access
+authentication. Reads, downloads, edits, deletes, refresh and credential issuance
+remain access-only. Revoking or expiring the parent session invalidates its share
+credentials. Ordinary refresh rotates the parent's token without changing its
+session ID. Apple validation policy and main-app session storage remain unchanged.
+
+Both save routes accept an optional `Idempotency-Key` UUID header. Persist the key
+and input before the first send and reuse both after an uncertain response. A new
+share action, even of the same URL, must have a new UUID. Requests without this
+header keep existing behavior.
+
+- Same user, key and input return `201` with the existing content. Different input
+  or request kind returns `409`; replay after content deletion returns `410`.
+- PostgreSQL transaction advisory locks serialize matching user/key requests before
+  metadata, OCR or file writes. Different users cannot replay one another's receipt.
+- The receipt, content, asset, creation event and YouTube summary job commit together
+  inside the existing content service. Summary completion is not required to return
+  a saved content response.
+- Fingerprints use stable input fields and actual image bytes, not multipart
+  boundaries, filenames, extracted metadata or AI output. A replay creates no new
+  image file, OCR call, event or summary job.
+- On a lost commit acknowledgement, screenshot cleanup checks the receipt using a
+  fresh connection after reacquiring the transaction lock. If the commit cannot be
+  verified, retain the file and report failure rather than delete a possibly
+  committed asset. Retry the original key to learn the result.
+
+Apply migration `202610120014` and the compatible API before releasing mobile share
+clients. The `share_receipts` table keeps content IDs after content deletion to
+prevent resurrection. Do not prune receipts while their keys can be retried.
+Downgrade removes this guarantee, so stop share clients before reverting the schema.
+No new production environment variable is required.
+
+Instagram `/share/...` URLs resolve through the existing bounded, DNS-pinned
+metadata client. Only a resolved supported Instagram post URL is saved. Login walls,
+JavaScript-only redirects, unsafe targets and unresolved short links are rejected;
+general website sharing and video attachments are not added.
 
 ## My Page Account and Statistics
 
@@ -707,8 +762,9 @@ checks. Existing Python 3.11/3.12 jobs continue running tests without a database
 
 Each integration test opens an outer transaction. Every sequential HTTP request
 uses a new session and savepoint, allowing actual application commits and rollbacks
-while rolling back the entire test at teardown. This is not a concurrency harness;
-existing separate-connection repository tests cover concurrency. Each test uses a
+while rolling back the entire test at teardown. Dedicated mobile-share and Apple
+concurrency tests instead use separate connections and real commits, and delete only
+the users/data they created afterward. Each test uses a
 fresh app and temporary storage directory; settings and client replacements are
 restored afterward.
 
@@ -717,6 +773,56 @@ shared link saving, category personalization/deletion, feed filters and paginati
 cumulative view statistics, screenshot download/deletion, cross-user isolation, and
 DB failure compensation that removes an already-written image. These tests do not
 validate live provider credentials, external service quality, deployment, or load.
+
+## Native Share Local Backend Harness
+
+`tests/support/share_live_server.py` runs the real API, authentication, receipts,
+PostgreSQL and image storage while replacing external metadata, AI, OCR and social
+verification with deterministic test responses. Unexpected external HTTP fails.
+This is separate from the frontend HTTP fixture server and does not prove live
+OAuth or provider extraction.
+
+Use a new disposable database; run the first command from the repository root,
+then the rest from `backend/`. If the database already exists, omit `createdb`.
+
+```bash
+docker compose exec -T postgres createdb -U postgres clipback_share_preview
+cd backend
+YOUTUBE_SUMMARY_ENABLED=false \
+  DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/clipback_share_preview \
+  .venv/bin/alembic upgrade head
+CLIPBACK_SHARE_TEST_SERVER=1 \
+  DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/clipback_share_preview \
+  .venv/bin/uvicorn tests.support.share_live_server:app \
+  --host 127.0.0.1 --port 18766 --no-access-log
+```
+
+The harness refuses any nonlocal database or a name other than
+`clipback_share_preview`, uses a test-only signing key, disables the summary worker,
+and stores images under `/private/tmp/clipback-share-preview-assets`. It must not be
+deployed. Use `http://127.0.0.1:18766/api/v1` on iOS Simulator and
+`http://10.0.2.2:18766/api/v1` on Android Emulator with test-only HTTP build settings.
+Obtain guest/access/share credentials through the normal API; do not print tokens.
+Stop the local server after validation. The database and temporary files are
+explicitly disposable; they are not application backups.
+
+### Verification on 2026-10-12
+
+- Full backend suite with a dedicated PostgreSQL 16 database: **986 passed, zero
+  skipped, 81.32 seconds**. The one warning is the existing Starlette TestClient
+  `httpx` deprecation warning. The run includes 26 new share cases covering token
+  scope, parent-session revocation, retries, concurrency, file cleanup and safe
+  Instagram redirect resolution; existing test scenarios and assertions remain.
+- `ruff check app alembic tests`, `python -m compileall -q app alembic tests` and
+  the backend diff whitespace check passed.
+- Migration `202610120014` passed on an empty database and when upgrading from
+  `202610110013`, using separate disposable databases. `alembic check` reported
+  no new upgrade operations. Migration commands used
+  `YOUTUBE_SUMMARY_ENABLED=false` because this local test setup uses no Gemini key.
+- The loopback harness passed an actual HTTP guest login, share-credential issue,
+  save and same-key replay against PostgreSQL; a share credential was rejected by
+  the user-read route. External metadata, OAuth, AI and OCR were test replacements.
+  These results do not verify production deployment or live provider responses.
 
 ## Railway deployment
 

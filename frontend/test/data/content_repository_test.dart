@@ -610,4 +610,73 @@ void main() {
     expect(changes, 1);
     expect(disposed.feed(FeedKey.home).items, isEmpty);
   });
+  test(
+    'external receipt refresh preserves viewport and atomically reloads visible pages',
+    () async {
+      api.onFeed = (request) async => request.cursor == null
+          ? ApiFeed(
+              items: List.generate(20, (i) => _item(id: i + 1)),
+              nextCursor: 'next',
+            )
+          : ApiFeed(items: List.generate(20, (i) => _item(id: i + 21)));
+      await repository.loadNext(FeedKey.search);
+      await repository.loadNext(FeedKey.search);
+      repository.configureFeed(
+        FeedKey.search,
+        query: 'kept query',
+        categoryId: 1,
+      );
+      final before = repository.feed(FeedKey.search);
+      final second = Completer<ApiFeed>();
+      api.onFeed = (request) async => request.cursor == null
+          ? ApiFeed(
+              items: List.generate(20, (i) => _item(id: i + 100)),
+              nextCursor: 'new-next',
+            )
+          : second.future;
+      final ticket = repository.beginRefresh(preserveViewport: true);
+      final refresh = repository.refresh(ticket);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        repository.feed(FeedKey.search).items.map((item) => item.id),
+        before.items.map((item) => item.id),
+      );
+      expect(repository.feed(FeedKey.search).version, before.version);
+      second.complete(
+        ApiFeed(items: List.generate(20, (i) => _item(id: i + 120))),
+      );
+      await refresh;
+      expect(repository.feed(FeedKey.search).items.length, 40);
+      expect(repository.feed(FeedKey.search).version, before.version);
+      expect(repository.feed(FeedKey.search).query, 'kept query');
+      expect(repository.feed(FeedKey.search).categoryId, 1);
+      repository.resetFeed(FeedKey.search);
+      expect(
+        repository.feed(FeedKey.search).version,
+        greaterThan(before.version),
+      );
+    },
+  );
+  test('failed external refresh retains previously loaded content', () async {
+    api.onFeed = (_) async =>
+        ApiFeed(items: [_item()], nextCursor: 'kept-cursor');
+    await repository.loadNext(FeedKey.home);
+    final before = repository.feed(FeedKey.home);
+    api.onFeed = (_) async => throw const ClipbackApiException('offline');
+    await repository.refresh(repository.beginRefresh(preserveViewport: true));
+    expect(
+      repository.feed(FeedKey.home).items.map((item) => item.id),
+      before.items.map((item) => item.id),
+    );
+    expect(repository.feed(FeedKey.home).version, before.version);
+    expect(repository.feed(FeedKey.home).error, isNotNull);
+    expect(repository.feed(FeedKey.home).initialized, isTrue);
+    expect(repository.feed(FeedKey.home).nextCursor, 'kept-cursor');
+    api.onFeed = (request) async {
+      expect(request.cursor, 'kept-cursor');
+      return ApiFeed(items: [_item(id: 2)]);
+    };
+    await repository.loadNext(FeedKey.home);
+    expect(repository.feed(FeedKey.home).items.map((item) => item.id), [1, 2]);
+  });
 }

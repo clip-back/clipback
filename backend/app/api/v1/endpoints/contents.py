@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Response, status
+from uuid import UUID
+
+from fastapi import APIRouter, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUserId, DatabaseSession
+from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
 from app.core.config import settings
 from app.integrations.ai_client import get_ai_client
 from app.integrations.storage_client import LocalStorageClient
@@ -57,12 +59,14 @@ async def create_content(
 async def create_content_from_share(
     payload: ContentShareCreate,
     db: DatabaseSession,
-    current_user_id: CurrentUserId,
+    current_user_id: ShareWriteUserId,
+    idempotency_key: UUID | None = Header(default=None),
 ) -> ContentRead:
     return await ShareIntakeService(
         content_service=_build_content_service(db),
         extraction_service=ExtractionService(),
     ).create_instagram_content(
+        **({"idempotency_key": idempotency_key} if idempotency_key else {}),
         user_id=current_user_id,
         payload=payload,
     )

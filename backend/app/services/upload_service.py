@@ -4,7 +4,7 @@ import warnings
 from dataclasses import dataclass
 from enum import StrEnum
 from io import BytesIO
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
@@ -22,8 +22,10 @@ from app.integrations.ocr_client import (
 from app.integrations.storage_client import StorageClient
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
+from app.repositories.share_receipt_repository import ShareReceiptRepository
 from app.schemas.content import ContentCreate, ContentRead, ContentSource, ContentType
 from app.services.content_service import ContentService, PendingContentAsset
+from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,7 @@ class UploadService:
         file: UploadFile,
         category_ids: list[int],
         tag_names: list[str] | None = None,
+        idempotency_key: UUID | None = None,
     ) -> ContentRead:
         content = await file.read(self.max_bytes + 1)
         if not content:
@@ -89,6 +92,20 @@ class UploadService:
                 detail="Screenshot file exceeds the configured size limit",
             )
 
+        pending = None
+        receipt_args = {}
+        if idempotency_key is not None:
+            pending, replay = await prepare_share_write(
+                self.content_service.content_repository.session, user_id=user_id,
+                key=idempotency_key, kind="screenshot",
+                fingerprint=share_fingerprint(
+                    {"category_ids": category_ids, "tag_names": tag_names or []}, content,
+                ),
+            )
+            if replay is not None:
+                return replay
+            receipt_args["share_receipt"] = pending
+
         mime_type, extension = self._validate_image(content)
         ocr_result, ocr_metadata = await self._extract_ocr(
             content=content,
@@ -99,6 +116,7 @@ class UploadService:
 
         try:
             return await self.content_service.create_content(
+                **receipt_args,
                 user_id=user_id,
                 payload=ContentCreate(
                     content_type=ContentType.SCREENSHOT,
@@ -121,6 +139,17 @@ class UploadService:
                 ),
             )
         except Exception:
+            if pending is not None and pending.commit_attempted:
+                try:
+                    committed = await ShareReceiptRepository(
+                        self.content_service.content_repository.session,
+                    ).committed_after_failure(pending)
+                except Exception:
+                    # Retain an uncertain file rather than delete a committed asset.
+                    logger.exception("Unable to verify screenshot commit; retaining file")
+                    raise
+                if committed:
+                    raise
             try:
                 await self.storage_client.delete_file(storage_key)
             except Exception:

@@ -240,4 +240,46 @@ void main() {
       expect(session.hasSession, isFalse);
     },
   );
+  for (final action in ['guest', 'social', 'logout']) {
+    test(
+      '$action waits for durable share block before authentication work',
+      () async {
+        model.dispose();
+        final barrier = Completer<void>();
+        model = AppViewModel(
+          session: session,
+          users: users,
+          initializeAccount: initialize,
+          beforeSessionChange: () => barrier.future,
+        );
+        var requests = 0;
+        respond = (_) async {
+          requests++;
+          return _json(_tokens, 201);
+        };
+        if (action == 'logout') {
+          api.restoreSession(ApiSession.fromJson(_tokens));
+          respond = (_) async {
+            requests++;
+            return http.Response('', 204);
+          };
+        }
+        final operation = switch (action) {
+          'guest' => model.continueAsGuest(),
+          'social' => model.authenticateSocial(SocialLoginProvider.google),
+          _ => model.logout(),
+        };
+        await Future<void>.delayed(Duration.zero);
+        expect(requests, 0);
+        expect(social.authenticationCount, 0);
+        expect(model.authBusy, isTrue);
+        barrier.completeError(StateError('native storage unavailable'));
+        await operation;
+        expect(requests, 0);
+        expect(social.authenticationCount, 0);
+        expect(model.authBusy, isFalse);
+        expect(model.drainEffects().whereType<MessageEffect>(), isNotEmpty);
+      },
+    );
+  }
 }

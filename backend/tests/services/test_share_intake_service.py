@@ -197,3 +197,63 @@ async def test_share_does_not_hide_non_url_validation_errors():
         await service.create_instagram_content(user_id=1, payload=payload)
 
     assert content_service.payload is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("destination,accepted", [
+    ("https://www.instagram.com/reel/SHARED/?igsh=test", True),
+    ("https://www.instagram.com/accounts/login/", False),
+    ("https://www.instagram.com/share/still-unresolved", False),
+    ("https://example.com/article", False),
+])
+async def test_instagram_share_url_requires_resolved_supported_post(destination, accepted):
+    class ResolvingMetadata:
+        def __init__(self):
+            self.urls = []
+
+        async def extract_from_url(self, url):
+            self.urls.append(url)
+            return MetadataResult(resolved_url=destination, title="제목", description="설명",
+                                  status="success")
+
+    metadata = ResolvingMetadata()
+    content = FakeContentService()
+    service = ShareIntakeService(content, ExtractionService(metadata))
+    payload = ContentShareCreate(url="https://www.instagram.com/share/abcd/?igsh=example")
+    if accepted:
+        result = await service.create_instagram_content(user_id=1, payload=payload)
+        assert result.original_url == "https://www.instagram.com/reel/SHARED/"
+    else:
+        with pytest.raises(HTTPException) as error:
+            await service.create_instagram_content(user_id=1, payload=payload)
+        assert error.value.status_code == 422
+        assert content.payload is None
+    assert metadata.urls[0] == payload.url
+
+
+@pytest.mark.asyncio
+async def test_instagram_share_redirect_uses_existing_pinned_transport_and_blocks_private_ip():
+    import httpx
+
+    from app.integrations.metadata_client import MetadataClient
+
+    requests = []
+
+    async def resolver(host, port):
+        return {"127.0.0.1"} if host == "private.test" else {"93.184.216.34"}
+
+    def handler(request):
+        requests.append(request)
+        assert request.url.host == "93.184.216.34"
+        assert request.headers["host"] == "www.instagram.com"
+        return httpx.Response(302, headers={"location": "http://private.test/p/post/"})
+
+    metadata = MetadataClient(http_transport=httpx.MockTransport(handler), resolver=resolver)
+    content = FakeContentService()
+    service = ShareIntakeService(content, ExtractionService(metadata))
+    with pytest.raises(HTTPException) as error:
+        await service.create_instagram_content(
+            user_id=1, payload=ContentShareCreate(url="https://www.instagram.com/share/short/"),
+        )
+    assert error.value.status_code == 422
+    assert len(requests) == 1 and content.payload is None

@@ -91,5 +91,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>ShareKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.huturu.app.share</string>
 </dict>
 </plist>

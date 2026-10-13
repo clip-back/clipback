@@ -4,6 +4,8 @@ from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.deps import CurrentUserId, DatabaseSession, bearer_scheme, get_current_user_id
+from app.core.exceptions import AuthenticationError
+from app.core.security import create_share_token, decode_access_token
 from app.integrations.social_auth_client import get_social_auth_client
 from app.models.social_identity import SocialProvider
 from app.repositories.apple_auth_repository import AppleAuthRepository
@@ -16,6 +18,7 @@ from app.schemas.auth import (
     AppleTokenRequest,
     LogoutRequest,
     RefreshTokenRequest,
+    ShareCredentialRead,
     SocialTokenRequest,
     SocialTokenResponse,
     TokenResponse,
@@ -149,4 +152,25 @@ def _build_apple_auth_service(db: DatabaseSession) -> AppleAuthService:
     return AppleAuthService(
         repository=AppleAuthRepository(db), client=get_social_auth_client(),
         user_repository=UserRepository(db), auth_session_repository=AuthSessionRepository(db),
+    )
+
+
+@router.post("/share-credential", response_model=ShareCredentialRead)
+async def create_share_credential(
+    db: DatabaseSession, current_user_id: CurrentUserId, response: Response,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> ShareCredentialRead:
+    claims = decode_access_token(credentials.credentials)
+    parent = await AuthSessionRepository(db).get_active(
+        session_id=claims.session_id, user_id=current_user_id,
+    )
+    if parent is None:
+        raise AuthenticationError()
+    expires_at = min(claims.expires_at, parent.expires_at)
+    response.headers["Cache-Control"] = "no-store"
+    return ShareCredentialRead(
+        share_token=create_share_token(
+            user_id=current_user_id, session_id=claims.session_id, expires_at=expires_at,
+        ),
+        expires_at=expires_at, user_id=current_user_id, session_id=claims.session_id,
     )

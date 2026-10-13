@@ -24,6 +24,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.recommendation_repository import RecommendationRepository
+from app.repositories.share_receipt_repository import PendingShareReceipt
 from app.repositories.tag_repository import TagRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
@@ -127,6 +128,7 @@ class ContentService:
         event_metadata_json: str | None = None,
         recommendation_shared_text: str | None = None,
         asset: PendingContentAsset | None = None,
+        share_receipt: PendingShareReceipt | None = None,
     ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
@@ -251,6 +253,10 @@ class ContentService:
             if created_content is None:
                 raise NotFoundError("Content not found")
             response = content_to_read(created_content)
+            if share_receipt is not None:
+                self.content_repository.session.add(share_receipt.for_content(content.id))
+                await self.content_repository.session.flush()
+                share_receipt.commit_attempted = True
             await self.content_repository.session.commit()
         except Exception:
             await self.content_repository.session.rollback()
