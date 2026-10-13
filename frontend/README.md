@@ -5,10 +5,15 @@ Flutter mobile frontend for the Clipback MVP.
 FE 병합 전 수정 순서와 PR별 검증 결과는
 [FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
 
+2026-10-13에 확인한 새 디자인과 현재 화면의 차이, 구현 순서와 정책 확인 항목은
+[Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
+현재는 분석·계획 단계이며 해당 계획의 앱 구현은 아직 시작하지 않았습니다.
+
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
 추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
 
-The current implementation mirrors the supplied Figma flows:
+The current implementation covers these flows. Differences from the latest supplied
+Figma file are tracked in the alignment plan linked above:
 
 - Onboarding
 - Login entry
