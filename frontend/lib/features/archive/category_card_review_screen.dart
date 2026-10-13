@@ -8,7 +8,6 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
-import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -130,7 +129,6 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
       return Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          bottom: false,
           child: EmptyStatePanel(
             title: '다시 볼 콘텐츠가 없어요',
             body: '카테고리에 콘텐츠를 저장한 뒤 랜덤 보기를 이용해 보세요.',
@@ -146,7 +144,6 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        bottom: false,
         child: ClipRect(
           child: Stack(
             clipBehavior: Clip.hardEdge,
@@ -260,12 +257,6 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
                     ),
                   ),
                 ),
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: NavigationHomeIndicator(),
-              ),
             ],
           ),
         ),

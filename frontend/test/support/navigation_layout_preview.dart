@@ -30,6 +30,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+const _phase = String.fromEnvironment(
+  'NAV_LAYOUT_PHASE',
+  defaultValue: 'before',
+);
 final _appKey = GlobalKey<_PreviewState>();
 final _navigatorKey = GlobalKey<NavigatorState>();
 final _captureKey = GlobalKey();
@@ -57,6 +61,7 @@ Future<void> main() async {
     _errors.add({
       'scene': _appKey.currentState?.scene ?? 'home',
       'error': details.exceptionAsString(),
+      'stack': details.stack?.toString() ?? '',
     });
     previous?.call(details);
   };
@@ -64,6 +69,7 @@ Future<void> main() async {
   Object? failure;
   var checksCompleted = false;
   try {
+    _require(_phase == 'before' || _phase == 'after', 'Unknown phase');
     await _settle();
     await Future<void>.delayed(const Duration(seconds: 15));
     await _runChecks();
@@ -76,11 +82,15 @@ Future<void> main() async {
     FlutterError.onError = previous;
     await File('${_output.path}/report.json').writeAsString(
       const JsonEncoder.withIndent('  ').convert({
+        'phase': _phase,
         'passed': failure == null,
         'checksCompleted': checksCompleted,
         'scope':
             'Real Home/Archive/Bookmark/My/Detail/Placeholder at scale 1; isolated shared nav 1.5/2 at 375/320px',
         'screenBodyScale': 1,
+        'safeAreaCriterion': 'after: 64 + fontExtra + viewPadding.bottom',
+        'outsideScope':
+            'My/Detail body at text scale 2; tested bodies remain scale 1',
         'platform': Platform.operatingSystem,
         'logicalSize': '${_view.physicalSize / _view.devicePixelRatio}',
         'pixelRatio': _view.devicePixelRatio,
@@ -367,10 +377,7 @@ void _measureNavigation() {
   final bar = _bar;
   final rect = _rect(bar);
   final scale = _appKey.currentState!.componentScale ?? 1;
-  _require(
-    scale != 1 || (rect.height - 96).abs() < .5,
-    'Normal navigation height must stay 96',
-  );
+  final media = MediaQuery.of(bar);
   final items = <Map<String, Object?>>[];
   double? iconTop;
   for (final title in _routes.keys) {
@@ -416,6 +423,14 @@ void _measureNavigation() {
       'iconHeight': icon.height,
     });
   }
+  final fontExtra = (items.first['hitHeight']! as double) - 56;
+  final contentHeight = 64 + fontExtra;
+  if (_phase == 'after') {
+    _require(
+      (rect.height - contentHeight - media.viewPadding.bottom).abs() < .5,
+      'Navigation must use actual OS bottom viewPadding',
+    );
+  }
   final add = _rect(_first<NavAddButton>(bar));
   _require(
     (add.width - 72).abs() < .5 && (add.height - 72).abs() < .5,
@@ -423,7 +438,13 @@ void _measureNavigation() {
   );
   _measurements.add({
     'scene': _appKey.currentState!.scene,
+    'textScale': scale,
     'navHeight': rect.height,
+    'contentHeight': contentHeight,
+    'fontExtra': fontExtra,
+    'paddingBottom': media.padding.bottom,
+    'viewPaddingBottom': media.viewPadding.bottom,
+    'viewInsetsBottom': media.viewInsets.bottom,
     'navTop': rect.top,
     'navBottom': rect.bottom,
     'addTop': add.top,

@@ -85,6 +85,9 @@ const _nextContent = ContentItem(
   originalText: '다음 원문',
 );
 
+double _normalNavigationHeight(TargetPlatform platform) =>
+    64.0 + (platform == TargetPlatform.iOS ? 34.0 : 0.0);
+
 Future<void> _render(
   WidgetTester tester, {
   required Widget screen,
@@ -308,7 +311,7 @@ void main() {
             final baseAdd = tester.getRect(find.byType(NavAddButton));
             expect(
               tester.getSize(find.byType(ClipbackNavigationBar)).height,
-              96,
+              _normalNavigationHeight(platform),
             );
             await _render(
               tester,
@@ -349,10 +352,13 @@ void main() {
             expect(addRect.top, bar.top - 22);
             expect(bar.bottom, 812);
             if (scale == 1) {
-              expect(bar.height, 96);
+              expect(bar.height, _normalNavigationHeight(platform));
               expect(slots.first.height, 56);
             } else {
-              expect(bar.height, greaterThan(96));
+              expect(
+                bar.height,
+                greaterThan(_normalNavigationHeight(platform)),
+              );
             }
 
             for (var index = 0; index < _labels.length; index++) {
@@ -481,9 +487,12 @@ void main() {
       expect(tester.takeException(), isNull);
       final barRect = tester.getRect(find.byType(ClipbackNavigationBar));
       if (scale == 1) {
-        expect(barRect.height, 96);
+        expect(barRect.height, _normalNavigationHeight(TargetPlatform.android));
       } else {
-        expect(barRect.height, greaterThan(96));
+        expect(
+          barRect.height,
+          greaterThan(_normalNavigationHeight(TargetPlatform.android)),
+        );
       }
       _contained(barRect, const Rect.fromLTWH(0, 0, 375, 812));
       if (name == 'detail') {
@@ -535,7 +544,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     final bar = tester.getRect(find.byType(ClipbackNavigationBar));
-    expect(bar.height, greaterThan(96));
+    expect(
+      bar.height,
+      greaterThan(_normalNavigationHeight(TargetPlatform.android)),
+    );
     _contained(bar, const Rect.fromLTWH(0, 0, 375, 812));
     await tester.tap(_navigationText('아카이브'));
     await tester.pumpAndSettle();

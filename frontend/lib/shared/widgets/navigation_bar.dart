@@ -66,9 +66,11 @@ class ClipbackNavigationBar extends StatelessWidget {
       TextScaler.noScaling,
     );
     final extraHeight = math.max(0.0, labelHeight - baseLabelHeight);
+    final contentHeight = 64 + extraHeight;
+    final bottomSafeInset = MediaQuery.viewPaddingOf(context).bottom;
 
     return Container(
-      height: 96 + extraHeight,
+      height: contentHeight + bottomSafeInset,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [BoxShadow(color: Color(0x1F000000), blurRadius: 16)],
@@ -80,7 +82,7 @@ class ClipbackNavigationBar extends StatelessWidget {
             top: 0,
             left: 0,
             right: 0,
-            height: 64 + extraHeight,
+            height: contentHeight,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final horizontalPadding = constraints.maxWidth >= 343
@@ -127,12 +129,6 @@ class ClipbackNavigationBar extends StatelessWidget {
               },
             ),
           ),
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: NavigationHomeIndicator(),
-          ),
           Positioned(
             top: -22,
             left: 0,
@@ -165,32 +161,6 @@ class NavAddButton extends StatelessWidget {
         ),
         child: Center(
           child: SvgIcon(asset: Assets.plus, size: 38.5, color: AppColors.text),
-        ),
-      ),
-    );
-  }
-}
-
-class NavigationHomeIndicator extends StatelessWidget {
-  const NavigationHomeIndicator({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 34,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Container(
-            width: 144,
-            height: 5,
-            decoration: BoxDecoration(
-              color: AppColors.text,
-              borderRadius: BorderRadius.circular(100),
-            ),
-          ),
         ),
       ),
     );

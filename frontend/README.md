@@ -9,7 +9,8 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
 공통 텍스트 스타일·섹션 제목·기본 버튼의 첫 구현을 완료했습니다.
 홈 상단·소개·카드·카테고리 칩·페이지 점과 확인된 빈 홈은 `cc73b21`에서 적용했습니다.
-후속 작업은 사용자가 승인한 하단 탭 최대 두 줄·높이 확장과 최근 카테고리 이름/시각의 한 줄 말줄임입니다.
+하단 탭 최대 두 줄·높이 확장과 최근 카테고리 이름/시각의 한 줄 말줄임은 `d01873c`에서 적용했습니다.
+2026-10-14에는 사용자가 승인한 실제 OS 하단 안전 영역 합산과 공통 가짜 인디케이터 제거를 적용하고 검증했습니다.
 안내·공지 신규 카드, 상태별 미정 디자인과 추천 API 연결은 후속 범위입니다.
 
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
@@ -414,18 +415,22 @@ flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
 자동 입력은 Flutter 합성 포인터입니다. 저장 시트 진입·키보드·닫기까지 확인하며 실제 저장 완료 검증은 아닙니다.
 기기 임시 폴더 `clipback-home-*`에 PNG와 `report.json`을 저장하고 `FIGMA_HOME PASS/FAIL`을 출력합니다.
 현재 프리뷰는 정상/빈 홈·각 배율 2·긴 카테고리의 빈 홈 배율 1/2, 총 여섯 상태를 수정 전후 각각 촬영합니다.
-수정 후에는 스크롤·마지막 카드·저장 입력의 키보드·확대 카드 관련 동작 다섯 장을 추가로 촬영합니다.
+현재 프리뷰는 양 phase 모두 스크롤·마지막 카드·저장 입력의 키보드·확대 카드 관련 동작 다섯 장을 추가로 촬영해 총 11장을 남깁니다.
 `baselineCaptured`는 여섯 비교 상태 촬영 완료 여부이며, 오류가 있어도 촬영 성공을 전체 검증 성공으로 바꾸지 않습니다.
 `frameworkErrors`, `checksCompleted`, `passed`, 콜백·스크롤 측정값을 함께 확인합니다.
 `normalHomeChecksPassed`·`interactionChecksCompleted`·`scaledScenesCaptured`는 일반 홈/동작/확대 촬영의 별도 결과입니다.
-수정 전 확대 상태의 기존 하단 탭·긴 카테고리 오류는 전체 `passed: false`로 기록하고 촬영 성공과 구분합니다.
+프레임워크 오류가 있으면 전체 `passed: false`로 기록하고 촬영 성공과 구분합니다.
+이번 OS 작업의 `before` 통과는 기존 화면·동작의 기록이며, 새 OS 안전 영역 기준은 `after`에서만 판정합니다.
 영상은 별도 `simctl recordVideo`/`adb screenrecord`로 촬영합니다. 화면 증거·로그·빌드 결과는 Git에서 제외합니다.
 이전 홈 커밋 `cc73b21`은 전체 Flutter 테스트 **595 passed**, 정적 분석 문제 없음과 양 플랫폼 일반 배율의
 홈·저장 진입·스크롤·페이지 점을 확인했습니다. 당시 배율 2의 하단 탭과 좁은 최근 카테고리 행 오류는 보류했고,
 후속 승인에 따른 변경과 이번 재검증 결과는 아래에 구분합니다.
 변경 전·후·Figma 3열 비교와 영상은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
 
-## 확대 하단 탭과 최근 카테고리 행
+## 확대 하단 탭과 최근 카테고리 행 (`d01873c`)
+
+아래 96/124/140px 측정과 625개 테스트는 이 커밋 당시의 검증입니다.
+현재 OS 하단 안전 영역의 승인 기준과 이번 실행 명령·결과는 다음 절을 따릅니다.
 
 공유 `ClipbackNavigationBar`의 라벨은 56px 폭에서 실제 글자 배율을 유지하고 최대 두 줄·말줄임으로 표시합니다.
 네 라벨 중 가장 높은 값을 공통 영역으로 사용해 아이콘 상단을 맞추며, 증가분을 항목 56px·행 64px·전체 바 96px에
@@ -478,21 +483,106 @@ Placeholder 복귀, 세 확대 조건에서 추가 버튼 중심/하단 입력 �
 
 마이·상세 본문의 배율 2에는 변경 전부터 있는 별도 넘침이 있어 새 배치를 임의로 구현하지 않았습니다.
 이 두 본문의 통합 검사는 일반 배율이며, 공통 탭 단독 확대 성공을 전체 본문 성공으로 확대하지 않습니다.
-본문 확대 디자인과 앱/OS 홈 인디케이터 기준은 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 남깁니다.
+본문 확대 디자인과 진입/저장 화면의 별도 홈 인디케이터는 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 남깁니다.
 실제 OAuth·운영 서버·실기기·원격 CI는 이번 로컬 화면 검증에 포함하지 않습니다.
+
+## OS 하단 안전 영역과 공통 인디케이터
+
+사용자가 승인한 공통 바의 총높이는 **64px + 글자 확대 증가분 + `viewPadding.bottom`**입니다.
+기기 하단 안전 영역은 한 번만 더하며 키보드의 `viewInsets.bottom`은 더하지 않습니다.
+별도 `SafeArea`로 다시 합산하지 않고, 기존 두 줄 라벨·아이콘 정렬·활성 색상과 네 탭의 콜백을 유지합니다.
+추가 버튼은 72×72px·중앙·바 위로 22px 위치와 중심/바 안쪽 하단 입력을 유지합니다.
+Figma의 고정 96px과 달리 기기 inset에 따라 바 상단과 본문 사용 높이가 달라집니다.
+
+공통 탭을 사용하는 홈·아카이브·즐겨찾기·마이·상세·Placeholder와 카드 다시보기가 이번 범위입니다.
+카드 다시보기의 빈/일반 목록 양쪽은 하단 `SafeArea`를 적용하며, 일반 목록은 `ClipRect`를
+실제 하단 안전 영역 앞에서 끝냅니다. 기존 카드 크기·상단 좌표·드래그/전환을 유지하고 OS 영역에 그리지 않습니다.
+공통 `NavigationHomeIndicator`와 두 사용부를 제거하고 실제 인디케이터 표시를 OS에 맡깁니다.
+OS 플래그·화면 생성자·API·데이터 모델·콘텐츠 보존/삭제 처리와 상세 페이지 이동/시트 입력 계약은 변경하지 않습니다.
+
+진입 스플래시의 `EntryHomeIndicator`와 저장 화면의 `_SaveHomeIndicator`는 별도 디자인을 확정한 뒤 진행합니다.
+두 화면의 기존 인디케이터·본문/버튼 배치는 이번 범위에 포함하지 않습니다.
+마이·상세 본문의 글자 배율 2 넘침도 기존 디자인 확인 대상으로 남기며,
+공통 탭 단독 확대 검사를 전체 본문 성공으로 보고하지 않습니다.
+기준 Figma는 공통 탭 `111:3680`, C01 `111:3584`, C02 `111:3681`, G02 `111:5047`이고
+2026-10-14 01:58:26 KST(2026-10-13 16:58:26 UTC)에 최초 조회하고,
+제품 수정 직전 2026-10-14 02:28:08 KST(2026-10-13 17:28:08 UTC)에 원본을 다시 조회했습니다.
+
+```bash
+# frontend/ — 관련 회귀와 전체 검사입니다.
+flutter test --no-pub test/bottom_safe_area_test.dart test/scaled_navigation_layout_test.dart test/home_alignment_test.dart test/top_safe_area_test.dart test/save_search_safe_area_test.dart test/sheet_safe_area_test.dart
+flutter analyze --no-pub
+flutter test --no-pub
+
+# 코드 수정 전에 같은 기기·데이터·배율·스크롤·OS 내비게이션 모드로 세 프리뷰를 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
+  --dart-define=FIGMA_HOME_CHECK=true --dart-define=FIGMA_HOME_PHASE=before
+flutter run --no-pub -d <device-id> -t test/support/navigation_layout_preview.dart \
+  --dart-define=NAV_LAYOUT_PHASE=before
+flutter run --no-pub -d <device-id> -t test/support/card_review_safe_area_preview.dart \
+  --dart-define=CARD_REVIEW_PHASE=before
+
+# 수정 후에는 세 PHASE 값을 각각 after로 바꿔 동일 조건에서 다시 실행합니다.
+# 실제 OS 인디케이터 확인용 원본 화면도 별도로 확보합니다.
+# SIMULATOR_ID/EMULATOR_ID는 연결된 기기의 로컬 ID로 지정합니다.
+xcrun simctl io "$SIMULATOR_ID" screenshot /private/tmp/clipback-ios-bottom-safe-area.png
+adb -s "$EMULATOR_ID" exec-out screencap -p > /private/tmp/clipback-android-bottom-safe-area.png
+```
+
+`test/bottom_safe_area_test.dart`는 폭 320·375px, 배율 1·1.5·2와 하단 inset 0·24·34·48px에서
+공통 바 높이·탭/FAB 입력·키보드 전후 inset 유지·가짜 인디케이터 없음과 카드의 하단 보호를 검사합니다.
+카드의 빈/일반 상태와 드래그·전환 중 하단 렌더링 픽셀도 확인합니다.
+이번 수정 후 관련 검사 **148개**와 전체 Flutter 테스트 **692개**를 통과했고 정적 분석은 **문제 없음**입니다.
+관련 검사는 하단 67·확대 30·홈 35·상단 11·저장/검색 2·시트 3개이며 Dart 파일 7개의 형식 검사도 변경 없이 통과했습니다.
+최종 iOS·Android 제스처·Android 3버튼의 세 프리뷰, 총 9개 `after` 보고서가 모두
+`passed`·`checksCompleted: true`, 프레임워크 오류 0건·`failure: null`로 통과했습니다.
+이전 625개 테스트나 기기 통과를 이번 결과로 사용하지 않습니다.
+수정 전 iOS·Android 제스처·Android 3버튼의 프리뷰 세 종류, 총 9개 보고서는 모두
+`phase: before`, `passed`·`checksCompleted: true`와 프레임워크 오류 0건을 확인했습니다.
+새 안전 영역 기준은 `after`에서만 검사하므로 변경 전 통과가 중복 인디케이터나 안전 영역 문제의 부재를 뜻하지 않습니다.
+
+이번 홈 프리뷰는 `before`·`after` 양쪽에서 여섯 비교 상태와 다섯 동작 화면, 총 11장을 촬영하고
+스크롤·저장 시트/키보드·닫기를 확인합니다.
+내비게이션 프리뷰는 실제 여섯 본문 일반 배율과 공통 탭 단독 확대를 구분하고 실제 탭·상세 이전/다음·복귀를 확인합니다.
+카드 프리뷰는 실제 다시보기의 일반·드래그 중·다음 카드·빈 목록 PNG 네 장과
+북마크·카드 열기·드래그 진입·전환·양쪽 나가기, 하단 viewport/inset을 기록합니다.
+각각 `clipback-home-*`, `clipback-navigation-*`, `clipback-card-review-*`에 PNG·`report.json`을 생성하고
+`FIGMA_HOME`, `NAV_LAYOUT`, `CARD_REVIEW`의 `PASS/FAIL`을 출력합니다. 실제 세션·HTTP·저장은 사용하지 않습니다.
+Flutter 캡처는 실제 OS 인디케이터를 포함하지 않으므로 `simctl`·`adb` 원본 캡처와 플랫폼별 영상을 함께 보존합니다.
+
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/bottom-safe-area`입니다.
+`ios`, `android-gesture`, `android-three-button`의 `before`/`after` 아래 `home`, `navigation`, `card-review`로 구분합니다.
+각 모드의 phase마다 홈 11장·내비게이션 9장·카드 4장, 총 24개 화면을 기록합니다.
+수정 전에는 원본 OS 캡처와 Flutter 캡처 각 72개·영상 9개를 보존했습니다.
+수정 후에도 같은 수의 원본 OS/Flutter 캡처와 영상을 보존했습니다.
+이번 측정에서 iOS의 하단 inset 34px·바 높이 98/126/142px(배율 1/1.5/2),
+Android 두 모드의 `viewPadding.bottom` 0px·바 높이 64/92/108px을 확인했습니다.
+카드 viewport 하단은 iOS 818px, Android 제스처 783.2727px·3버튼 759.2727px로 안전한 영역 끝과 일치했습니다.
+Android 3버튼 모드에서는 OS 영역이 Flutter 화면 바깥을 차지하므로 바에 그 높이를 다시 더하지 않습니다.
+카드의 고정 496px·드래그/다음 카드·북마크·열기·양쪽 나가기, 상세 이전/다음·Placeholder 복귀·추가 버튼 입력을 확인했습니다.
+여섯 실제 본문의 일반 배율과 공통 탭 단독 확대 검사의 한계는 유지합니다.
+
+[원본 3열 비교 문서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/bottom-safe-area/comparison-document.html)는
+3조건 × 홈 6개·내비게이션 9개·카드 4개, 총 57개 비교를 제공합니다. 원본 PNG와 OS 픽셀을 보정하지 않습니다.
+동작 영상: [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/bottom-safe-area/ios/interaction-final.mp4),
+[Android 제스처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/bottom-safe-area/android-gesture/interaction-final.mp4),
+[Android 3버튼](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/bottom-safe-area/android-three-button/interaction-final.mp4).
+플랫폼·내비게이션 모드별 원본 변경 전·후·Figma를 나란히 비교하고 OS 안전 영역과 디자인 프레임의 차이를 설명합니다.
+기종·OS·글자 배율·화면 상태·측정값·영상·누락된 비교 항목은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
+실제 OAuth·운영 서버·실기기·원격 CI는 이 로컬 대역 화면 검증으로 증명하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 
 일반 화면의 헤더 높이는 `shared/theme/layout.dart`의 `appHeaderHeight`(64 논리 픽셀)를
 사용합니다. 시스템 상태바·노치 높이는 이 64px에 포함하지 않습니다. 각 `Scaffold.body`에서
 상단 `SafeArea`를 한 번 적용하며, `PhoneFrame`이나 헤더 안에서 중복 적용하지 않습니다.
-기존 하단 내비게이션·저장 버튼 위치는 유지하고 검색 화면의 기존 하단 SafeArea도 유지합니다.
+공통 하단 내비게이션 높이는 위 OS 안전 영역 기준을 따르며 저장 버튼 배치와 검색 화면의 기존 하단 SafeArea는 유지합니다.
 
 전체 화면 저장 창은 별도 Navigator 경로이므로 자체 SafeArea를 가집니다. 하단 시트는 호출부의
 `useSafeArea: true`로 최대 높이를 보호하며, 시트 내용에 일반 화면의 64px 헤더를 강제하지 않습니다.
 로그인·온보딩·관심사 선택은 기존 배치를 유지합니다. 홈 헤더만 상단 여백 8px + 내부 높이 56px으로 구성하고 본문과 함께 스크롤합니다. 다른 화면의 `appHeaderHeight` 64px은 유지합니다.
 
-랜덤 보기는 기존 단일 Stack을 유지하되 안전 영역 내부의 ClipRect로 드래그 중 노치 침범을 막습니다.
+랜덤 보기는 기존 단일 Stack·카드 기하를 유지하고 상·하단 안전 영역 내부의 ClipRect로 드래그 중 시스템 영역 침범을 막습니다.
 
 `top_safe_area_test.dart`는 상단 inset 0/20/44/59/62와 375×812·430×932에서 헤더 위치·높이·탭을
 검사하고, 스크롤·드래그 중 상태바 영역의 렌더링 픽셀을 비교합니다.

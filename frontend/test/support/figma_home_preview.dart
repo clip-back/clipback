@@ -71,6 +71,7 @@ Future<void> main() async {
       _errors.add({
         'scene': _appKey.currentState?.scene ?? 'home',
         'error': details.exceptionAsString(),
+        'stack': details.stack?.toString() ?? '',
       });
       previous?.call(details);
     };
@@ -101,7 +102,7 @@ Future<void> main() async {
       await _capture(scene.$1);
     }
     baselineCaptured = true;
-    if (_phase == 'after') await _checkInteractions();
+    await _checkInteractions();
     checksCompleted = true;
     _require(_errors.isEmpty, 'Flutter framework errors occurred');
   } catch (error, stack) {
@@ -127,6 +128,11 @@ Future<void> main() async {
         'pixelRatio': _view.devicePixelRatio,
         'topInset': _view.padding.top / _view.devicePixelRatio,
         'bottomInset': _view.padding.bottom / _view.devicePixelRatio,
+        'viewPaddingBottom': _view.viewPadding.bottom / _view.devicePixelRatio,
+        'viewInsetsBottom': _view.viewInsets.bottom / _view.devicePixelRatio,
+        'safeAreaCriterion': 'after: 64 + fontExtra + viewPadding.bottom',
+        'outsideScope':
+            'My/Detail bodies at enlarged text scales; unchanged body layout',
         'contentIds': _contents.map((item) => item.id).toList(),
         'categories': initialCategories.map((item) => item.name).toList(),
         'longCategoryName': _longCategory.name,
@@ -302,7 +308,7 @@ Future<void> _settle([int frames = 6]) async {
 
 Future<void> _capture(String name) async {
   await _settle();
-  if (_phase == 'after' && name != '07_empty_save_keyboard') {
+  if (name != '07_empty_save_keyboard') {
     final bar = _first<ClipbackNavigationBar>();
     final nav = _rect(bar);
     final add = _rect(_first<NavAddButton>(bar));
@@ -314,10 +320,37 @@ Future<void> _capture(String name) async {
       (add.top - (nav.top - 22)).abs() < .5,
       'Add button must keep its -22px offset',
     );
+    final media = MediaQuery.of(bar);
+    final label = _all(
+      bar,
+    ).firstWhere((e) => e.widget is Text && (e.widget as Text).data == '홈');
+    Element? hit;
+    label.visitAncestorElements((e) {
+      if (e.widget is InkWell) {
+        hit = e;
+        return false;
+      }
+      return true;
+    });
+    final fontExtra = _rect(hit!).height - 56;
+    final contentHeight = 64 + fontExtra;
+    if (_phase == 'after') {
+      _require(
+        (nav.height - contentHeight - media.viewPadding.bottom).abs() < .5,
+        'Navigation must use actual OS bottom viewPadding',
+      );
+    }
     _measurements.add({
       'scenario': 'navigationGeometry',
       'capture': name,
       'navHeight': nav.height,
+      'contentHeight': contentHeight,
+      'fontExtra': fontExtra,
+      'paddingBottom': media.padding.bottom,
+      'viewPaddingBottom': media.viewPadding.bottom,
+      'viewInsetsBottom': media.viewInsets.bottom,
+      'navTop': nav.top,
+      'navBottom': nav.bottom,
       'addWidth': add.width,
       'addHeight': add.height,
       'addOffset': add.top - nav.top,
