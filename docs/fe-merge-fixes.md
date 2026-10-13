@@ -1244,3 +1244,54 @@ flutter build web --no-pub
 - 이번 변경은 계획 문서와 README·진행 기록에 한정한다. 로컬 문서 링크 55개와 앞서 조회한
   Figma 구조의 노드 참조 53개, 기준·명령·최종 diff와 공백 오류를 확인했다.
   앱 코드 변경이 없어 전체 앱 테스트·Simulator/Emulator 실행은 생략했다.
+
+### 2026-10-13 — Figma 공통 텍스트 스타일 첫 구현
+
+- 브랜치: `feature/figma-ui-alignment`, 기준: 계획 문서 커밋 `f6e2793`.
+  사용자는 기존 화면 맞춤과 카테고리 삭제 시 콘텐츠 보존을 선택했다.
+  이 결정은 게스트 정책 변경이나 신규 M 보완안 전체의 승인을 뜻하지 않는다.
+- 첫 구현 커밋은 공통 스타일에 한정한다. `AppText.sectionTitle`은 Pretendard 18px/w600,
+  자간 −0.45px과 기존 텍스트 색상을 사용한다. 본문 스타일을 상속하지 않고 `height`를 지정하지 않아
+  폰트 기본 행간을 사용한다. `primaryButtonLabel`은 기존 16px/w700을 옮기며 색상을 지정하지 않는다.
+- `SectionHeader`는 제목의 남은 폭을 `Expanded`로 제한하고 한 줄 말줄임을 적용한다.
+  최소 높이 44px·세로 여백 각 8px·오른쪽 24px 아이콘을 사용하며 글자 확대 시 높이가 늘어난다.
+  `PrimaryButton`의 높이 52/56px, 기본·사용자 지정 foreground·배경·8px 모서리·클릭을 보존한다.
+  기존 생성자와 콜백 인터페이스, API·데이터 모델·저장·삭제 처리를 변경하지 않는다.
+- 홈의 공통 섹션 제목 3곳에 적용했다. 홈 배치·문구·일러스트·페이지 점·추천 연결은 미착수이며,
+  이번 결과를 홈 전체의 Figma 일치로 보고하지 않는다. 승인된 콘텐츠 보존 정책은 계획의 DEC-01에 반영했다.
+- 구현 직전에 Figma `111:3604`의 최근 콘텐츠 제목·chevron 디자인 컨텍스트와 스크린샷을 새로 조회했다.
+  기존 로컬 chevron 에셋은 329바이트, 24×24 viewBox이며 실제 24px 렌더링을 확인해 재사용했다.
+- 이번 SDK는 Flutter **3.44.9 / Dart 3.12.2**다. 기존 잠금파일을 사용하고 의존성을 변경하지 않았다.
+- 수정 전 `flutter test --no-pub test/common_text_style_test.dart`는 긴 제목 **4 failed**, 버튼 **4 passed**였다.
+  폭 320/375px·글자 배율 1/2에서 오른쪽 넘침 78/413/23/358px을 재현했다.
+  수정 후 같은 명령으로 **8 passed**를 확인했다. 실제 Pretendard 폰트와 Material 3 테마를 사용한다.
+- `flutter test --no-pub --reporter expanded` **560 passed**, `flutter analyze --no-pub` **문제 없음**을 확인했다.
+  변경 Dart 파일의 형식 검사도 **0 changed**였다. 기존 안전 영역 검사는 전체 테스트에 포함된다.
+- [기기 프리뷰](../frontend/test/support/figma_common_style_preview.dart)는 실제 홈과 공통 위젯에 메모리 데이터를
+  전달한다. 실제 세션·HTTP·네이티브 공유 서비스를 사용하지 않으며 제품 `main.dart`에 테스트 분기를 추가하지 않는다.
+  기본 모드는 상단 도구막대로 화면을 전환하고, 자동 모드는 합성 포인터로 홈 스크롤·제목/아이콘/버튼 탭을 확인한다.
+  기기 임시 폴더에 PNG 5개와 측정·콜백·프레임워크 오류를 담은 `report.json`을 기록한다.
+- iOS **iPhone 16 / iOS 18.6 Simulator**: 최종 Xcode 빌드 30.6초 후 실행했다.
+  논리 크기는 393×852, 안전 영역은 위 59px·아래 34px이다. 결과는 `passed: true`,
+  `checksCompleted: true`, `componentChecksPassed: true`, 프레임워크 오류 **0건**이었다.
+- Android **Clipback_Share_API_33 / Android 13(API 33) Emulator**: AVD는 Pixel 3a 설정이고
+  실제 시스템 모델은 `sdk_gphone64_arm64`다. Gradle 빌드 195.4초·설치 79.5초 후 실행했다.
+  논리 크기는 392.7×783.3, 안전 영역은 위 24px·아래 0px이다. 측정·탭은 끝까지 실행했고
+  `checksCompleted: true`, `componentChecksPassed: true`, 공통 컴포넌트 프레임워크 오류 **0건**이었다.
+  **전체 결과는 `passed: false`**다. 기존 홈 Weekly 카드의 `Column`에서 아래쪽 넘침 13px·3px이 발생했다.
+- Android 홈 넘침은 이번 공통 스타일 오류와 구분한다. 2026-10-12 모바일 공유 기록에도 13px 넘침이 있으며,
+  이번 변경에는 `home_screen.dart`가 포함되지 않는다. 일반 섹션 제목 높이도 기존 44px을 유지했다.
+  이 홈 레이아웃 문제는 UI-04~05 후속 작업으로 남기고 Android 홈 전체를 통과했다고 보고하지 않는다.
+- 양 플랫폼에서 일반 제목 높이 **44px**, 글자 배율 2에서 **59px**, 아이콘 **24px**을 확인했다.
+  버튼 높이 **56/52px**, 기본 foreground `AppColors.main`·사용자 지정 `AppColors.text`와 탭 1회 호출도 확인했다.
+  제목·좌측 여백·아이콘을 각각 누른 콜백은 배율별 3회로 총 6회였고 각 버튼은 배율별 1회로 총 2회였다.
+  120px 합성 포인터 이동으로 홈 스크롤은 iOS 78px·Android 110px 변했으며 카테고리 제목 탭 콜백은 각각 1회였다.
+- 보고서에는 전체 `passed`와 별도로 `checksCompleted`, `componentChecksPassed`, `componentFrameworkErrors`,
+  화면별 `frameworkErrorDetails`를 기록했다. 오류를 지우거나 공통 컴포넌트 통과를 전체 홈 통과로 확대하지 않는다.
+- 증거는 Git에서 제외된 `frontend/build/verification/figma-ui-01/{ios,android}/`에 보관한다.
+  각 플랫폼 PNG 5개(`00_home`, `01_home_scrolled`, `02_empty_home`, `03_components`, `04_components_scale_2`)와
+  `report.json`과 플랫폼별 `interaction.mp4`를 확보하고 화면·영상의 실제 검증 장면을 확인했다.
+  영상에는 홈 스크롤·제목 탭·버튼 탭·글자 확대 전환이 포함되며, Android의 기존 홈 넘침도 그대로 남겼다.
+- 실제 OAuth·AI/OCR·운영 서버·실기기·원격 CI는 이번 공통 스타일 검증 범위에 포함하지 않는다.
+  검증에 사용한 Flutter 실행·촬영·Simulator·Emulator는 종료했다.
+  최종 diff·문서 링크·공백 검사는 커밋 직전에 수행한다. 로그·PNG·영상·빌드 생성물·`AGENTS.md`는 커밋에서 제외한다.

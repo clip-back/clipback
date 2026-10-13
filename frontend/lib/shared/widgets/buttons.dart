@@ -1,5 +1,6 @@
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/app_text.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -31,7 +32,7 @@ class PrimaryButton extends StatelessWidget {
           backgroundColor: color,
           foregroundColor: foreground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          textStyle: AppText.primaryButtonLabel,
         ),
         child: Text(label),
       ),

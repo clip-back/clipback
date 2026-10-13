@@ -7,7 +7,8 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 
 2026-10-13에 확인한 새 디자인과 현재 화면의 차이, 구현 순서와 정책 확인 항목은
 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
-현재는 분석·계획 단계이며 해당 계획의 앱 구현은 아직 시작하지 않았습니다.
+공통 텍스트 스타일·섹션 제목·기본 버튼의 첫 구현을 완료했습니다.
+홈 배치·문구·일러스트·페이지 점·추천 연결은 후속 범위입니다.
 
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
 추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
@@ -344,6 +345,42 @@ flutter build web --no-pub
 이미 받은 서버 통계를 보존하고, 계정 초기화 때만 기존 통계를 비우는 경계를 검증합니다.
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
+
+## Figma 공통 스타일과 기기 프리뷰
+
+`AppText.sectionTitle`은 Pretendard 18px/SemiBold, 자간 −0.45px과 폰트 기본 행간을 사용합니다.
+`SectionHeader`는 최소 높이 44px·세로 여백 각 8px이며, 긴 제목을 한 줄 말줄임으로 표시하고
+오른쪽 24px 아이콘을 유지합니다. 글자가 확대되면 헤더 높이가 늘어납니다.
+`AppText.primaryButtonLabel`은 기존 16px/w700을 공유합니다. 글자 색상은 각 버튼의
+`foreground`를 따르며 기존 높이·모서리·탭 동작을 유지합니다.
+
+`test/common_text_style_test.dart`는 320·375px 폭과 글자 배율 1·2에서 제목과 아이콘의 배치·탭을,
+버튼 높이 52·56px에서 기본·사용자 지정 색상과 탭 동작을 확인합니다.
+
+```bash
+# frontend/에서 실행. 연결된 Simulator 또는 Emulator ID를 지정합니다.
+flutter test --no-pub test/common_text_style_test.dart
+
+# 기본 모드: 상단 도구막대에서 home, empty, components, scaled를 선택합니다.
+flutter run --no-pub -d <device-id> -t test/support/figma_common_style_preview.dart
+
+# 자동 모드: 화면 캡처, 합성 포인터 스크롤·탭과 컴포넌트 측정을 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/figma_common_style_preview.dart \
+  --dart-define=FIGMA_COMMON_STYLE_CHECK=true
+```
+
+자동 모드는 기기 임시 폴더 `clipback-common-style-*`에 PNG 5개와 `report.json`을 저장하고,
+로그에 경로와 `FIGMA_COMMON_STYLE PASS/FAIL`을 출력합니다. 홈·홈 스크롤·빈 홈·공통 컴포넌트·
+글자 배율 2의 컴포넌트를 캡처합니다. 영상은 별도로 기기 화면을 촬영합니다.
+`report.json`의 `passed`는 전체 실행의 성공 여부이고, `checksCompleted`는 측정·탭 시나리오를 끝까지
+실행했는지 표시합니다. `componentChecksPassed`와 `componentFrameworkErrors`는 변경한 공통 컴포넌트의
+검증 결과·오류를 표시하며 `frameworkErrorDetails`에는 오류가 발생한 화면을 기록합니다.
+따라서 기존 홈의 오류가 남아 전체 실행이 실패해도 공통 컴포넌트 결과와 구분해 확인할 수 있습니다.
+이번 Android 실행은 기존 Weekly 카드 넘침으로 전체 `passed: false`, 공통 `componentChecksPassed: true`였습니다.
+이 프리뷰는 실제 홈·공통 위젯에 메모리 데이터를 전달하며 실제 세션·HTTP·네이티브 공유 서비스를
+사용하지 않습니다. 합성 포인터 검증은 사람의 수동 조작·실제 OAuth·운영 서버 검증과 구분합니다.
+제품 진입점은 `lib/main.dart`이며 테스트 전용 프리뷰를 출시하지 않습니다.
+플랫폼별 전체·공통 컴포넌트 실행 결과는 [프론트 진행 기록](../docs/fe-merge-fixes.md)을 따릅니다.
 
 ## 상단 안전 영역과 헤더
 
