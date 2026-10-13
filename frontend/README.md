@@ -8,7 +8,9 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 2026-10-13에 확인한 새 디자인과 현재 화면의 차이, 구현 순서와 정책 확인 항목은
 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
 공통 텍스트 스타일·섹션 제목·기본 버튼의 첫 구현을 완료했습니다.
-홈 상단·소개·카드·카테고리 칩·페이지 점과 확인된 빈 홈은 이번 홈 커밋에서 적용했습니다. 안내·공지 신규 카드, 상태별 미정 디자인과 추천 API 연결은 후속 범위입니다.
+홈 상단·소개·카드·카테고리 칩·페이지 점과 확인된 빈 홈은 `cc73b21`에서 적용했습니다.
+후속 작업은 사용자가 승인한 하단 탭 최대 두 줄·높이 확장과 최근 카테고리 이름/시각의 한 줄 말줄임입니다.
+안내·공지 신규 카드, 상태별 미정 디자인과 추천 API 연결은 후속 범위입니다.
 
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
 추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
@@ -411,15 +413,73 @@ flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
 제품 `main.dart`나 서버 API를 변경하지 않고 실제 세션·HTTP·저장을 사용하지 않습니다.
 자동 입력은 Flutter 합성 포인터입니다. 저장 시트 진입·키보드·닫기까지 확인하며 실제 저장 완료 검증은 아닙니다.
 기기 임시 폴더 `clipback-home-*`에 PNG와 `report.json`을 저장하고 `FIGMA_HOME PASS/FAIL`을 출력합니다.
-`baselineCaptured`는 정상/빈 홈 촬영 완료 여부이며, 오류가 있어도 촬영 성공을 전체 검증 성공으로 바꾸지 않습니다.
+현재 프리뷰는 정상/빈 홈·각 배율 2·긴 카테고리의 빈 홈 배율 1/2, 총 여섯 상태를 수정 전후 각각 촬영합니다.
+수정 후에는 스크롤·마지막 카드·저장 입력의 키보드·확대 카드 관련 동작 다섯 장을 추가로 촬영합니다.
+`baselineCaptured`는 여섯 비교 상태 촬영 완료 여부이며, 오류가 있어도 촬영 성공을 전체 검증 성공으로 바꾸지 않습니다.
 `frameworkErrors`, `checksCompleted`, `passed`, 콜백·스크롤 측정값을 함께 확인합니다.
 `normalHomeChecksPassed`·`interactionChecksCompleted`·`scaledScenesCaptured`는 일반 홈/동작/확대 촬영의 별도 결과입니다.
-확대 상태의 기존 하단 탭 오류가 있으면 전체 `passed: false`를 유지하고 일반 홈의 성공과 구분합니다.
+수정 전 확대 상태의 기존 하단 탭·긴 카테고리 오류는 전체 `passed: false`로 기록하고 촬영 성공과 구분합니다.
 영상은 별도 `simctl recordVideo`/`adb screenrecord`로 촬영합니다. 화면 증거·로그·빌드 결과는 Git에서 제외합니다.
-이번 전체 Flutter 테스트는 **595 passed**, `flutter analyze --no-pub`는 **문제 없음**입니다.
-기기 대역 실행의 일반 배율 홈 검사와 저장 진입·스크롤·페이지 점은 양쪽에서 확인했으며,
-글자 배율 2 전체 화면의 기존 하단 탭 넘침과 좁은 화면의 기존 최근 카테고리 행은 디자인 확인 후 진행합니다.
-실행 결과와 변경 전·후·Figma 3열 비교 자료는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
+이전 홈 커밋 `cc73b21`은 전체 Flutter 테스트 **595 passed**, 정적 분석 문제 없음과 양 플랫폼 일반 배율의
+홈·저장 진입·스크롤·페이지 점을 확인했습니다. 당시 배율 2의 하단 탭과 좁은 최근 카테고리 행 오류는 보류했고,
+후속 승인에 따른 변경과 이번 재검증 결과는 아래에 구분합니다.
+변경 전·후·Figma 3열 비교와 영상은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
+
+## 확대 하단 탭과 최근 카테고리 행
+
+공유 `ClipbackNavigationBar`의 라벨은 56px 폭에서 실제 글자 배율을 유지하고 최대 두 줄·말줄임으로 표시합니다.
+네 라벨 중 가장 높은 값을 공통 영역으로 사용해 아이콘 상단을 맞추며, 증가분을 항목 56px·행 64px·전체 바 96px에
+함께 더합니다. 배율 1의 전체 높이 96px, 기존 색상·탭 목적지·하단 인디케이터를 유지합니다.
+추가 버튼은 72×72px·중앙·위로 22px 위치이며, 행의 제약을 받지 않게 바 전체 Stack에 배치합니다.
+버튼의 중심과 바 안쪽 하단 가장자리 탭을 각각 확인합니다.
+
+빈 홈의 `CategoryHomeRow`는 텍스트 열에 남은 폭을 할당하고 이름·시각을 각각 한 줄 말줄임으로 표시합니다.
+폴더·화살표·색상·글자 크기·행 탭과 기존 고정 시각 문구를 유지합니다.
+API·데이터 모델·콘텐츠 보존/삭제 정책과 다른 카테고리 행의 디자인은 변경하지 않습니다.
+확대 상태는 별도 Figma 프레임이 없어 사용자가 승인한 위 배치를 기준으로 합니다.
+일반 디자인 기준은 하단 탭 `111:3680`, C01 `111:3584`, C02 `111:3681`이며
+2026-10-13 22:23:08 KST(13:23:08 UTC)에 다시 조회했습니다.
+
+```bash
+# frontend/ — 단위 회귀와 기존 안전 영역 검사를 함께 실행합니다.
+flutter test --no-pub test/scaled_navigation_layout_test.dart test/home_alignment_test.dart test/top_safe_area_test.dart
+flutter analyze --no-pub
+flutter test --no-pub
+
+# 실제 공유 탭의 여섯 사용 화면 및 확대 탭 단독 검사: 대역 데이터/합성 포인터입니다.
+flutter run --no-pub -d <device-id> -t test/support/navigation_layout_preview.dart
+```
+
+`test/scaled_navigation_layout_test.dart`는 Android/iOS 설정, 폭 320·375px, 배율 1·1.5·2에서
+하단 탭 높이·라벨·아이콘 정렬·활성 표시·네 탭과 추가 버튼 입력, 긴 카테고리의 말줄임·전체 행 탭을 검사합니다.
+상세의 페이지 이동/저장 진입과 Placeholder의 실제 Navigator 복귀도 확인합니다.
+제품 두 위젯에 대한 수정 전 실패를 재현한 후 수정 코드에서 전체 Flutter 테스트 **625 passed**와
+`flutter analyze --no-pub` **문제 없음**을 확인했습니다.
+
+`navigation_layout_preview.dart`는 실제 홈·아카이브·즐겨찾기·마이·상세·Placeholder를 일반 배율로 순회하고,
+공통 탭은 375px의 배율 1.5/2 및 320px의 배율 2에서 따로 검사합니다.
+실제 탭·홈 카드·상세 이전/다음·Placeholder 복귀와 추가 버튼 중심/하단 입력을 합성 포인터로 실행합니다.
+`clipback-navigation-*` 기기 임시 폴더에 PNG 9개와 `report.json`을 저장하며 `NAV_LAYOUT PASS/FAIL`을 출력합니다.
+실제 세션·HTTP·네이티브 공유·저장은 사용하지 않고, 제품 진입점은 `lib/main.dart`로 유지합니다.
+
+최종 iOS/Android 홈 프리뷰는 모두 통과했습니다. 동일한 여섯 비교 상태의 프레임워크 오류는 플랫폼별
+**14건 → 0건**이며 수정 후 `passed`·`checksCompleted`·동작 완료·확대 촬영 완료는 모두 `true`입니다.
+바 높이 96px/140px(배율 1/2), 추가 버튼 72×72px·위로 22px 위치, 스크롤·페이지 점·저장 시트의
+키보드·닫기를 확인했습니다. 최종 공유 내비게이션 프리뷰도 양 플랫폼에서
+`passed`·`checksCompleted: true`, 프레임워크 오류 0건·`failure: null`로 통과했습니다.
+바 높이 96/124/140px(배율 1/1.5/2), 네 아이콘 정렬·탭, 상세 이전/다음 각 1회와
+Placeholder 복귀, 세 확대 조건에서 추가 버튼 중심/하단 입력 총 6회를 확인했습니다.
+여섯 실제 본문은 일반 배율이며 확대는 공통 탭 단독 검사라는 범위를 유지합니다.
+기종·OS·최종 코드의 측정값과 영상은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록하며
+과거 커밋의 성공을 이번 결과로 사용하지 않습니다.
+비교 자료 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/scaled-layout`이고
+`comparison-document.html`과 플랫폼별 `ios-expanded-comparison.html`·`android-expanded-comparison.html`에서
+변경 전·후·Figma를 원본 그대로 비교합니다. 확대 Figma 화면을 임의로 만들어 채우지 않습니다.
+
+마이·상세 본문의 배율 2에는 변경 전부터 있는 별도 넘침이 있어 새 배치를 임의로 구현하지 않았습니다.
+이 두 본문의 통합 검사는 일반 배율이며, 공통 탭 단독 확대 성공을 전체 본문 성공으로 확대하지 않습니다.
+본문 확대 디자인과 앱/OS 홈 인디케이터 기준은 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 남깁니다.
+실제 OAuth·운영 서버·실기기·원격 CI는 이번 로컬 화면 검증에 포함하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 

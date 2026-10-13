@@ -12,12 +12,14 @@ import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/data/sample_categories.dart';
 import 'package:clipback_frontend/shared/data/sample_contents.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
+import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
+import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:clipback_frontend/shared/widgets/section_header.dart';
 import 'package:flutter/gestures.dart';
@@ -37,6 +39,13 @@ late Directory _output;
 int _pointer = 2000;
 bool _interactionChecksCompleted = false;
 bool _scaledScenesCaptured = false;
+const _longCategory = CategoryItem(
+  id: 999,
+  name: '카테고리 이름이 아주 길어도 저장한 콘텐츠를 보존하고 다시 확인할 수 있어요',
+  color: AppColors.main,
+  tint: AppColors.mainSubtle,
+  deep: AppColors.mainDeep,
+);
 
 final _contents = [
   for (final id in [
@@ -75,10 +84,22 @@ Future<void> main() async {
     _require(_phase == 'before' || _phase == 'after', 'Unknown phase: $_phase');
     await _settle();
     await Future<void>.delayed(const Duration(seconds: 15));
-    await _capture('00_home');
-    _appKey.currentState!.show(empty: true);
-    await _settle();
-    await _capture('01_empty_home');
+    for (final scene in [
+      ('00_home', false, 1.0, false),
+      ('01_empty_home', true, 1.0, false),
+      ('02_home_scale_2', false, 2.0, false),
+      ('03_empty_home_scale_2', true, 2.0, false),
+      ('04_long_empty_home', true, 1.0, true),
+      ('05_long_empty_home_scale_2', true, 2.0, true),
+    ]) {
+      _appKey.currentState!.show(
+        empty: scene.$2,
+        scale: scene.$3,
+        longCategories: scene.$4,
+      );
+      await _settle();
+      await _capture(scene.$1);
+    }
     baselineCaptured = true;
     if (_phase == 'after') await _checkInteractions();
     checksCompleted = true;
@@ -108,13 +129,14 @@ Future<void> main() async {
         'bottomInset': _view.padding.bottom / _view.devicePixelRatio,
         'contentIds': _contents.map((item) => item.id).toList(),
         'categories': initialCategories.map((item) => item.name).toList(),
+        'longCategoryName': _longCategory.name,
         'feed': {
           'initialized': true,
           'loading': false,
           'error': null,
           'categoryId': null,
         },
-        'baselineTextScale': 1,
+        'baselineTextScales': [1, 2],
         'baselineScrollOffset': 0,
         'callbackCounts': _appKey.currentState!.counts,
         'measurements': _measurements,
@@ -136,16 +158,23 @@ class _Preview extends StatefulWidget {
 
 class _PreviewState extends State<_Preview> {
   var empty = false;
+  var longCategories = false;
   double scale = 1;
   int revision = 0;
   final counts = <String, int>{};
   final normalFeed = _feed(_contents);
   final emptyFeed = _feed([]);
-  String get scene => '${empty ? 'empty' : 'home'}_scale_$scale';
+  String get scene =>
+      '${longCategories ? 'long_' : ''}${empty ? 'empty' : 'home'}_scale_$scale';
   void count(String key) => counts.update(key, (n) => n + 1, ifAbsent: () => 1);
-  void show({required bool empty, double scale = 1}) => setState(() {
+  void show({
+    required bool empty,
+    double scale = 1,
+    bool longCategories = false,
+  }) => setState(() {
     this.empty = empty;
     this.scale = scale;
+    this.longCategories = longCategories;
     revision++;
   });
 
@@ -155,7 +184,9 @@ class _PreviewState extends State<_Preview> {
       key: ValueKey(revision),
       contents: empty ? const [] : _contents,
       feed: empty ? emptyFeed : normalFeed,
-      categories: initialCategories,
+      categories: longCategories
+          ? [_longCategory, ...initialCategories]
+          : initialCategories,
       bookmarkedIds: {
         for (final item in _contents)
           if (item.bookmarked) item.id,
@@ -217,6 +248,11 @@ class _PreviewState extends State<_Preview> {
                                   '${isEmpty ? 'empty' : 'home'} $textScale',
                                 ),
                               ),
+                          TextButton(
+                            onPressed: () =>
+                                show(empty: true, longCategories: true),
+                            child: const Text('long category'),
+                          ),
                         ],
                       ),
                     ),
@@ -266,6 +302,27 @@ Future<void> _settle([int frames = 6]) async {
 
 Future<void> _capture(String name) async {
   await _settle();
+  if (_phase == 'after' && name != '07_empty_save_keyboard') {
+    final bar = _first<ClipbackNavigationBar>();
+    final nav = _rect(bar);
+    final add = _rect(_first<NavAddButton>(bar));
+    _require(
+      (add.width - 72).abs() < .5 && (add.height - 72).abs() < .5,
+      'Add button must render at 72 x 72',
+    );
+    _require(
+      (add.top - (nav.top - 22)).abs() < .5,
+      'Add button must keep its -22px offset',
+    );
+    _measurements.add({
+      'scenario': 'navigationGeometry',
+      'capture': name,
+      'navHeight': nav.height,
+      'addWidth': add.width,
+      'addHeight': add.height,
+      'addOffset': add.top - nav.top,
+    });
+  }
   final boundary =
       _captureKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
   final image = await boundary.toImage(pixelRatio: _view.devicePixelRatio);
@@ -279,9 +336,8 @@ Future<void> _capture(String name) async {
     image.dispose();
   }
   debugPrint('FIGMA_HOME capture=$name output=${_output.path}');
-  // Allow native screenshot commands to finish before changing the AFTER scene.
-  // BEFORE capture timing and fixture data remain the original baseline.
-  await Future<void>.delayed(Duration(seconds: _phase == 'after' ? 8 : 2));
+  // BEFORE and AFTER hold identical scenes long enough for native screenshots.
+  await Future<void>.delayed(const Duration(seconds: 8));
 }
 
 Future<void> _gesture(Offset start, Offset delta) async {
@@ -437,18 +493,20 @@ Future<void> _checkInteractions() async {
     'activeIndex': dots.activeIndex,
     'count': dots.count,
   });
-  await _capture('02_home_last_card');
+  await _capture('06_home_last_card');
   state.show(empty: true);
   await _settle();
   await _tap(_rect(_heroAction()).center);
   final sheet = _first<AddContentSheet>();
   await _tap(_rect(_first<TextField>(sheet)).center);
-  for (var i = 0; i < 25 && _view.viewInsets.bottom == 0; i++) {
+  final keyboardDeadline = DateTime.now().add(const Duration(seconds: 15));
+  while (_view.viewInsets.bottom == 0 &&
+      DateTime.now().isBefore(keyboardDeadline)) {
     await _settle(2);
   }
   final keyboard = _view.viewInsets.bottom / _view.devicePixelRatio;
   _require(keyboard > 0, 'Save input must show keyboard');
-  await _capture('03_empty_save_keyboard');
+  await _capture('07_empty_save_keyboard');
   final close = _all(_first<SaveContentTopBar>()).firstWhere(
     (e) =>
         e.widget is SvgIconButton &&
@@ -468,12 +526,12 @@ Future<void> _checkInteractions() async {
   _interactionChecksCompleted = true;
   state.show(empty: false, scale: 2);
   await _settle();
-  await _capture('04_home_scale_2');
+  await _capture('08_home_scale_2');
   await _verticalScroll();
   await _revealScaledCard();
-  await _capture('05_home_scale_2_scrolled');
+  await _capture('09_home_scale_2_scrolled');
   state.show(empty: true, scale: 2);
   await _settle();
-  await _capture('06_empty_home_scale_2');
+  await _capture('10_empty_home_scale_2');
   _scaledScenesCaptured = true;
 }

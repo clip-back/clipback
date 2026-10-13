@@ -361,24 +361,32 @@ class CategoryHomeRow extends StatelessWidget {
             children: [
               FolderGlyph(color: category.color),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    category.name,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      category.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    '2020. 3. 10. 오후 11:56',
-                    style: TextStyle(color: AppColors.subSubtle, fontSize: 12),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    const Text(
+                      '2020. 3. 10. 오후 11:56',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.subSubtle,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const Spacer(),
               const SvgIcon(
                 asset: Assets.chevronRight,
                 size: 18,

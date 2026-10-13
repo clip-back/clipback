@@ -1,8 +1,39 @@
+import 'dart:math' as math;
+
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
+
+const _navLabelStyle = TextStyle(
+  inherit: false,
+  fontFamily: 'Pretendard',
+  fontSize: 12,
+  fontWeight: FontWeight.w500,
+  letterSpacing: -0.3,
+);
+
+double _maxLabelHeight(
+  BuildContext context,
+  List<NavSpec> items,
+  TextScaler textScaler,
+) {
+  var height = 0.0;
+  for (final item in items) {
+    final painter = TextPainter(
+      text: TextSpan(text: item.label, style: _navLabelStyle),
+      textDirection: Directionality.of(context),
+      locale: Localizations.maybeLocaleOf(context),
+      textScaler: textScaler,
+      maxLines: 2,
+      ellipsis: '…',
+    )..layout(maxWidth: 56);
+    height = math.max(height, painter.height);
+    painter.dispose();
+  }
+  return height;
+}
 
 class ClipbackNavigationBar extends StatelessWidget {
   const ClipbackNavigationBar({
@@ -24,9 +55,20 @@ class ClipbackNavigationBar extends StatelessWidget {
       NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark, 2),
       NavSpec(Assets.account, '마이', AppRoute.my, 3),
     ];
+    final labelHeight = _maxLabelHeight(
+      context,
+      items,
+      MediaQuery.textScalerOf(context),
+    );
+    final baseLabelHeight = _maxLabelHeight(
+      context,
+      items,
+      TextScaler.noScaling,
+    );
+    final extraHeight = math.max(0.0, labelHeight - baseLabelHeight);
 
     return Container(
-      height: 96,
+      height: 96 + extraHeight,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [BoxShadow(color: Color(0x1F000000), blurRadius: 16)],
@@ -38,7 +80,7 @@ class ClipbackNavigationBar extends StatelessWidget {
             top: 0,
             left: 0,
             right: 0,
-            height: 64,
+            height: 64 + extraHeight,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final horizontalPadding = constraints.maxWidth >= 343
@@ -53,25 +95,30 @@ class ClipbackNavigationBar extends StatelessWidget {
                       _NavItem(
                         spec: items[0],
                         active: activeIndex == items[0].activeIndex,
+                        labelHeight: labelHeight,
+                        height: 56 + extraHeight,
                         onTap: () => onTap(items[0].route),
                       ),
                       _NavItem(
                         spec: items[1],
                         active: activeIndex == items[1].activeIndex,
+                        labelHeight: labelHeight,
+                        height: 56 + extraHeight,
                         onTap: () => onTap(items[1].route),
                       ),
-                      Transform.translate(
-                        offset: const Offset(0, -22),
-                        child: NavAddButton(onTap: onAdd),
-                      ),
+                      const SizedBox(width: 72),
                       _NavItem(
                         spec: items[2],
                         active: activeIndex == items[2].activeIndex,
+                        labelHeight: labelHeight,
+                        height: 56 + extraHeight,
                         onTap: () => onTap(items[2].route),
                       ),
                       _NavItem(
                         spec: items[3],
                         active: activeIndex == items[3].activeIndex,
+                        labelHeight: labelHeight,
+                        height: 56 + extraHeight,
                         onTap: () => onTap(items[3].route),
                       ),
                     ],
@@ -85,6 +132,13 @@ class ClipbackNavigationBar extends StatelessWidget {
             right: 0,
             bottom: 0,
             child: NavigationHomeIndicator(),
+          ),
+          Positioned(
+            top: -22,
+            left: 0,
+            right: 0,
+            height: 72,
+            child: Center(child: NavAddButton(onTap: onAdd)),
           ),
         ],
       ),
@@ -148,17 +202,21 @@ class _NavItem extends StatelessWidget {
     required this.spec,
     required this.active,
     required this.onTap,
+    required this.labelHeight,
+    required this.height,
   });
 
   final NavSpec spec;
   final bool active;
   final VoidCallback onTap;
+  final double labelHeight;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 56,
-      height: 56,
+      height: height,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -170,13 +228,20 @@ class _NavItem extends StatelessWidget {
               color: active ? AppColors.text : AppColors.subtler,
             ),
             const SizedBox(height: 3),
-            Text(
-              spec.label,
-              style: TextStyle(
-                color: active ? AppColors.text : AppColors.subtler,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.3,
+            SizedBox(
+              width: 56,
+              height: labelHeight,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Text(
+                  spec.label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _navLabelStyle.copyWith(
+                    color: active ? AppColors.text : AppColors.subtler,
+                  ),
+                ),
               ),
             ),
           ],
