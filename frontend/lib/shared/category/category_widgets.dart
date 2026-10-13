@@ -73,10 +73,16 @@ class CategoryChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final height =
+        32.0 *
+        (MediaQuery.textScalerOf(context).scale(15) / 15).clamp(
+          1,
+          double.infinity,
+        );
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: SizedBox(
-        height: 35,
+        height: height,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
@@ -86,7 +92,7 @@ class CategoryChips extends StatelessWidget {
             final active = label == activeLabel;
             return SizedBox(
               width: 70,
-              height: 35,
+              height: height,
               child: Material(
                 color: active ? AppColors.faint : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
@@ -97,9 +103,12 @@ class CategoryChips extends StatelessWidget {
                     alignment: Alignment.center,
                     child: Text(
                       label,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: active ? AppColors.middle : AppColors.subtle,
+                        inherit: false,
+                        fontFamily: 'Pretendard',
+                        color: active ? AppColors.middle : AppColors.subtler,
                         fontSize: 15,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                         letterSpacing: -0.375,

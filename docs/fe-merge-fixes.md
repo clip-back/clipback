@@ -1295,3 +1295,83 @@ flutter build web --no-pub
 - 실제 OAuth·AI/OCR·운영 서버·실기기·원격 CI는 이번 공통 스타일 검증 범위에 포함하지 않는다.
   검증에 사용한 Flutter 실행·촬영·Simulator·Emulator는 종료했다.
   최종 diff·문서 링크·공백 검사는 커밋 직전에 수행한다. 로그·PNG·영상·빌드 생성물·`AGENTS.md`는 커밋에서 제외한다.
+
+
+### 2026-10-13 — Figma 기준 홈의 확정된 영역 적용
+
+- 브랜치 `feature/figma-ui-alignment`, 수정 전 기준 `6f8fa73`.
+  홈 상단(8+56px), 소개(기본 140px/좌측 16px/캐릭터 99×123px/버튼 모서리 8px),
+  추천(133×120px), 최근 카드(298×186px), 홈 칩(기본 32px), 페이지 점을 적용했다.
+  글자 확대에는 높이를 늘리고 제목 2줄·요약 3줄 및 실제 남은 공간 제한을 적용한다.
+  Weekly 제목만 화살표를 숨기며 다른 공통 헤더 기준·기존 연결은 유지했다.
+- 빈 홈은 필터 없음·조회 완료·로딩/오류 없음·양쪽 콘텐츠 목록 0개를 확인한 경우에만 C02를 표시한다.
+  ‘아직 저장한 콘텐츠가 없어요.’·‘지금 하나만 저장해볼까요?’·‘첫 콘텐츠 저장하기’와 기존 저장 진입을 사용한다.
+  필터 빈 목록·미조회·로딩·오류는 기존 표현을 유지한다. 최대 4개 카드와 콘텐츠 보존 정책도 유지한다.
+- 페이지 점은 카드 중심(offset/306)으로 갱신한다. 필터·피드 버전·복사한 표시 ID 순서 변경 시 위치와 점을
+  초기화하고 북마크만 변경되면 유지한다. 북마크 44×44px 탭 영역을 카드 안에 배치해 경계 잘림도 방지했다.
+- Figma C01 `111:3584`·C02 `111:3681`의 컨텍스트와 원본 375×910 화면을
+  **2026-10-13 20:58:44 KST / 11:58:44 UTC**에 새로 조회했다.
+  기존 캐릭터 PNG는 여백/잘림이 달라 재사용하지 않았다. `111:3678`의 SVG가 모바일에서 빈칸으로
+  렌더링되는 것을 확인해 같은 개별 노드를 Figma에서 3배율 PNG(297×369px)로 내보냈다.
+  `111:3712` 상자는 원본 PNG 71×82px를 논리 67×78px 및 그림자 여유로 배치했다.
+  Figma 전체 화면 이미지는 구현 에셋으로 사용하지 않았다. 임시 Figma URL도 앱에 남기지 않았다.
+- **제품 수정 전** 동일한 데이터로 두 플랫폼의 정상/빈 홈을 새로 캡처했다.
+  iOS는 오류 0건, Android는 기존 추천 카드 아래 넘침 **13px·3px**을 재현했다.
+  추가 OS 포함 스크린샷은 수정 전 설치된 동일 baseline 바이너리를 직접 재실행해 촬영했다.
+  수정 전·후 보고서의 콘텐츠 ID·카테고리·피드 상태·기종/크기·배율 1·스크롤 0이 일치함을 확인했다.
+- 수정 전 홈 회귀 테스트 29개는 **6 passed / 23 failed**였으며 Android 추천 넘침을 재현했다.
+  최종 홈 35개 + 안전 영역 11개 + 콘텐츠 변경 61개는 **107 passed**다.
+  폭 320/375px·iOS/Android 테마·배율 1/2의 긴 문구, 0/1/4개, 실제 포인터 드래그와 점,
+  필터/버전/ID 변경 초기화·북마크 위치 보존·처리 중 비활성화·북마크 네 모서리 탭을 검증했다.
+  기존 콘텐츠 변경 테스트의 카테고리 탐색을 현재 홈 전용 태그 구조에 맞추고 기존 크기/말줄임 검사를 유지했다.
+- 최종 `flutter test --no-pub --reporter expanded` **595 passed**,
+  `flutter analyze --no-pub` **문제 없음**, 변경 Dart 8개 형식 검사 **0 changed**다.
+  Flutter 3.44.9 / Dart 3.12.2, 기존 잠금파일을 사용하며 의존성을 변경하지 않았다.
+- [홈 기기 프리뷰](../frontend/test/support/figma_home_preview.dart)는 실제 HomeScreen과 고정 메모리 데이터를 사용한다.
+  제품 진입점·API·데이터 모델·저장 시점·콘텐츠 보존은 변경하지 않았다. 실제 세션/HTTP/저장을 사용하지 않는다.
+  합성 포인터로 today/archive/content/bookmark를 각각 1회 확인하고 북마크의 콘텐츠 탭 전파가 없음을 확인했다.
+  가로 드래그의 마지막 점은 **3/4**, 실제 저장 시트의 키보드 표시 및 닫기를 양쪽에서 확인했다.
+
+| 플랫폼 | 이번 실행 결과 |
+| --- | --- |
+| iPhone 16 / iOS 18.6 Simulator | 앱 논리 크기 393×852, DPR 3, 안전 영역 위 59/아래 34px. 일반 배율 홈 오류 0건, 세로 스크롤 0→83px, 키보드 약 335.85px. 배율 2 카드 높이 316px를 추가 스크롤 후 viewport 안에서 확인했다. |
+| Pixel 3a 설정 Clipback_Share_API_33 / Android 13 API 33 Emulator (`sdk_gphone64_arm64`) | 앱 논리 크기 392.7×783.3, DPR 2.75, 안전 영역 위 24/아래 0px. 일반 배율 홈 오류 0건이며 기존 추천 13px·3px 넘침이 사라졌다. 세로 스크롤 0→116.73px, 키보드 약 251.64px. 배율 2 카드 높이 316px를 viewport 안에서 확인했다. |
+
+- **기기 전체 결과는 양쪽 모두 `passed: false`**다. 글자 배율 2의 기존 하단 탭 Column에서
+  9px·43px 아래 넘침이 정상/빈 홈에 각각 발생해 플랫폼별 프레임워크 오류 **8건**을 보존했다.
+  `checksCompleted`, `normalHomeChecksPassed`, `interactionChecksCompleted`, `scaledScenesCaptured`는 모두 true다.
+  일반 배율 홈/동작 성공을 확대 전체 화면 성공으로 보고하지 않는다.
+- 별도 좁은 화면 검사에서 기존 최근 카테고리 행의 가로 넘침도 확인했다.
+  K02 `111:4667`·K03 `111:4683`의 미정 본문/상태, 필터·로딩·오류,
+  확대 하단 탭/좁은 최근 카테고리 행은 [디자인 확인 필요 목록](figma-ui-alignment-plan.md)에 기록했다.
+  새 안내·공지 카드/상세는 보류하고 현재 최근 카테고리 블록을 유지한다. Today/Weekly API·추천/공지 목적지·
+  실제 읽지 않은 알림 데이터 연결은 후속 작업이며 고정 알림 점을 추가하지 않았다.
+- 아래 비교는 OS 포함 원본 PNG다. Figma는 375×910·상태바 50px이며 실제 기기 크기/안전 영역이 다르다.
+  앱 PhoneFrame의 최대 폭 375px 및 양쪽 여백, 네이티브 상태/제스처 영역을 보정하거나 잘라내지 않았다.
+  기존 앱 내부 홈 인디케이터와 실제 OS 인디케이터 처리도 그대로 보인다.
+  빈 홈은 안내·공지 카드 보류와 최근 카테고리 유지로 아래쪽 배치가 C02와 다르다.
+  예시 콘텐츠/카테고리/북마크 차이는 고정 대역 데이터와 Figma 예시 데이터 차이다.
+- 화면 증거는 아래 로컬 폴더에 보관하며 **Git에서 제외**했다. 프레임워크 PNG 7개/플랫폼과 OS 포함
+  PNG 7개/플랫폼, report.json, 로그·영상 및 Figma 기준을 보존한다. 첫 재시도의 SVG 빈칸 증거도 after/initial에 보존했다.
+
+증거 루트: `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment`.
+
+| 비교 | 변경 전 | 변경 후 | Figma 원본 |
+| --- | --- | --- | --- |
+| iOS 정상 홈 | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/before/native_00_home.png) | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/after/native_00_home.png) | [C01](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/figma/C01.png) |
+| iOS 빈 홈 | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/before/native_01_empty_home.png) | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/after/native_01_empty_home.png) | [C02](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/figma/C02.png) |
+| Android 정상 홈 | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/before/native_00_home.png) | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/after/native_00_home.png) | [C01](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/figma/C01.png) |
+| Android 빈 홈 | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/before/native_01_empty_home.png) | [원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/after/native_01_empty_home.png) | [C02](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/figma/C02.png) |
+
+페이지 점·스크롤·저장 시트·키보드와 확대 상태를 담은 영상:
+[iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/after/interaction.mp4), [Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/after/interaction.mp4).
+보고서: [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/ios/after/report.json), [Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/home-alignment/android/after/report.json).
+
+- 첫 실행은 디스크 공간 부족으로 빌드가 실패했다. 저장소의 재생성 가능한 테스트/웹/해시 빌드 캐시만 정리한 뒤
+  다시 빌드·실행했다. 기존 화면 증거와 사용자 파일·AVD·세션/DB 데이터는 보존했다.
+- 실제 OAuth·운영 서버·실기기·실제 저장 완료·원격 CI는 이번 검증 범위에 포함하지 않는다.
+  최종 diff·로컬 문서 링크 83개·공백·생성 파일/민감 정보 제외를 확인했다. 변경 13개 파일만 한 커밋으로 저장한다.
+  푸시·PR은 수행하지 않는다. AGENTS.md는 계속 로컬 제외 파일로 유지한다.
+
+- 최종 H.264 영상은 iOS 약 86초·Android 약 169초이며 ffprobe와 영상 장면을 확인했다.
+  Flutter·녹화 세션과 이번 작업에서 실행한 Simulator/Emulator를 종료했고 기존 기기 데이터는 보존했다.

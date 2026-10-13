@@ -12,7 +12,6 @@ import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -1293,6 +1292,7 @@ void main() {
   testWidgets('pending home card fits a long category without overflow', (
     tester,
   ) async {
+    var bookmarkTaps = 0;
     const content = ContentItem(
       id: 'card',
       apiId: 3,
@@ -1326,7 +1326,7 @@ void main() {
                 content: content,
                 bookmarked: false,
                 onTap: () {},
-                onToggleBookmark: () {},
+                onToggleBookmark: () => bookmarkTaps++,
               ),
             ),
           ),
@@ -1335,16 +1335,17 @@ void main() {
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
-    final categoryText = tester.widget<Text>(
-      find.descendant(
-        of: find.byType(CategoryBadge),
-        matching: find.byType(Text),
-      ),
-    );
+    final categoryText = tester.widget<Text>(find.text(content.category.name));
     expect(categoryText.maxLines, 1);
     expect(categoryText.overflow, TextOverflow.ellipsis);
     expect(find.text('변경 중…'), findsOneWidget);
     expect(tester.getSize(find.byType(HomeContentCard)), const Size(298, 186));
+    final bookmark = find.byType(BookmarkActionButton);
+    expect(tester.widget<BookmarkActionButton>(bookmark).enabled, isFalse);
+    await tester.tap(bookmark);
+    await tester.pumpAndSettle();
+    expect(bookmarkTaps, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

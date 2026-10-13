@@ -9,6 +9,7 @@ class SectionHeader extends StatelessWidget {
     required this.onTap,
     this.horizontalPadding = 16,
     this.iconAsset = Assets.chevronRight,
+    this.showTrailingIcon = true,
     super.key,
   });
 
@@ -16,6 +17,7 @@ class SectionHeader extends StatelessWidget {
   final VoidCallback onTap;
   final double horizontalPadding;
   final String iconAsset;
+  final bool showTrailingIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +40,7 @@ class SectionHeader extends StatelessWidget {
                   style: AppText.sectionTitle,
                 ),
               ),
-              SvgIcon(asset: iconAsset, size: 24),
+              if (showTrailingIcon) SvgIcon(asset: iconAsset, size: 24),
             ],
           ),
         ),

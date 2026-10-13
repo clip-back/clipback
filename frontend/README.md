@@ -8,7 +8,7 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 2026-10-13에 확인한 새 디자인과 현재 화면의 차이, 구현 순서와 정책 확인 항목은
 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
 공통 텍스트 스타일·섹션 제목·기본 버튼의 첫 구현을 완료했습니다.
-홈 배치·문구·일러스트·페이지 점·추천 연결은 후속 범위입니다.
+홈 상단·소개·카드·카테고리 칩·페이지 점과 확인된 빈 홈은 이번 홈 커밋에서 적용했습니다. 안내·공지 신규 카드, 상태별 미정 디자인과 추천 API 연결은 후속 범위입니다.
 
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
 추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
@@ -376,11 +376,50 @@ flutter run --no-pub -d <device-id> -t test/support/figma_common_style_preview.d
 실행했는지 표시합니다. `componentChecksPassed`와 `componentFrameworkErrors`는 변경한 공통 컴포넌트의
 검증 결과·오류를 표시하며 `frameworkErrorDetails`에는 오류가 발생한 화면을 기록합니다.
 따라서 기존 홈의 오류가 남아 전체 실행이 실패해도 공통 컴포넌트 결과와 구분해 확인할 수 있습니다.
-이번 Android 실행은 기존 Weekly 카드 넘침으로 전체 `passed: false`, 공통 `componentChecksPassed: true`였습니다.
+첫 공통 스타일 커밋 `6f8fa73`의 Android 실행은 기존 Weekly 카드 넘침으로 전체 `passed: false`, 공통 `componentChecksPassed: true`였습니다. 아래 홈 작업에서 같은 오류를 새로 재현하고 수정 후 재검증했습니다. 일반 배율의 홈과 글자 배율 2의 기존 하단 탭 오류를 구분합니다.
 이 프리뷰는 실제 홈·공통 위젯에 메모리 데이터를 전달하며 실제 세션·HTTP·네이티브 공유 서비스를
 사용하지 않습니다. 합성 포인터 검증은 사람의 수동 조작·실제 OAuth·운영 서버 검증과 구분합니다.
 제품 진입점은 `lib/main.dart`이며 테스트 전용 프리뷰를 출시하지 않습니다.
 플랫폼별 전체·공통 컴포넌트 실행 결과는 [프론트 진행 기록](../docs/fe-merge-fixes.md)을 따릅니다.
+
+## 홈 화면 맞춤 검증
+
+기준 Figma는 C01 `111:3584`·C02 `111:3681`이며 적용 범위와 보류 항목은
+[Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)의 ‘홈 커밋의 적용 범위와 디자인 확인 필요’를 따릅니다.
+새 빈 홈은 `feed.initialized`, 로딩/오류 없음, 양쪽 필터 ID 없음과 콘텐츠 0개가 모두 확인될 때만 표시합니다.
+미조회·필터 결과 없음·로딩·오류는 기존 표현을 유지합니다. 현재 최근 카테고리 블록도 유지합니다.
+
+홈 추천·최근 카드는 기본 크기 133×120px·298×186px이며 글자 확대 시 높이가 늘어납니다.
+제목·요약은 각각 최대 2·3줄이고 요약은 카드의 남은 공간을 넘지 않습니다.
+페이지 점은 최대 4개 카드의 중심을 기준으로 바뀝니다. 필터·피드 버전·표시 콘텐츠 ID 순서 변경은
+첫 카드로 초기화하고, 북마크만 변경되면 현재 위치를 보존합니다. 추천 목적지는 현재 연결을 유지합니다.
+
+```bash
+# frontend/에서 실행합니다.
+flutter test --no-pub test/home_alignment_test.dart test/top_safe_area_test.dart
+
+# 제품 수정 전에 양 플랫폼에서 before 실행을 마친 뒤 원본 PNG/보고서를 보존합니다.
+flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
+  --dart-define=FIGMA_HOME_CHECK=true --dart-define=FIGMA_HOME_PHASE=before
+
+# 수정 후 같은 기기·대역 데이터·글자 배율·스크롤 위치로 재촬영하고 동작을 검증합니다.
+flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
+  --dart-define=FIGMA_HOME_CHECK=true --dart-define=FIGMA_HOME_PHASE=after
+```
+
+이 전용 진입점은 실제 `HomeScreen`에 고정된 콘텐츠 4개/0개와 동일한 카테고리·조회 완료 상태를 전달합니다.
+제품 `main.dart`나 서버 API를 변경하지 않고 실제 세션·HTTP·저장을 사용하지 않습니다.
+자동 입력은 Flutter 합성 포인터입니다. 저장 시트 진입·키보드·닫기까지 확인하며 실제 저장 완료 검증은 아닙니다.
+기기 임시 폴더 `clipback-home-*`에 PNG와 `report.json`을 저장하고 `FIGMA_HOME PASS/FAIL`을 출력합니다.
+`baselineCaptured`는 정상/빈 홈 촬영 완료 여부이며, 오류가 있어도 촬영 성공을 전체 검증 성공으로 바꾸지 않습니다.
+`frameworkErrors`, `checksCompleted`, `passed`, 콜백·스크롤 측정값을 함께 확인합니다.
+`normalHomeChecksPassed`·`interactionChecksCompleted`·`scaledScenesCaptured`는 일반 홈/동작/확대 촬영의 별도 결과입니다.
+확대 상태의 기존 하단 탭 오류가 있으면 전체 `passed: false`를 유지하고 일반 홈의 성공과 구분합니다.
+영상은 별도 `simctl recordVideo`/`adb screenrecord`로 촬영합니다. 화면 증거·로그·빌드 결과는 Git에서 제외합니다.
+이번 전체 Flutter 테스트는 **595 passed**, `flutter analyze --no-pub`는 **문제 없음**입니다.
+기기 대역 실행의 일반 배율 홈 검사와 저장 진입·스크롤·페이지 점은 양쪽에서 확인했으며,
+글자 배율 2 전체 화면의 기존 하단 탭 넘침과 좁은 화면의 기존 최근 카테고리 행은 디자인 확인 후 진행합니다.
+실행 결과와 변경 전·후·Figma 3열 비교 자료는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
 
 ## 상단 안전 영역과 헤더
 
@@ -391,7 +430,8 @@ flutter run --no-pub -d <device-id> -t test/support/figma_common_style_preview.d
 
 전체 화면 저장 창은 별도 Navigator 경로이므로 자체 SafeArea를 가집니다. 하단 시트는 호출부의
 `useSafeArea: true`로 최대 높이를 보호하며, 시트 내용에 일반 화면의 64px 헤더를 강제하지 않습니다.
-로그인·온보딩·관심사 선택은 기존 배치를 유지합니다. 홈 헤더는 본문과 함께 스크롤하고,
+로그인·온보딩·관심사 선택은 기존 배치를 유지합니다. 홈 헤더만 상단 여백 8px + 내부 높이 56px으로 구성하고 본문과 함께 스크롤합니다. 다른 화면의 `appHeaderHeight` 64px은 유지합니다.
+
 랜덤 보기는 기존 단일 Stack을 유지하되 안전 영역 내부의 ClipRect로 드래그 중 노치 침범을 막습니다.
 
 `top_safe_area_test.dart`는 상단 inset 0/20/44/59/62와 375×812·430×932에서 헤더 위치·높이·탭을

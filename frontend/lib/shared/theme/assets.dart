@@ -19,6 +19,8 @@ class Assets {
   static const character1Png = 'assets/figma/hutureu-character-1.png';
   static const character2Png = 'assets/figma/hutureu-character-2.png';
   static const homeCharacter = 'assets/figma/home-character.png';
+  static const homeHeroIllustration = 'assets/figma/home-hero.png';
+  static const homeEmptyIllustration = 'assets/figma/home-empty.png';
 
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';

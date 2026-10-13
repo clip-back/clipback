@@ -193,8 +193,8 @@ void main() {
                       matching: find.byType(Row),
                     )
                     .first,
-                inset,
-                64,
+                inset + 8,
+                56,
               ),
               (
                 'my',
