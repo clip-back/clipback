@@ -5,19 +5,35 @@ Flutter mobile frontend for the Clipback MVP.
 FE 병합 전 수정 순서와 PR별 검증 결과는
 [FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
 
-2026-10-13에 확인한 새 디자인과 현재 화면의 차이, 구현 순서와 정책 확인 항목은
-[Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 정리했습니다.
-공통 텍스트 스타일·섹션 제목·기본 버튼의 첫 구현을 완료했습니다.
-홈 상단·소개·카드·카테고리 칩·페이지 점과 확인된 빈 홈은 `cc73b21`에서 적용했습니다.
-하단 탭 최대 두 줄·높이 확장과 최근 카테고리 이름/시각의 한 줄 말줄임은 `d01873c`에서 적용했습니다.
-2026-10-14에는 사용자가 승인한 실제 OS 하단 안전 영역 합산과 공통 가짜 인디케이터 제거를 적용하고 검증했습니다.
-안내·공지 신규 카드, 상태별 미정 디자인과 추천 API 연결은 후속 범위입니다.
+현재 디자인 기준은 [허투루의 261008](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-13961)입니다.
+파일 키 `b2lmAo9VtbL6Qi0mzX5IMu`의 **WireFrame & UI(`3:5961`) > 261008(`912:13961`)**을 사용합니다.
+[홈 C01](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16240),
+[빈 홈 C02](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16337),
+[하단 탭](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16336)과
+[최초 로딩](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16483)의 최초 상세 조회는
+2026-10-14 12:36~12:41 KST(03:36~03:41 UTC)에 수행했습니다. 섹션 메타데이터는
+2026-10-14 12:43:38 KST(03:43:38 UTC)에 다시 조회했습니다. 확인 범위는 섹션 구조·화면 라벨과
+선별한 네 화면의 상세이며 전체 본문 스타일을 새로 대조한 것은 아닙니다.
+조회 근거·노드 대응·다음 작업은 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)을 따릅니다.
+
+현재 앱의 `a9eb69d`까지 구현·검증은 이전 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 `261007` 기준입니다.
+공통 텍스트·섹션 제목·기본 버튼은 `6f8fa73`, 홈은 `cc73b21`, 확대 레이아웃은 `d01873c`,
+OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 전체 화면의 재대조·적용은 미완료**이며,
+아래 과거 조회 시각·`111:*` 노드·테스트 수·이미지/영상은 당시 출처와 결과로 보존합니다.
+이번 기준 전환은 문서 갱신이며 앱 코드 변경이나 테스트·기기 재실행을 포함하지 않습니다.
+
+카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
+OS 정책은 유지합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
+최신 K02·K03의 공지 본문과 J07·K04의 미작성 본문, 최초 로딩 화면과 스켈레톤 설명의 불일치는
+[디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 정리합니다.
+K05에는 약관 본문이 있지만 예시 내용을 운영 원문으로 확정하는 작업이 필요합니다.
+안내·공지 신규 카드와 추천 API 연결은 별도 후속 범위입니다.
 
 현재 FE는 인증·콘텐츠·카테고리·계정 통계를 API와 연동합니다.
 추천·알림 등 일부 화면은 로컬 또는 mock 동작이 남아 있으며, 아래 연동 범위와 진행 문서를 따릅니다.
 
-The current implementation covers these flows. Differences from the latest supplied
-Figma file are tracked in the alignment plan linked above:
+The current implementation covers these flows. The alignment plan above distinguishes
+the active design reference from earlier implementation and verification:
 
 - Onboarding
 - Login entry
@@ -351,6 +367,9 @@ flutter build web --no-pub
 
 ## Figma 공통 스타일과 기기 프리뷰
 
+공통 스타일의 구현·검증 기록은 이전 `svNWsTFh8Ws1Mpt8XQIcrN / 261007` 기준입니다.
+테스트 전용 프리뷰의 사용법은 유지하며 실행 성공을 새 `261008` 디자인 적용 완료로 보고하지 않습니다.
+
 `AppText.sectionTitle`은 Pretendard 18px/SemiBold, 자간 −0.45px과 폰트 기본 행간을 사용합니다.
 `SectionHeader`는 최소 높이 44px·세로 여백 각 8px이며, 긴 제목을 한 줄 말줄임으로 표시하고
 오른쪽 24px 아이콘을 유지합니다. 글자가 확대되면 헤더 높이가 늘어납니다.
@@ -387,8 +406,9 @@ flutter run --no-pub -d <device-id> -t test/support/figma_common_style_preview.d
 
 ## 홈 화면 맞춤 검증
 
-기준 Figma는 C01 `111:3584`·C02 `111:3681`이며 적용 범위와 보류 항목은
-[Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)의 ‘홈 커밋의 적용 범위와 디자인 확인 필요’를 따릅니다.
+홈 커밋 `cc73b21` 당시 기준은 이전 파일 `svNWsTFh8Ws1Mpt8XQIcrN / 261007`의
+C01 `111:3584`·C02 `111:3681`입니다. 당시 적용 영역과 과거 증거는
+[Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)에 보존하며 새 기준·현재 보류 항목도 같은 문서를 따릅니다.
 새 빈 홈은 `feed.initialized`, 로딩/오류 없음, 양쪽 필터 ID 없음과 콘텐츠 0개가 모두 확인될 때만 표시합니다.
 미조회·필터 결과 없음·로딩·오류는 기존 표현을 유지합니다. 현재 최근 카테고리 블록도 유지합니다.
 
@@ -429,7 +449,7 @@ flutter run --no-pub -d <device-id> -t test/support/figma_home_preview.dart \
 
 ## 확대 하단 탭과 최근 카테고리 행 (`d01873c`)
 
-아래 96/124/140px 측정과 625개 테스트는 이 커밋 당시의 검증입니다.
+아래 조회 노드·96/124/140px 측정과 625개 테스트는 이전 `svNWsTFh8Ws1Mpt8XQIcrN / 261007`으로 이 커밋 당시 수행한 검증입니다.
 현재 OS 하단 안전 영역의 승인 기준과 이번 실행 명령·결과는 다음 절을 따릅니다.
 
 공유 `ClipbackNavigationBar`의 라벨은 56px 폭에서 실제 글자 배율을 유지하고 최대 두 줄·말줄임으로 표시합니다.
@@ -486,7 +506,10 @@ Placeholder 복귀, 세 확대 조건에서 추가 버튼 중심/하단 입력 �
 본문 확대 디자인과 진입/저장 화면의 별도 홈 인디케이터는 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 남깁니다.
 실제 OAuth·운영 서버·실기기·원격 CI는 이번 로컬 화면 검증에 포함하지 않습니다.
 
-## OS 하단 안전 영역과 공통 인디케이터
+## OS 하단 안전 영역과 공통 인디케이터 (`a9eb69d`)
+
+아래 Figma 노드·조회 시각과 692개 테스트·기기 화면/영상은 이전 `svNWsTFh8Ws1Mpt8XQIcrN / 261007` 당시의 검증입니다.
+사용자가 승인한 OS 안전 영역 정책은 새 디자인 기준에서도 유지합니다.
 
 사용자가 승인한 공통 바의 총높이는 **64px + 글자 확대 증가분 + `viewPadding.bottom`**입니다.
 기기 하단 안전 영역은 한 번만 더하며 키보드의 `viewInsets.bottom`은 더하지 않습니다.
