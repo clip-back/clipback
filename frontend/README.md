@@ -16,11 +16,14 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 선별한 네 화면의 상세이며 전체 본문 스타일을 새로 대조한 것은 아닙니다.
 조회 근거·노드 대응·다음 작업은 [Figma 화면 맞춤 계획](../docs/figma-ui-alignment-plan.md)을 따릅니다.
 
-현재 앱의 `a9eb69d`까지 구현·검증은 이전 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 `261007` 기준입니다.
+`a9eb69d`까지의 앱 구현·검증은 이전 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 `261007` 기준입니다.
 공통 텍스트·섹션 제목·기본 버튼은 `6f8fa73`, 홈은 `cc73b21`, 확대 레이아웃은 `d01873c`,
 OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 전체 화면의 재대조·적용은 미완료**이며,
 아래 과거 조회 시각·`111:*` 노드·테스트 수·이미지/영상은 당시 출처와 결과로 보존합니다.
-이번 기준 전환은 문서 갱신이며 앱 코드 변경이나 테스트·기기 재실행을 포함하지 않습니다.
+`b905769`의 기준 전환은 문서만 갱신했습니다. 이후 2026-10-15에는 최신 D05/D09를 조회해
+사진 결과의 링크 전용 문구와 성공한 제출 입력의 고정을 적용했습니다. 집중 11개·관련 132개·전체 703개 검사와
+정적 분석을 통과했습니다. 양 플랫폼의 문구·입력 고정 동작은 확인했지만 배율 2의 기존 레이아웃 실패는 유지합니다.
+이 부분 적용을 새 디자인 전체의 완료로 보고하지 않습니다.
 
 카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
 OS 정책은 유지합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
@@ -593,6 +596,70 @@ Android 3버튼 모드에서는 OS 영역이 Flutter 화면 바깥을 차지하�
 플랫폼·내비게이션 모드별 원본 변경 전·후·Figma를 나란히 비교하고 OS 안전 영역과 디자인 프레임의 차이를 설명합니다.
 기종·OS·글자 배율·화면 상태·측정값·영상·누락된 비교 항목은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
 실제 OAuth·운영 서버·실기기·원격 CI는 이 로컬 대역 화면 검증으로 증명하지 않습니다.
+
+## 저장 결과 문구와 제출 입력 고정 (2026-10-15)
+
+작업 기준은 `b905769`이고 최신 `261008`의
+[링크 결과 D05](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16639)와
+[사진 결과 D09](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16602)를 대상으로 합니다.
+상세 컨텍스트·원본을 구현 직전 2026-10-15 17:28:27 KST(08:28:27 UTC)에 다시 조회했습니다.
+사진 결과는 ‘저장할 사진’으로 표시하고 링크 검증 문구와 전용 5px 간격을 제거합니다.
+링크 결과의 ‘저장할 링크’·‘유효한 링크예요!’는 유지합니다.
+
+요청 직전의 URL/파일명·사진 바이트 참조를 실제 저장 콜백과 성공 결과에 함께 사용합니다.
+요청 중 탭 이동·다른 초안 편집·재선택은 허용하고, 성공하면 제출한 종류의 탭으로 돌아가 결과 맨 위를 한 번 표시한 뒤
+닫을 때까지 결과·탭을 고정합니다. 실패하면 현재 초안을 유지하고 재시도 시 그때의 입력을 새로 캡처합니다.
+늦게 완료된 사진 선택기·붙여넣기와 오래된 제출 콜백은 성공 결과·스크롤을 바꾸거나 재저장하지 않습니다.
+
+공개 `SavedContentConfirmation` 생성자·콜백·API·저장 시점·분류·콘텐츠 보존은 유지합니다.
+사진 프리뷰 배치/비율, 결과 상단 80px·고정 미리보기, 카테고리 추가/제거(DEC-03), 하단 버튼/스크롤과
+`_SaveHomeIndicator`는 후속 범위이며 [계획과 디자인 확인 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)을 따릅니다.
+
+```bash
+# frontend/ — 집중 회귀입니다. 관련 검사·전체 검사는 진행 기록의 실제 결과를 따릅니다.
+flutter test --no-pub test/saved_content_confirmation_test.dart
+
+# 연결된 Simulator/Emulator ID로 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# 수정 후 같은 기기·데이터·배율·스크롤 상태에서 PHASE를 after로 바꿔 다시 실행합니다.
+
+# Android에서는 기기 서버 8767을 호스트 8768로 연결합니다.
+adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+curl http://127.0.0.1:8768/status
+curl http://127.0.0.1:8768/run
+# iOS Simulator의 제어 주소는 http://127.0.0.1:8767 입니다.
+```
+
+프리뷰는 실제 저장 위젯·대역 사진 선택기·메모리 저장 콜백과 합성 포인터/텍스트 입력을 사용합니다.
+서버는 프리뷰 조작을 위한 루프백 제어용이며 실제 백엔드·인증·저장을 사용하지 않습니다.
+`/scene?kind=photo|link&scale=1|2`, `/run`, `/keyboard`, `/scroll`, `/status`를 제공하고
+기기 임시 `clipback-save-result-*`에 PNG·`report.json`을 저장합니다.
+실제 OS 화면은 별도 `simctl`·`adb` 원본 캡처와 영상으로 기록합니다.
+
+집중 검사 **11개**·관련 검사 **132개**·전체 Flutter 테스트 **703개**를 통과했고 정적 분석은 **문제 없음**입니다.
+변경 전·후 배율 2에서 기존 결과 미리보기의 높이 100px 텍스트 열 넘침은
+iOS 46px·Android 47px, 선택 전 `PhotoEmptyPrompt`의 89px 안내 열 넘침은 2px·4px였습니다.
+선택된 사진을 표시하는 `SelectedPhotoPreview` 자체의 텍스트 열 오류로 분류하지 않습니다.
+`checksCompleted`·`behaviorPassed`와 `layoutPassed`·전체 `passed`를 구분하며 기존 레이아웃 실패를 문구 수정의 성공으로 덮지 않습니다.
+이번 범위는 위 문구·상태 고정이며 확대 배치를 임의로 바꾸지 않습니다.
+수정 후 양 플랫폼의 18개 기록은 `checksCompleted`·`behaviorPassed: true`이고
+`layoutPassed`·전체 `passed: false`입니다. 기존 배율 2의 오류 종류·크기는 전후 동일합니다.
+
+iPhone 16/iOS 18.6은 논리 393×852·DPR 3·안전 영역 상단 59px/하단 34px,
+Pixel 3a 설정의 Android 13/API 33 제스처 모드는 논리 392.7×783.3·DPR 2.75·상단 24px/하단 0px입니다.
+실제 저장 창에서 문구·제출 입력·탭 복귀/고정·수동 재시도·닫기/늦은 완료를 확인했습니다.
+사진 결과 배율 2의 스크롤 위치는 iOS 124px·Android 161.727px이었습니다.
+키보드는 양쪽 OS 캡처에서 보였으며 iOS inset은 336px입니다. Android는 보이는 IME와 달리 Flutter 스냅샷의
+`viewInsets.bottom`이 0이어서 키보드 inset 반영 검증은 한계로 남겼습니다.
+
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-wording`입니다.
+[원본 변경 전·후·Figma 비교 문서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-wording/comparison-document.html),
+[iOS 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-wording/ios/after/interaction.mp4),
+[Android 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-wording/android/after/interaction.mp4)을 보존했습니다.
+두 플랫폼의 링크/사진·배율 1/2, 원본 OS 화면 비교 8건의 조건·파일·해시를 대조했습니다.
+최종 기종·OS·자동/기기 결과와 미검증 범위는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록했습니다.
+실제 공급자·AI/OCR·운영 서버·실기기·원격 CI는 이번 대역 렌더링으로 검증하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 

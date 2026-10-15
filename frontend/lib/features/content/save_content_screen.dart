@@ -47,6 +47,16 @@ class AddContentSheet extends StatefulWidget {
   State<AddContentSheet> createState() => _AddContentSheetState();
 }
 
+class _SaveSubmission {
+  const _SaveSubmission.link(this.label) : photoBytes = null;
+  const _SaveSubmission.photo(this.label, Uint8List bytes) : photoBytes = bytes;
+
+  final String label;
+  final Uint8List? photoBytes;
+  bool get isLink => photoBytes == null;
+  int get tab => isLink ? 0 : 1;
+}
+
 class _AddContentSheetState extends State<AddContentSheet> {
   final _urlController = TextEditingController();
   final _bodyScrollController = ScrollController();
@@ -59,7 +69,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   String? _selectedPhotoFilename;
   var _isSaving = false;
   String? _saveError;
-  ContentItem? _savedContent;
+  ({ContentItem content, _SaveSubmission submission})? _savedResult;
 
   @override
   void dispose() {
@@ -71,8 +81,14 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _paste() async {
+    if (_savedResult != null) return;
     final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!mounted || data?.text == null || data!.text!.trim().isEmpty) return;
+    if (!mounted ||
+        _savedResult != null ||
+        data?.text == null ||
+        data!.text!.trim().isEmpty) {
+      return;
+    }
     _urlController.text = data.text!.trim();
     _validateLink(_urlController.text);
   }
@@ -105,39 +121,56 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   void _changeTab(int tab) {
+    if (_savedResult != null) return;
     setState(() => _activeTab = tab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+        _bodyScrollController.jumpTo(0);
+      }
     });
   }
 
   Future<void> _submit() async {
     final isLink = _activeTab == 0;
     final stage = isLink ? _linkStage : _photoStage;
-    if (_isSaving || stage != SaveFlowStage.valid) return;
+    if (_savedResult != null || _isSaving || stage != SaveFlowStage.valid) {
+      return;
+    }
+
+    final _SaveSubmission submission;
+    if (isLink) {
+      submission = _SaveSubmission.link(_urlController.text.trim());
+    } else {
+      final bytes = _selectedPhotoBytes;
+      final filename = _selectedPhotoFilename;
+      if (bytes == null || filename == null) return;
+      submission = _SaveSubmission.photo(filename, bytes);
+    }
 
     setState(() => _isSaving = true);
     try {
       late final ContentItem savedContent;
-      if (isLink) {
-        savedContent = await widget.onAddLink(url: _urlController.text.trim());
+      if (submission.isLink) {
+        savedContent = await widget.onAddLink(url: submission.label);
       } else {
-        final bytes = _selectedPhotoBytes;
-        final filename = _selectedPhotoFilename;
-        if (bytes == null || filename == null) {
-          setState(() => _isSaving = false);
-          return;
-        }
         savedContent = await widget.onAddScreenshot(
-          bytes: bytes,
-          filename: filename,
+          bytes: submission.photoBytes!,
+          filename: submission.label,
         );
       }
       if (mounted) {
+        _validationTimer?.cancel();
+        _saveErrorTimer?.cancel();
         setState(() {
           _isSaving = false;
-          _savedContent = savedContent;
+          _savedResult = (content: savedContent, submission: submission);
+          _activeTab = submission.tab;
           _saveError = null;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _bodyScrollController.hasClients) {
+            _bodyScrollController.jumpTo(0);
+          }
         });
       }
     } on ClipbackApiException catch (error) {
@@ -162,6 +195,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _selectPhoto() async {
+    if (_savedResult != null) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       withData: true,
@@ -169,23 +203,25 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final photo = result != null && result.files.isNotEmpty
         ? result.files.first
         : null;
-    if (!mounted || photo?.bytes == null) return;
+    if (!mounted || _savedResult != null || photo?.bytes == null) return;
     setState(() {
       _selectedPhotoBytes = photo!.bytes;
       _selectedPhotoFilename = photo.name;
       _photoStage = SaveFlowStage.valid;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+        _bodyScrollController.jumpTo(0);
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final savedContent = _savedContent;
+    final savedResult = _savedResult;
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
-        savedContent != null || (!_isSaving && stage == SaveFlowStage.valid);
+        savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
 
     return ColoredBox(
       color: AppColors.bg,
@@ -227,19 +263,16 @@ class _AddContentSheetState extends State<AddContentSheet> {
                               controller: _bodyScrollController,
                               padding: EdgeInsets.fromLTRB(
                                 16,
-                                savedContent == null ? 32 : 80,
+                                savedResult == null ? 32 : 80,
                                 16,
                                 24,
                               ),
-                              child: savedContent != null
+                              child: savedResult != null
                                   ? SavedContentConfirmation(
-                                      content: savedContent,
-                                      originalUrl: _activeTab == 0
-                                          ? _urlController.text.trim()
-                                          : _selectedPhotoFilename ?? '',
-                                      photoBytes: _activeTab == 1
-                                          ? _selectedPhotoBytes
-                                          : null,
+                                      content: savedResult.content,
+                                      originalUrl: savedResult.submission.label,
+                                      photoBytes:
+                                          savedResult.submission.photoBytes,
                                     )
                                   : _activeTab == 0
                                   ? LinkSaveBody(
@@ -262,10 +295,10 @@ class _AddContentSheetState extends State<AddContentSheet> {
                             bottom: 66,
                             height: 56,
                             child: SaveFlowButton(
-                              label: savedContent == null ? '허투루에 저장하기' : '닫기',
+                              label: savedResult == null ? '허투루에 저장하기' : '닫기',
                               enabled: enabled,
                               loading: _isSaving,
-                              onPressed: savedContent == null
+                              onPressed: savedResult == null
                                   ? _submit
                                   : () => Navigator.of(
                                       context,
@@ -507,6 +540,7 @@ class SavedContentConfirmation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
+    final isPhoto = photoBytes != null;
     final processingVideo =
         content.source == sourceLabel('youtube') &&
         (content.summaryStatus == 'queued' ||
@@ -519,9 +553,9 @@ class SavedContentConfirmation extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 링크',
-          style: TextStyle(
+        Text(
+          isPhoto ? '저장할 사진' : '저장할 링크',
+          style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.4,
@@ -548,8 +582,10 @@ class SavedContentConfirmation extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 5),
-        const ValidationMessage(valid: true),
+        if (!isPhoto) ...[
+          const SizedBox(height: 5),
+          const ValidationMessage(valid: true),
+        ],
         const SizedBox(height: 28),
         const Text(
           '미리보기',
