@@ -505,16 +505,18 @@ class LinkSaveBody extends StatelessWidget {
                     style: TextButton.styleFrom(
                       minimumSize: const Size(64, 44),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      // Fallback glyph bounds can extend beyond a line box.
-                      padding: const EdgeInsets.symmetric(vertical: 1),
-                      backgroundColor: AppColors.mainSubtle,
-                      foregroundColor: AppColors.mainDeep,
-                      disabledBackgroundColor: AppColors.mainSubtle,
-                      disabledForegroundColor: AppColors.mainDeep,
+                      // Keep scaled glyph bounds clear of the inside border.
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      backgroundColor: AppColors.surface,
+                      foregroundColor: AppColors.subtle,
+                      disabledBackgroundColor: AppColors.surface,
+                      disabledForegroundColor: AppColors.subtle,
+                      side: const BorderSide(color: AppColors.subtler),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(4),
                       ),
                       textStyle: const TextStyle(
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         letterSpacing: -0.35,

@@ -5,6 +5,7 @@
 // HTTP loopback :8767: /status, /scene?kind=link-input|photo-empty|photo-selected|link|photo&scale=1|1.5|2, /run,
 // /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
 // /scroll?max=1, /paste-scene?scale=1|1.5|2&keyboard=0|1, /paste-run.
+// /paste-scene?kind=empty|invalid&scale=1&keyboard=0 adds base input states.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
@@ -100,8 +101,9 @@ Future<void> main() async {
         case '/paste-scene':
           final scale = _requestedScale(request.uri);
           final keyboard = request.uri.queryParameters['keyboard'] == '1';
-          await _pasteScene(scale: scale, keyboard: keyboard);
-          await _capture(_pasteSceneName(scale, keyboard));
+          final kind = request.uri.queryParameters['kind'] ?? 'valid';
+          await _pasteScene(scale: scale, keyboard: keyboard, kind: kind);
+          await _capture(_pasteSceneName(scale, keyboard, kind: kind));
         case '/paste-run':
           await _pasteRun();
         case '/keyboard':
@@ -512,6 +514,13 @@ Map<String, Element> _layoutNodes() {
     nodes['urlEditable'] = _first<EditableText>();
     nodes['pasteButton'] = pasteButton;
     nodes['pasteParagraph'] = pasteText;
+    nodes['pastePaint'] = _elements(
+      pasteButton,
+    ).firstWhere((e) => e.widget is Material);
+    final validation = _elements(
+      body,
+    ).where((e) => e.widget is ValidationMessage).firstOrNull;
+    if (validation != null) nodes['validationMessage'] = validation;
     final clear = _elements(
       body,
     ).where((e) => e.widget is IconButton).firstOrNull;
@@ -794,6 +803,139 @@ List<Rect> _pasteLineRects() {
       .toList();
 }
 
+String? _colorArgb(Color? color) => color == null
+    ? null
+    : '0x${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+
+Map<String, Object?> _pasteStyleMetrics() {
+  if (!_has<LinkSaveBody>()) return {};
+  final nodes = _layoutNodes();
+  final buttonElement = nodes['pasteButton']!;
+  final button = buttonElement.widget as TextButton;
+  final ink = _elements(
+    buttonElement,
+  ).where((e) => e.widget is InkWell).firstOrNull;
+  final states = Set<WidgetState>.of(
+    (ink?.widget as InkWell?)?.statesController?.value ??
+        button.statesController?.value ??
+        {if (button.onPressed == null) WidgetState.disabled},
+  );
+  final widgetStyle = button.style;
+  final themeStyle = TextButtonTheme.of(buttonElement).style;
+  T? resolve<T>(WidgetStateProperty<T?>? own, WidgetStateProperty<T?>? theme) =>
+      own?.resolve(states) ?? theme?.resolve(states);
+  final materialElement = nodes['pastePaint']!;
+  final material = materialElement.widget as Material;
+  final paragraph =
+      nodes['pasteParagraph']!.findRenderObject()! as RenderParagraph;
+  final effectiveText = (paragraph.text as TextSpan).style!;
+  final shape = material.shape;
+  final side =
+      resolve<BorderSide>(widgetStyle?.side, themeStyle?.side) ??
+      (shape is OutlinedBorder ? shape.side : null);
+  final radius = shape is RoundedRectangleBorder
+      ? shape.borderRadius.resolve(Directionality.of(materialElement))
+      : null;
+  final paintBox = materialElement.findRenderObject()! as RenderBox;
+  final localPaint = Offset.zero & paintBox.size;
+  final offset = paintBox.localToGlobal(Offset.zero);
+  final outer = shape
+      ?.getOuterPath(
+        localPaint,
+        textDirection: Directionality.of(materialElement),
+      )
+      .getBounds()
+      .shift(offset);
+  final inner = shape
+      ?.getInnerPath(
+        localPaint,
+        textDirection: Directionality.of(materialElement),
+      )
+      .getBounds()
+      .shift(offset);
+  final resolvedText = resolve<TextStyle>(
+    widgetStyle?.textStyle,
+    themeStyle?.textStyle,
+  );
+  return {
+    'widgetStates': states.map((state) => state.name).toList()..sort(),
+    'enabled': button.onPressed != null,
+    'backgroundColor': _colorArgb(
+      resolve<Color>(
+            widgetStyle?.backgroundColor,
+            themeStyle?.backgroundColor,
+          ) ??
+          material.color,
+    ),
+    'foregroundColor': _colorArgb(
+      resolve<Color>(
+            widgetStyle?.foregroundColor,
+            themeStyle?.foregroundColor,
+          ) ??
+          effectiveText.color,
+    ),
+    'paintBackgroundColor': _colorArgb(material.color),
+    'paintForegroundColor': _colorArgb(effectiveText.color),
+    'sideWidth': side?.width,
+    'sideColor': _colorArgb(side?.color),
+    'sideStyle': side?.style.name,
+    'shapeType': shape.runtimeType.toString(),
+    'radius': {
+      'topLeft': radius?.topLeft.x,
+      'topRight': radius?.topRight.x,
+      'bottomLeft': radius?.bottomLeft.x,
+      'bottomRight': radius?.bottomRight.x,
+    },
+    'fontFamily': effectiveText.fontFamily,
+    'resolvedTextStyleFontFamily': resolvedText?.fontFamily,
+    'fontSize': effectiveText.fontSize,
+    'fontWeight': effectiveText.fontWeight?.value,
+    'letterSpacing': effectiveText.letterSpacing,
+    'paintArea': _rectJson(_rect(materialElement)),
+    'paintBounds': outer == null ? null : _rectJson(outer),
+    'innerPaintBounds': inner == null ? null : _rectJson(inner),
+    'resolutionScope':
+        'Widget/theme ButtonStyle resolved with live InkWell states; actual Material paint and RenderParagraph effective style recorded separately',
+  };
+}
+
+List<String> _pasteStyleFindings() {
+  if (!_has<LinkSaveBody>()) return [];
+  final findings = <String>[];
+  final style = _pasteStyleMetrics();
+  if (style['backgroundColor'] != '0xFFFFFFFF' ||
+      style['paintBackgroundColor'] != '0xFFFFFFFF') {
+    findings.add('Paste background must resolve and paint surface #FFFFFFFF');
+  }
+  if (style['foregroundColor'] != '0xFF767676' ||
+      style['paintForegroundColor'] != '0xFF767676') {
+    findings.add('Paste foreground must resolve and paint subtle #FF767676');
+  }
+  if (style['sideWidth'] != 1 ||
+      style['sideColor'] != '0xFFD1D1D1' ||
+      style['sideStyle'] != 'solid') {
+    findings.add('Paste border must be 1px solid subtler #FFD1D1D1');
+  }
+  final radius = style['radius'] as Map<String, Object?>;
+  if (radius.values.any((value) => value != 4)) {
+    findings.add('Paste border radii must remain 4px');
+  }
+  if (style['fontFamily'] != 'Pretendard' ||
+      style['fontSize'] != 14 ||
+      style['fontWeight'] != 500 ||
+      style['letterSpacing'] != -0.35) {
+    findings.add(
+      'Paste effective text must be Pretendard 14px Medium with -0.35px spacing',
+    );
+  }
+  if (style['enabled'] != true) {
+    findings.add(
+      'Paste action must remain enabled in empty/invalid/valid states',
+    );
+  }
+  return findings;
+}
+
 Map<String, Object?> _pasteMetrics() {
   if (!_has<LinkSaveBody>()) return {};
   final nodes = _layoutNodes();
@@ -805,6 +947,7 @@ Map<String, Object?> _pasteMetrics() {
   final controller = editable.controller;
   return {
     'fullText': render.text.toPlainText(),
+    'style': _pasteStyleMetrics(),
     'fontFamily': style.fontFamily,
     'fontSize': style.fontSize,
     'scaledFontSize': render.textScaler.scale(style.fontSize!),
@@ -833,6 +976,11 @@ Map<String, Object?> _pasteMetrics() {
         : _rect(nodes['clearButton']!).center.dy -
               _rect(nodes['urlInputBox']!).center.dy,
     'draft': controller.text,
+    'stage': (_first<LinkSaveBody>().widget as LinkSaveBody).stage.name,
+    'validationGap': nodes['validationMessage'] == null
+        ? null
+        : _rect(nodes['validationMessage']!).top -
+              _rect(nodes['linkInputRow']!).bottom,
     'selectionBase': controller.selection.baseOffset,
     'selectionExtent': controller.selection.extentOffset,
     'clipboardSetupScope':
@@ -898,7 +1046,9 @@ List<String> _pasteFindings() {
     );
   }
   if (nodes['clearButton'] case final Element clear) {
-    if (!_inside(_rect(clear), field) ||
+    if ((_rect(clear).width - 48).abs() > 0.1 ||
+        (_rect(clear).height - 44).abs() > 0.1 ||
+        !_inside(_rect(clear), field) ||
         (_rect(clear).center.dy - field.center.dy).abs() > 0.1) {
       findings.add('Clear button clips input or is not centered');
     }
@@ -910,6 +1060,19 @@ List<String> _pasteFindings() {
       findings.add('Clear icon size or input containment changed');
     }
   }
+  if (nodes['validationMessage'] != null &&
+      ((metrics['validationGap'] as double) - 5).abs() > 0.1) {
+    findings.add('Validation message must remain 5px below input row');
+  }
+  if (metrics['maxLines'] != 2) {
+    findings.add('Paste label must explicitly allow at most two lines');
+  }
+  final paint = _rect(nodes['pastePaint']!);
+  if (!_inside(paint, button) ||
+      (paint.width - button.width).abs() > 0.1 ||
+      (paint.height - button.height).abs() > 0.1) {
+    findings.add('Paste painted area must match the button bounds');
+  }
   return findings;
 }
 
@@ -917,11 +1080,13 @@ void _checkPaste() {
   if (_phase == 'after') {
     final findings = _pasteFindings();
     _require(findings.isEmpty, 'Paste layout: ${findings.join('; ')}');
+    final styleFindings = _pasteStyleFindings();
+    _require(styleFindings.isEmpty, 'Paste style: ${styleFindings.join('; ')}');
   }
 }
 
-String _pasteSceneName(double scale, bool keyboard) =>
-    'paste_scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}_keyboard_${keyboard ? 1 : 0}';
+String _pasteSceneName(double scale, bool keyboard, {String kind = 'valid'}) =>
+    'paste_${kind == 'valid' ? '' : '${kind}_'}scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}_keyboard_${keyboard ? 1 : 0}';
 
 Future<void> _pasteFromMobileClipboard(String text) async {
   _require(
@@ -936,26 +1101,51 @@ Future<void> _pasteFromMobileClipboard(String text) async {
 Future<void> _pasteScene({
   required double scale,
   required bool keyboard,
+  String kind = 'valid',
 }) async {
+  _require(
+    const ['valid', 'empty', 'invalid'].contains(kind),
+    'Unsupported paste input kind',
+  );
+  _require(
+    kind == 'valid' || (scale == 1 && !keyboard),
+    'Empty/invalid comparison scenes use base scale without keyboard',
+  );
   await _open('link-input', scale: scale);
   if (keyboard) {
     final shown = await _showKeyboard();
     _require(shown > 0, 'Paste scene did not measure an OS keyboard inset');
   }
   await _type('');
-  await _pasteFromMobileClipboard(_url);
+  final draft = kind == 'valid'
+      ? _url
+      : kind == 'invalid'
+      ? 'invalid-link'
+      : '';
+  await _pasteFromMobileClipboard(draft);
   final controller = (_first<EditableText>().widget as EditableText).controller;
   _require(
-    controller.text == _url,
-    'Actual paste button did not paste mobile clipboard',
+    controller.text == draft,
+    'Actual paste button did not retain the mobile clipboard state',
   );
   // Pin the comparison cursor after the real paste; this does not validate or
   // change product selection policy. Both phases use the same end position.
-  controller.selection = TextSelection.collapsed(offset: _url.length);
+  controller.selection = TextSelection.collapsed(offset: draft.length);
   _bodyPosition.jumpTo(0);
   await _settle();
-  _scene = _pasteSceneName(scale, keyboard);
-  _require(_text('유효한 링크예요!'), 'Pasted URL did not validate');
+  _scene = _pasteSceneName(scale, keyboard, kind: kind);
+  if (kind == 'valid') {
+    _require(_text('유효한 링크예요!'), 'Pasted URL did not validate');
+  } else if (kind == 'invalid') {
+    _require(_text('유효하지 않은 링크예요.'), 'Invalid paste did not validate');
+  } else {
+    _require(!_has<ValidationMessage>(), 'Empty draft unexpectedly validated');
+  }
+  _require(
+    (_first<SaveFlowButton>().widget as SaveFlowButton).enabled ==
+        (kind == 'valid'),
+    'Save enabled state differs from input kind',
+  );
   _require(_appKey.currentState!.calls == 0, 'Paste unexpectedly submitted');
   _checkFooter();
   _checkPaste();
@@ -1046,6 +1236,15 @@ Future<void> _pasteRun() async {
       });
     }
   }
+  for (final kind in ['empty', 'invalid']) {
+    await _pasteScene(scale: 1, keyboard: false, kind: kind);
+    await _capture(_pasteSceneName(1, false, kind: kind));
+    _checks.add({
+      'scenario': 'paste_${kind}_base_state',
+      'passed': true,
+      ..._snapshot(),
+    });
+  }
   _checksCompleted = true;
 }
 
@@ -1099,6 +1298,10 @@ Map<String, Object?> _snapshot() {
     'pasteMetrics': _pasteMetrics(),
     'pasteLayoutFindings': _pasteFindings(),
     'pasteLayoutPassed': _pasteFindings().isEmpty,
+    'pasteStyleFindings': _pasteStyleFindings(),
+    'pasteStylePassed': _pasteStyleFindings().isEmpty,
+    'targetStyleFindings': _pasteStyleFindings(),
+    'targetStylePassed': _pasteStyleFindings().isEmpty,
     'targetLayoutFindings': [..._footerFindings(), ..._pasteFindings()],
     'targetLayoutPassed': _footerFindings().isEmpty && _pasteFindings().isEmpty,
     'geometry': _geometry(),
@@ -1137,15 +1340,17 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
         _checksCompleted &&
         !_checks.any((c) => c['passed'] == false) &&
         _errors.isEmpty &&
-        !_checks.any((c) => c['targetLayoutPassed'] == false),
+        !_checks.any((c) => c['targetLayoutPassed'] == false) &&
+        !_checks.any((c) => c['targetStylePassed'] == false),
     'checksCompleted': _checksCompleted,
     'behaviorPassed':
         _checksCompleted && !_checks.any((c) => c['passed'] == false),
     'layoutPassed':
         _errors.isEmpty &&
         !_checks.any((c) => c['targetLayoutPassed'] == false),
+    'stylePassed': !_checks.any((c) => c['targetStylePassed'] == false),
     'scope':
-        'Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
+        'Style and geometry judgments remain separate. Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
     'checks': _checks,
     'frameworkErrors': _errors,
   }),

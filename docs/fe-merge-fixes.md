@@ -1844,3 +1844,44 @@ flutter build web --no-pub
   [영상 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/media-verification.json)는 BEFORE/AFTER 여섯 개 모두 전체 디코딩 종료 코드 0·오류 로그 0바이트를 확인했다. 이전 작업 영상의 디코딩 결과를 이번 것으로 사용하지 않는다.
 - 사진 비율/잘림·카테고리 편집 등 미정 디자인은 계속 보류한다. 이번 완료 범위는 붙여넣기/URL 입력행의 확대 표시와 대역 회귀이며 저장 화면 전체 디자인 맞춤으로 보고하지 않는다.
   화면 증거·빌드 생성물·로컬 `AGENTS.md`는 커밋에서 제외하고 푸시·PR은 수행하지 않는다.
+
+
+### 2026-10-15 — Figma 붙여넣기 버튼 스타일 (해당 범위 적용·검증 완료)
+
+- 기준 커밋은 `52132f0`이다. 이번 범위는 붙여넣기 버튼의 배경 `#FFFFFF`, 1px 실선 테두리 `#D1D1D1`, 글자 `#767676`, 반경 4px과 명시적 Pretendard 14px/Medium·자간 −0.35px을 최신 D01/D02/D03에 맞추는 작업이다.
+  기존 폭 64px·기본/최소 44px·최대 두 줄·가운데 정렬·글자 축소 없는 공통 자연 높이와 URL 한 줄 입력·지우기 48×44px/아이콘 18px·간격 8px·검증 앞 5px을 유지한다.
+  실제 문자가 새 테두리 안쪽 경계에 들어오는지 확인하고 배율별 높이 상수·수동 글자 높이 계산을 추가하지 않는다.
+  공개 생성자·콜백·서버 API·데이터 모델·저장 시점·제출 입력·성공 탭 고정·재시도·하단 안전 영역은 유지하며 사진 비율/잘림·카테고리 편집·저장 화면 전체 맞춤·추천 API는 후속이다.
+- 이번 [Figma 조회 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/figma/reference-manifest.json)은 D01 입력 전 `912:16502`·D02 유효 링크 `912:16682`·D03 무효 링크 `912:16712`의 초기 컨텍스트 **22:05:02 KST / 13:05:02 UTC**, 원본 **22:05:18 KST / 13:05:18 UTC** 확보와 구현 직전 재조회를 구분한다.
+  현재 비교 기준은 구현 직전 컨텍스트 **22:33:18 KST / 13:33:18 UTC**·원본 **22:33:41 KST / 13:33:41 UTC**의 세 노드 조회 성공 결과다. 재조회 원본은 375×812px이며 초기 PNG와 바이트 해시가 같고, 초기 원본/컨텍스트는 `figma/initial-1305`에 별도 보존한다.
+  이전 확대 작업의 Starter 한도 실패·D01 원본 누락·18건의 비교 제한은 당시 기록으로 그대로 보존한다. 이번 성공을 과거 작업의 원본 확보나 완전한 세 화면 비교 성공으로 소급하지 않는다.
+- 제품 수정 전 [고정 프리뷰 manifest](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/fixture-manifest.json)를 만들었다. fixture SHA256은 `618a868d90cdc69308fd56d33a63f9457b32995dcace219c86236e6ff7e294bf`이며 변경 전·후에 같은 소스를 사용한다.
+  `/paste-scene?kind=valid&scale=1|1.5|2&keyboard=0|1`의 6개 상태와 `kind=empty|invalid&scale=1&keyboard=0`의 두 기본 상태를 제공한다. `/paste-run`은 기존 붙여넣기·입력·지우기·검증·키보드·실패/재시도·완료 탭·스크롤·닫기를 검사한다.
+  모바일 Clipboard와 실제 버튼·Flutter 합성 입력·메모리 저장 대역을 사용하며 Mac 클립보드 API·운영 서버·인증·실기기·원격 CI 검증과 구분한다.
+- [수정 전 집중 재현](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/paste-style-red.log)은 **40개 중 17개 통과·23개 실패**(13초)다. 실제 Dialog의 Pretendard 부재 13건, 새 1px 테두리 안쪽 글자 경계 초과 5건, 기존 노란 배경과 흰 배경 기준 차이 5건으로 분류한다.
+  컴파일/타입/비동기 등 검사 자체 오류는 없지만 스타일 5건은 첫 배경색 비교에서 멈춰 이후 테두리·글자색·포커스/누름 상태 검사가 실행된 증거로 사용하지 않는다.
+  실제 Dialog RenderParagraph의 명시적 Pretendard를 검사하도록 기존 회귀를 보강하고 분리 글꼴 모델 13개는 유지했다. 공개 `onPaste`는 필수 콜백이므로 비활성 모양은 실제 TextButton의 스타일/자식을 복제하고 `onPressed: null`로 만든 직접 모델에서 검사한다.
+  [초기 검사/프리뷰 정적 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/fixture-analysis.log)은 2항목·문제 없음(2.4초)이며 전체 앱 분석 완료로 보고하지 않는다.
+- 변경 전 원본은 iPhone 16/iOS 18.6·Android 13/API 33 제스처/3버튼에서 각각 8장, 총 24장을 새로 확보하고 [변경 전 게이트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/before-gate.json)에서 제품 원본·동결 fixture·24개 OS 원본 해시를 확인한 뒤 제품을 수정했다. 유효 링크 배율 1/1.5/2 × 키보드 유무 6개와 기본 입력 전/무효 두 상태의 데이터를 고정했다.
+  BEFORE는 iOS 30개·Android 제스처 22개·3버튼 30개 기록에서 프레임워크 오류 0건이고 `checksCompleted`·`behaviorPassed`·`layoutPassed: true`, `stylePassed`·전체 `passed: false`다. 기존 기하 통과와 새 스타일 실패를 구분한다.
+  제스처 최초 행동 검사는 오류 토스트 부재로 중단됐으나 저장 호출 1회·URL·컨트롤러는 유지됐고 프레임워크 오류도 없었다. 토스트 만료는 추정이며 확정하지 않는다. 최초 실패를 `.attempts`에 보존하고 원본 8장·상태 8개 해시를 유지한 채 fresh 앱 세션에서 행동을 재시도했다. [재시도 출처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-gesture/before/retry-origin.json)는 13:26:21~13:28:56 UTC·154.6초·22개 기록과 `interaction-retry.mp4`를 구분한다.
+  같은 조건으로 AFTER를 촬영해 **24쌍**을 변경 전 → 변경 후 → D01/D02/D03 순서로 제공하고 동작 영상을 첨부한다. 확대/키보드는 기본 Figma와 사용자 확정 기준을 구분하며 전체 화면 원본을 구현 에셋이나 대체 디자인으로 사용하지 않는다.
+  증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style`, 브라우저용 주소는 `http://127.0.0.1:8773/comparison-document.html`이다. 프리뷰 재현 명령은 [프론트 README](../frontend/README.md)의 이번 스타일 절에 기록했다.
+- 첫 스타일 적용 후 [집중 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/paste-style-first-green.log)는 40개 중 30개 통과·10개 실패로 새 1px 테두리 안쪽 경계 초과를 확인했다. 상하 내용 여유를 1px에서 2px로 늘려 테두리 안의 실제 글자를 보호하고 기본 44px·자연 높이·수동 글자 계산 없음 기준을 유지했다.
+  최종 [집중 40개 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/paste-style-green.log)는 모두 통과했다(3초). Dart 세 파일 형식 검사는 변경 0건(0.42초)이다. [최종 소스 manifest](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/final-implementation.json)는 제품 SHA256 `2b792fc4d1447d21f9129e32c27509a1cb213a7199b714f07b10b0c5d16aac91`·동결 fixture·검사 소스를 기록한다.
+  [관련 10개 파일 335개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/related-green.log)(17초)·[전체 Flutter 검사 877개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/full-test.log)(49초)가 통과했고 [전체 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/tests/analyze.log)은 문제 없음(3.3초)이다.
+  Android AFTER APK(14.2초)와 iOS AFTER Xcode 빌드(28.5초)는 성공했고 제품·fixture·검사 소스 해시를 기록했다. 빌드 성공을 실행 성공으로 대신하지 않는다. 이전 `52132f0`의 전체 872개 테스트나 기기 성공을 이번 결과로 사용하지 않는다.
+- 최종 [iOS AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/ios-final-result.json)·[Android 제스처/3버튼 AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-final-result.json)는 각각 OS 원본 8장·30개 기록·프레임워크 오류 0건이고 `checksCompleted`·`behaviorPassed`·`layoutPassed`·`stylePassed`·전체 `passed`가 모두 `true`다.
+  세 구성의 입력행 높이는 배율 1/1.5/2에서 44/54/70px이며 Android의 명시적 Pretendard 적용 전 44/62/84px과 구분한다. 실제 글꼴에 따른 자연 높이로 고정 배율값을 구현한 것이 아니다.
+  실제 창은 iOS 393×852·DPR 3·상하 여백 59/34px·IME 336→0px, Android 제스처 392.7×783.3·DPR 2.75·24/0px·IME 274.909→0px, 3버튼 392.7×759.3·DPR 2.75·24/0px·IME 250.909→0px다.
+  [Android 탐색 복원](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-navigation-restored.json)에서 원래 mode 2·6개 오버레이의 `matchesOriginal: true`를 확인했다. [종료 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-final-result.json)은 앱 종료·포워딩 8768 제거·에뮬레이터 종료 코드 0·`emulator-5554` 부재와 AVD 데이터 보존을 기록한다.
+  iOS도 앱 종료·Simulator Shutdown과 기기 데이터 보존을 확인했다. 자동 검사·세 구성의 기기 실행·24쌍 최종 비교·동작 영상 QA를 완료했다.
+  [영구 증거 복사 검증](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/evidence-copy-verification.json)은 임시 작업 경로의 자료 270개·102,133,667바이트를 위 영구 루트에 모든 파일 해시 일치로 복사했음을 확인한다. 임시 원본·실패 시도와 정식 성공 기록의 출처를 유지한다.
+- [24쌍 비교 문서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/comparison-document.html)는 모든 상태에서 변경 전 → 변경 후 → 실제 Figma 원본 3열을 제공한다.
+  [최종 비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/comparison-qa.json)·[전후 상태 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/pair-verification.json)는 Figma 누락 0건·조건 불일치 0건·BEFORE 24개 이미지/24개 상태 해시 불변·동결 fixture/최종 빌드 소스 일치·실제 문자 경계의 테두리 안쪽 포함을 확인했다.
+  의도한 색상/테두리/글꼴 변경 외 초안·커서·URL/지우기 가로 기하와 기본 44px·공통 자연 높이를 유지했다. 기본 배율 12쌍의 픽셀 대조는 의도한 버튼 외형과 원본 커서/선택 차이를 구분하며 원본을 보정하지 않는다. 확대/키보드 전용 디자인을 만들지 않고 기본 Figma와 사용자 확정 기준을 표시했다.
+  실제 Dialog·네이티브 RenderParagraph의 효과적 `fontFamily: Pretendard`를 확인했지만 플랫폼의 실제 글꼴 파일 식별자를 따로 추출한 증거로 확대하지 않는다.
+- AFTER 영상: [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/ios/after/interaction.mp4), [Android 제스처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-gesture/after/interaction.mp4), [Android 3버튼](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/android-threebutton/after/interaction.mp4).
+  [영상 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-style/media-verification.json)는 이번 BEFORE/AFTER 6개 영상 모두 전체 디코딩 종료 코드 0·오류 로그 0바이트·`allComplete: true`를 확인했다. 제스처 BEFORE는 성공한 `interaction-retry.mp4`이며 실패 시도 영상은 완료 근거에서 제외했다.
+  이번 완료 범위는 붙여넣기 버튼 스타일과 기존 대역 회귀다. 사진 비율/잘림·카테고리 편집·저장 화면 전체 맞춤·추천 API는 후속이며 실제 서버·인증·운영 저장·실기기·원격 CI는 이번에 검증하지 않았다.
+  최종 diff·문서 링크·공백을 확인한 뒤 `fix: 피그마 기준으로 붙여넣기 버튼 스타일 맞춤` 한 커밋으로 저장한다. 화면 증거·빌드 생성물·`AGENTS.md`는 제외하며 푸시·PR은 하지 않는다.

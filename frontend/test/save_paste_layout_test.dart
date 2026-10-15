@@ -122,6 +122,7 @@ void _contained(
 
 void _pasteGeometry(WidgetTester tester, double scale) {
   final button = tester.getRect(_paste());
+  final textArea = button.deflate(1);
   final field = tester.getRect(find.byType(TextField));
   final paragraph = tester.renderObject<RenderParagraph>(find.text('붙여넣기'));
   final paragraphBounds = paragraph.localToGlobal(Offset.zero) & paragraph.size;
@@ -130,8 +131,9 @@ void _pasteGeometry(WidgetTester tester, double scale) {
   final selectionTolerance =
       ((paragraph.text as TextSpan).style!.letterSpacing ?? 0).abs() / 2 + 0.01;
 
-  // Each character must have a real selection box inside both the paragraph
-  // and the painted button. Framework overflow errors do not detect this clip.
+  // Font selection boxes may overhang a paragraph's rounded line metrics.
+  // Every character must fit the painted button, which owns the available
+  // content space. Framework overflow errors do not detect this boundary.
   for (var offset = 0; offset < '붙여넣기'.length; offset++) {
     final boxes = paragraph.getBoxesForSelection(
       TextSelection(baseOffset: offset, extentOffset: offset + 1),
@@ -141,14 +143,8 @@ void _pasteGeometry(WidgetTester tester, double scale) {
       final rect = box.toRect().shift(paragraph.localToGlobal(Offset.zero));
       _contained(
         rect,
-        paragraphBounds,
-        reason: 'Paste text clips its paragraph.',
-        tolerance: selectionTolerance,
-      );
-      _contained(
-        rect,
-        button,
-        reason: 'Paste text clips its button.',
+        textArea,
+        reason: 'Paste text must fit inside the one-pixel button border.',
         tolerance: selectionTolerance,
       );
       lineTops.add((rect.top * 100).round());
@@ -156,7 +152,10 @@ void _pasteGeometry(WidgetTester tester, double scale) {
   }
   expect(paragraph.didExceedMaxLines, isFalse);
   expect(lineTops.length, lessThanOrEqualTo(2));
+  expect((paragraph.text as TextSpan).style!.fontFamily, 'Pretendard');
   expect((paragraph.text as TextSpan).style!.fontSize, 14);
+  expect((paragraph.text as TextSpan).style!.fontWeight, FontWeight.w500);
+  expect((paragraph.text as TextSpan).style!.letterSpacing, -0.35);
   expect(paragraph.textScaler.scale(14), closeTo(14 * scale, 0.01));
   expect(button.width, closeTo(64, 0.01));
   expect(button.left - field.right, closeTo(8, 0.01));
@@ -171,6 +170,11 @@ void _pasteGeometry(WidgetTester tester, double scale) {
   expect(fill.height, closeTo(field.height, 0.01));
   expect(fill.top, closeTo(field.top, 0.01));
   expect(fill.bottom, closeTo(field.bottom, 0.01));
+  _contained(
+    paragraphBounds,
+    button,
+    reason: 'The paragraph layout must fit the painted button.',
+  );
   expect(paragraphBounds.center.dy, closeTo(button.center.dy, 0.01));
   if (scale == 1) expect(button.height, closeTo(44, 0.01));
 
@@ -197,6 +201,56 @@ void _pasteGeometry(WidgetTester tester, double scale) {
     reason: 'The single URL line must fit its input field.',
   );
   expect(editableBounds.center.dy, closeTo(field.center.dy, 0.01));
+}
+
+void _pasteAppearance(WidgetTester tester) {
+  final material = tester.widget<Material>(
+    find.descendant(of: _paste(), matching: find.byType(Material)).first,
+  );
+  expect(material.color, const Color(0xFFFFFFFF));
+  final shape = material.shape! as RoundedRectangleBorder;
+  expect(shape.borderRadius, BorderRadius.circular(4));
+  expect(shape.side.color, const Color(0xFFD1D1D1));
+  expect(shape.side.width, 1);
+  expect(shape.side.style, BorderStyle.solid);
+  final paragraph = tester.renderObject<RenderParagraph>(find.text('붙여넣기'));
+  final textStyle = (paragraph.text as TextSpan).style!;
+  expect(textStyle.color, const Color(0xFF767676));
+  expect(textStyle.fontFamily, 'Pretendard');
+  expect(textStyle.fontSize, 14);
+  expect(textStyle.fontWeight, FontWeight.w500);
+  expect(textStyle.letterSpacing, -0.35);
+}
+
+Future<void> _directProductButton(
+  WidgetTester tester, {
+  required TextButton button,
+  required ThemeData theme,
+  required VoidCallback? onPressed,
+  FocusNode? focusNode,
+  WidgetStatesController? states,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      key: UniqueKey(),
+      theme: theme,
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 64,
+            child: TextButton(
+              onPressed: onPressed,
+              style: button.style,
+              focusNode: focusNode,
+              statesController: states,
+              child: button.child!,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void _clipboard(
@@ -285,6 +339,7 @@ void _typographyBounds(WidgetTester tester, double scale) {
   expect(paragraph.maxLines, 2);
   expect(paragraph.didExceedMaxLines, isFalse);
   final button = tester.getRect(_paste());
+  final textArea = button.deflate(1);
   expect(button.width, 64);
   expect(button.height, greaterThanOrEqualTo(44));
   if (scale == 1) expect(button.height, 44);
@@ -298,8 +353,8 @@ void _typographyBounds(WidgetTester tester, double scale) {
     for (final box in boxes) {
       _contained(
         box.toRect().shift(paragraph.localToGlobal(Offset.zero)),
-        button,
-        reason: 'Every real Pretendard character must fit the product button.',
+        textArea,
+        reason: 'Every real Pretendard character must fit inside the border.',
         tolerance: style.letterSpacing!.abs() / 2 + 0.01,
       );
     }
@@ -416,9 +471,9 @@ void main() {
     expect(text.textAlign, TextAlign.center);
   });
 
-  // The real dialog matrix above preserves the production font policy, whose
-  // button style has no explicit family and uses the test fallback font. These
-  // separate models explicitly select the loaded font to verify real metrics.
+  // The real dialog matrix above now verifies Pretendard on the actual
+  // rendered product button. These isolated models retain additional coverage
+  // of font metrics independently of the coupled URL/input-row layout.
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
       for (final scale in [1.0, 1.5, 2.0]) {
@@ -450,9 +505,9 @@ void main() {
     final button = tester.widget<TextButton>(_paste());
     final theme = Theme.of(tester.element(_paste()));
 
-    // The production button inherits no explicit font family. This isolated
-    // metric model uses a real loaded font and a short inherited line height;
-    // it does not change the product's font policy. The negative control
+    // This isolated metric model uses the product's loaded font and a short
+    // inherited line height. It does not change the product's line-height
+    // policy. The negative control
     // differs only by removing the real product button's content padding.
     await _pasteTypographyModel(
       tester,
@@ -472,7 +527,7 @@ void main() {
     for (final rect in actualGlyphRects) {
       _contained(
         rect,
-        actualBounds,
+        actualBounds.deflate(1),
         reason:
             'The inherited line must leave actual glyphs inside the button.',
       );
@@ -527,6 +582,110 @@ void main() {
       'currentFits=true zeroPaddingOverhang=true fixed44Overhang=true '
       'fixedButton=$fixedBounds fixedGlyphs=$fixedGlyphRects',
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final state in ['empty', 'valid', 'invalid']) {
+    testWidgets('paste keeps the D01-D03 appearance with $state input', (
+      tester,
+    ) async {
+      await _open(tester);
+      if (state != 'empty') {
+        await _type(tester, state == 'valid' ? _url : 'not a URL');
+      }
+      _pasteAppearance(tester);
+      _pasteGeometry(tester, 1);
+      final save = tester.widget<SaveFlowButton>(find.byType(SaveFlowButton));
+      expect(save.enabled, state == 'valid');
+      expect(
+        tester.widget<TextButton>(_paste()).onPressed,
+        isNotNull,
+        reason: 'Pasting remains available regardless of URL validity.',
+      );
+      if (state == 'empty') {
+        expect(find.byType(ValidationMessage), findsNothing);
+      } else {
+        expect(
+          tester
+              .widget<ValidationMessage>(find.byType(ValidationMessage))
+              .valid,
+          state == 'valid',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('disabled direct paste button retains the same base appearance', (
+    tester,
+  ) async {
+    await _open(tester);
+    final button = tester.widget<TextButton>(_paste());
+    final theme = Theme.of(tester.element(_paste()));
+    await _directProductButton(
+      tester,
+      button: button,
+      theme: theme,
+      onPressed: null,
+    );
+    _pasteAppearance(tester);
+    expect(tester.getSize(_paste()), const Size(64, 44));
+    expect(tester.widget<TextButton>(_paste()).onPressed, isNull);
+    await tester.tap(_paste());
+    await tester.pumpAndSettle();
+    _pasteAppearance(tester);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('paste retains default Material focus and pressed feedback', (
+    tester,
+  ) async {
+    await _open(tester);
+    final button = tester.widget<TextButton>(_paste());
+    final theme = Theme.of(tester.element(_paste()));
+    final focus = FocusNode();
+    final states = WidgetStatesController();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      focus.dispose();
+      states.dispose();
+    });
+    var calls = 0;
+    await _directProductButton(
+      tester,
+      button: button,
+      theme: theme,
+      onPressed: () => calls++,
+      focusNode: focus,
+      states: states,
+    );
+    _pasteAppearance(tester);
+    final defaults = TextButton.styleFrom(
+      foregroundColor: const Color(0xFF767676),
+    );
+    final ink = tester.widget<InkWell>(
+      find.descendant(of: _paste(), matching: find.byType(InkWell)).first,
+    );
+    for (final state in [WidgetState.focused, WidgetState.pressed]) {
+      expect(
+        ink.overlayColor!.resolve({state}),
+        defaults.overlayColor!.resolve({state}),
+      );
+    }
+    focus.requestFocus();
+    await tester.pumpAndSettle();
+    expect(focus.hasFocus, isTrue);
+    expect(states.value, contains(WidgetState.focused));
+    _pasteAppearance(tester);
+    final gesture = await tester.startGesture(tester.getCenter(_paste()));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(states.value, contains(WidgetState.pressed));
+    expect(calls, 0);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(states.value, isNot(contains(WidgetState.pressed)));
+    _pasteAppearance(tester);
     expect(tester.takeException(), isNull);
   });
 
