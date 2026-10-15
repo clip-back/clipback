@@ -4,7 +4,9 @@
 //   --dart-define=SAVE_RESULT_PHASE=before|after
 // HTTP loopback :8767: /status, /scene?kind=link-input|photo-empty|photo-selected|link|photo&scale=1|1.5|2, /run,
 // /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
-// /scroll?max=1. Android host access: adb forward tcp:8768 tcp:8767.
+// /scroll?max=1, /paste-scene?scale=1|1.5|2&keyboard=0|1, /paste-run.
+// Clipboard setup runs only through the mobile app plugin. No host clipboard API.
+// Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -95,6 +97,13 @@ Future<void> main() async {
           await _capture(_sceneName(kind, scale));
         case '/run':
           await _run();
+        case '/paste-scene':
+          final scale = _requestedScale(request.uri);
+          final keyboard = request.uri.queryParameters['keyboard'] == '1';
+          await _pasteScene(scale: scale, keyboard: keyboard);
+          await _capture(_pasteSceneName(scale, keyboard));
+        case '/paste-run':
+          await _pasteRun();
         case '/keyboard':
           final scale = _requestedScale(request.uri);
           await _open('link-input', scale: scale);
@@ -491,6 +500,29 @@ Map<String, Element> _layoutNodes() {
       nodes['lastBody'] = _first<EditableText>();
     }
   }
+  if (_has<LinkSaveBody>()) {
+    final body = _first<LinkSaveBody>();
+    final pasteText = _elements(
+      body,
+    ).firstWhere((e) => e.widget is Text && (e.widget as Text).data == '붙여넣기');
+    final pasteButton = _ancestor(pasteText, (w) => w is TextButton);
+    final field = _elements(body).firstWhere((e) => e.widget is TextField);
+    nodes['linkInputRow'] = _ancestor(pasteButton, (w) => w is Row);
+    nodes['urlInputBox'] = field;
+    nodes['urlEditable'] = _first<EditableText>();
+    nodes['pasteButton'] = pasteButton;
+    nodes['pasteParagraph'] = pasteText;
+    final clear = _elements(
+      body,
+    ).where((e) => e.widget is IconButton).firstOrNull;
+    if (clear != null) {
+      nodes['clearButton'] = clear;
+      final icon = _elements(clear)
+          .where((e) => e.widget.runtimeType.toString() == 'SvgPicture')
+          .firstOrNull;
+      if (icon != null) nodes['clearIcon'] = icon;
+    }
+  }
   if (_has<PhotoEmptyPrompt>()) {
     final prompt = _first<PhotoEmptyPrompt>();
     final title = _elements(
@@ -742,6 +774,281 @@ void _checkFooter({bool atMaximum = false}) {
   }
 }
 
+Map<String, double> _rectJson(Rect rect) => {
+  'left': rect.left,
+  'top': rect.top,
+  'right': rect.right,
+  'bottom': rect.bottom,
+  'width': rect.width,
+  'height': rect.height,
+};
+
+List<Rect> _pasteLineRects() {
+  if (!_has<LinkSaveBody>()) return [];
+  final element = _layoutNodes()['pasteParagraph']!;
+  final render = element.findRenderObject()! as RenderParagraph;
+  final length = render.text.toPlainText().length;
+  return render
+      .getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: length))
+      .map((box) => box.toRect().shift(render.localToGlobal(Offset.zero)))
+      .toList();
+}
+
+Map<String, Object?> _pasteMetrics() {
+  if (!_has<LinkSaveBody>()) return {};
+  final nodes = _layoutNodes();
+  final render =
+      nodes['pasteParagraph']!.findRenderObject()! as RenderParagraph;
+  final style = (render.text as TextSpan).style!;
+  final lines = _pasteLineRects();
+  final editable = _first<EditableText>().widget as EditableText;
+  final controller = editable.controller;
+  return {
+    'fullText': render.text.toPlainText(),
+    'fontFamily': style.fontFamily,
+    'fontSize': style.fontSize,
+    'scaledFontSize': render.textScaler.scale(style.fontSize!),
+    'fontWeight': style.fontWeight?.value,
+    'letterSpacing': style.letterSpacing,
+    'maxLines': render.maxLines,
+    'didExceedMaxLines': render.didExceedMaxLines,
+    'lineCount': lines.length,
+    'lineBoxes': lines.map(_rectJson).toList(),
+    'paragraphCenterDelta':
+        _rect(nodes['pasteParagraph']!).center.dy -
+        _rect(nodes['pasteButton']!).center.dy,
+    'editableMaxLines': editable.maxLines,
+    'editableFontSize': editable.style.fontSize,
+    'editableScaledFontSize': MediaQuery.of(
+      nodes['urlEditable']!,
+    ).textScaler.scale(editable.style.fontSize!),
+    'editableCenterDelta':
+        _rect(nodes['urlEditable']!).center.dy -
+        _rect(nodes['urlInputBox']!).center.dy,
+    'inputRowCenterDelta':
+        _rect(nodes['urlInputBox']!).center.dy -
+        _rect(nodes['linkInputRow']!).center.dy,
+    'clearCenterDelta': nodes['clearButton'] == null
+        ? null
+        : _rect(nodes['clearButton']!).center.dy -
+              _rect(nodes['urlInputBox']!).center.dy,
+    'draft': controller.text,
+    'selectionBase': controller.selection.baseOffset,
+    'selectionExtent': controller.selection.extentOffset,
+    'clipboardSetupScope':
+        'Mobile app Clipboard.setData only; no host clipboard API',
+  };
+}
+
+List<String> _pasteFindings() {
+  if (!_has<LinkSaveBody>()) return [];
+  final findings = <String>[];
+  final nodes = _layoutNodes();
+  final metrics = _pasteMetrics();
+  final button = _rect(nodes['pasteButton']!);
+  final row = _rect(nodes['linkInputRow']!);
+  final field = _rect(nodes['urlInputBox']!);
+  final paragraph = _rect(nodes['pasteParagraph']!);
+  final scale = MediaQuery.of(nodes['pasteParagraph']!).textScaler.scale(1);
+  if (metrics['fullText'] != '붙여넣기' || metrics['didExceedMaxLines'] == true) {
+    findings.add('Paste label is incomplete or exceeds maxLines');
+  }
+  if (metrics['fontSize'] != 14 ||
+      metrics['fontWeight'] != 500 ||
+      metrics['letterSpacing'] != -0.35 ||
+      ((metrics['scaledFontSize'] as double) - 14 * scale).abs() > 0.1) {
+    findings.add('Paste font or actual text scale changed');
+  }
+  final lines = _pasteLineRects();
+  if (lines.isEmpty || lines.length > 2) {
+    findings.add('Paste label must use one or two actual rendered lines');
+  }
+  for (var i = 0; i < lines.length; i++) {
+    if (!_inside(lines[i], button)) {
+      findings.add('Paste actual line ${i + 1} clips button');
+    }
+  }
+  if (!_inside(paragraph, button) ||
+      (paragraph.center.dy - button.center.dy).abs() > 0.1) {
+    findings.add('Paste paragraph is clipped or not vertically centered');
+  }
+  if ((button.width - 64).abs() > 0.1 ||
+      button.height < 43.9 ||
+      (scale == 1 && (button.height - 44).abs() > 0.1)) {
+    findings.add('Paste width/minimum/base height changed');
+  }
+  if (field.height < 43.9 ||
+      (field.height - button.height).abs() > 0.1 ||
+      (scale == 1 && (field.height - 44).abs() > 0.1) ||
+      (field.center.dy - row.center.dy).abs() > 0.1 ||
+      (button.center.dy - row.center.dy).abs() > 0.1 ||
+      (button.left - field.right - 8).abs() > 0.1) {
+    findings.add(
+      'URL/paste common natural height, base/minimum, row center, or 8px gap changed',
+    );
+  }
+  if (!_inside(_rect(nodes['urlEditable']!), field) ||
+      (_rect(nodes['urlEditable']!).center.dy - field.center.dy).abs() > 0.1 ||
+      metrics['editableMaxLines'] != 1 ||
+      metrics['editableFontSize'] != 14 ||
+      ((metrics['editableScaledFontSize'] as double) - 14 * scale).abs() >
+          0.1) {
+    findings.add(
+      'URL EditableText clips input, loses center/one line, or changes font scale',
+    );
+  }
+  if (nodes['clearButton'] case final Element clear) {
+    if (!_inside(_rect(clear), field) ||
+        (_rect(clear).center.dy - field.center.dy).abs() > 0.1) {
+      findings.add('Clear button clips input or is not centered');
+    }
+  }
+  if (nodes['clearIcon'] case final Element icon) {
+    if ((_rect(icon).width - 18).abs() > 0.1 ||
+        (_rect(icon).height - 18).abs() > 0.1 ||
+        !_inside(_rect(icon), field)) {
+      findings.add('Clear icon size or input containment changed');
+    }
+  }
+  return findings;
+}
+
+void _checkPaste() {
+  if (_phase == 'after') {
+    final findings = _pasteFindings();
+    _require(findings.isEmpty, 'Paste layout: ${findings.join('; ')}');
+  }
+}
+
+String _pasteSceneName(double scale, bool keyboard) =>
+    'paste_scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}_keyboard_${keyboard ? 1 : 0}';
+
+Future<void> _pasteFromMobileClipboard(String text) async {
+  _require(
+    Platform.isIOS || Platform.isAndroid,
+    'Clipboard fixture is restricted to mobile simulators/emulators',
+  );
+  await Clipboard.setData(ClipboardData(text: text));
+  await _tap(_rect(_layoutNodes()['pasteButton']!).center);
+  await _settle(9);
+}
+
+Future<void> _pasteScene({
+  required double scale,
+  required bool keyboard,
+}) async {
+  await _open('link-input', scale: scale);
+  if (keyboard) {
+    final shown = await _showKeyboard();
+    _require(shown > 0, 'Paste scene did not measure an OS keyboard inset');
+  }
+  await _type('');
+  await _pasteFromMobileClipboard(_url);
+  final controller = (_first<EditableText>().widget as EditableText).controller;
+  _require(
+    controller.text == _url,
+    'Actual paste button did not paste mobile clipboard',
+  );
+  // Pin the comparison cursor after the real paste; this does not validate or
+  // change product selection policy. Both phases use the same end position.
+  controller.selection = TextSelection.collapsed(offset: _url.length);
+  _bodyPosition.jumpTo(0);
+  await _settle();
+  _scene = _pasteSceneName(scale, keyboard);
+  _require(_text('유효한 링크예요!'), 'Pasted URL did not validate');
+  _require(_appKey.currentState!.calls == 0, 'Paste unexpectedly submitted');
+  _checkFooter();
+  _checkPaste();
+}
+
+Future<void> _pasteRun() async {
+  _checksCompleted = false;
+  for (final scale in [1.0, 1.5, 2.0]) {
+    for (final keyboard in [false, true]) {
+      await _pasteScene(scale: scale, keyboard: keyboard);
+      await _capture(_pasteSceneName(scale, keyboard));
+      final controller =
+          (_first<EditableText>().widget as EditableText).controller;
+      await _type('invalid-link');
+      _require(_text('유효하지 않은 링크예요.'), 'Typing did not run invalid validation');
+      _checkPaste();
+      await _tap(_rect(_layoutNodes()['clearButton']!).center);
+      _require(
+        controller.text.isEmpty && !_has<ValidationMessage>(),
+        'Clear did not restore empty editing state',
+      );
+      _require(
+        !(_first<SaveFlowButton>().widget as SaveFlowButton).enabled,
+        'Cleared input still enables save',
+      );
+      await _pasteFromMobileClipboard('   $_url   ');
+      _require(
+        controller.text == _url && _text('유효한 링크예요!'),
+        'Paste did not trim and validate URL',
+      );
+      await _scrollToMax();
+      _checkFooter(atMaximum: true);
+      _checkPaste();
+      _appKey.currentState!.mode = 'fail';
+      await _save();
+      _require(
+        _has<SaveErrorToast>() &&
+            !_has<SavedContentConfirmation>() &&
+            identical(
+              (_first<EditableText>().widget as EditableText).controller,
+              controller,
+            ) &&
+            controller.text == _url,
+        'Paste failure replaced input/controller',
+      );
+      _checkFooter();
+      _checkPaste();
+      _checks.add({
+        'scenario': '${_pasteSceneName(scale, keyboard)}_failure',
+        'passed': true,
+        ..._snapshot(),
+      });
+      _appKey.currentState!.mode = 'success';
+      await _save();
+      _require(
+        _has<SavedContentConfirmation>() &&
+            _appKey.currentState!.calls == 2 &&
+            _appKey.currentState!.submissions.every((s) => s['url'] == _url),
+        'Paste retry did not submit original trimmed URL',
+      );
+      await _tapText('사진 첨부');
+      _require(
+        _snapshot()['selectedTab'] == '링크 첨부',
+        'Paste result tab is not pinned',
+      );
+      if (_bodyPosition.maxScrollExtent > 0) {
+        await _drag(const Offset(0, -180));
+        _require(
+          _bodyPosition.pixels > 0,
+          'Pasted result did not respond to drag',
+        );
+      }
+      await _scrollToMax();
+      _checkFooter(atMaximum: true);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+      await _settle(12);
+      _require(
+        MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom == 0,
+        'Paste flow keyboard did not hide',
+      );
+      await _tapText('닫기');
+      _require(!_has<AddContentSheet>(), 'Paste flow close failed');
+      _checks.add({
+        'scenario':
+            '${_pasteSceneName(scale, keyboard)}_type_clear_retry_close',
+        'passed': true,
+      });
+    }
+  }
+  _checksCompleted = true;
+}
+
 Map<String, Object?> _snapshot() {
   final confirmation = _has<SavedContentConfirmation>()
       ? _first<SavedContentConfirmation>().widget as SavedContentConfirmation
@@ -789,8 +1096,11 @@ Map<String, Object?> _snapshot() {
         ? _bodyPosition.maxScrollExtent
         : null,
     'footerMetrics': _footerMetrics(),
-    'targetLayoutFindings': _footerFindings(),
-    'targetLayoutPassed': _footerFindings().isEmpty,
+    'pasteMetrics': _pasteMetrics(),
+    'pasteLayoutFindings': _pasteFindings(),
+    'pasteLayoutPassed': _pasteFindings().isEmpty,
+    'targetLayoutFindings': [..._footerFindings(), ..._pasteFindings()],
+    'targetLayoutPassed': _footerFindings().isEmpty && _pasteFindings().isEmpty,
     'geometry': _geometry(),
   };
 }

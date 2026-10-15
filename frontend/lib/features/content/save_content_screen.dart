@@ -438,78 +438,98 @@ class LinkSaveBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 44,
-                child: TextField(
-                  controller: controller,
-                  keyboardType: TextInputType.url,
-                  onChanged: onChanged,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.35,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'https://',
-                    hintStyle: const TextStyle(color: AppColors.subtler),
-                    filled: true,
-                    fillColor: AppColors.surface,
-                    contentPadding: const EdgeInsets.only(left: 8),
-                    suffixIconConstraints: const BoxConstraints(
-                      minWidth: 34,
-                      minHeight: 18,
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.url,
+                    textAlignVertical: TextAlignVertical.center,
+                    onChanged: onChanged,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.35,
                     ),
-                    suffixIcon: controller.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: onClear,
-                            padding: const EdgeInsets.only(right: 8),
-                            constraints: const BoxConstraints(
-                              minWidth: 26,
-                              minHeight: 18,
-                            ),
-                            icon: SvgPicture.asset(
-                              Assets.xCircle,
-                              width: 18,
-                              height: 18,
-                            ),
-                          ),
-                    border: const OutlineInputBorder(
-                      borderSide: BorderSide.none,
-                      borderRadius: BorderRadius.all(Radius.circular(4)),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'https://',
+                      hintStyle: const TextStyle(color: AppColors.subtler),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      contentPadding: const EdgeInsets.only(left: 8),
+                      suffixIconConstraints: BoxConstraints(
+                        minWidth: controller.text.isEmpty ? 0 : 34,
+                        minHeight: 44,
+                      ),
+                      // Fill the shared row height without making the URL
+                      // multiline or measuring the scaled text ourselves.
+                      suffixIcon: Align(
+                        widthFactor: 1,
+                        child: controller.text.isEmpty
+                            ? const SizedBox(width: 0, height: 44)
+                            : IconButton(
+                                onPressed: onClear,
+                                padding: const EdgeInsets.only(right: 8),
+                                constraints: const BoxConstraints(
+                                  minWidth: 48,
+                                  minHeight: 44,
+                                ),
+                                style: IconButton.styleFrom(
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                icon: SvgPicture.asset(
+                                  Assets.xCircle,
+                                  width: 18,
+                                  height: 18,
+                                ),
+                              ),
+                      ),
+                      border: const OutlineInputBorder(
+                        borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.all(Radius.circular(4)),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 64,
-              height: 44,
-              child: TextButton(
-                onPressed: onPaste,
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  backgroundColor: AppColors.mainSubtle,
-                  foregroundColor: AppColors.mainDeep,
-                  disabledBackgroundColor: AppColors.mainSubtle,
-                  disabledForegroundColor: AppColors.mainDeep,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.35,
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 64,
+                  child: TextButton(
+                    onPressed: onPaste,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      // Fallback glyph bounds can extend beyond a line box.
+                      padding: const EdgeInsets.symmetric(vertical: 1),
+                      backgroundColor: AppColors.mainSubtle,
+                      foregroundColor: AppColors.mainDeep,
+                      disabledBackgroundColor: AppColors.mainSubtle,
+                      disabledForegroundColor: AppColors.mainDeep,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                    child: const Text(
+                      '붙여넣기',
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
-                child: const Text('붙여넣기'),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
         if (stage == SaveFlowStage.invalid || stage == SaveFlowStage.valid) ...[
           const SizedBox(height: 5),

@@ -1799,3 +1799,48 @@ flutter build web --no-pub
   읽기 전용 비교 서버 `127.0.0.1:8771`과 기존 비교 서버는 유지한다.
   최종 diff·문서 링크·공백·민감 정보와 생성 파일 제외 여부를 확인한 뒤 `fix: 저장 화면 하단 안전 영역과 버튼 겹침 정리` 한 커밋으로 저장한다.
   화면 증거·빌드 생성물·`AGENTS.md`는 커밋에 포함하지 않고 푸시·PR은 하지 않는다.
+
+
+### 2026-10-15 — 붙여넣기 입력행의 확대 글자 높이 (해당 범위 적용·검증 완료)
+
+- 기준 커밋은 `b0d0c71`이다. 사용자는 글자를 축소하지 않고 필요한 만큼 높이를 늘리고, URL 입력박스도 붙여넣기 버튼과 같은 높이로 확장하는 기준을 확정했다.
+  기본·최소 44px, 붙여넣기 폭 64px·최대 두 줄·기존 14px/Medium·자간 −0.35px,
+  URL 한 줄·기존 글자 크기·지우기 아이콘 18px·간격 8px과 세로 중앙 정렬을 유지한다.
+  `IntrinsicHeight`와 공통 최소 44px·suffix 중앙 배치를 사용하고 지우기 아이콘의 기존 실효 탭 영역 48×44px을 보존한다. 붙여넣기 위아래 각 1px의 경계 여유를 둔다. 기본 44px은 유지하며 확대 자연 높이에 총 2px의 여유를 확보한다.
+  배율별 높이 상수나 수동 글자 높이 계산·글자 축소·글꼴 줄 높이 재정의는 추가하지 않는다.
+- 사진 비율/잘림·카테고리 편집·저장 화면 전체 맞춤은 후속이다. 기존 하단 회피량·저장/닫기 버튼·제출 입력·성공 탭 고정·재시도,
+  공개 생성자·콜백·API·모델은 유지한다. Figma D01 `912:16502` 컨텍스트는 **20:21:07 KST / 11:21:07 UTC**, 원본 스크린샷은 같은 분에 재조회했지만 둘 다 Starter 호출 한도로 실패했다. 기존 D01 원본도 없어 Figma 비교 칸은 누락 사유를 표시한다.
+- 제품 수정 전 비교 프리뷰를 확장하고 동결했다. SHA256은 `93390e39a9ffb71613cbc9a3c3df1dc2c33eebd7638af925f3d7390a935af4de`이다.
+  `/paste-scene?scale=1|1.5|2&keyboard=0|1`은 여섯 장면에서 모바일 앱 `Clipboard.setData`와 실제 붙여넣기 버튼을 사용한다.
+  Mac 클립보드 API는 사용하지 않는다. 같은 고정 URL·커서 끝·본문 스크롤 0을 변경 전/후에 유지한다.
+  `/paste-run`은 붙여넣기·직접 입력·지우기·유효/무효 검증·키보드·스크롤·실패/재시도·완료 탭 고정·닫기를 검사하고 기존 `/run`은 유지한다.
+- 실제 `RenderParagraph`의 전체 문구·줄 경계·폰트/배율·줄 수·버튼 내부 포함 여부와 URL/붙여넣기의 공통 높이·EditableText/지우기 아이콘 중앙을 기록한다.
+  실제 저장 창 위젯 검사 22개는 FontLoader에 Pretendard를 로드했지만 버튼의 상속 스타일 family가 null이어서 테스트 기본 글꼴을 사용했다. 이 검사를 실제 Pretendard 렌더링 증거로 쓰지 않는다.
+  추가 13개는 모두 Pretendard family를 명시한 분리 모델이다. 12개는 제품 버튼 스타일/자식의 family만 바꾼 폭/배율/플랫폼 조합이며 1개는 상속 행간 1.18·여백 없음·기존 고정 44px을 대조한다. 전체 저장 창·네이티브 상속 글꼴·Pretendard 분리 모델의 검증 범위를 구분한다. 네이티브 프리뷰는 `fontFamily: null`을 그대로 기록하며 제품 글꼴 설정을 바꾸지 않는다.
+  최초 네이티브 시도의 글꼴 family 강제 판정 오탐을 별도로 보존하고 이 판정만 교정한 동결 소스로 모든 구성의 변경 전 화면을 재촬영했다. 기존 14px/Medium·자간·실제 배율과 줄 경계는 계속 검증한다.
+  BEFORE는 새 정책 위반을 남기고 기존 동작을 계속 확인하며 AFTER는 엄격 판정해 `layoutPassed`·전체 `passed`에 합산한다.
+- 제품 수정 전 `before-gate.json`으로 기준 제품·동결 fixture SHA와 변경 전 OS 원본 18개 확보를 확인했다. BEFORE 보고서는 iOS 24개·Android 제스처 30개(6개 재촬영 포함)·3버튼 24개 기록이며 모두 프레임워크 오류 0건·동작 통과·레이아웃/전체 판정 `false`다.
+- [집중 회귀 테스트](../frontend/test/save_paste_layout_test.dart) **35개**·[관련 10개 파일 330개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/tests/related-green-final.log)(14초)·[전체 Flutter 테스트 872개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/tests/full-test.log)(50초)가 통과했다. [분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/tests/analyze.log)은 **문제 없음**(3.6초)이며 Dart 세 파일 포맷 검사는 **0개 변경**으로 통과했다. 중간 네이티브 AFTER는 공통 높이 60px에서 실제 줄 경계가 위로 약 0.408px 벗어나 실패했다.
+  줄 높이 동작을 바꾸는 시도는 모두 제거하고 위아래 각 1px의 여유를 적용했다. Android 배율 1.5 단독 재검사는 공통 62px·모든 줄 경계 포함으로 통과했으며 수동 글자 측정·허용 오차 완화는 하지 않았다.
+  중간 네이티브 pixel 대조에서는 지우기 탭 영역을 34px로 줄여 아이콘이 7px 이동하고 URL viewport가 14px 넓어진 문제를 발견했다. 기존 실효 48×44px으로 복원해 기본 가로 배치를 보존한다.
+  이전 Android 3버튼 AFTER는 레이아웃 플래그가 통과했어도 가로 보존을 충족하지 못해 `.attempts/after-clear-hit-width`에 보존하고 모든 구성의 AFTER를 새로 촬영했다.
+  중간 반복·단독 재검사나 이전 `b0d0c71`의 테스트·기기 성공은 최종 결과로 사용하지 않는다. 실제 서버·인증·운영 저장·실기기·원격 CI와 구분한다.
+- 지우기 영역 48×44px을 복원한 최종 AFTER는 iOS·Android 제스처·3버튼 각각 **24개 기록·프레임워크 오류 0건**이며 `checksCompleted`·`behaviorPassed`·`layoutPassed`·전체 `passed`가 모두 `true`다.
+
+| 실제 기기·창·여백 | 배율 1/1.5/2의 공통 높이 | 실제 키보드 inset |
+| --- | --- | --- |
+| iPhone 16 / iOS 18.6, 논리 393×852·DPR 3·상단 59px/하단 34px | 44/52/70px | 336px |
+| Android 13/API 33 제스처, 392.7×783.3·DPR 2.75·상단 24px/하단 0px | 44/62/84px | 274.909px |
+| 같은 Android 3버튼, 392.7×759.3·DPR 2.75·상단 24px/하단 0px | 44/62/84px | 250.909px |
+
+- 위 높이는 실제 플랫폼 상속 글꼴·배율의 측정값으로 고정 목표값이 아니다.
+  [18쌍 최종 비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/comparison-qa.json)는 조건 불일치 0건·BEFORE 해시 불변·fixture/최종 빌드 소스 일치·폰트/초안 변경 0건·입력/지우기 가로 기하 변경 0건·실제 줄 경계 포함을 확인했다.
+  기본 배율의 채워진 URL 여섯 상태는 박스 크기/색상·지우기 아이콘 픽셀을 보존했다. 글자 raster/커서 깜박임 차이는 원본 그대로 기록하고 전체 픽셀 동일로 보고하지 않는다. 빈 URL은 위젯 검사·지우기 동작으로 확인했으며 별도 네이티브 빈 상태 픽셀 쌍은 촬영하지 않았다. 네이티브 플랫폼 글꼴 식별자는 미측정이며 Pretendard 실행 증거로 사용하지 않는다.
+  [탐색 복원 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/android-navigation-restored.json)의 `matchesOriginal: true`로 원래 모드 2와 여섯 탐색 오버레이 일치를 확인했다. 임시 포워딩 8768을 제거하고 에뮬레이터와 iOS Simulator를 종료했으며 시뮬레이터/AVD 데이터는 보존했다.
+- 새 증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled`이며 기본 비교는 3개 기기/탐색 구성 × 배율 1/1.5/2 × 키보드 유무, 총 18쌍이다.
+  [18쌍 비교 문서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/comparison-document.html)·[비교 manifest](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/comparison-manifest.json)·[전후 상태 검증](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/pair-verification.json)을 제공한다.
+  각 비교는 변경 전/후 두 OS 원본과 D01 원본 미확보 사유를 표시한다. 누락 18건·완전한 세 원본 비교 0건이며 확대용 대체 디자인은 만들지 않았다.
+- AFTER 동작 영상: [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/ios/after/interaction.mp4), [Android 제스처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/android-gesture/after/interaction.mp4), [Android 3버튼](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/android-threebutton/after/interaction.mp4).
+  [영상 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-paste-scaled/media-verification.json)는 BEFORE/AFTER 여섯 개 모두 전체 디코딩 종료 코드 0·오류 로그 0바이트를 확인했다. 이전 작업 영상의 디코딩 결과를 이번 것으로 사용하지 않는다.
+- 사진 비율/잘림·카테고리 편집 등 미정 디자인은 계속 보류한다. 이번 완료 범위는 붙여넣기/URL 입력행의 확대 표시와 대역 회귀이며 저장 화면 전체 디자인 맞춤으로 보고하지 않는다.
+  화면 증거·빌드 생성물·로컬 `AGENTS.md`는 커밋에서 제외하고 푸시·PR은 수행하지 않는다.
