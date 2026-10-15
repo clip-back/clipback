@@ -360,9 +360,8 @@ class _SaveTab extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
+          style: _SaveTextStyles.tab.copyWith(
             color: active ? AppColors.text : AppColors.subtler,
-            fontSize: 16,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -372,6 +371,65 @@ class _SaveTab extends StatelessWidget {
 }
 
 enum SaveFlowStage { editing, invalid, valid }
+
+class _SaveTextStyles {
+  static const header = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.45,
+    color: Colors.black,
+  );
+  static const tab = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.4,
+  );
+  static const heading = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.4,
+    color: Colors.black,
+  );
+  static const input = TextStyle(
+    inherit: false,
+    textBaseline: TextBaseline.alphabetic,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.text,
+  );
+  static const photoTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.375,
+    color: AppColors.subtle,
+  );
+  static const helper = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.subSubtle,
+  );
+  static const action = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    height: 22 / 16,
+  );
+}
 
 class SaveContentTopBar extends StatelessWidget {
   const SaveContentTopBar({required this.onClose, super.key});
@@ -393,14 +451,7 @@ class SaveContentTopBar extends StatelessWidget {
               hitSize: 24,
             ),
             const SizedBox(width: 8),
-            const Text(
-              '콘텐츠 저장하기',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.45,
-              ),
-            ),
+            const Text('콘텐츠 저장하기', style: _SaveTextStyles.header),
           ],
         ),
       ),
@@ -429,14 +480,7 @@ class LinkSaveBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 링크',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        const Text('저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 44),
@@ -450,15 +494,13 @@ class LinkSaveBody extends StatelessWidget {
                     keyboardType: TextInputType.url,
                     textAlignVertical: TextAlignVertical.center,
                     onChanged: onChanged,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.35,
-                    ),
+                    style: _SaveTextStyles.input,
                     decoration: InputDecoration(
                       isDense: true,
                       hintText: 'https://',
-                      hintStyle: const TextStyle(color: AppColors.subtler),
+                      hintStyle: _SaveTextStyles.input.copyWith(
+                        color: AppColors.subtler,
+                      ),
                       filled: true,
                       fillColor: AppColors.surface,
                       contentPadding: const EdgeInsets.only(left: 8),
@@ -570,14 +612,7 @@ class SavedContentConfirmation extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          isPhoto ? '저장할 사진' : '저장할 링크',
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        Text(isPhoto ? '저장할 사진' : '저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         Container(
           height: 44,
@@ -592,11 +627,7 @@ class SavedContentConfirmation extends StatelessWidget {
             linkLabel,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.35,
-            ),
+            style: _SaveTextStyles.input,
           ),
         ),
         if (!isPhoto) ...[
@@ -746,12 +777,7 @@ class ValidationMessage extends StatelessWidget {
         ),
         Text(
           valid ? '유효한 링크예요!' : '유효하지 않은 링크예요.',
-          style: const TextStyle(
-            color: AppColors.subSubtle,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            letterSpacing: -0.35,
-          ),
+          style: _SaveTextStyles.helper,
         ),
       ],
     );
@@ -776,14 +802,7 @@ class PhotoSaveBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 사진',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        const Text('저장할 사진', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         InkWell(
           onTap: onSelect,
@@ -826,26 +845,13 @@ class PhotoEmptyPrompt extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '사진 선택',
-                      style: TextStyle(
-                        color: AppColors.subtle,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.375,
-                      ),
-                    ),
+                    Text('사진 선택', style: _SaveTextStyles.photoTitle),
                     SizedBox(height: 4),
                     Text(
                       '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.subSubtle,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.35,
-                      ),
+                      style: _SaveTextStyles.helper,
                     ),
                   ],
                 ),
@@ -969,11 +975,8 @@ class SaveFlowButton extends StatelessWidget {
           ),
           child: Center(
             child: DefaultTextStyle(
-              style: const TextStyle(
-                color: AppColors.main,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
+              style: _SaveTextStyles.action.copyWith(
+                color: enabled || loading ? AppColors.main : AppColors.surface,
               ),
               child: loading
                   ? const Row(

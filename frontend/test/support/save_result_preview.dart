@@ -6,6 +6,8 @@
 // /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
 // /scroll?max=1, /paste-scene?scale=1|1.5|2&keyboard=0|1, /paste-run.
 // /paste-scene?kind=empty|invalid&scale=1&keyboard=0 adds base input states.
+// /base-style-scene?kind=empty|valid|invalid|photo-empty|photo-selected|link|photo
+// and /base-style-run inspect only text scale 1 for the current typography work.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
@@ -40,6 +42,11 @@ var _busy = false;
 var _checksCompleted = false;
 var _scene = 'idle';
 var _pointer = 7000;
+var _baseStyleMode = false;
+var _baseStyleKind = '';
+var _baseInputSetupScope = '';
+const _baseStaticInputScope =
+    'Fixed real TextField input/onChanged and deterministic in-memory picker/save callbacks; static base scenes do not use clipboard';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,6 +76,7 @@ Future<void> main() async {
     }
     final mutates = request.uri.path != '/status';
     if (mutates) _busy = true;
+    if (mutates) _baseStyleMode = request.uri.path.startsWith('/base-style-');
     try {
       switch (request.uri.path) {
         case '/status':
@@ -106,6 +114,12 @@ Future<void> main() async {
           await _capture(_pasteSceneName(scale, keyboard, kind: kind));
         case '/paste-run':
           await _pasteRun();
+        case '/base-style-scene':
+          final kind = request.uri.queryParameters['kind'] ?? 'empty';
+          await _baseStyleScene(kind);
+          await _capture(_baseStyleSceneName(kind));
+        case '/base-style-run':
+          await _baseStyleRun();
         case '/keyboard':
           final scale = _requestedScale(request.uri);
           await _open('link-input', scale: scale);
@@ -983,8 +997,9 @@ Map<String, Object?> _pasteMetrics() {
               _rect(nodes['linkInputRow']!).bottom,
     'selectionBase': controller.selection.baseOffset,
     'selectionExtent': controller.selection.extentOffset,
-    'clipboardSetupScope':
-        'Mobile app Clipboard.setData only; no host clipboard API',
+    'clipboardSetupScope': _baseStyleMode
+        ? _baseInputSetupScope
+        : 'Mobile app Clipboard.setData only; no host clipboard API',
   };
 }
 
@@ -1088,12 +1103,20 @@ void _checkPaste() {
 String _pasteSceneName(double scale, bool keyboard, {String kind = 'valid'}) =>
     'paste_${kind == 'valid' ? '' : '${kind}_'}scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}_keyboard_${keyboard ? 1 : 0}';
 
-Future<void> _pasteFromMobileClipboard(String text) async {
+Future<void> _pasteFromMobileClipboard(
+  String text, {
+  bool waitForAndroidPreview = false,
+}) async {
   _require(
     Platform.isIOS || Platform.isAndroid,
     'Clipboard fixture is restricted to mobile simulators/emulators',
   );
   await Clipboard.setData(ClipboardData(text: text));
+  if (waitForAndroidPreview && Platform.isAndroid) {
+    // The native Android 13 clipboard overlay can temporarily own focus. Let
+    // it expire naturally before the single base-style behavior paste tap.
+    await Future<void>.delayed(const Duration(seconds: 8));
+  }
   await _tap(_rect(_layoutNodes()['pasteButton']!).center);
   await _settle(9);
 }
@@ -1248,6 +1271,592 @@ Future<void> _pasteRun() async {
   _checksCompleted = true;
 }
 
+String _baseStyleSceneName(String kind) => 'base_${kind}_scale_1';
+
+Element _textElement(String text, [Element? root]) => _elements(
+  root,
+).firstWhere((e) => e.widget is Text && (e.widget as Text).data == text);
+
+Element _tabContainer(Element label) => _ancestor(label, (widget) {
+  if (widget is! Container || widget.decoration is! BoxDecoration) return false;
+  return (widget.decoration! as BoxDecoration).border is Border;
+});
+
+Map<String, Object?> _tabMetrics(String label) {
+  final text = _textElement(label);
+  final container = _tabContainer(text);
+  final border =
+      ((container.widget as Container).decoration! as BoxDecoration).border!
+          as Border;
+  return {
+    ..._rectJson(_rect(container)),
+    'active': border.bottom.width == 2,
+    'underlineWidth': border.bottom.width,
+    'underlineColor': _colorArgb(border.bottom.color),
+    'textBounds': _rectJson(_rect(text)),
+    'contentCenterY': _rect(container).center.dy - border.bottom.width / 2,
+    'textCenterDeltaToContent':
+        _rect(text).center.dy -
+        (_rect(container).center.dy - border.bottom.width / 2),
+  };
+}
+
+String? _selectedTabFromUnderline() {
+  if (!_has<AddContentSheet>()) return null;
+  for (final label in ['링크 첨부', '사진 첨부']) {
+    if (_tabMetrics(label)['active'] == true) return label;
+  }
+  return null;
+}
+
+Map<String, Element> _baseStyleTextNodes() {
+  if (!_has<AddContentSheet>()) return {};
+  final nodes = <String, Element>{
+    'headerTitle': _textElement('콘텐츠 저장하기', _first<SaveContentTopBar>()),
+    'linkTab': _textElement('링크 첨부'),
+    'photoTab': _textElement('사진 첨부'),
+  };
+  final body = _has<SavedContentConfirmation>()
+      ? _first<SavedContentConfirmation>()
+      : _has<PhotoSaveBody>()
+      ? _first<PhotoSaveBody>()
+      : _first<LinkSaveBody>();
+  nodes['heading'] = _elements(body).firstWhere(
+    (e) =>
+        e.widget is Text &&
+        ['저장할 링크', '저장할 사진'].contains((e.widget as Text).data),
+  );
+  if (_has<EditableText>()) {
+    nodes['urlOrFilename'] = _first<EditableText>();
+  } else if (_has<SavedContentConfirmation>()) {
+    final result = body.widget as SavedContentConfirmation;
+    final label = result.originalUrl.isEmpty
+        ? result.content.originalUrl
+        : result.originalUrl;
+    nodes['urlOrFilename'] = _textElement(label, body);
+  }
+  if (_has<PhotoEmptyPrompt>()) {
+    nodes['photoPromptTitle'] = _textElement(
+      '사진 선택',
+      _first<PhotoEmptyPrompt>(),
+    );
+    nodes['photoPromptDescription'] = _textElement(
+      '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
+      _first<PhotoEmptyPrompt>(),
+    );
+  }
+  if (_has<ValidationMessage>()) {
+    nodes['validation'] = _elements(
+      _first<ValidationMessage>(),
+    ).firstWhere((e) => e.widget is Text);
+  }
+  final button = _first<SaveFlowButton>();
+  if (!(button.widget as SaveFlowButton).loading) {
+    nodes['cta'] = _elements(button).firstWhere((e) => e.widget is Text);
+  }
+  return nodes;
+}
+
+Map<String, Object?> _baseTextMetrics(Element element) {
+  final render = element.findRenderObject()!;
+  late TextStyle style;
+  late String text;
+  late List<Rect> lines;
+  late int? maxLines;
+  late bool? exceeded;
+  late TextScaler scaler;
+  double? declaredHeight;
+  if (render is RenderParagraph) {
+    style = (render.text as TextSpan).style!;
+    text = render.text.toPlainText();
+    scaler = render.textScaler;
+    maxLines = render.maxLines;
+    exceeded = render.didExceedMaxLines;
+    lines = render
+        .getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: text.length),
+        )
+        .map((box) => box.toRect().shift(render.localToGlobal(Offset.zero)))
+        .toList();
+    declaredHeight = (element.widget as Text).style?.height;
+  } else {
+    final editable = element.widget as EditableText;
+    final editableRender =
+        ((element as StatefulElement).state as EditableTextState)
+            .renderEditable;
+    style = editable.style;
+    text = editable.controller.text;
+    scaler = MediaQuery.textScalerOf(element);
+    maxLines = editable.maxLines;
+    exceeded = null;
+    lines = editableRender
+        .getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: text.length),
+        )
+        .map(
+          (box) =>
+              box.toRect().shift(editableRender.localToGlobal(Offset.zero)),
+        )
+        .toList();
+    final field = _ancestor(element, (w) => w is TextField).widget as TextField;
+    declaredHeight = field.style?.height;
+  }
+  return {
+    'text': text,
+    'bounds': _rectJson(_rect(element)),
+    'fontFamily': style.fontFamily,
+    'fontSize': style.fontSize,
+    'scaledFontSize': style.fontSize == null
+        ? null
+        : scaler.scale(style.fontSize!),
+    'fontWeight': style.fontWeight?.value,
+    'letterSpacing': style.letterSpacing,
+    'height': style.height,
+    'declaredHeight': declaredHeight,
+    'color': _colorArgb(style.color),
+    'maxLines': maxLines,
+    'didExceedMaxLines': exceeded,
+    'lineBoxes': lines.map(_rectJson).toList(),
+  };
+}
+
+Map<String, Object?> _baseStyleMetrics() {
+  if (!_has<AddContentSheet>()) return {};
+  final top = _first<SaveContentTopBar>();
+  final close = _elements(top).firstWhere((e) => e.widget is IconButton);
+  final icon = _elements(
+    close,
+  ).firstWhere((e) => e.widget.runtimeType.toString() == 'SvgIcon');
+  final title = _textElement('콘텐츠 저장하기', top);
+  final button = _first<SaveFlowButton>();
+  final viewport = _rect(_first<SingleChildScrollView>());
+  final validation = _has<ValidationMessage>()
+      ? _rect(_first<ValidationMessage>())
+      : null;
+  Rect? validationPrevious;
+  if (validation != null) {
+    if (_has<LinkSaveBody>()) {
+      validationPrevious = _rect(_layoutNodes()['linkInputRow']!);
+    } else {
+      final label = _baseStyleTextNodes()['urlOrFilename']!;
+      validationPrevious = _rect(_ancestor(label, (w) => w is Container));
+    }
+  }
+  return {
+    'roles': _baseStyleTextNodes().map(
+      (name, element) => MapEntry(name, _baseTextMetrics(element)),
+    ),
+    'layout': {
+      'header': _rectJson(_rect(top)),
+      'closeHit': _rectJson(_rect(close)),
+      'closeIcon': _rectJson(_rect(icon)),
+      'headerLeftMargin': _rect(close).left - _rect(top).left,
+      'headerRightPadding':
+          (_elements(top).firstWhere((e) => e.widget is Padding).widget
+                  as Padding)
+              .padding
+              .resolve(Directionality.of(top))
+              .right,
+      'titleGap': _rect(title).left - _rect(close).right,
+      'titleCenterDelta': _rect(title).center.dy - _rect(top).center.dy,
+      'linkTab': _tabMetrics('링크 첨부'),
+      'photoTab': _tabMetrics('사진 첨부'),
+      'bodyViewport': _rectJson(viewport),
+      'cta': _rectJson(_rect(button)),
+      'validationGap': validation == null || validationPrevious == null
+          ? null
+          : validation.top - validationPrevious.bottom,
+    },
+    'ctaEnabled': (button.widget as SaveFlowButton).enabled,
+    'ctaLoading': (button.widget as SaveFlowButton).loading,
+    'selectedTabSource':
+        'Actual tab container bottom border width: active=2px, inactive=1px',
+    'scope':
+        'Actual effective RenderParagraph/RenderEditable styles and bounds. Preview card/category/photo crop are outside this typography judgment.',
+  };
+}
+
+List<String> _baseStyleFindings() {
+  if (!_baseStyleMode || !_has<AddContentSheet>()) return [];
+  final findings = <String>[];
+  final metrics = _baseStyleMetrics();
+  final roles = metrics['roles']! as Map<String, Map<String, Object?>>;
+  final selected = _selectedTabFromUnderline();
+  final enabled = metrics['ctaEnabled'] == true;
+  final specs = <String, List<Object?>>{
+    'headerTitle': [18, 600, -0.45, '0xFF000000'],
+    'linkTab': [
+      16,
+      selected == '링크 첨부' ? 600 : 500,
+      -0.4,
+      selected == '링크 첨부' ? '0xFF1A1A1A' : '0xFFD1D1D1',
+    ],
+    'photoTab': [
+      16,
+      selected == '사진 첨부' ? 600 : 500,
+      -0.4,
+      selected == '사진 첨부' ? '0xFF1A1A1A' : '0xFFD1D1D1',
+    ],
+    'heading': [16, 600, -0.4, '0xFF000000'],
+    'urlOrFilename': [14, 500, -0.35, null],
+    'photoPromptTitle': [15, 600, -0.375, '0xFF767676'],
+    'photoPromptDescription': [14, 500, -0.35, '0xFFB5BDC3'],
+    'validation': [14, 500, -0.35, '0xFFB5BDC3'],
+    'cta': [16, 600, 0, enabled ? '0xFFFFD75C' : '0xFFFFFFFF'],
+  };
+  for (final entry in roles.entries) {
+    final role = entry.key;
+    final actual = entry.value;
+    final expected = specs[role]!;
+    if (actual['fontFamily'] != 'Pretendard' ||
+        actual['fontSize'] != expected[0] ||
+        actual['fontWeight'] != expected[1] ||
+        actual['letterSpacing'] != expected[2] ||
+        (expected[3] != null && actual['color'] != expected[3])) {
+      findings.add(
+        '$role effective font/weight/spacing/color differs from Figma role',
+      );
+    }
+    if (actual['scaledFontSize'] != actual['fontSize']) {
+      findings.add('$role is not at actual text scale 1');
+    }
+    if (role == 'cta') {
+      if (actual['height'] != 1.375) {
+        findings.add('CTA line height must be 22px at 16px');
+      }
+    } else if (actual['declaredHeight'] != null) {
+      findings.add(
+        '$role AUTO line height was replaced with an explicit height',
+      );
+    }
+  }
+  return findings;
+}
+
+List<String> _baseLayoutFindings() {
+  if (!_baseStyleMode || !_has<AddContentSheet>()) return [];
+  final findings = <String>[];
+  final metrics = _baseStyleMetrics();
+  final layout = metrics['layout']! as Map<String, Object?>;
+  final roles = _baseStyleTextNodes();
+  final header = _rect(_first<SaveContentTopBar>());
+  bool near(Object? value, double target) =>
+      value is num && (value - target).abs() < 0.1;
+  if (!near((layout['header']! as Map)['height'], 64) ||
+      !near(layout['headerLeftMargin'], 16) ||
+      !near(layout['titleGap'], 8) ||
+      !near(layout['titleCenterDelta'], 0)) {
+    findings.add('Header 64px/16px inset/8px gap/vertical center changed');
+  }
+  for (final key in ['closeHit', 'closeIcon']) {
+    final rect = layout[key]! as Map;
+    if (!near(rect['width'], 24) || !near(rect['height'], 24)) {
+      findings.add('$key must remain 24x24');
+    }
+  }
+  if (!_inside(_rect(roles['headerTitle']!), header)) {
+    findings.add('Header title clips header');
+  }
+  for (final entry in {'linkTab': '링크 첨부', 'photoTab': '사진 첨부'}.entries) {
+    final tab = layout[entry.key]! as Map;
+    final element = roles[entry.key]!;
+    final outer = _rect(_tabContainer(element));
+    if (!near(tab['height'], 56) ||
+        !near(tab['underlineWidth'], tab['active'] == true ? 2 : 1) ||
+        tab['underlineColor'] !=
+            (tab['active'] == true ? '0xFF1A1A1A' : '0xFFD1D1D1') ||
+        !_inside(_rect(element), outer) ||
+        (_rect(element).center.dx - outer.center.dx).abs() > 0.1 ||
+        !near(tab['textCenterDeltaToContent'], 0)) {
+      findings.add(
+        '${entry.key} 56px height/underline/text center/containment changed',
+      );
+    }
+  }
+  final viewport = _rect(_first<SingleChildScrollView>());
+  for (final role in ['heading', 'urlOrFilename', 'validation']) {
+    if (roles[role] case final Element element) {
+      final rect = _rect(element);
+      if (rect.left < viewport.left - 0.1 ||
+          rect.right > viewport.right + 0.1) {
+        findings.add('$role exceeds body viewport width');
+      }
+    }
+  }
+  if (roles['cta'] case final Element text) {
+    final button = _rect(_first<SaveFlowButton>());
+    if (!_inside(_rect(text), button) ||
+        (_rect(text).center - button.center).distance > 0.1) {
+      findings.add('CTA text clips button or loses center');
+    }
+  }
+  if (_has<PhotoEmptyPrompt>()) {
+    final outer = _rect(_first<PhotoEmptyPrompt>());
+    for (final role in ['photoPromptTitle', 'photoPromptDescription']) {
+      if (!_inside(_rect(roles[role]!), outer)) {
+        findings.add('$role clips photo prompt');
+      }
+    }
+  }
+  if (roles.containsKey('validation') && !near(layout['validationGap'], 5)) {
+    findings.add('Validation must retain 5px preceding gap');
+  }
+  return findings;
+}
+
+void _checkBaseStyle() {
+  if (_phase != 'after') return;
+  final styles = _baseStyleFindings();
+  final layout = _baseLayoutFindings();
+  _require(styles.isEmpty, 'Base typography: ${styles.join('; ')}');
+  _require(layout.isEmpty, 'Base geometry: ${layout.join('; ')}');
+}
+
+Future<void> _baseStyleScene(String kind) async {
+  _require(
+    const [
+      'empty',
+      'valid',
+      'invalid',
+      'photo-empty',
+      'photo-selected',
+      'link',
+      'photo',
+    ].contains(kind),
+    'Unsupported base style kind',
+  );
+  _baseStyleKind = kind;
+  _baseInputSetupScope = _baseStaticInputScope;
+  if (const ['empty', 'valid', 'invalid'].contains(kind)) {
+    await _open('link-input', scale: 1);
+    final draft = kind == 'valid'
+        ? _url
+        : kind == 'invalid'
+        ? 'invalid-link'
+        : '';
+    await _type(draft);
+    final controller =
+        (_first<EditableText>().widget as EditableText).controller;
+    controller.selection = TextSelection.collapsed(offset: draft.length);
+    _require(controller.text == draft, 'Base fixed TextField draft changed');
+    _require(
+      _text('유효한 링크예요!') == (kind == 'valid'),
+      'Base valid message differs from input',
+    );
+    _require(
+      _text('유효하지 않은 링크예요.') == (kind == 'invalid'),
+      'Base invalid message differs from input',
+    );
+    _require(
+      (_first<SaveFlowButton>().widget as SaveFlowButton).enabled ==
+          (kind == 'valid'),
+      'Base save enabled state differs from input',
+    );
+    _require(
+      _appKey.currentState!.calls == 0,
+      'Base input unexpectedly submitted',
+    );
+    _checkFooter();
+    _checkPaste();
+  } else {
+    await _open(kind, scale: 1);
+    if (_isResult(kind)) await _save();
+    _checkScene(kind, 1);
+  }
+  FocusManager.instance.primaryFocus?.unfocus();
+  await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  _bodyPosition.jumpTo(0);
+  await _settle();
+  _scene = _baseStyleSceneName(kind);
+  _require(
+    MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom == 0,
+    'Base scene keyboard remains visible',
+  );
+  _require(
+    MediaQuery.textScalerOf(_first<AddContentSheet>()).scale(1) == 1,
+    'Base scene text scale changed',
+  );
+  _checkBaseStyle();
+}
+
+Future<void> _baseStyleRun() async {
+  _checksCompleted = false;
+  for (final kind in [
+    'empty',
+    'valid',
+    'invalid',
+    'photo-empty',
+    'photo-selected',
+    'link',
+    'photo',
+  ]) {
+    await _baseStyleScene(kind);
+    await _capture(_baseStyleSceneName(kind));
+    await _scrollToMax();
+    _checkFooter(atMaximum: true);
+    _checkBaseStyle();
+    _checks.add({
+      'scenario': '${_baseStyleSceneName(kind)}_maximum_scroll',
+      'passed': true,
+      ..._snapshot(),
+    });
+  }
+  await _baseStyleScene('valid');
+  await _type('');
+  await _pasteFromMobileClipboard(_url, waitForAndroidPreview: true);
+  _require(
+    (_first<EditableText>().widget as EditableText).controller.text == _url &&
+        _text('유효한 링크예요!'),
+    'Base mobile clipboard paste did not populate/validate URL',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'base_mobile_clipboard_paste',
+    'passed': true,
+    'clipboardVerified': true,
+    'clipboardActionScope':
+        'Mobile app Clipboard.setData then actual paste tap once; no host clipboard API',
+    'androidClipboardPreviewWaitSeconds': Platform.isAndroid ? 8 : 0,
+    ..._snapshot(),
+  });
+  final controller = (_first<EditableText>().widget as EditableText).controller;
+  await _tapText('사진 첨부');
+  await _selectPhoto();
+  await _tapText('링크 첨부');
+  _require(
+    identical(
+          (_first<EditableText>().widget as EditableText).controller,
+          controller,
+        ) &&
+        controller.text == _url,
+    'Tab switch replaced link controller/input',
+  );
+  final shown = await _showKeyboard();
+  _require(shown > 0, 'Base run OS keyboard inset was not measured');
+  _checkFooter();
+  _checkBaseStyle();
+  _appKey.currentState!.mode = 'fail';
+  await _save();
+  // Check the real three-second toast immediately after the save tap settles;
+  // do not spend additional screenshot/keyboard waits before observing it.
+  _require(
+    _has<SaveErrorToast>() && !_has<SavedContentConfirmation>(),
+    'Base retry failure toast missing',
+  );
+  _require(
+    identical(
+          (_first<EditableText>().widget as EditableText).controller,
+          controller,
+        ) &&
+        controller.text == _url,
+    'Failure replaced link controller/input',
+  );
+  _checkFooter();
+  _checks.add({
+    'scenario': 'base_link_keyboard_failure',
+    'passed': true,
+    'shownInset': shown,
+    ..._snapshot(),
+  });
+  _appKey.currentState!.mode = 'success';
+  final button = _rect(_first<SaveFlowButton>());
+  await _tap(Offset(button.center.dx, button.bottom - 2));
+  _require(
+    _has<SavedContentConfirmation>() && _appKey.currentState!.calls == 2,
+    'Base keyboard retry did not save',
+  );
+  await _tapText('사진 첨부');
+  _require(
+    _selectedTabFromUnderline() == '링크 첨부',
+    'Base link completed tab is not pinned',
+  );
+  FocusManager.instance.primaryFocus?.unfocus();
+  await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  await _settle(12);
+  _require(
+    MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom == 0,
+    'Base run keyboard did not hide',
+  );
+  await _scrollToMax();
+  _checkFooter(atMaximum: true);
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'base_link_retry_keyboard_hide_pinned',
+    'passed': true,
+    ..._snapshot(),
+  });
+  await _tapText('닫기');
+  _require(!_has<AddContentSheet>(), 'Base result close did not dismiss');
+  _checks.add({'scenario': 'base_result_close', 'passed': true});
+
+  await _baseStyleScene('photo-selected');
+  await _selectPhoto();
+  _require(_picker.calls == 2, 'Base photo reselection not invoked');
+  await _save();
+  final result =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  _require(
+    result.originalUrl == 'other-photo.png' &&
+        result.photoBytes != null &&
+        _same(result.photoBytes!, _picker.alternate),
+    'Base reselected photo did not submit',
+  );
+  await _tapText('링크 첨부');
+  _require(
+    _selectedTabFromUnderline() == '사진 첨부',
+    'Base photo completed tab is not pinned',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'base_photo_reselect_save_pinned',
+    'passed': true,
+    ..._snapshot(),
+  });
+  await _tapText('닫기');
+  _require(!_has<AddContentSheet>(), 'Base photo close did not dismiss');
+
+  await _open('link', scale: 1, mode: 'pending');
+  await _save();
+  final state = _appKey.currentState!;
+  _require(
+    state.calls == 1 && state.pending != null,
+    'Base pending save missing',
+  );
+  await _save();
+  _require(state.calls == 1, 'Base duplicate save not blocked');
+  await _tapText('사진 첨부');
+  await _selectPhoto();
+  state.pending!.complete(_content('link'));
+  await _settle();
+  final pendingResult =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  _require(
+    pendingResult.originalUrl == _url &&
+        pendingResult.photoBytes == null &&
+        _selectedTabFromUnderline() == '링크 첨부',
+    'Base pending switch changed submitted input/result',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'base_pending_tab_switch_input_snapshot',
+    'passed': true,
+    ..._snapshot(),
+  });
+  await _open('link', scale: 1, mode: 'pending');
+  await _save();
+  final late = state.pending!;
+  final close = _elements(
+    _first<SaveContentTopBar>(),
+  ).firstWhere((e) => e.widget is IconButton);
+  await _tap(_rect(close).center);
+  _require(!_has<AddContentSheet>(), 'Base top close did not dismiss');
+  late.complete(_content('link'));
+  await _settle();
+  _require(!_has<AddContentSheet>(), 'Base late completion reopened dialog');
+  _checks.add({'scenario': 'base_pending_close_late_response', 'passed': true});
+  _checksCompleted = true;
+}
+
 Map<String, Object?> _snapshot() {
   final confirmation = _has<SavedContentConfirmation>()
       ? _first<SavedContentConfirmation>().widget as SavedContentConfirmation
@@ -1256,15 +1865,7 @@ Map<String, Object?> _snapshot() {
       ? _first<AddContentSheet>()
       : _navigatorKey.currentContext!;
   final media = MediaQuery.of(context);
-  final selectedTab = _elements()
-      .where(
-        (e) =>
-            e.widget is Text &&
-            (e.widget as Text).style?.fontWeight == FontWeight.w600,
-      )
-      .map((e) => (e.widget as Text).data)
-      .where((s) => s == '링크 첨부' || s == '사진 첨부')
-      .firstOrNull;
+  final selectedTab = _selectedTabFromUnderline();
   return {
     'scene': _scene,
     'selectedTab': selectedTab,
@@ -1300,10 +1901,25 @@ Map<String, Object?> _snapshot() {
     'pasteLayoutPassed': _pasteFindings().isEmpty,
     'pasteStyleFindings': _pasteStyleFindings(),
     'pasteStylePassed': _pasteStyleFindings().isEmpty,
-    'targetStyleFindings': _pasteStyleFindings(),
-    'targetStylePassed': _pasteStyleFindings().isEmpty,
-    'targetLayoutFindings': [..._footerFindings(), ..._pasteFindings()],
-    'targetLayoutPassed': _footerFindings().isEmpty && _pasteFindings().isEmpty,
+    'baseStyleKind': _baseStyleMode ? _baseStyleKind : null,
+    'baseInputSetupScope': _baseStyleMode ? _baseInputSetupScope : null,
+    'baseStyleMetrics': _baseStyleMode ? _baseStyleMetrics() : null,
+    'baseStyleFindings': _baseStyleFindings(),
+    'baseStylePassed': _baseStyleFindings().isEmpty,
+    'baseLayoutFindings': _baseLayoutFindings(),
+    'baseLayoutPassed': _baseLayoutFindings().isEmpty,
+    'targetStyleFindings': [..._pasteStyleFindings(), ..._baseStyleFindings()],
+    'targetStylePassed':
+        _pasteStyleFindings().isEmpty && _baseStyleFindings().isEmpty,
+    'targetLayoutFindings': [
+      ..._footerFindings(),
+      ..._pasteFindings(),
+      ..._baseLayoutFindings(),
+    ],
+    'targetLayoutPassed':
+        _footerFindings().isEmpty &&
+        _pasteFindings().isEmpty &&
+        _baseLayoutFindings().isEmpty,
     'geometry': _geometry(),
   };
 }
