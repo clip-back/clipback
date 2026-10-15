@@ -396,6 +396,24 @@ class _SaveTextStyles {
     letterSpacing: -0.4,
     color: Colors.black,
   );
+  static const previewTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.375,
+    height: 1.6,
+    color: Colors.black,
+  );
+  static const previewSource = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.35,
+    height: 1.6,
+    color: AppColors.subtle,
+  );
   static const input = TextStyle(
     inherit: false,
     textBaseline: TextBaseline.alphabetic,
@@ -635,14 +653,7 @@ class SavedContentConfirmation extends StatelessWidget {
           const ValidationMessage(valid: true),
         ],
         const SizedBox(height: 28),
-        const Text(
-          '미리보기',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        const Text('미리보기', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         Container(
           constraints: const BoxConstraints(minHeight: 116),
@@ -675,24 +686,14 @@ class SavedContentConfirmation extends StatelessWidget {
                       content.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        height: 1.6,
-                        letterSpacing: -0.375,
-                      ),
+                      style: _SaveTextStyles.previewTitle,
                     ),
                     const SizedBox(height: 8),
                     Text(
                       content.source,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.subtle,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: -0.35,
-                      ),
+                      style: _SaveTextStyles.previewSource,
                     ),
                   ],
                 ),

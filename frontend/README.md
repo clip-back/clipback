@@ -30,6 +30,7 @@ OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 �
 사용자 확정 기준으로 수정하고 `5d12e9d`에서 자동·양 플랫폼 실행 검증을 완료했습니다. `b0d0c71`에서는 저장 화면 하단 안전 영역·본문/버튼 겹침을 정리하고 자동·양 플랫폼 실행 검증을 마쳤습니다. `52132f0`에서는 링크 입력의 붙여넣기 문구와 입력행 확대 높이를 수정하고 자동·양 플랫폼 실행 검증을 마쳤습니다. `52132f0` 기준의 후속 작업에서는 최신 D01/D02/D03의 붙여넣기 버튼 색상·테두리·명시적 Pretendard를 적용하고 자동·기기·비교 자료 검증을 마쳤습니다. 각 결과는 아래 별도 기록을 따릅니다.
 이 부분 적용을 새 디자인 전체의 완료로 보고하지 않습니다.
 `a54c387`을 기준으로 한 이번 후속 작업에서는 저장 화면의 기본 1배율 글자·공통 상단을 적용하고 자동·양 플랫폼 실행·비교 검증을 마쳤습니다. D07 원본 미확보와 나머지 저장 화면의 보류 범위는 아래 기록을 따릅니다.
+이후 `b082db8` 기준의 작업에서 저장 결과 미리보기 제목·콘텐츠 제목·출처의 1배율 글자까지 적용하고 새 자동 검사·양 플랫폼 실행·4쌍 비교를 확인했습니다. 저장 화면 전체 맞춤은 계속 미완료입니다.
 
 카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
 공통 하단 바의 OS 정책은 유지합니다. 저장 창의 별도 키보드 회피 기준은 아래 후속 작업에 기록합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
@@ -1080,6 +1081,116 @@ Android 3버튼과 확대 배율의 새 기기 촬영은 이번 범위에서 제
 사진 비율/잘림·미리보기 전체 배치·카테고리 편집 등 후속 범위는 [계획](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)과 [진행 기록](../docs/fe-merge-fixes.md)을 따릅니다.
 새 증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-base-typography`입니다.
 화면 증거·빌드 생성물·로컬 `AGENTS.md`는 Git에서 제외하며 푸시·PR은 하지 않습니다.
+
+## 저장 결과 미리보기 1배율 글자 (`b082db8` 기준, 해당 범위 적용·검증 완료)
+
+이번에는 최신 `261008`의 링크 결과 D05(`912:16639`)·사진 결과 D09(`912:16602`)에서
+**‘미리보기’ 제목·콘텐츠 제목·출처** 세 역할만 저장 화면 전용 Pretendard에 맞춥니다.
+미리보기 제목은 16px/SemiBold·자간 −0.4px·검정/AUTO, 콘텐츠 제목은 15px/Medium·−0.375px·검정/행간 1.6,
+출처는 14px/Regular·−0.35px·`#767676`/행간 1.6 기준입니다.
+카드 최소 116px·패딩 8px·이미지 164×100px·이미지/글자 간격 16px·제목/출처 간격 8px과 세로 중앙 정렬·자연 높이를 유지합니다.
+제목 최대 두 줄·출처 한 줄의 말줄임과 기존 글자 배율도 유지합니다.
+상단/탭·‘저장할’ 제목·제출 URL/파일명·검증·버튼·키보드/안전 영역·저장 정책·전역 테마는 변경하지 않습니다.
+사진 비율/잘림·고정 링크 썸네일·카테고리 편집·결과 상단 80px과 전체 저장 화면 맞춤은 후속입니다.
+
+```bash
+# frontend/ — 집중 검사와 관련 회귀 일부의 재현 예시입니다. 전체 검사도 실행합니다.
+flutter test --no-pub test/save_base_typography_test.dart
+flutter test --no-pub test/save_scaled_layout_test.dart test/saved_content_confirmation_test.dart test/save_footer_layout_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 제품 수정 전에는 before, 수정 후 같은 기기/데이터로 after를 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+curl 'http://127.0.0.1:8768/base-style-scene?kind=link'
+curl 'http://127.0.0.1:8768/base-style-scene?kind=photo'
+# iOS는 8767로 접근합니다. after 앱에서 결과만 확인하는 기본 배율 runner를 호출합니다.
+curl 'http://127.0.0.1:8768/base-style-run?resultsOnly=1'
+```
+
+기존 Dialog·폰트/이미지 에셋·프리뷰를 재사용하며 `/base-style-run?resultsOnly=1`은 결과의 탭 고정·스크롤·닫기와 추가 저장 없음을 확인합니다.
+기존 전체 `/base-style-run`·`/run`·`/paste-run`의 동작은 보존합니다.
+새 기기 비교는 iPhone 16/iOS 18.6과 Android 13/API 33 제스처의 링크/사진 결과 1배율·키보드 없음·스크롤 맨 위,
+총 **4쌍**을 확인했습니다. BEFORE는 새 정적 원본만, AFTER는 같은 정적 원본과 플랫폼별 동작 영상 두 개를 확보했습니다.
+Android 3버튼·확대 배율 반복 촬영은 제외하고 기존 확대 자동 회귀 검사는 유지합니다.
+
+[Figma 원본 출처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/figma/reference-manifest.json)는
+보관된 정확한 D05 컨텍스트/PNG **2026-10-15 09:07:32 UTC**, D09 **08:56:18 UTC**를 사용합니다.
+출처 원본은 [D05](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout/figma/D05-implementation.png)·[D09](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout/figma/D09-implementation.png)이며
+이번 작업은 **16:42:41 UTC**에 보관 원본과 해시/조회 시각을 대조했습니다. 이를 새 Figma 조회 성공으로 보고하지 않습니다.
+[구현 직전 재조회](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/figma/implementation-refresh.json)는
+**2026-10-15 16:48:38~16:48:39 UTC**에 두 노드 모두 Starter MCP 호출 한도 응답을 받았습니다. 승인된 fallback에 따라 위 보관 원본을 실제 조회 시각 그대로 사용합니다.
+
+[동결 프리뷰](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/fixture-manifest.json)는
+**2026-10-15 16:46:28 UTC**에 fixture SHA256 `e8111186e355ed8a9147fb277c334d9fb2c4d328835fd6ebc76b4ba28363888c`를 기록했습니다.
+제품 수정 전 [집중 RED](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/base-typography-red.log)는
+**36개 중 20개 통과·16개 실패**(로그 4초/명령 7.19초)로 새 결과 역할의 Roboto 상속·제목 색상·출처 행간 1.43을 재현했습니다.
+기존 28조합의 결과 8조합과 긴 제목/출처 결과 8조합에서 차이를 확인했고 나머지 20조합은 통과했습니다.
+[준비 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/preparation-checks.json)의
+검사/프리뷰 두 파일 분석은 문제 없음(로그 1.4초/명령 2.37초), 형식 검사는 변경 0건(로그 0.05초/명령 0.37초)입니다.
+초기 중괄호 린트 1건을 수정하기 전 시도는 `tests/initial-lint-attempt`에 보존했습니다.
+[BEFORE 빌드](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/before-build.json)는
+Android 로그 22.5초/명령 25.52초·iOS 로그 34.9초/명령 69.3초로 성공했습니다.
+빌드 성공을 실행·화면 비교 완료로 대신하지 않습니다.
+
+[iOS BEFORE](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/ios-before-result.json)와
+[Android BEFORE](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/android-before-driver-result.json)의
+새 정적 원본은 각각 2장, 총 4장이며 직접 시각 확인에서 팝업 0건·프레임워크 오류 0건·`layoutPassed: true`·`stylePassed: false`였습니다.
+BEFORE 행동/영상은 실행하지 않았고 두 가상 기기의 앱 종료·정리와 데이터 보존을 확인했습니다.
+[변경 전 게이트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/before-gate.json)가
+**16:52:33 UTC**에 원본 4장·동결 fixture·제품 해시 불변을 확인한 뒤 통과했고, [제품 수정 시작](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/product-edit-start.json)은 **16:53:01 UTC**에 기록했습니다.
+세 역할만 적용한 후 [집중 검사 36개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/base-typography-green.log)는
+모두 통과했습니다(로그 4초/명령 6.79초). 제품 한 파일의 형식 검사는 변경 0건(로그 0.03초/명령 0.42초)입니다.
+
+[기존 관련 회귀 335개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/related-green.log)는
+통과(로그 19초/명령 22.32초)했고 [전체 Flutter 913개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/full-test.log)도 통과했습니다(로그 55초/명령 58.98초).
+[전체 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/analyze.log)은 문제 없음(로그 3.6초/명령 4.61초),
+[Dart 세 파일 형식 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/tests/format-check.log)는 변경 0건(로그 0.07초/명령 0.41초)입니다.
+[실제 명령 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/automatic-checks.json)은 위 자동 검사 모두 종료 코드 0을 확인했습니다.
+[최종 AFTER 소스/빌드](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/final-implementation.json)는
+제품 SHA256 `9022a734d31d21980060498a312f286fa788649de37b42ba67061904372ffbf3`와 동일한 동결 fixture/검사 소스를 기록합니다.
+AFTER 빌드는 Android 로그 15.4초/명령 17.93초·iOS 로그 23.5초/명령 37.06초로 종료 코드 0이며, 빌드 성공과 기기 실행 완료를 구분합니다.
+[iOS AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/ios-after-result.json)와
+[Android AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/android-after-driver-result.json)는
+각각 새 OS 원본 2장·보고서 10개 기록(캡처 4개·행동 6개)·프레임워크 오류 0건이며
+`stylePassed`·`layoutPassed`·`behaviorPassed`·`checksCompleted`·전체 `passed`가 모두 `true`입니다.
+
+| 실행 구성 | 논리 창·DPR | 상단/하단 여백 | 링크 최대 스크롤 | 사진 최대 스크롤 |
+| --- | --- | --- | --- | --- |
+| iPhone 16 / iOS 18.6 Simulator | 393×852·3 | 59/34px | 22px | 0px |
+| Android 13/API 33 제스처 Emulator | 392.7×783.3·2.75 | 24/0px | 약 21.727px | 0px |
+
+링크 결과의 최대 스크롤/마지막 항목 노출, 완료 탭 고정·추가 저장 없는 닫기를 확인했습니다.
+사진 결과는 스크롤이 불필요하므로 실제 드래그 성공으로 보고하지 않습니다. 이번 기기 동작은 결과 두 상태이며 키보드/클립보드·확대 배율의 새 기기 검증은 포함하지 않습니다.
+양쪽 ‘미리보기’ 제목의 문단 높이는 23→19px이고 카드/이미지는 자연 본문 흐름으로 4px 위로 이동했습니다. 위치 보정값은 추가하지 않았습니다.
+출처는 실효 `height: 1.6`과 문단 실측 22px을 구분하며 계산상 22.4px을 고정 높이로 강제하지 않습니다.
+AFTER 영상은 [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/ios/after/interaction.mp4)
+17:00:29~17:00:41 UTC·2,128,724바이트, [Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/android-gesture/after/interaction.mp4)
+16:57:54~16:58:14 UTC·1,208,741바이트이며 두 native 실행은 정상 종료했습니다.
+iOS 앱 종료·Simulator Shutdown·데이터 보존과 [Android 정리](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/android-after-navigation-restored.json)의
+원래 mode 2/여섯 오버레이 일치·설정 변경 0건·앱/에뮬레이터 종료·8768 포워딩 제거/데이터 보존을 확인했습니다.
+[iOS 원본 시각 확인](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/ios-after-visual-review.json)은
+새 원본 2장·팝업 0건·대상 글자 잘림/겹침 없음을 확인했습니다.
+[최종 4쌍 비교](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/comparison-document.html)는
+모두 변경 전 → 변경 후 → 실제 D05/D09 원본을 제공합니다. [브라우저에서 보기](http://127.0.0.1:8775/comparison-document.html)로도 확인할 수 있습니다.
+[비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/comparison-qa.json)·[전후 상태 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/pair-verification.json)는
+Figma 누락/조건 불일치 0건·BEFORE 원본 4장 불변·최종 빌드 소스/동결 fixture 일치·12개 미리보기 역할의 실효 스타일/행간·부모 안의 문단 경계와 기존 기하 상수/공통 스타일 보존을 확인했습니다.
+원시 선택 상자는 글꼴 선택 경계의 진단값으로 보존하며 실제 글자 잉크/paint 경계나 잘림으로 단정하지 않습니다.
+[최종 실측 요약](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/final-evidence-summary.json)은
+제목/카드의 자연 이동 −4px과 출처 행간 1.6/문단 실측 22px을 구분합니다.
+[영상 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/media-verification.json)는
+이번 새 AFTER 영상 두 개(iOS 10.8초·Android 18.048989초)의 전체 디코딩 종료 코드 0·오류 로그 0바이트를 확인했습니다.
+최종 재확인은 같은 작업 영상의 동일 SHA에 해당하는 성공 결과를 재사용한 것이며 이전 작업 영상을 대신 사용한 것이 아닙니다. BEFORE 행동/영상은 실행하지 않았습니다.
+[브라우저 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography/browser-verification.json)는
+네 조건의 실제 선택·원본 12개 로딩·양 영상 `readyState: 4`/오류 0건·iOS/링크 기본 상태 복귀를 확인했습니다.
+
+이번 완료는 저장 결과 미리보기 세 역할의 1배율 글자와 기존 회귀입니다. 사진 비율/잘림·고정 링크 썸네일·결과 전체 배치·카테고리 편집·결과 상단 80px은 후속이며 저장 화면 전체 맞춤은 미완료입니다.
+API·저장 정책은 이번 변경 범위에서 제외했고 기존 연결을 유지합니다. 이전 905개 검사나 과거 28개 기기 기록을 이번 검증에 재사용하지 않습니다.
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography`입니다.
+실제 저장 위젯·고정 사진 선택기/메모리 저장 콜백·Flutter 합성 입력을 사용하며 운영 서버·OAuth·실기기·원격 CI는 검증 범위 밖입니다.
+화면 증거·빌드 생성물·로컬 `AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 

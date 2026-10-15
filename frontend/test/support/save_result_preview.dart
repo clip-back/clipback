@@ -8,6 +8,7 @@
 // /paste-scene?kind=empty|invalid&scale=1&keyboard=0 adds base input states.
 // /base-style-scene?kind=empty|valid|invalid|photo-empty|photo-selected|link|photo
 // and /base-style-run inspect only text scale 1 for the current typography work.
+// /base-style-run?resultsOnly=1 limits behavior checks to link/photo results.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
@@ -119,7 +120,9 @@ Future<void> main() async {
           await _baseStyleScene(kind);
           await _capture(_baseStyleSceneName(kind));
         case '/base-style-run':
-          await _baseStyleRun();
+          await _baseStyleRun(
+            resultsOnly: request.uri.queryParameters['resultsOnly'] == '1',
+          );
         case '/keyboard':
           final scale = _requestedScale(request.uri);
           await _open('link-input', scale: scale);
@@ -574,6 +577,7 @@ Map<String, Element> _layoutNodes() {
       (e) => e.widget is Text && (e.widget as Text).data == content.title,
     );
     nodes['previewCard'] = _ancestor(image, (w) => w is Container);
+    nodes['previewHeading'] = _textElement('미리보기', result);
     nodes['previewImage'] = image;
     nodes['previewTitle'] = title;
     nodes['previewSource'] = _elements(result).firstWhere(
@@ -1326,6 +1330,12 @@ Map<String, Element> _baseStyleTextNodes() {
         e.widget is Text &&
         ['저장할 링크', '저장할 사진'].contains((e.widget as Text).data),
   );
+  if (_has<SavedContentConfirmation>()) {
+    final preview = _layoutNodes();
+    for (final role in ['previewHeading', 'previewTitle', 'previewSource']) {
+      nodes[role] = preview[role]!;
+    }
+  }
   if (_has<EditableText>()) {
     nodes['urlOrFilename'] = _first<EditableText>();
   } else if (_has<SavedContentConfirmation>()) {
@@ -1416,8 +1426,97 @@ Map<String, Object?> _baseTextMetrics(Element element) {
     'color': _colorArgb(style.color),
     'maxLines': maxLines,
     'didExceedMaxLines': exceeded,
+    'overflow': render is RenderParagraph ? render.overflow.name : null,
     'lineBoxes': lines.map(_rectJson).toList(),
+    'selectionBoxScope':
+        'Selection boxes are diagnostic font-selection extents, not glyph ink bounds; intentional ellipsis and selection overhang beyond the paragraph are not clipping failures.',
   };
+}
+
+Map<String, Object?> _previewGeometryMetrics() {
+  if (!_has<SavedContentConfirmation>()) return {};
+  final nodes = _layoutNodes();
+  final cardElement = nodes['previewCard']!;
+  final cardWidget = cardElement.widget as Container;
+  final card = _rect(cardElement);
+  final image = _rect(nodes['previewImage']!);
+  final text = _rect(nodes['previewText']!);
+  final title = _rect(nodes['previewTitle']!);
+  final source = _rect(nodes['previewSource']!);
+  final heading = _rect(nodes['previewHeading']!);
+  final padding = cardWidget.padding!.resolve(Directionality.of(cardElement));
+  return {
+    'card': _rectJson(card),
+    'image': _rectJson(image),
+    'text': _rectJson(text),
+    'innerCard': _rectJson(padding.deflateRect(card)),
+    'cardMinHeight': cardWidget.constraints?.minHeight,
+    'cardPadding': {
+      'left': padding.left,
+      'top': padding.top,
+      'right': padding.right,
+      'bottom': padding.bottom,
+    },
+    'imageToTextGap': text.left - image.right,
+    'textGap': source.top - title.bottom,
+    'imageCenterDelta': image.center.dy - card.center.dy,
+    'textCenterDelta': text.center.dy - card.center.dy,
+    'headingToCardGap': card.top - heading.bottom,
+    'boundaryScope':
+        'Paragraph layout bounds are checked against the actual padded card. Selection boxes are recorded separately and are not treated as pixel paint bounds.',
+  };
+}
+
+List<String> _previewLayoutFindings() {
+  if (!_has<SavedContentConfirmation>()) return [];
+  final findings = <String>[];
+  final nodes = _layoutNodes();
+  final metrics = _previewGeometryMetrics();
+  final card = _rect(nodes['previewCard']!);
+  final image = _rect(nodes['previewImage']!);
+  final scale = MediaQuery.textScalerOf(nodes['previewCard']!).scale(1);
+  bool near(Object? value, double target) =>
+      value is num && (value - target).abs() < 0.1;
+  if (!near(metrics['cardMinHeight'], 116) ||
+      card.height < 115.9 ||
+      (scale == 1 && !near(card.height, 116))) {
+    findings.add(
+      'Preview card must retain minimum 116px and base height 116px',
+    );
+  }
+  final padding = metrics['cardPadding']! as Map<String, double>;
+  if (padding.values.any((value) => !near(value, 8))) {
+    findings.add('Preview card padding must remain 8px on each side');
+  }
+  if (!near(image.width, 164) || !near(image.height, 100)) {
+    findings.add('Preview image must remain 164x100px');
+  }
+  if (!near(metrics['imageToTextGap'], 16) ||
+      !near(metrics['textGap'], 8) ||
+      !near(metrics['headingToCardGap'], 16)) {
+    findings.add('Preview horizontal/text/heading gaps changed');
+  }
+  if (!near(metrics['imageCenterDelta'], 0) ||
+      !near(metrics['textCenterDelta'], 0)) {
+    findings.add('Preview image/text block must remain vertically centered');
+  }
+  final cardWidget = nodes['previewCard']!.widget as Container;
+  final inner = cardWidget.padding!
+      .resolve(Directionality.of(nodes['previewCard']!))
+      .deflateRect(card);
+  for (final role in ['previewImage', 'previewTitle', 'previewSource']) {
+    if (!_inside(_rect(nodes[role]!), inner)) {
+      findings.add('$role paragraph/image layout clips padded preview card');
+    }
+  }
+  for (final role in ['previewTitle', 'previewSource']) {
+    final paragraph = nodes[role]!.findRenderObject()! as RenderParagraph;
+    if (paragraph.maxLines != (role == 'previewTitle' ? 2 : 1) ||
+        paragraph.overflow != TextOverflow.ellipsis) {
+      findings.add('$role must retain its line limit and ellipsis');
+    }
+  }
+  return findings;
 }
 
 Map<String, Object?> _baseStyleMetrics() {
@@ -1466,13 +1565,15 @@ Map<String, Object?> _baseStyleMetrics() {
       'validationGap': validation == null || validationPrevious == null
           ? null
           : validation.top - validationPrevious.bottom,
+      if (_has<SavedContentConfirmation>())
+        'preview': _previewGeometryMetrics(),
     },
     'ctaEnabled': (button.widget as SaveFlowButton).enabled,
     'ctaLoading': (button.widget as SaveFlowButton).loading,
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds. Preview card/category/photo crop are outside this typography judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview text roles. Category typography and photo crop remain outside this judgment.',
   };
 }
 
@@ -1502,6 +1603,9 @@ List<String> _baseStyleFindings() {
     'photoPromptTitle': [15, 600, -0.375, '0xFF767676'],
     'photoPromptDescription': [14, 500, -0.35, '0xFFB5BDC3'],
     'validation': [14, 500, -0.35, '0xFFB5BDC3'],
+    'previewHeading': [16, 600, -0.4, '0xFF000000'],
+    'previewTitle': [15, 500, -0.375, '0xFF000000'],
+    'previewSource': [14, 400, -0.35, '0xFF767676'],
     'cta': [16, 600, 0, enabled ? '0xFFFFD75C' : '0xFFFFFFFF'],
   };
   for (final entry in roles.entries) {
@@ -1520,9 +1624,14 @@ List<String> _baseStyleFindings() {
     if (actual['scaledFontSize'] != actual['fontSize']) {
       findings.add('$role is not at actual text scale 1');
     }
-    if (role == 'cta') {
-      if (actual['height'] != 1.375) {
-        findings.add('CTA line height must be 22px at 16px');
+    final expectedHeight = role == 'cta'
+        ? 1.375
+        : role == 'previewTitle' || role == 'previewSource'
+        ? 1.6
+        : null;
+    if (expectedHeight != null) {
+      if (actual['height'] != expectedHeight) {
+        findings.add('$role line height must remain $expectedHeight');
       }
     } else if (actual['declaredHeight'] != null) {
       findings.add(
@@ -1601,6 +1710,13 @@ List<String> _baseLayoutFindings() {
   if (roles.containsKey('validation') && !near(layout['validationGap'], 5)) {
     findings.add('Validation must retain 5px preceding gap');
   }
+  if (roles['previewHeading'] case final Element heading) {
+    final rect = _rect(heading);
+    if (rect.left < viewport.left - 0.1 || rect.right > viewport.right + 0.1) {
+      findings.add('Preview heading exceeds body viewport width');
+    }
+  }
+  findings.addAll(_previewLayoutFindings());
   return findings;
 }
 
@@ -1679,19 +1795,56 @@ Future<void> _baseStyleScene(String kind) async {
   _checkBaseStyle();
 }
 
-Future<void> _baseStyleRun() async {
+Future<void> _baseStyleRun({bool resultsOnly = false}) async {
   _checksCompleted = false;
-  for (final kind in [
-    'empty',
-    'valid',
-    'invalid',
-    'photo-empty',
-    'photo-selected',
-    'link',
-    'photo',
-  ]) {
+  final kinds = resultsOnly
+      ? ['link', 'photo']
+      : [
+          'empty',
+          'valid',
+          'invalid',
+          'photo-empty',
+          'photo-selected',
+          'link',
+          'photo',
+        ];
+  for (final kind in kinds) {
     await _baseStyleScene(kind);
     await _capture(_baseStyleSceneName(kind));
+    if (resultsOnly) {
+      final selectedTab = kind == 'photo' ? '사진 첨부' : '링크 첨부';
+      final submitted =
+          _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+      final submittedLabel = submitted.originalUrl;
+      final submittedBytes = submitted.photoBytes;
+      _require(
+        _appKey.currentState!.calls == 1,
+        'Result-only save count changed',
+      );
+      await _tapText(kind == 'photo' ? '링크 첨부' : '사진 첨부');
+      final pinned =
+          _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+      _require(
+        _selectedTabFromUnderline() == selectedTab &&
+            pinned.originalUrl == submittedLabel &&
+            identical(pinned.photoBytes, submittedBytes) &&
+            _appKey.currentState!.calls == 1,
+        'Result-only tab tap changed result or submitted again',
+      );
+      _checkBaseStyle();
+      _checks.add({
+        'scenario': '${_baseStyleSceneName(kind)}_result_tab_pinned',
+        'passed': true,
+        ..._snapshot(),
+      });
+      if (_bodyPosition.maxScrollExtent > 0) {
+        await _drag(const Offset(0, -180));
+        _require(
+          _bodyPosition.pixels > 0,
+          'Result-only body did not respond to drag',
+        );
+      }
+    }
     await _scrollToMax();
     _checkFooter(atMaximum: true);
     _checkBaseStyle();
@@ -1700,6 +1853,21 @@ Future<void> _baseStyleRun() async {
       'passed': true,
       ..._snapshot(),
     });
+    if (resultsOnly) {
+      await _tapText('닫기');
+      _require(
+        !_has<AddContentSheet>() && _appKey.currentState!.calls == 1,
+        'Result-only close did not dismiss without another save',
+      );
+      _checks.add({
+        'scenario': '${_baseStyleSceneName(kind)}_result_close',
+        'passed': true,
+      });
+    }
+  }
+  if (resultsOnly) {
+    _checksCompleted = true;
+    return;
   }
   await _baseStyleScene('valid');
   await _type('');

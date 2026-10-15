@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
@@ -14,6 +15,10 @@ import 'package:flutter_test/flutter_test.dart';
 const _url = 'https://example.invalid/save-result';
 const _filename = 'base-typography.png';
 const _description = '앨범에서 선택하거나 스크린샷을 업로드해 주세요.';
+const _shortTitle = '짧은 제목';
+const _shortSource = '출처';
+const _longTitle = '긴 저장 콘텐츠 제목이 아주 길어서 두 줄을 넘는 경우에도 말줄임이 유지되는지 확인해요';
+const _longSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름';
 
 enum _Scene {
   empty,
@@ -54,20 +59,24 @@ class _Picker extends FilePicker {
 }
 
 class _Saved {
+  _Saved({this.title = _shortTitle, this.source = _shortSource});
+
+  final String title;
+  final String source;
   int calls = 0;
   String? label;
   Uint8List? photo;
 
-  ContentItem content() => const ContentItem(
+  ContentItem content() => ContentItem(
     id: 'base-typography',
-    title: '고정된 저장 콘텐츠',
+    title: title,
     summary: '기본 글자와 공통 상단 검사',
     category: catUncategorized,
     savedAt: '26.10.15',
     savedAtFull: '2026. 10. 15 오후 02:00',
     savedAtFullShort: '2026. 10. 15 02:00',
-    tags: [],
-    source: '웹사이트',
+    tags: const [],
+    source: source,
     originalUrl: _url,
     originalText: '',
   );
@@ -78,6 +87,8 @@ Future<_Saved> _open(
   required _Scene scene,
   required TargetPlatform platform,
   required double width,
+  String title = _shortTitle,
+  String source = _shortSource,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 812);
@@ -87,7 +98,7 @@ Future<_Saved> _open(
   tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
   addTearDown(tester.view.reset);
   addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
-  final saved = _Saved();
+  final saved = _Saved(title: title, source: source);
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(
@@ -218,6 +229,7 @@ void _text(
   _Style expected, {
   required Rect boundary,
   bool localAutoHeight = true,
+  bool respectEllipsisClip = false,
 }) {
   final finder = find.text(text);
   expect(finder, findsOneWidget);
@@ -238,12 +250,17 @@ void _text(
     TextSelection(baseOffset: 0, extentOffset: text.length),
     boxHeightStyle: ui.BoxHeightStyle.tight,
   )) {
-    _inside(
-      failures,
-      '$text glyphs',
-      box.toRect().shift(paragraph.localToGlobal(Offset.zero)),
-      boundary,
-    );
+    final raw = box.toRect().shift(paragraph.localToGlobal(Offset.zero));
+    // Ellipsis paints inside the paragraph's own clip. Selection boxes can
+    // include a fraction of font overhang, which is not itself a paint clip.
+    final painted =
+        respectEllipsisClip &&
+            paragraph.didExceedMaxLines &&
+            paragraph.overflow == TextOverflow.ellipsis
+        ? raw.intersect(tester.getRect(finder))
+        : raw;
+    if (painted.isEmpty) continue;
+    _inside(failures, '$text glyphs', painted, boundary);
   }
 }
 
@@ -300,6 +317,7 @@ void _contracts(
   required _Scene scene,
   required TargetPlatform platform,
   required double width,
+  required _Saved saved,
 }) {
   final top = tester.getRect(find.byType(SaveContentTopBar));
   final close = find.descendant(
@@ -416,6 +434,7 @@ void _contracts(
       const _Style(14, FontWeight.w500, -0.35, AppColors.text),
       boundary: labelContainer,
     );
+    _preview(tester, failures, saved: saved, longText: false);
   }
   if (scene == _Scene.photoEmpty) {
     final prompt = tester.getRect(find.byType(PhotoEmptyPrompt));
@@ -518,6 +537,134 @@ void _contracts(
   );
 }
 
+void _preview(
+  WidgetTester tester,
+  List<String> failures, {
+  required _Saved saved,
+  required bool longText,
+}) {
+  final result = find.byType(SavedContentConfirmation);
+  final image = find.descendant(of: result, matching: find.byType(Image));
+  expect(image, findsOneWidget);
+  final cardFinder = find
+      .ancestor(of: image, matching: find.byType(Container))
+      .first;
+  final card = tester.getRect(cardFinder);
+  final thumbnail = tester.getRect(image);
+  final inner = card.deflate(8);
+  final titleFinder = find.text(saved.title);
+  final sourceFinder = find.text(saved.source);
+  final title = tester.getRect(titleFinder);
+  final source = tester.getRect(sourceFinder);
+  final text = title.expandToInclude(source);
+  final textColumn = tester.getRect(
+    find.ancestor(of: titleFinder, matching: find.byType(Column)).first,
+  );
+  final viewport = tester.getRect(find.byType(SingleChildScrollView));
+
+  _text(
+    tester,
+    failures,
+    '미리보기',
+    const _Style(16, FontWeight.w600, -0.4, Colors.black),
+    boundary: viewport,
+  );
+  _text(
+    tester,
+    failures,
+    saved.title,
+    const _Style(15, FontWeight.w500, -0.375, Colors.black, height: 1.6),
+    boundary: inner,
+    respectEllipsisClip: true,
+  );
+  _text(
+    tester,
+    failures,
+    saved.source,
+    const _Style(14, FontWeight.w400, -0.35, AppColors.subtle, height: 1.6),
+    boundary: inner,
+    respectEllipsisClip: true,
+  );
+  _near(
+    failures,
+    'preview heading left',
+    tester.getRect(find.text('미리보기')).left,
+    card.left,
+  );
+  _near(
+    failures,
+    'preview heading/card gap',
+    card.top - tester.getRect(find.text('미리보기')).bottom,
+    16,
+  );
+  _near(failures, 'preview width', card.width, viewport.width - 32);
+  _near(failures, 'preview image width', thumbnail.width, 164);
+  _near(failures, 'preview image height', thumbnail.height, 100);
+  _near(failures, 'preview image left padding', thumbnail.left - card.left, 8);
+  _near(failures, 'preview image/text gap', title.left - thumbnail.right, 16);
+  _near(
+    failures,
+    'preview text right padding',
+    card.right - textColumn.right,
+    8,
+  );
+  _near(failures, 'preview source left', source.left, title.left);
+  _near(failures, 'preview title/source gap', source.top - title.bottom, 8);
+  _near(failures, 'preview image center', thumbnail.center.dy, card.center.dy);
+  _near(failures, 'preview text center', text.center.dy, card.center.dy);
+  _near(
+    failures,
+    'preview natural height',
+    card.height,
+    16 + math.max(100, text.height),
+  );
+  if (card.height < 116) {
+    failures.add('preview is shorter than its 116px minimum');
+  }
+  _inside(failures, 'preview thumbnail', thumbnail, inner);
+  _inside(failures, 'preview text block', text, inner);
+
+  for (final entry in [
+    (titleFinder, 2, 'title'),
+    (sourceFinder, 1, 'source'),
+  ]) {
+    final paragraph = tester.renderObject<RenderParagraph>(entry.$1);
+    final widget = tester.widget<Text>(entry.$1);
+    _same(
+      failures,
+      'preview ${entry.$3} max lines',
+      paragraph.maxLines,
+      entry.$2,
+    );
+    _same(
+      failures,
+      'preview ${entry.$3} ellipsis',
+      widget.overflow,
+      TextOverflow.ellipsis,
+    );
+    _same(
+      failures,
+      'preview ${entry.$3} actual overflow',
+      paragraph.didExceedMaxLines,
+      longText,
+    );
+    final textLength = widget.data!.length;
+    final lineTops = paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: textLength),
+          boxHeightStyle: ui.BoxHeightStyle.tight,
+        )
+        .map((box) => (box.top * 100).round())
+        .toSet();
+    _same(
+      failures,
+      'preview ${entry.$3} visible lines',
+      lineTops.length,
+      longText ? entry.$2 : 1,
+    );
+  }
+}
+
 Future<void> _interaction(
   WidgetTester tester,
   _Scene scene,
@@ -606,7 +753,31 @@ void main() {
             scene: scene,
             platform: platform,
             width: width,
+            saved: saved,
           );
+          expect(tester.takeException(), isNull);
+          expect(failures, isEmpty, reason: failures.join('\n'));
+          await _interaction(tester, scene, saved, photo);
+          expect(tester.takeException(), isNull);
+        });
+      }
+      for (final scene in [_Scene.linkResult, _Scene.photoResult]) {
+        testWidgets('preview long text $platform width $width ${scene.name}', (
+          tester,
+        ) async {
+          final previous = FilePicker.platform;
+          FilePicker.platform = _Picker(photo);
+          addTearDown(() => FilePicker.platform = previous);
+          final saved = await _open(
+            tester,
+            scene: scene,
+            platform: platform,
+            width: width,
+            title: _longTitle,
+            source: _longSource,
+          );
+          final failures = <String>[];
+          _preview(tester, failures, saved: saved, longText: true);
           expect(tester.takeException(), isNull);
           expect(failures, isEmpty, reason: failures.join('\n'));
           await _interaction(tester, scene, saved, photo);
