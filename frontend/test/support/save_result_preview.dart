@@ -2,8 +2,8 @@
 // in-memory save callbacks, with synthetic pointer/text input (no backend/auth).
 // flutter run --no-pub -t test/support/save_result_preview.dart
 //   --dart-define=SAVE_RESULT_PHASE=before|after
-// HTTP loopback :8767: /status, /scene?kind=photo|link&scale=1|2, /run,
-// /keyboard, /scroll. Android host access: adb forward tcp:8767 tcp:8767.
+// HTTP loopback :8767: /status, /scene?kind=photo-empty|photo|link&scale=1|1.5|2, /run,
+// /keyboard, /keyboard-hide, /scroll. Android host access: adb forward tcp:8767 tcp:8767.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -74,11 +74,18 @@ Future<void> main() async {
           final scale = double.parse(
             request.uri.queryParameters['scale'] ?? '1',
           );
-          _require(kind == 'link' || kind == 'photo', 'Unknown kind');
-          _require(scale == 1 || scale == 2, 'Unsupported scale');
+          _require(
+            kind == 'link' || kind == 'photo' || kind == 'photo-empty',
+            'Unknown kind',
+          );
+          _require(
+            scale == 1 || scale == 1.5 || scale == 2,
+            'Unsupported scale',
+          );
           await _open(kind, scale: scale);
-          await _save();
-          await _capture('${kind}_scale_${scale.toInt()}');
+          if (kind != 'photo-empty') await _save();
+          _checkScene(kind, scale);
+          await _capture(_sceneName(kind, scale));
         case '/run':
           await _run();
         case '/keyboard':
@@ -87,6 +94,11 @@ Future<void> main() async {
           await Future<void>.delayed(const Duration(seconds: 2));
           await _type(_url);
           await _capture('keyboard');
+        case '/keyboard-hide':
+          FocusManager.instance.primaryFocus?.unfocus();
+          await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+          await _settle(12);
+          await _capture('keyboard_hidden');
         case '/scroll':
           await _drag(const Offset(0, -220));
           await _capture('scrolled');
@@ -316,7 +328,7 @@ Future<void> _open(
   state.pending = null;
   state.submissions.clear();
   _picker.calls = 0;
-  _scene = '${kind}_scale_${scale.toInt()}_$mode';
+  _scene = '${_sceneName(kind, scale)}_$mode';
   await _settle();
   unawaited(
     showContentSaveScreen(
@@ -328,9 +340,9 @@ Future<void> _open(
     ),
   );
   await _settle();
-  if (kind == 'photo') {
+  if (kind == 'photo' || kind == 'photo-empty') {
     await _tapText('사진 첨부');
-    await _selectPhoto();
+    if (kind == 'photo') await _selectPhoto();
   } else {
     await _type(_url);
   }
@@ -377,6 +389,163 @@ Future<void> _drag(Offset delta) async {
   await _settle();
 }
 
+String _sceneName(String kind, double scale) =>
+    '${kind.replaceAll('-', '_')}_scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}';
+
+Element _ancestor(Element element, bool Function(Widget) matches) {
+  Element? result;
+  element.visitAncestorElements((candidate) {
+    if (matches(candidate.widget)) {
+      result = candidate;
+      return false;
+    }
+    return true;
+  });
+  return result!;
+}
+
+Map<String, Element> _layoutNodes() {
+  final nodes = <String, Element>{};
+  if (_has<PhotoEmptyPrompt>()) {
+    final prompt = _first<PhotoEmptyPrompt>();
+    final title = _elements(
+      prompt,
+    ).firstWhere((e) => e.widget is Text && (e.widget as Text).data == '사진 선택');
+    nodes['emptyPrompt'] = prompt;
+    nodes['emptyTitle'] = title;
+    nodes['emptyDescription'] = _elements(prompt).firstWhere(
+      (e) =>
+          e.widget is Text &&
+          (e.widget as Text).data == '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
+    );
+    nodes['emptyText'] = _ancestor(title, (w) => w is Column);
+    nodes['emptyIcon'] = _elements(prompt).firstWhere(
+      (e) =>
+          e.widget is SizedBox &&
+          (e.widget as SizedBox).width == 40 &&
+          (e.widget as SizedBox).height == 40,
+    );
+  }
+  if (_has<SavedContentConfirmation>()) {
+    final result = _first<SavedContentConfirmation>();
+    final content = (result.widget as SavedContentConfirmation).content;
+    final image = _elements(result).firstWhere((e) => e.widget is Image);
+    final title = _elements(result).firstWhere(
+      (e) => e.widget is Text && (e.widget as Text).data == content.title,
+    );
+    nodes['previewCard'] = _ancestor(image, (w) => w is Container);
+    nodes['previewImage'] = image;
+    nodes['previewTitle'] = title;
+    nodes['previewSource'] = _elements(result).firstWhere(
+      (e) => e.widget is Text && (e.widget as Text).data == content.source,
+    );
+    nodes['previewText'] = _ancestor(title, (w) => w is Column);
+  }
+  return nodes;
+}
+
+Map<String, Object?> _geometry() => _layoutNodes().map((name, element) {
+  final rect = _rect(element);
+  final text = element.widget is Text ? element.widget as Text : null;
+  final render = element.findRenderObject();
+  return MapEntry(name, {
+    'left': rect.left,
+    'top': rect.top,
+    'right': rect.right,
+    'bottom': rect.bottom,
+    'width': rect.width,
+    'height': rect.height,
+    if (text != null) ...{
+      'fontSize': text.style?.fontSize,
+      'scaledFontSize':
+          render is RenderParagraph && text.style?.fontSize != null
+          ? render.textScaler.scale(text.style!.fontSize!)
+          : null,
+      'maxLines': text.maxLines,
+      'overflow': text.overflow?.name,
+    },
+  });
+});
+
+bool _inside(Rect inner, Rect outer) =>
+    inner.left >= outer.left - 0.1 &&
+    inner.top >= outer.top - 0.1 &&
+    inner.right <= outer.right + 0.1 &&
+    inner.bottom <= outer.bottom + 0.1;
+
+void _checkScene(String kind, double scale) {
+  if (kind == 'photo-empty') {
+    _require(_has<PhotoEmptyPrompt>(), 'Photo empty prompt missing');
+    _require(!_has<SavedContentConfirmation>(), 'Empty photo was saved');
+    _require(_appKey.currentState!.calls == 0, 'Empty photo submitted');
+  } else {
+    _require(_has<SavedContentConfirmation>(), 'Save result missing');
+    _require(
+      _text(kind == 'photo' ? '저장할 사진' : '저장할 링크'),
+      'Wrong result title',
+    );
+    _require(_text('유효한 링크예요!') == (kind == 'link'), 'Wrong link validation');
+    final result =
+        _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+    _require(
+      result.originalUrl == (kind == 'photo' ? 'save-result.png' : _url),
+      'Result label differs from submission',
+    );
+    _require(
+      (result.photoBytes != null) == (kind == 'photo'),
+      'Result kind differs from submission',
+    );
+    _require(
+      _snapshot()['selectedTab'] == (kind == 'photo' ? '사진 첨부' : '링크 첨부'),
+      'Wrong selected tab',
+    );
+  }
+  if (_phase != 'after') return;
+  final nodes = _layoutNodes();
+  if (kind == 'photo-empty') {
+    final prompt = _rect(nodes['emptyPrompt']!);
+    _require(prompt.height >= 88.9, 'Empty prompt below minimum height');
+    if (scale == 1) {
+      _require(
+        (prompt.height - 89).abs() < 0.1,
+        'Base empty prompt height changed',
+      );
+    }
+    final icon = _rect(nodes['emptyIcon']!);
+    _require(
+      (icon.width - 40).abs() < 0.1 && (icon.height - 40).abs() < 0.1,
+      'Empty prompt icon changed',
+    );
+    for (final name in ['emptyTitle', 'emptyDescription', 'emptyText']) {
+      _require(_inside(_rect(nodes[name]!), prompt), '$name clips prompt');
+    }
+  } else {
+    final card = _rect(nodes['previewCard']!);
+    final image = _rect(nodes['previewImage']!);
+    final text = _rect(nodes['previewText']!);
+    _require(card.height >= 115.9, 'Preview below minimum height');
+    if (scale == 1) {
+      _require((card.height - 116).abs() < 0.1, 'Base preview height changed');
+    }
+    _require(
+      (image.width - 164).abs() < 0.1 && (image.height - 100).abs() < 0.1,
+      'Preview thumbnail changed',
+    );
+    _require(
+      (image.center.dy - card.center.dy).abs() < 0.1,
+      'Preview image is not centered',
+    );
+    _require(
+      (text.center.dy - card.center.dy).abs() < 0.1,
+      'Preview text is not centered',
+    );
+    final inner = card.deflate(8);
+    for (final name in ['previewImage', 'previewTitle', 'previewSource']) {
+      _require(_inside(_rect(nodes[name]!), inner), '$name clips preview');
+    }
+  }
+}
+
 Map<String, Object?> _snapshot() {
   final confirmation = _has<SavedContentConfirmation>()
       ? _first<SavedContentConfirmation>().widget as SavedContentConfirmation
@@ -420,6 +589,7 @@ Map<String, Object?> _snapshot() {
         : null,
     'calls': _appKey.currentState!.calls,
     'submissions': List.of(_appKey.currentState!.submissions),
+    'geometry': _geometry(),
   };
 }
 
@@ -468,24 +638,19 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
 
 Future<void> _run() async {
   _checksCompleted = false;
-  for (final kind in ['link', 'photo']) {
-    for (final scale in [1.0, 2.0]) {
+  for (final kind in ['photo-empty', 'link', 'photo']) {
+    for (final scale in [1.0, 1.5, 2.0]) {
       await _open(kind, scale: scale);
-      await _save();
-      _require(_has<SavedContentConfirmation>(), 'Save result missing');
-      if (_phase == 'after') {
-        _require(
-          _text(kind == 'photo' ? '저장할 사진' : '저장할 링크'),
-          'Wrong result title',
-        );
-        _require(
-          _text('유효한 링크예요!') == (kind == 'link'),
-          'Wrong link validation',
-        );
+      if (kind != 'photo-empty') await _save();
+      _checkScene(kind, scale);
+      await _capture(_sceneName(kind, scale));
+      if (kind == 'photo-empty') {
+        final button = _first<SaveFlowButton>().widget as SaveFlowButton;
+        _require(!button.enabled, 'Empty photo unexpectedly enables saving');
+      } else {
+        await _tapText('닫기');
+        _require(!_has<AddContentSheet>(), 'Close did not dismiss dialog');
       }
-      await _capture('${kind}_scale_${scale.toInt()}');
-      await _tapText('닫기');
-      _require(!_has<AddContentSheet>(), 'Close did not dismiss dialog');
     }
   }
   for (final kind in ['photo', 'link']) {
@@ -510,27 +675,25 @@ Future<void> _run() async {
     await _settle();
     final result =
         _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
-    if (_phase == 'after') {
+    _require(
+      result.originalUrl == (kind == 'photo' ? 'save-result.png' : _url),
+      'Submitted label changed',
+    );
+    _require(
+      (result.photoBytes != null) == (kind == 'photo'),
+      'Submitted kind changed',
+    );
+    if (kind == 'photo') {
       _require(
-        result.originalUrl == (kind == 'photo' ? 'save-result.png' : _url),
-        'Submitted label changed',
-      );
-      _require(
-        (result.photoBytes != null) == (kind == 'photo'),
-        'Submitted kind changed',
-      );
-      if (kind == 'photo') {
-        _require(
-          _same(result.photoBytes!, _picker.photo),
-          'Submitted photo changed',
-        );
-      }
-      await _tapText(kind == 'photo' ? '링크 첨부' : '사진 첨부');
-      _require(
-        _snapshot()['selectedTab'] == (kind == 'photo' ? '사진 첨부' : '링크 첨부'),
-        'Completed tab is not pinned',
+        _same(result.photoBytes!, _picker.photo),
+        'Submitted photo changed',
       );
     }
+    await _tapText(kind == 'photo' ? '링크 첨부' : '사진 첨부');
+    _require(
+      _snapshot()['selectedTab'] == (kind == 'photo' ? '사진 첨부' : '링크 첨부'),
+      'Completed tab is not pinned',
+    );
     await _capture('${kind}_pending_switch');
     _checks.add({
       'scenario': '${kind}_pending_switch',
@@ -553,6 +716,14 @@ Future<void> _run() async {
     'Manual retry did not reuse selected photo',
   );
   await _capture('photo_retry');
+  await _open('photo', scale: 2);
+  await _save();
+  await _drag(const Offset(0, -220));
+  _require(
+    ((_snapshot()['scrollOffset'] as double?) ?? 0) > 0,
+    'Expanded result did not scroll',
+  );
+  await _capture('photo_scale_2_scrolled');
   _checks.add({'scenario': 'photo_retry', 'passed': true});
   await _open('link', mode: 'pending');
   await _save();
@@ -567,5 +738,44 @@ Future<void> _run() async {
   await _settle();
   _require(!_has<AddContentSheet>(), 'Late completion reopened result');
   _checks.add({'scenario': 'pending_close_late_completion', 'passed': true});
+  await _open('photo');
+  await _selectPhoto();
+  _require(_picker.calls == 2, 'Photo reselection was not invoked');
+  await _save();
+  final reselected =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  _require(
+    reselected.originalUrl == 'other-photo.png' &&
+        reselected.photoBytes != null &&
+        _same(reselected.photoBytes!, _picker.alternate),
+    'Reselected photo was not submitted/displayed',
+  );
+  _checks.add({'scenario': 'photo_reselection', 'passed': true});
+  await _open('link');
+  await _tap(_rect(_first<EditableText>()).center);
+  await Future<void>.delayed(const Duration(seconds: 2));
+  await _type(_url);
+  await _capture('keyboard');
+  final shown = MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
+  FocusManager.instance.primaryFocus?.unfocus();
+  await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  await _settle(12);
+  final hidden = MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
+  _require(hidden == 0, 'Keyboard inset was not cleared');
+  _require(
+    (_first<EditableText>().widget as EditableText).controller.text == _url,
+    'Keyboard transition changed the draft',
+  );
+  await _capture('keyboard_hidden');
+  _checks.add({
+    'scenario': 'keyboard_show_hide',
+    'passed': true,
+    'shownInset': shown,
+    'hiddenInset': hidden,
+    'keyboardVisibilityMeasured': shown > 0,
+    'measurementLimit': shown == 0
+        ? 'Text-input focus requested; engine reported zero inset. Confirm OS keyboard visibility from screenshot.'
+        : null,
+  });
   _checksCompleted = true;
 }

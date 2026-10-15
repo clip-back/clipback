@@ -597,7 +597,7 @@ class SavedContentConfirmation extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Container(
-          height: 116,
+          constraints: const BoxConstraints(minHeight: 116),
           width: double.infinity,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -619,6 +619,7 @@ class SavedContentConfirmation extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -789,8 +790,8 @@ class PhotoEmptyPrompt extends StatelessWidget {
         color: AppColors.subtler,
         radius: 8,
       ),
-      child: SizedBox(
-        height: 89,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 89),
         width: double.infinity,
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
@@ -804,6 +805,7 @@ class PhotoEmptyPrompt extends StatelessWidget {
               SizedBox(width: 8),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

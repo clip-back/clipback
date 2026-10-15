@@ -21,8 +21,9 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 전체 화면의 재대조·적용은 미완료**이며,
 아래 과거 조회 시각·`111:*` 노드·테스트 수·이미지/영상은 당시 출처와 결과로 보존합니다.
 `b905769`의 기준 전환은 문서만 갱신했습니다. 이후 2026-10-15에는 최신 D05/D09를 조회해
-사진 결과의 링크 전용 문구와 성공한 제출 입력의 고정을 적용했습니다. 집중 11개·관련 132개·전체 703개 검사와
-정적 분석을 통과했습니다. 양 플랫폼의 문구·입력 고정 동작은 확인했지만 배율 2의 기존 레이아웃 실패는 유지합니다.
+사진 결과의 링크 전용 문구와 성공한 제출 입력의 고정을 `a14111f`에 적용했습니다. 당시 집중 11개·관련 132개·전체 703개 검사와
+정적 분석을 통과했고 양 플랫폼의 문구·입력 고정 동작을 확인했습니다. 당시 남긴 배율 2의 넘침은 아래 후속 확대 작업에서
+사용자 확정 기준으로 수정하고 자동·양 플랫폼 실행 검증을 완료했습니다. 이번 결과는 아래 별도 기록을 따릅니다.
 이 부분 적용을 새 디자인 전체의 완료로 보고하지 않습니다.
 
 카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
@@ -597,7 +598,7 @@ Android 3버튼 모드에서는 OS 영역이 Flutter 화면 바깥을 차지하�
 기종·OS·글자 배율·화면 상태·측정값·영상·누락된 비교 항목은 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
 실제 OAuth·운영 서버·실기기·원격 CI는 이 로컬 대역 화면 검증으로 증명하지 않습니다.
 
-## 저장 결과 문구와 제출 입력 고정 (2026-10-15)
+## 저장 결과 문구와 제출 입력 고정 (`a14111f`, 2026-10-15)
 
 작업 기준은 `b905769`이고 최신 `261008`의
 [링크 결과 D05](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-16639)와
@@ -633,7 +634,7 @@ curl http://127.0.0.1:8768/run
 
 프리뷰는 실제 저장 위젯·대역 사진 선택기·메모리 저장 콜백과 합성 포인터/텍스트 입력을 사용합니다.
 서버는 프리뷰 조작을 위한 루프백 제어용이며 실제 백엔드·인증·저장을 사용하지 않습니다.
-`/scene?kind=photo|link&scale=1|2`, `/run`, `/keyboard`, `/scroll`, `/status`를 제공하고
+`a14111f` 당시 `/scene?kind=photo|link&scale=1|2`, `/run`, `/keyboard`, `/scroll`, `/status`를 제공했고
 기기 임시 `clipback-save-result-*`에 PNG·`report.json`을 저장합니다.
 실제 OS 화면은 별도 `simctl`·`adb` 원본 캡처와 영상으로 기록합니다.
 
@@ -660,6 +661,65 @@ Pixel 3a 설정의 Android 13/API 33 제스처 모드는 논리 392.7×783.3·DP
 두 플랫폼의 링크/사진·배율 1/2, 원본 OS 화면 비교 8건의 조건·파일·해시를 대조했습니다.
 최종 기종·OS·자동/기기 결과와 미검증 범위는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록했습니다.
 실제 공급자·AI/OCR·운영 서버·실기기·원격 CI는 이번 대역 렌더링으로 검증하지 않습니다.
+
+## 저장 화면의 확대 글자 높이 (2026-10-15)
+
+`a14111f`를 기준으로 **글자를 줄이지 않고 필요한 만큼 높이를 늘리는** 사용자 기준을 적용합니다.
+사진 선택 전 안내는 최소 89px, 링크·사진 결과 미리보기는 최소 116px이며 기본 배율의 기존 크기를 유지합니다.
+텍스트 열은 자연 높이를 사용하고 `TextScaler`·글꼴·글자 크기를 바꾸지 않습니다.
+40×40px 선택 아이콘·좌우 16px·기존 간격, 결과 카드 안쪽 8px·164×100px 썸네일·제목 최대 두 줄·출처 한 줄·말줄임과
+이미지/텍스트 세로 중앙 정렬을 유지합니다. 배율별 높이나 수동 글자 높이 계산은 추가하지 않습니다.
+
+최신 `261008`의 D06 `912:16524`·D05 `912:16639`·D09 `912:16602` 컨텍스트·기본 원본을
+2026-10-15 17:56:18 KST(08:56:18 UTC)에 확보했습니다. 제품 수정 직전 D05 재조회는 18:07:32 KST(09:07:32 UTC)에 성공했고
+D06·D09는 Starter 호출 한도에 막혀 같은 작업에서 확보한 위 원본·컨텍스트를 사용했습니다.
+확대 전용 디자인은 없으므로 기본 원본과 사용자 확정 기준을 구분해 비교합니다.
+사진 확대/잘림·결과 상단 80px·카테고리·하단 버튼과 인디케이터·안전 영역은 이번 범위에서 바꾸지 않습니다.
+공개 생성자·콜백·API·모델·실제 제출 입력과 완료 탭 고정·저장 시점도 유지합니다.
+
+```bash
+# frontend/ — 새 확대 검사와 기존 입력·탭·키보드 회귀입니다.
+flutter test --no-pub test/save_scaled_layout_test.dart test/saved_content_confirmation_test.dart test/save_search_safe_area_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 같은 고정 프리뷰를 before/after로 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# Android: adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+# 아래는 iOS 주소입니다. Android 호스트 요청은 8768 포트를 사용합니다.
+curl 'http://127.0.0.1:8767/scene?kind=photo-empty&scale=1.5'
+curl http://127.0.0.1:8767/run
+```
+
+프리뷰는 `kind=photo-empty|link|photo`, 배율 `1|1.5|2`의 9개 상태를 제공하며
+`photo_empty_scale_1_5.png`처럼 배율별 파일명을 구분합니다. `/status`, `/scene`, `/run`, `/scroll`, `/keyboard`, `/keyboard-hide`를 제공합니다.
+`/run`은 양 phase에서 기존 문구·제출 입력·성공 탭 고정·중복 제출 방지·실패 후 재시도·재선택·확대 스크롤·늦은 응답·키보드 표시/해제를 검사합니다.
+안내·미리보기·텍스트·이미지 경계/크기와 실제 글자 크기를 `report.json`에 기록하고 AFTER에서는 새 레이아웃을 엄격 판정합니다.
+제품 수정 전 고정한 파일 SHA256은 `2e45d3ca0d562b52bf6f9accf498b70034fd09f73a596c2c608c5568a61e3880`이며 변경 전·후에 같은 파일을 사용합니다.
+
+제품 수정 전 iPhone 16/iOS 18.6·Android 13/API 33의 세 상태·배율 1/1.5/2를 새로 촬영했습니다.
+새 확대 검사는 제품 수정 전 **38개 중 18개 실패·20개 통과**로 넘침을 재현했습니다. 수정 후
+집중 확대 검사 **38개**(5초)·관련 회귀 **170개**(32초)·전체 Flutter 테스트 **741개**(1분 20초)를 통과했습니다.
+`flutter analyze --no-pub`는 **문제 없음**(12.2초)입니다. 수정 후 두 플랫폼 보고서는 각각 **32개 기록·프레임워크 오류 0건**이며 `checksCompleted`·`behaviorPassed`·`layoutPassed`·전체 `passed`가 모두 `true`입니다.
+이번 변경 전 기기 보고서는 두 플랫폼 각각 32개 기록이며 `checksCompleted`·`behaviorPassed: true`, `layoutPassed`·전체 `passed: false`였습니다.
+안내/결과 텍스트 열의 확대 넘침을 iOS 2px/46px·Android 4px/47px로 재현했습니다. 이번 변경 전 키보드 inset은 iOS 336px·Android 274.909px로
+양쪽에서 측정했으며 위 `a14111f` 당시 Android 0px 한계와 구분합니다.
+iPhone 16/iOS 18.6은 논리 393×852·DPR 3·안전 영역 상단/하단 59/34px,
+Pixel 3a 설정/Android 13(API 33) 제스처 모드는 논리 392.7×783.3·DPR 2.75·상단/하단 24/0px입니다.
+배율 1/1.5의 안내·미리보기 높이는 두 플랫폼 모두 89/116px, 배율 2는 iOS 91/162px·Android 93/163px입니다.
+썸네일 164×100px·기존 글자 크기와 배율·텍스트 경계·세로 중앙 정렬을 확인했습니다.
+양쪽에서 저장·재선택·실패 후 재시도·요청 중 탭 이동·완료 탭 고정·확대 본문 스크롤·닫기/늦은 응답을 확인했습니다.
+키보드 표시/해제 inset은 iOS 336→0px·Android 274.909→0px이고 양쪽 OS 원본에서 표시를 확인했습니다.
+이전 `a14111f`의 테스트·확대 오류·기기 결과는 위 당시 기록에 남기고 이번 통과로 사용하지 않습니다.
+
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout`입니다.
+[변경 전 → 변경 후 → Figma 비교 18건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout/comparison-document.html),
+[iOS 동작 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout/ios/after/interaction.mp4),
+[Android 동작 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-scaled-layout/android/after/interaction.mp4)을 제공합니다.
+동일 기종·데이터·배율·스크롤 위치의 OS 원본과 Figma 기본 원본을 비교하고 실제 안전 영역 차이를 설명합니다.
+확대용 대체 디자인을 만들지 않으며 사진 비율/잘림·상단/하단 배치의 보류 범위를 표시합니다. 저장 화면 전체 디자인 맞춤의 완료로 보고하지 않습니다.
+실제 서버·인증·AI/OCR·실기기·원격 CI는 대역 프리뷰 검증 범위에 포함하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 
