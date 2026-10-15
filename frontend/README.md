@@ -23,11 +23,11 @@ OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 �
 `b905769`의 기준 전환은 문서만 갱신했습니다. 이후 2026-10-15에는 최신 D05/D09를 조회해
 사진 결과의 링크 전용 문구와 성공한 제출 입력의 고정을 `a14111f`에 적용했습니다. 당시 집중 11개·관련 132개·전체 703개 검사와
 정적 분석을 통과했고 양 플랫폼의 문구·입력 고정 동작을 확인했습니다. 당시 남긴 배율 2의 넘침은 아래 후속 확대 작업에서
-사용자 확정 기준으로 수정하고 자동·양 플랫폼 실행 검증을 완료했습니다. 이번 결과는 아래 별도 기록을 따릅니다.
+사용자 확정 기준으로 수정하고 `5d12e9d`에서 자동·양 플랫폼 실행 검증을 완료했습니다. 이번에는 그 커밋을 기준으로 저장 화면 하단 안전 영역·본문/버튼 겹침을 정리하고 자동·양 플랫폼 실행 검증을 마쳤습니다. 각 결과는 아래 별도 기록을 따릅니다.
 이 부분 적용을 새 디자인 전체의 완료로 보고하지 않습니다.
 
 카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
-OS 정책은 유지합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
+공통 하단 바의 OS 정책은 유지합니다. 저장 창의 별도 키보드 회피 기준은 아래 후속 작업에 기록합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
 최신 K02·K03의 공지 본문과 J07·K04의 미작성 본문, 최초 로딩 화면과 스켈레톤 설명의 불일치는
 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 정리합니다.
 K05에는 약관 본문이 있지만 예시 내용을 운영 원문으로 확정하는 작업이 필요합니다.
@@ -527,8 +527,8 @@ Figma의 고정 96px과 달리 기기 inset에 따라 바 상단과 본문 사�
 공통 `NavigationHomeIndicator`와 두 사용부를 제거하고 실제 인디케이터 표시를 OS에 맡깁니다.
 OS 플래그·화면 생성자·API·데이터 모델·콘텐츠 보존/삭제 처리와 상세 페이지 이동/시트 입력 계약은 변경하지 않습니다.
 
-진입 스플래시의 `EntryHomeIndicator`와 저장 화면의 `_SaveHomeIndicator`는 별도 디자인을 확정한 뒤 진행합니다.
-두 화면의 기존 인디케이터·본문/버튼 배치는 이번 범위에 포함하지 않습니다.
+이 공통 바 커밋 당시 진입 스플래시의 `EntryHomeIndicator`와 저장 화면의 `_SaveHomeIndicator`·본문/버튼 배치는 보류했습니다.
+진입 스플래시는 계속 보류하며 저장 창은 아래 사용자 확정 기준의 후속 하단 작업으로 분리합니다.
 마이·상세 본문의 글자 배율 2 넘침도 기존 디자인 확인 대상으로 남기며,
 공통 탭 단독 확대 검사를 전체 본문 성공으로 보고하지 않습니다.
 기준 Figma는 공통 탭 `111:3680`, C01 `111:3584`, C02 `111:3681`, G02 `111:5047`이고
@@ -662,7 +662,7 @@ Pixel 3a 설정의 Android 13/API 33 제스처 모드는 논리 392.7×783.3·DP
 최종 기종·OS·자동/기기 결과와 미검증 범위는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록했습니다.
 실제 공급자·AI/OCR·운영 서버·실기기·원격 CI는 이번 대역 렌더링으로 검증하지 않습니다.
 
-## 저장 화면의 확대 글자 높이 (2026-10-15)
+## 저장 화면의 확대 글자 높이 (`5d12e9d`, 2026-10-15)
 
 `a14111f`를 기준으로 **글자를 줄이지 않고 필요한 만큼 높이를 늘리는** 사용자 기준을 적용합니다.
 사진 선택 전 안내는 최소 89px, 링크·사진 결과 미리보기는 최소 116px이며 기본 배율의 기존 크기를 유지합니다.
@@ -692,7 +692,7 @@ curl 'http://127.0.0.1:8767/scene?kind=photo-empty&scale=1.5'
 curl http://127.0.0.1:8767/run
 ```
 
-프리뷰는 `kind=photo-empty|link|photo`, 배율 `1|1.5|2`의 9개 상태를 제공하며
+이 커밋 당시 프리뷰는 `kind=photo-empty|link|photo`, 배율 `1|1.5|2`의 9개 상태를 제공했으며
 `photo_empty_scale_1_5.png`처럼 배율별 파일명을 구분합니다. `/status`, `/scene`, `/run`, `/scroll`, `/keyboard`, `/keyboard-hide`를 제공합니다.
 `/run`은 양 phase에서 기존 문구·제출 입력·성공 탭 고정·중복 제출 방지·실패 후 재시도·재선택·확대 스크롤·늦은 응답·키보드 표시/해제를 검사합니다.
 안내·미리보기·텍스트·이미지 경계/크기와 실제 글자 크기를 `report.json`에 기록하고 AFTER에서는 새 레이아웃을 엄격 판정합니다.
@@ -721,12 +721,97 @@ Pixel 3a 설정/Android 13(API 33) 제스처 모드는 논리 392.7×783.3·DPR 
 확대용 대체 디자인을 만들지 않으며 사진 비율/잘림·상단/하단 배치의 보류 범위를 표시합니다. 저장 화면 전체 디자인 맞춤의 완료로 보고하지 않습니다.
 실제 서버·인증·AI/OCR·실기기·원격 CI는 대역 프리뷰 검증 범위에 포함하지 않습니다.
 
+## 저장 화면 하단 안전 영역과 버튼 겹침 (2026-10-15, 해당 범위 적용·검증 완료)
+
+현재 작업 기준은 `5d12e9d`입니다. 사용자 승인으로 본문 스크롤과 하단 CTA/토스트 영역을 분리하고,
+버튼 아래 **`32 + max(viewInsets.bottom, viewPadding.bottom)`**을 한 번만 적용합니다.
+키보드가 열리면 키보드 위 32px, 닫히면 실제 OS 안전 영역 위 32px을 유지합니다.
+공통 내비게이션의 `64 + fontExtra + viewPadding.bottom` 및 키보드 높이를 더하지 않는 정책은 그대로이며,
+입력 화면인 저장 창에 적용하는 위 회피 정책과 구분합니다.
+
+본문 하단 패딩 24px·버튼 높이 56px/좌우 16px·토스트 좌우 40px/버튼 위 16px·토스트 3초 표시를 유지합니다.
+토스트 표시 중에는 본문이 토스트 뒤로 이어지지 않도록 필요한 높이를 확보합니다.
+저장 창의 `_SaveHomeIndicator`를 제거하고 실제 탐색 표시는 OS에 맡깁니다.
+글자 축소·사진 비율/잘림·결과 상단 80px·카테고리 편집·공개 생성자/콜백/API/모델과 저장 정책은 바꾸지 않습니다.
+
+이번 작업의 구현 준비 중 **2026-10-15 18:53:53 KST(09:53:53 UTC)**의 D01 `912:16502`·D06 `912:16524`·D07 `912:16551`·D05 `912:16639`·D09 `912:16602`
+재조회는 모두 Figma Starter 호출 한도에 막혔습니다. D05는 앞선 확대 작업의 **18:07:32 KST(09:07:32 UTC)**,
+D06/D09는 **17:56:18 KST(08:56:18 UTC)** 원본·컨텍스트를 출처와 함께 사용하며 이번 새 조회로 보고하지 않습니다.
+D01/D07은 기존 원본도 없어 Figma 칸을 미확보로 표시합니다. 확대·키보드 전용 디자인이나 누락 원본을 만들어 채우지 않습니다.
+기본 비교는 3개 기기/탐색 구성 × 5개 상태 × 3개 배율의 45쌍을 대상으로 하며,
+이 중 D06/D05/D09 27건은 세 화면 비교, D01/D07 18건은 Figma 누락 사유를 표시합니다. 키보드·오류·최대 스크롤의 추가 비교는 45쌍이며 최종 산출/매체 확인은 별도 검증 기록을 따릅니다.
+
+```bash
+# frontend/ — 하단 배치와 기존 입력/사진 보존 회귀입니다.
+flutter test --no-pub test/save_footer_layout_test.dart test/save_search_safe_area_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 같은 고정 프리뷰를 before/after로 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# Android: adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+# iOS 주소이며 Android 호스트 요청은 8768 포트를 사용합니다.
+curl 'http://127.0.0.1:8767/scene?kind=link-input&scale=1.5'
+curl 'http://127.0.0.1:8767/scene?kind=photo-selected&scale=2'
+curl 'http://127.0.0.1:8767/keyboard?scale=2'
+curl 'http://127.0.0.1:8767/error?scale=1.5&keyboard=1'
+curl 'http://127.0.0.1:8767/scroll?max=1'
+curl http://127.0.0.1:8767/run
+```
+
+현재 프리뷰는 `kind=link-input|photo-empty|photo-selected|link|photo`, 배율 `1|1.5|2`의 15개 장면과
+`/status`·`/scene`·`/run`·`/scroll?max=1`·`/keyboard?scale=...`·`/error?scale=...&keyboard=1`·`/keyboard-hide`를 제공합니다.
+기존 `link`/`photo`는 성공 결과이며 새 `link-input`/`photo-selected`는 제출 전 입력 상태입니다.
+제품 수정 전 동결한 SHA256은 `4b0ab767520f98b570a5741b1ca1f6cb5cbc4eaf6257005857765f9ebccc7cd3`이고 변경 전·후 동일 소스를 사용합니다.
+`report.json`은 본문 viewport/마지막 항목/버튼/토스트의 경계와 실제 inset·최대 스크롤,
+`targetLayoutFindings`·`targetLayoutPassed`를 기록합니다. `layoutPassed`·전체 `passed`는 프레임워크 오류뿐 아니라 실제 하단 정책 위반도 반영합니다.
+
+BEFORE는 새 정책 위반을 기록하면서 기존 동작 검사를 계속하고 AFTER는 이를 엄격 판정합니다.
+IME에 가려진 BEFORE 버튼은 합성 탭으로 OS 창을 우회할 수 있어 접근 가능 증거로 쓰지 않습니다.
+`/run`은 해당 기대 실패를 기록한 뒤 키보드를 닫아 재시도를 이어갑니다. AFTER는 실제 양수 keyboard inset·입력 보존·실패/재시도·완료 탭·닫기를 확인합니다.
+선택 사진이 viewport보다 클 때는 최대 스크롤의 사진 하단 노출을, 마지막 안내 텍스트는 전체 경계를 검사합니다.
+
+최초 재현 실행은 하단 검사 96개 모두 실패·기존 저장/검색 2개 중 1개 실패로 **98개 중 1개 통과·97개 실패**였습니다.
+수정 후 집중 **98개**(8초)·관련 8개 파일 **266개**(20초)·전체 Flutter 테스트 **837개**(76초)가 통과했고
+`flutter analyze --no-pub`는 **문제 없음**(5.1초)입니다.
+제품 수정 전 iOS·Android 제스처·Android 3버튼 각각 30장, 총 **90장**의 OS 원본을 새로 확보하고 `before-gate.json`의 해시 검증 뒤 제품을 수정했습니다.
+세 구성의 BEFORE는 각각 **87개 기록·프레임워크 오류 0건**, 동작 완료/보존은 통과하지만 하단 정책 위반으로 `layoutPassed`·전체 `passed: false`입니다.
+AFTER는 iOS **84개 기록**·Android 제스처 **86개 기록**(촬영 재시도 2개 포함)·3버튼 **84개 기록**, 각각 프레임워크 오류 0건·`checksCompleted`·`behaviorPassed`·`layoutPassed`·전체 `passed`가 모두 `true`입니다.
+각 구성의 기본 15장·추가 15장, 총 90장의 AFTER OS 원본을 새로 확보했습니다.
+
+실제 창은 iOS 논리 393×852·DPR 3·안전 영역 59/34px,
+Android 제스처 392.7×783.3·DPR 2.75·24/0px, Android 3버튼 392.7×759.3·DPR 2.75·24/0px입니다.
+Android 3버튼은 OS 탐색 바가 Flutter 창 밖에 있어 창이 24px 짧으므로 이미 반영된 여백을 다시 더하지 않습니다.
+키보드 표시/해제 inset은 iOS 336→0px, Android 제스처 274.909→0px·3버튼 250.909→0px입니다.
+AFTER 버튼 아래 간격은 iOS 키보드 없음/있음 66/368px, Android 키보드 없음 32px·표시 시 각각 306.909px/282.909px로 승인식에 일치했습니다.
+본문/버튼/토스트 분리·마지막 안내의 최대 스크롤·키보드 실패/재시도/닫기와 기존 제출/완료 탭 정책을 세 구성에서 확인했습니다.
+두 Android 구성은 실제 `adb shell input tap`으로 키보드 위 중심 탭의 원래 URL 1회 저장·완료 탭 유지·버튼 하단 2px 탭의 닫기도 확인했습니다.
+각 `native-taps/report.json`의 다섯 검사는 모두 `true`이며 실제 저장 API가 아닌 메모리 콜백입니다.
+검증 후 탐색 모드/오버레이를 원래 제스처 설정으로 복원했고 `android-navigation-restored.json`의 `restored: true`를 확인했습니다. 임시 포워딩 제거·에뮬레이터 종료도 마쳤습니다.
+
+변경 전 Android 제스처 배율 1.5 오류 토스트는 최초 촬영 시 표시가 끝나 OS 원본을 재촬영했습니다. 최초 시도는 보존하고 전체 87개 보고서는 수정하지 않았습니다.
+해당 변경 전 키보드 화면에서 기존 64×44px ‘붙여넣기’ 버튼의 확대 문구 두 줄 잘림도 확인했습니다.
+버튼 크기/줄 정책은 D01 원본 및 확대 디자인이 없어 [디자인 확인 필요 목록](../docs/figma-ui-alignment-plan.md#디자인-확인-필요)에 남기며 이번 하단 작업에서 바꾸지 않습니다.
+기본 45쌍의 본문 노드 225개에서 폭·높이·글자 크기/배율·줄 수·말줄임 변경 0건, fixture 동결 SHA 일치를 확인했습니다.
+이전 `5d12e9d`의 통과 결과는 이번 성공으로 사용하지 않으며 이번 결과를 저장 화면 전체 디자인·확대 표시 완료로 보고하지 않습니다.
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area`입니다.
+[기본 45쌍·추가 45쌍 비교 문서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/comparison-document.html),
+[iOS 동작](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/ios/after/interaction.mp4)·[iOS 키보드/레이아웃](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/ios/after/layout-keyboard.mp4),
+[Android 제스처 동작](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-gesture/after/interaction.mp4)·[제스처 키보드/레이아웃](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-gesture/after/layout-keyboard.mp4),
+[Android 3버튼 동작](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-threebutton/after/interaction.mp4)·[3버튼 키보드/레이아웃](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-threebutton/after/layout-keyboard.mp4),
+[제스처 실제 OS 탭 보고서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-gesture/after/native-taps/report.json)·[3버튼 실제 OS 탭 보고서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/android-threebutton/after/native-taps/report.json)를 제공합니다.
+OS 원본을 보정하지 않으며 [최종 비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/comparison-qa.json)에서 기본/추가 각 45쌍의 조건 불일치 0건·BEFORE 원본 90개 해시 불변·토스트 36개 상태 누락 0건을 확인했습니다.
+[이번 촬영 영상 14개](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-footer-safe-area/media-verification.json)를 모두 끝까지 디코딩해 종료 코드 0·오류 로그 0바이트를 확인했습니다.
+iOS/Android 빌드는 성공했고 기존 Kotlin 2.2.10 지원 종료 예정·Java native-access 경고는 빌드 실패와 구분합니다.
+운영 서버·실제 인증/저장·실기기·원격 CI는 대역 프리뷰 검증에 포함하지 않습니다.
+
 ## 상단 안전 영역과 헤더
 
 일반 화면의 헤더 높이는 `shared/theme/layout.dart`의 `appHeaderHeight`(64 논리 픽셀)를
 사용합니다. 시스템 상태바·노치 높이는 이 64px에 포함하지 않습니다. 각 `Scaffold.body`에서
 상단 `SafeArea`를 한 번 적용하며, `PhoneFrame`이나 헤더 안에서 중복 적용하지 않습니다.
-공통 하단 내비게이션 높이는 위 OS 안전 영역 기준을 따르며 저장 버튼 배치와 검색 화면의 기존 하단 SafeArea는 유지합니다.
+공통 하단 내비게이션 높이는 위 공통 바의 OS 안전 영역 기준을 따릅니다. 저장 버튼은 별도 저장 창 정책의 `32 + max(viewInsets.bottom, viewPadding.bottom)`을 적용하며 검색 화면의 기존 하단 SafeArea는 유지합니다.
 
 전체 화면 저장 창은 별도 Navigator 경로이므로 자체 SafeArea를 가집니다. 하단 시트는 호출부의
 `useSafeArea: true`로 최대 높이를 보호하며, 시트 내용에 일반 화면의 64px 헤더를 강제하지 않습니다.

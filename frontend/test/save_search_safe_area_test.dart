@@ -98,7 +98,8 @@ void main() {
           .widget<TextField>(find.byType(TextField))
           .controller;
       final saveButton = find.text('허투루에 저장하기');
-      final buttonBottom = tester.getBottomLeft(saveButton).dy;
+      final buttonBottom = tester.getBottomLeft(find.byType(SaveFlowButton)).dy;
+      expect(buttonBottom, 812 - 34 - 32);
       _metrics(tester, top: 62, keyboard: 300);
       await tester.pumpAndSettle();
       expect(tester.state(find.byType(AddContentSheet)), same(sheetState));
@@ -108,10 +109,17 @@ void main() {
       );
       expect(controller!.text, 'https://example.com/preserved');
       expect(tester.getTopLeft(find.byType(SaveContentTopBar)).dy, 62);
-      expect(tester.getBottomLeft(saveButton).dy, buttonBottom);
+      expect(
+        tester.getBottomLeft(find.byType(SaveFlowButton)).dy,
+        812 - 300 - 32,
+      );
       _metrics(tester, top: 62);
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
+      expect(
+        tester.getBottomLeft(find.byType(SaveFlowButton)).dy,
+        buttonBottom,
+      );
       await tester.tap(saveButton);
       await tester.pumpAndSettle();
       expect(find.text('fixture failure'), findsOneWidget);

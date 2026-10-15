@@ -222,6 +222,10 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
         savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
+    final bottomObstruction = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
     return ColoredBox(
       color: AppColors.bg,
@@ -255,70 +259,61 @@ class _AddContentSheetState extends State<AddContentSheet> {
                       ],
                     ),
                     Expanded(
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            bottom: 90,
-                            child: SingleChildScrollView(
-                              controller: _bodyScrollController,
-                              padding: EdgeInsets.fromLTRB(
-                                16,
-                                savedResult == null ? 32 : 80,
-                                16,
-                                24,
+                      child: SingleChildScrollView(
+                        controller: _bodyScrollController,
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          savedResult == null ? 32 : 80,
+                          16,
+                          24,
+                        ),
+                        child: savedResult != null
+                            ? SavedContentConfirmation(
+                                content: savedResult.content,
+                                originalUrl: savedResult.submission.label,
+                                photoBytes: savedResult.submission.photoBytes,
+                              )
+                            : _activeTab == 0
+                            ? LinkSaveBody(
+                                controller: _urlController,
+                                stage: _linkStage,
+                                onChanged: _validateLink,
+                                onClear: _clearLink,
+                                onPaste: _paste,
+                              )
+                            : PhotoSaveBody(
+                                stage: _photoStage,
+                                onSelect: _selectPhoto,
+                                photoBytes: _selectedPhotoBytes,
                               ),
-                              child: savedResult != null
-                                  ? SavedContentConfirmation(
-                                      content: savedResult.content,
-                                      originalUrl: savedResult.submission.label,
-                                      photoBytes:
-                                          savedResult.submission.photoBytes,
-                                    )
-                                  : _activeTab == 0
-                                  ? LinkSaveBody(
-                                      controller: _urlController,
-                                      stage: _linkStage,
-                                      onChanged: _validateLink,
-                                      onClear: _clearLink,
-                                      onPaste: _paste,
-                                    )
-                                  : PhotoSaveBody(
-                                      stage: _photoStage,
-                                      onSelect: _selectPhoto,
-                                      photoBytes: _selectedPhotoBytes,
-                                    ),
-                            ),
-                          ),
-                          Positioned(
-                            left: 16,
-                            right: 16,
-                            bottom: 66,
-                            height: 56,
-                            child: SaveFlowButton(
-                              label: savedResult == null ? '허투루에 저장하기' : '닫기',
-                              enabled: enabled,
-                              loading: _isSaving,
-                              onPressed: savedResult == null
-                                  ? _submit
-                                  : () => Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pop(),
-                            ),
-                          ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 32 + bottomObstruction),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           if (_saveError case final message?)
-                            Positioned(
-                              left: 40,
-                              right: 40,
-                              bottom: 138,
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
                               child: SaveErrorToast(message: message),
                             ),
-                          const Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: 34,
-                            child: Center(child: _SaveHomeIndicator()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SizedBox(
+                              height: 56,
+                              child: SaveFlowButton(
+                                label: savedResult == null ? '허투루에 저장하기' : '닫기',
+                                enabled: enabled,
+                                loading: _isSaving,
+                                onPressed: savedResult == null
+                                    ? _submit
+                                    : () => Navigator.of(
+                                        context,
+                                        rootNavigator: true,
+                                      ).pop(),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -1023,22 +1018,6 @@ class SaveErrorToast extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SaveHomeIndicator extends StatelessWidget {
-  const _SaveHomeIndicator();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 144,
-      height: 5,
-      decoration: BoxDecoration(
-        color: AppColors.text,
-        borderRadius: BorderRadius.circular(100),
       ),
     );
   }

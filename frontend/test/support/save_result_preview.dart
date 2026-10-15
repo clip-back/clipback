@@ -2,8 +2,9 @@
 // in-memory save callbacks, with synthetic pointer/text input (no backend/auth).
 // flutter run --no-pub -t test/support/save_result_preview.dart
 //   --dart-define=SAVE_RESULT_PHASE=before|after
-// HTTP loopback :8767: /status, /scene?kind=photo-empty|photo|link&scale=1|1.5|2, /run,
-// /keyboard, /keyboard-hide, /scroll. Android host access: adb forward tcp:8767 tcp:8767.
+// HTTP loopback :8767: /status, /scene?kind=link-input|photo-empty|photo-selected|link|photo&scale=1|1.5|2, /run,
+// /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
+// /scroll?max=1. Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -75,7 +76,13 @@ Future<void> main() async {
             request.uri.queryParameters['scale'] ?? '1',
           );
           _require(
-            kind == 'link' || kind == 'photo' || kind == 'photo-empty',
+            const [
+              'link-input',
+              'photo-empty',
+              'photo-selected',
+              'link',
+              'photo',
+            ].contains(kind),
             'Unknown kind',
           );
           _require(
@@ -83,24 +90,47 @@ Future<void> main() async {
             'Unsupported scale',
           );
           await _open(kind, scale: scale);
-          if (kind != 'photo-empty') await _save();
+          if (_isResult(kind)) await _save();
           _checkScene(kind, scale);
           await _capture(_sceneName(kind, scale));
         case '/run':
           await _run();
         case '/keyboard':
-          await _open('link');
-          await _tap(_rect(_first<EditableText>()).center);
-          await Future<void>.delayed(const Duration(seconds: 2));
-          await _type(_url);
-          await _capture('keyboard');
+          final scale = _requestedScale(request.uri);
+          await _open('link-input', scale: scale);
+          await _showKeyboard();
+          _checkFooter();
+          await _capture(_sceneName('keyboard', scale));
+        case '/error':
+          final scale = _requestedScale(request.uri);
+          await _open('link-input', scale: scale, mode: 'fail');
+          if (request.uri.queryParameters['keyboard'] == '1') {
+            await _showKeyboard();
+          }
+          await _save();
+          _require(_has<SaveErrorToast>(), 'Failure toast missing');
+          await _scrollToMax();
+          _checkFooter(atMaximum: true);
+          await _capture(
+            _sceneName(
+              request.uri.queryParameters['keyboard'] == '1'
+                  ? 'error_keyboard'
+                  : 'error',
+              scale,
+            ),
+          );
         case '/keyboard-hide':
           FocusManager.instance.primaryFocus?.unfocus();
           await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
           await _settle(12);
           await _capture('keyboard_hidden');
         case '/scroll':
-          await _drag(const Offset(0, -220));
+          if (request.uri.queryParameters['max'] == '1') {
+            await _scrollToMax();
+            _checkFooter(atMaximum: true);
+          } else {
+            await _drag(const Offset(0, -220));
+          }
           await _capture('scrolled');
         default:
           request.response.statusCode = HttpStatus.notFound;
@@ -189,7 +219,7 @@ ContentItem _content(String kind) => ContentItem(
   id: 'save-result-$kind',
   title: '저장 결과 확인',
   summary: '고정 대역 데이터',
-  category: catUncategorized,
+  category: catUncategorized.copyWith(name: '매일 다시 확인하는 아주 긴 카테고리 이름'),
   savedAt: '10.15',
   savedAtFull: '2026.10.15',
   savedAtFullShort: '26.10.15',
@@ -340,9 +370,9 @@ Future<void> _open(
     ),
   );
   await _settle();
-  if (kind == 'photo' || kind == 'photo-empty') {
+  if (kind == 'photo' || kind == 'photo-empty' || kind == 'photo-selected') {
     await _tapText('사진 첨부');
-    if (kind == 'photo') await _selectPhoto();
+    if (kind != 'photo-empty') await _selectPhoto();
   } else {
     await _type(_url);
   }
@@ -389,6 +419,39 @@ Future<void> _drag(Offset delta) async {
   await _settle();
 }
 
+bool _isResult(String kind) => kind == 'link' || kind == 'photo';
+
+double _requestedScale(Uri uri) {
+  final scale = double.parse(uri.queryParameters['scale'] ?? '1');
+  _require(scale == 1 || scale == 1.5 || scale == 2, 'Unsupported scale');
+  return scale;
+}
+
+ScrollPosition get _bodyPosition =>
+    (_first<SingleChildScrollView>().widget as SingleChildScrollView)
+        .controller!
+        .position;
+
+Future<void> _scrollToMax() async {
+  _bodyPosition.jumpTo(_bodyPosition.maxScrollExtent);
+  await _settle();
+}
+
+Future<double> _showKeyboard() async {
+  await _tap(_rect(_first<EditableText>()).center);
+  var previous = -1.0;
+  var stable = 0;
+  for (var attempt = 0; attempt < 30; attempt++) {
+    await _settle(2);
+    final current = MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
+    stable = current > 0 && (current - previous).abs() < 0.1 ? stable + 1 : 0;
+    previous = current;
+    if (stable >= 3) break;
+  }
+  await _type(_url);
+  return MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
+}
+
 String _sceneName(String kind, double scale) =>
     '${kind.replaceAll('-', '_')}_scale_${scale.toString().replaceAll('.0', '').replaceAll('.', '_')}';
 
@@ -406,6 +469,28 @@ Element _ancestor(Element element, bool Function(Widget) matches) {
 
 Map<String, Element> _layoutNodes() {
   final nodes = <String, Element>{};
+  if (_has<AddContentSheet>()) {
+    nodes['bodyViewport'] = _first<SingleChildScrollView>();
+    nodes['button'] = _first<SaveFlowButton>();
+    if (_has<SaveErrorToast>()) nodes['toast'] = _first<SaveErrorToast>();
+    final body = _has<SavedContentConfirmation>()
+        ? _first<SavedContentConfirmation>()
+        : _has<PhotoSaveBody>()
+        ? _first<PhotoSaveBody>()
+        : _first<LinkSaveBody>();
+    nodes['bodyContent'] = body;
+    if (_has<SavedContentConfirmation>()) {
+      nodes['lastBody'] = _elements(body).lastWhere((e) => e.widget is Text);
+    } else if (_has<PhotoSaveBody>()) {
+      nodes['lastBody'] = _elements(
+        body,
+      ).firstWhere((e) => e.widget is InkWell);
+    } else if (_has<ValidationMessage>()) {
+      nodes['lastBody'] = _first<ValidationMessage>();
+    } else {
+      nodes['lastBody'] = _first<EditableText>();
+    }
+  }
   if (_has<PhotoEmptyPrompt>()) {
     final prompt = _first<PhotoEmptyPrompt>();
     final title = _elements(
@@ -474,10 +559,21 @@ bool _inside(Rect inner, Rect outer) =>
     inner.bottom <= outer.bottom + 0.1;
 
 void _checkScene(String kind, double scale) {
-  if (kind == 'photo-empty') {
-    _require(_has<PhotoEmptyPrompt>(), 'Photo empty prompt missing');
-    _require(!_has<SavedContentConfirmation>(), 'Empty photo was saved');
-    _require(_appKey.currentState!.calls == 0, 'Empty photo submitted');
+  if (!_isResult(kind)) {
+    _require(!_has<SavedContentConfirmation>(), 'Input scene became a result');
+    _require(_appKey.currentState!.calls == 0, 'Input scene submitted');
+    if (kind == 'photo-empty') {
+      _require(_has<PhotoEmptyPrompt>(), 'Photo empty prompt missing');
+    } else if (kind == 'photo-selected') {
+      _require(_has<SelectedPhotoPreview>(), 'Selected photo missing');
+      _require(_picker.calls == 1, 'Selected photo picker count changed');
+    } else {
+      _require(_has<LinkSaveBody>(), 'Link input missing');
+      _require(
+        (_first<EditableText>().widget as EditableText).controller.text == _url,
+        'Link draft changed',
+      );
+    }
   } else {
     _require(_has<SavedContentConfirmation>(), 'Save result missing');
     _require(
@@ -500,6 +596,7 @@ void _checkScene(String kind, double scale) {
       'Wrong selected tab',
     );
   }
+  _checkFooter();
   if (_phase != 'after') return;
   final nodes = _layoutNodes();
   if (kind == 'photo-empty') {
@@ -519,7 +616,7 @@ void _checkScene(String kind, double scale) {
     for (final name in ['emptyTitle', 'emptyDescription', 'emptyText']) {
       _require(_inside(_rect(nodes[name]!), prompt), '$name clips prompt');
     }
-  } else {
+  } else if (_isResult(kind)) {
     final card = _rect(nodes['previewCard']!);
     final image = _rect(nodes['previewImage']!);
     final text = _rect(nodes['previewText']!);
@@ -543,6 +640,105 @@ void _checkScene(String kind, double scale) {
     for (final name in ['previewImage', 'previewTitle', 'previewSource']) {
       _require(_inside(_rect(nodes[name]!), inner), '$name clips preview');
     }
+  }
+}
+
+Map<String, Object?> _footerMetrics() {
+  if (!_has<AddContentSheet>()) return {};
+  final media = MediaQuery.of(_first<AddContentSheet>());
+  final nodes = _layoutNodes();
+  final button = _rect(nodes['button']!);
+  final viewport = _rect(nodes['bodyViewport']!);
+  final last = _rect(nodes['lastBody']!);
+  final toast = nodes['toast'] == null ? null : _rect(nodes['toast']!);
+  final physicalBottom = _view.physicalSize.height / _view.devicePixelRatio;
+  final inset = media.viewInsets.bottom > media.viewPadding.bottom
+      ? media.viewInsets.bottom
+      : media.viewPadding.bottom;
+  return {
+    'reservedBottomInset': inset,
+    'buttonBottomGap': physicalBottom - button.bottom,
+    'expectedButtonBottomGap': 32 + inset,
+    'keyboardTop': physicalBottom - media.viewInsets.bottom,
+    'buttonCoveredByKeyboard':
+        media.viewInsets.bottom > 0 &&
+        button.bottom > physicalBottom - media.viewInsets.bottom + 0.1,
+    'viewportToButton': button.top - viewport.bottom,
+    'viewportToToast': toast == null ? null : toast.top - viewport.bottom,
+    'toastToButton': toast == null ? null : button.top - toast.bottom,
+    'lastBodyFullyVisible': _inside(last, viewport),
+    'lastBodyBottomVisible':
+        last.bottom <= viewport.bottom + 0.1 && last.bottom > viewport.top,
+    'atMaximumScroll':
+        (_bodyPosition.pixels - _bodyPosition.maxScrollExtent).abs() < 0.1,
+    'hasAppHomeIndicator': _elements().any(
+      (e) => e.widget.runtimeType.toString() == '_SaveHomeIndicator',
+    ),
+  };
+}
+
+List<String> _footerFindings({bool atMaximum = false}) {
+  if (!_has<AddContentSheet>()) return [];
+  final findings = <String>[];
+  final nodes = _layoutNodes();
+  final button = _rect(nodes['button']!);
+  final viewport = _rect(nodes['bodyViewport']!);
+  final metrics = _footerMetrics();
+  if (((metrics['buttonBottomGap'] as double) -
+              (metrics['expectedButtonBottomGap'] as double))
+          .abs() >
+      0.5) {
+    findings.add(
+      'Button bottom differs from 32 + max(viewInsets, viewPadding)',
+    );
+  }
+  if ((button.height - 56).abs() > 0.1 ||
+      (button.left - viewport.left - 16).abs() > 0.1 ||
+      (viewport.right - button.right - 16).abs() > 0.1) {
+    findings.add('Button size/margins changed');
+  }
+  if (viewport.bottom > button.top + 0.1) {
+    findings.add(
+      'Body viewport overlaps button by ${viewport.bottom - button.top}px',
+    );
+  }
+  if (metrics['hasAppHomeIndicator'] == true) {
+    findings.add('Fake app home indicator remains');
+  }
+  if (metrics['buttonCoveredByKeyboard'] == true) {
+    findings.add('Button is covered by OS keyboard');
+  }
+  if (nodes['toast'] case final Element toastElement) {
+    final toast = _rect(toastElement);
+    if ((button.top - toast.bottom - 16).abs() > 0.1 ||
+        (toast.left - viewport.left - 40).abs() > 0.1 ||
+        (viewport.right - toast.right - 40).abs() > 0.1) {
+      findings.add('Toast spacing/margins changed');
+    }
+    if (viewport.bottom > toast.top + 0.1) {
+      findings.add(
+        'Body viewport overlaps toast by ${viewport.bottom - toast.top}px',
+      );
+    }
+  }
+  if (atMaximum || metrics['atMaximumScroll'] == true) {
+    final last = _rect(nodes['lastBody']!);
+    if (last.bottom > viewport.bottom - 23.9 || last.bottom < viewport.top) {
+      findings.add(
+        'Last body does not remain visible above bottom 24px padding',
+      );
+    }
+    if (last.height <= viewport.height - 24 && !_inside(last, viewport)) {
+      findings.add('Last body clips at maximum scroll');
+    }
+  }
+  return findings;
+}
+
+void _checkFooter({bool atMaximum = false}) {
+  final findings = _footerFindings(atMaximum: atMaximum);
+  if (_phase == 'after') {
+    _require(findings.isEmpty, 'Footer: ${findings.join('; ')}');
   }
 }
 
@@ -589,6 +785,12 @@ Map<String, Object?> _snapshot() {
         : null,
     'calls': _appKey.currentState!.calls,
     'submissions': List.of(_appKey.currentState!.submissions),
+    'maxScrollExtent': _has<SingleChildScrollView>()
+        ? _bodyPosition.maxScrollExtent
+        : null,
+    'footerMetrics': _footerMetrics(),
+    'targetLayoutFindings': _footerFindings(),
+    'targetLayoutPassed': _footerFindings().isEmpty,
     'geometry': _geometry(),
   };
 }
@@ -624,11 +826,14 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
     'passed':
         _checksCompleted &&
         !_checks.any((c) => c['passed'] == false) &&
-        _errors.isEmpty,
+        _errors.isEmpty &&
+        !_checks.any((c) => c['targetLayoutPassed'] == false),
     'checksCompleted': _checksCompleted,
     'behaviorPassed':
         _checksCompleted && !_checks.any((c) => c['passed'] == false),
-    'layoutPassed': _errors.isEmpty,
+    'layoutPassed':
+        _errors.isEmpty &&
+        !_checks.any((c) => c['targetLayoutPassed'] == false),
     'scope':
         'Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
     'checks': _checks,
@@ -638,16 +843,29 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
 
 Future<void> _run() async {
   _checksCompleted = false;
-  for (final kind in ['photo-empty', 'link', 'photo']) {
+  for (final kind in [
+    'link-input',
+    'photo-empty',
+    'photo-selected',
+    'link',
+    'photo',
+  ]) {
     for (final scale in [1.0, 1.5, 2.0]) {
       await _open(kind, scale: scale);
-      if (kind != 'photo-empty') await _save();
+      if (_isResult(kind)) await _save();
       _checkScene(kind, scale);
       await _capture(_sceneName(kind, scale));
+      await _scrollToMax();
+      _checkFooter(atMaximum: true);
+      _checks.add({
+        'scenario': '${_sceneName(kind, scale)}_maximum_scroll',
+        'passed': true,
+        ..._snapshot(),
+      });
       if (kind == 'photo-empty') {
         final button = _first<SaveFlowButton>().widget as SaveFlowButton;
         _require(!button.enabled, 'Empty photo unexpectedly enables saving');
-      } else {
+      } else if (_isResult(kind)) {
         await _tapText('닫기');
         _require(!_has<AddContentSheet>(), 'Close did not dismiss dialog');
       }
@@ -751,31 +969,76 @@ Future<void> _run() async {
     'Reselected photo was not submitted/displayed',
   );
   _checks.add({'scenario': 'photo_reselection', 'passed': true});
-  await _open('link');
-  await _tap(_rect(_first<EditableText>()).center);
-  await Future<void>.delayed(const Duration(seconds: 2));
-  await _type(_url);
-  await _capture('keyboard');
-  final shown = MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
-  FocusManager.instance.primaryFocus?.unfocus();
-  await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-  await _settle(12);
-  final hidden = MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom;
-  _require(hidden == 0, 'Keyboard inset was not cleared');
-  _require(
-    (_first<EditableText>().widget as EditableText).controller.text == _url,
-    'Keyboard transition changed the draft',
-  );
-  await _capture('keyboard_hidden');
-  _checks.add({
-    'scenario': 'keyboard_show_hide',
-    'passed': true,
-    'shownInset': shown,
-    'hiddenInset': hidden,
-    'keyboardVisibilityMeasured': shown > 0,
-    'measurementLimit': shown == 0
-        ? 'Text-input focus requested; engine reported zero inset. Confirm OS keyboard visibility from screenshot.'
-        : null,
-  });
+  for (final scale in [1.0, 1.5, 2.0]) {
+    await _open('link-input', scale: scale, mode: 'fail');
+    final controller =
+        (_first<EditableText>().widget as EditableText).controller;
+    final shown = await _showKeyboard();
+    await _capture(_sceneName('keyboard', scale));
+    _checkFooter();
+    final covered = _footerMetrics()['buttonCoveredByKeyboard'] == true;
+    if (_phase == 'after') {
+      _require(shown > 0, 'Actual OS keyboard inset was not measured');
+    }
+    if (_phase == 'before' && covered) {
+      // Flutter synthetic pointer dispatch could bypass the OS IME window. Do
+      // not report such a tap as proof that an obscured CTA is accessible.
+      _checks.add({
+        'scenario': 'keyboard_save_unavailable_scale_$scale',
+        'passed': true,
+        'expectedBaselineFailure': true,
+        'reason':
+            'CTA is below OS keyboard top; retry checked after hiding IME',
+        ..._snapshot(),
+      });
+      FocusManager.instance.primaryFocus?.unfocus();
+      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+      await _settle(12);
+    }
+    await _save();
+    _require(
+      _has<SaveErrorToast>() && !_has<SavedContentConfirmation>(),
+      'Keyboard failure did not retain input/error',
+    );
+    _require(
+      identical(
+            (_first<EditableText>().widget as EditableText).controller,
+            controller,
+          ) &&
+          controller.text == _url,
+      'Failure replaced controller/draft',
+    );
+    await _scrollToMax();
+    _checkFooter(atMaximum: true);
+    await _capture(_sceneName('error_keyboard', scale));
+    _appKey.currentState!.mode = 'success';
+    // Verify the lower part of the CTA remains an active tap target.
+    final button = _rect(_first<SaveFlowButton>());
+    await _tap(Offset(button.center.dx, button.bottom - 2));
+    _require(
+      _has<SavedContentConfirmation>() && _appKey.currentState!.calls == 2,
+      'Keyboard manual retry did not save',
+    );
+    _require(_snapshot()['selectedTab'] == '링크 첨부', 'Retry tab changed');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    await _settle(12);
+    _require(
+      MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom == 0,
+      'Keyboard inset was not cleared',
+    );
+    await _scrollToMax();
+    _checkFooter(atMaximum: true);
+    await _capture(_sceneName('keyboard_hidden_result', scale));
+    await _tapText('닫기');
+    _require(!_has<AddContentSheet>(), 'Keyboard flow close failed');
+    _checks.add({
+      'scenario': 'keyboard_fail_retry_close_scale_$scale',
+      'passed': true,
+      'shownInset': shown,
+      'keyboardVisibilityMeasured': shown > 0,
+      'baselineHadCoveredCta': covered,
+    });
+  }
   _checksCompleted = true;
 }
