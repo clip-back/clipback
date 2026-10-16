@@ -948,6 +948,123 @@ Future<void> _interaction(
   }
 }
 
+void _photoFrame(WidgetTester tester, List<String> failures) {
+  final preview = find.byType(SelectedPhotoPreview);
+  final container = find.descendant(
+    of: preview,
+    matching: find.byType(Container),
+  );
+  final clip = find.descendant(of: preview, matching: find.byType(ClipRect));
+  final inner = find
+      .ancestor(of: clip, matching: find.byType(DecoratedBox))
+      .first;
+  final builder = find.descendant(
+    of: clip,
+    matching: find.byType(LayoutBuilder),
+  );
+  final image = find.descendant(of: clip, matching: find.byType(Image));
+  expect(container, findsOneWidget);
+  expect(clip, findsOneWidget);
+  expect(builder, findsOneWidget);
+  expect(image, findsOneWidget);
+  final outerBounds = tester.getRect(container);
+  final innerBounds = tester.getRect(inner);
+  final clipBounds = tester.getRect(clip);
+  final imageBounds = tester.getRect(image);
+  final viewport =
+      tester.view.physicalSize.width / tester.view.devicePixelRatio;
+
+  _near(failures, 'photo outer width', outerBounds.width, viewport - 32);
+  _near(failures, 'photo outer height', outerBounds.height, 437);
+  _near(failures, 'photo outer left', outerBounds.left, 16);
+  _near(failures, 'photo outer right', outerBounds.right, viewport - 16);
+  _near(
+    failures,
+    'photo inner width',
+    innerBounds.width,
+    outerBounds.width - 32,
+  );
+  _near(failures, 'photo inner height', innerBounds.height, 405);
+  _near(failures, 'photo left inset', innerBounds.left - outerBounds.left, 16);
+  _near(failures, 'photo top inset', innerBounds.top - outerBounds.top, 16);
+  _near(
+    failures,
+    'photo right inset',
+    outerBounds.right - innerBounds.right,
+    16,
+  );
+  _near(
+    failures,
+    'photo bottom inset',
+    outerBounds.bottom - innerBounds.bottom,
+    16,
+  );
+  _same(failures, 'photo clip bounds', clipBounds, innerBounds);
+  _same(failures, 'photo layout bounds', tester.getRect(builder), innerBounds);
+  _inside(failures, 'photo inner frame containment', innerBounds, outerBounds);
+  _same(
+    failures,
+    'photo clip behavior',
+    tester.widget<ClipRect>(clip).clipBehavior,
+    Clip.hardEdge,
+  );
+  final stack = tester.widget<Stack>(
+    find.descendant(of: builder, matching: find.byType(Stack)),
+  );
+  _same(failures, 'photo stack clip', stack.clipBehavior, Clip.hardEdge);
+
+  final outer = tester.widget<Container>(container);
+  final background = outer.decoration! as BoxDecoration;
+  final outline = outer.foregroundDecoration as BoxDecoration? ?? background;
+  _same(
+    failures,
+    'photo explicit padding',
+    outer.padding,
+    const EdgeInsets.all(16),
+  );
+  _same(failures, 'photo background', background.color, AppColors.surface);
+  _same(
+    failures,
+    'photo outer radius',
+    outline.borderRadius,
+    BorderRadius.circular(8),
+  );
+  for (final entry in [
+    ('outer', outline),
+    ('inner', tester.widget<DecoratedBox>(inner).decoration as BoxDecoration),
+  ]) {
+    _same(
+      failures,
+      'photo ${entry.$1} border',
+      entry.$2.border,
+      Border.all(color: AppColors.subtler),
+    );
+  }
+
+  // The existing enlarged image intentionally extends beyond the clip. Keep
+  // its relative crop; containment applies to the clip, not the image itself.
+  _near(failures, 'photo image left', imageBounds.left, clipBounds.left);
+  _near(failures, 'photo image right', imageBounds.right, clipBounds.right);
+  _near(
+    failures,
+    'photo crop top',
+    imageBounds.top - clipBounds.top,
+    -clipBounds.height * 0.4067,
+  );
+  _near(
+    failures,
+    'photo crop height',
+    imageBounds.height,
+    clipBounds.height * 1.6607,
+  );
+  _same(
+    failures,
+    'photo image fit',
+    tester.widget<Image>(image).fit,
+    BoxFit.fill,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Uint8List photo;
@@ -964,6 +1081,60 @@ void main() {
   });
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
+      for (final memoryPhoto in [true, false]) {
+        testWidgets(
+          'photo frame geometry $platform width $width ${memoryPhoto ? 'memory' : 'asset fallback'}',
+          (tester) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = Size(width, 812);
+            addTearDown(tester.view.reset);
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: ThemeData(
+                  useMaterial3: true,
+                  platform: platform,
+                  fontFamily: 'Pretendard',
+                ),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(1)),
+                  child: child!,
+                ),
+                home: Scaffold(
+                  body: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SelectedPhotoPreview(
+                      photoBytes: memoryPhoto ? photo : null,
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            final failures = <String>[];
+            _photoFrame(tester, failures);
+            final image = tester.widget<Image>(
+              find.descendant(
+                of: find.byType(SelectedPhotoPreview),
+                matching: find.byType(Image),
+              ),
+            );
+            if (memoryPhoto) {
+              expect(image.image, isA<MemoryImage>());
+              expect((image.image as MemoryImage).bytes, orderedEquals(photo));
+            } else {
+              expect(image.image, isA<AssetImage>());
+              expect(
+                (image.image as AssetImage).assetName,
+                'assets/figma/saved-photo-preview.png',
+              );
+            }
+            expect(tester.takeException(), isNull);
+            expect(failures, isEmpty, reason: failures.join('\n'));
+          },
+        );
+      }
       for (final scene in _Scene.values) {
         testWidgets('base typography $platform width $width ${scene.name}', (
           tester,

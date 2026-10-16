@@ -7,12 +7,12 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 
 현재 디자인 기준은 [허투루 Page 1의 261007](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-3379)입니다.
 파일 키 `svNWsTFh8Ws1Mpt8XQIcrN`의 **[Page 1(`0:1`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=0-1) > 261007(`111:3379`)**을 사용합니다.
-`1036398` 기준의 이번 작업은 문서만 갱신합니다. **2026-10-16 17:29:14~17:29:17 UTC(2026-10-17 02:29:14~02:29:17 KST)**에 Page 1 메타데이터를 한 번 조회해 화면 이름과 노드 대응을 확인했습니다.
+`1036398` 기준의 문서 전용 기준 전환은 `4d46dfa`에 저장했습니다. 당시 **2026-10-16 17:29:14~17:29:17 UTC(2026-10-17 02:29:14~02:29:17 KST)**에 Page 1 메타데이터를 한 번 조회해 화면 이름과 노드 대응을 확인했습니다.
 [메타데이터 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-transition-20261017/page1-metadata.xml)과 [조회 기록·노드 목록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-transition-20261017/reference-manifest.json)을 보존했습니다.
 사용자가 전달한 URL의 `85:3222`는 이번 Page 1 메타데이터에 없어 기준 노드로 사용하지 않습니다. 중복된 화면 이름은 노드 ID와 설명으로 구분하며 불명확한 대응은 확인 필요로 남깁니다. 이번 구조 확인을 전체 화면의 시각 대조나 기기 검증으로 보고하지 않습니다.
 
-새 기준의 [D07 사진 선택 후(`111:4814`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4814)는 앞선 보관 확인 시각 **2026-10-16 17:22:34 UTC(2026-10-17 02:22:34 KST)**의 [정확한 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-check-20261017/D07.png)·[컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-check-20261017/D07-context.txt)와 [출처 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-check-20261017/reference-manifest.json)을 사용합니다.
-다음 코드 작업 후보는 **D07 사진 프레임의 내부 치수만 정리하는 것**입니다. 디자인은 외곽 343×437px·내부 311×405px·안쪽 간격 16px이지만 현재 Flutter의 패딩 16px와 테두리 1px가 합산되면 내부 309×403px·간격 17px이 됩니다. 가로·세로 각각 2px 차이는 정적 분석 결과이며 기기 실측은 후속 검증 대상입니다. 사진 전체 보기·채우기·잘림 정책, 카테고리 편집과 결과 전체 배치는 별도 미정 항목으로 유지합니다. 이번 기준 전환으로 저장 화면 전체 맞춤이 완료된 것은 아닙니다.
+현재 [D07 사진 선택 후(`111:4814`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4814)는 **2026-10-16 17:52:02~17:52:10 UTC(2026-10-17 02:52:02~02:52:10 KST)**에 컨텍스트·원본을 한 번 새로 조회했습니다. [정확한 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07.png)·[컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07-context.txt)와 [조회 시각·SHA256](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/reference-manifest.json)을 보존했으며 호출 제한이나 보관 원본 fallback은 없었습니다.
+`4d46dfa` 기준의 이번 적용은 **D07 사진 선택 프레임의 내부 크기·16px 여백**에 한정합니다. 외곽 343×437px에서 내부 309×403px·사방 17px이던 차이를 재현하고, 외곽 테두리를 레이아웃에서 분리해 내부 311×405px·사방 16px로 수정했습니다. 자동 검사와 iOS·Android AFTER 실행·새 2쌍 비교로 확인했습니다. 사진 전체 보기·채우기·잘림 정책, 카테고리 편집과 결과 전체 배치는 별도 미정 항목으로 유지합니다. 저장 화면 전체 맞춤 완료로 표시하지 않습니다.
 
 이전 파일 `b2lmAo9VtbL6Qi0mzX5IMu`의 **WireFrame & UI(`3:5961`) > [261008(`912:13961`)](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-13961)**은 당시 구현·조회·비교 기록의 기준으로 보존합니다. 해당 파일의 M 보완안은 이전 제안이며 새 Page 1의 확정 디자인으로 채택하지 않습니다.
 아래 네 화면의 조회 기록은 이 이전 `261008` 파일에 해당합니다.
@@ -1296,6 +1296,80 @@ AFTER 동작 영상은 [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13
 이번 완료 범위는 카테고리 세 역할의 1배율 글자입니다. 기존 결과 정책·이름/상태 안내를 보존하며 저장 화면 전체 맞춤으로 표시하지 않습니다.
 증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography`입니다.
 메모리 저장/사진 선택 대역·Flutter 합성 입력과 실제 OS 창을 사용하며 운영 서버·OAuth·실기기·원격 CI는 검증 범위 밖입니다.
+화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
+
+## 사진 선택 프레임의 내부 크기·여백 (`4d46dfa` 기준, 해당 범위 적용·검증 완료)
+
+현재 Page 1 > 261007의 **D07 `111:4814`**에서 사진 선택 프레임만 맞춥니다.
+`SelectedPhotoPreview`의 외곽 테두리를 `foregroundDecoration`으로 옮겨 명시적 패딩 16px에 테두리 1px가 더해지지 않도록 했습니다.
+외곽 높이 437px·배경·모서리 8px·테두리 1px와 내부 테두리/클리핑은 유지합니다.
+내부는 외곽 폭−32px·높이 405px·사방 16px이며, 375px 폭의 검사에서는 외곽 343×437px → 내부 311×405px입니다.
+기기의 내부 폭은 실제 외곽 폭으로 계산하며 화면을 Figma의 375px로 강제하지 않습니다.
+이미지 위치 계수 −0.4067·높이 계수 1.6607·`BoxFit.fill`과 선택/재선택·제출 입력·완료 탭 고정·닫기는 유지합니다.
+이번 변경이 전체 사진 보기·채우기·잘림 정책을 결정한 것은 아닙니다.
+
+```bash
+# frontend/ — 실제 Pretendard, 1배율 geometry와 기존 스타일·동작 회귀
+flutter test --no-pub test/save_base_typography_test.dart
+flutter test --no-pub test/save_paste_layout_test.dart test/save_footer_layout_test.dart test/save_search_safe_area_test.dart test/save_scaled_layout_test.dart test/saved_content_confirmation_test.dart test/screenshot_asset_test.dart test/screenshot_asset_api_test.dart test/screenshot_auth_test.dart test/content_auto_category_test.dart test/share/manual_save_preservation_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 제품 수정 전에는 before, 수정 후에는 after로 같은 fixture를 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# Android는 포워딩 후 8768, iOS는 8767로 접근합니다.
+adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+curl 'http://127.0.0.1:8768/base-style-scene?kind=photo-selected'
+# after 앱의 전용 1배율 geometry·사진 저장 동작 검사
+curl 'http://127.0.0.1:8768/photo-frame-run'
+```
+
+기존 68건에 **iOS/Android 테마 × 폭 320/375px × 사진 바이트/에셋 fallback의 8건**을 추가했습니다.
+외곽·내부 `DecoratedBox`·`ClipRect`·`LayoutBuilder`와 이미지 경계, 사방 간격·배경·테두리·모서리·crop/fit·실제 이미지 소스를 검사합니다.
+확대된 이미지가 clip보다 큰 기존 구성은 유지하며 이미지 자체의 containment를 요구하지 않습니다.
+프리뷰도 같은 경계를 기록하고 새 프레임 검사를 `stylePassed`·`layoutPassed`·전체 `passed`에 합산합니다.
+BEFORE의 목표치 실패는 실제 실패로 기록하되 원본 촬영을 막지 않으며 기존 기본/결과 전용/확대 실행을 유지합니다.
+
+[수정 전 재현](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/before-photo-frame-summary.json)은 **기존 68건 통과·새 8건만 실패**했습니다.
+375px 폭에서는 내부 309×403px, 320px 폭에서는 254×403px이며 사방 17px입니다.
+[변경 전 게이트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/before-gate.json)는 **17:57:12.927909 UTC**에 기준 제품·동결 fixture·새 OS 원본 2장을 확인했고,
+[제품 수정](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/product-edit-start.json)은 **17:57:13.019530 UTC**에 시작했습니다.
+처음 Android 촬영의 System UI ANR 상태는 `android-gesture/attempts/system-ui-anr`에 분리하고 정상 상태로 다시 촬영했습니다.
+최초 SDK 캐시 쓰기 권한 오류도 `tests/environment-attempt-*`에 보존하며 재현 실패나 최종 성공으로 혼합하지 않습니다.
+
+[집중 76건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/base-typography-green.log)은 통과(로그 4초/명령 7.41초),
+[관련 335건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/related-green.log)도 통과(로그 13초/명령 16.04초)했습니다.
+[전체 Flutter 953건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/full-test.log)은 통과(로그 41초/명령 43.96초),
+[정적 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/analyze.log)은 문제 없음(로그 3.4초/명령 4.25초)입니다.
+[세 Dart 파일 형식 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/tests/format-check.log)는 변경 0건(로그 0.07초/명령 0.35초)이며
+[실제 명령 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/automatic-checks.json)의 최종 종료 코드는 모두 0입니다.
+기존 확대 자동 검사는 이번 관련/전체 실행에 포함하며 새로운 배율별·3버튼·키보드 기기 촬영은 추가하지 않습니다.
+
+[iOS AFTER 실행](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/ios-after-driver-result.json)과
+[Android AFTER 요약](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/android-gesture/after/device-summary.json)은 각 **기록 8건(정적/runner 캡처 2건·동작 6건)·프레임워크 오류 0건**이며
+`stylePassed`·`layoutPassed`·`behaviorPassed`·`checksCompleted`·전체 `passed`가 모두 `true`입니다.
+실제 사진 선택/재선택·탭 왕복 시 사진 바이트와 링크 초안/컨트롤러 보존·`other-photo.png`와 새 사진 바이트의 1회 제출·완료 탭 고정·닫기를 확인했습니다.
+D07과 사진 결과 모두 최대 스크롤이 0px이므로 필요한 전체 영역 노출과 무스크롤 분기를 확인한 것이며 실제 드래그 성공으로 보고하지 않습니다.
+
+| 실제 기기·창·안전 여백 | 외곽 크기·위치 (전/후 동일) | 내부 전 → 후 | 사방 전 → 후 |
+| --- | --- | --- | --- |
+| iPhone 16 / iOS 18.6, 393×852·DPR 3·상하 59/34px | 343×437px·left 25/top 246px | 309×403 → 311×405px | 17 → 16px |
+| Android 13/API 33 제스처, 392.7×783.3·DPR 2.75·상하 24/0px | 343×437px·left 약24.864/top 211px | 309×403 → 311×405px | 17 → 16px |
+
+[새 2쌍 비교](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/comparison-document.html)는 **변경 전 → 변경 후 → Figma D07 원본** 순서입니다.
+[비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/comparison-qa.json)는 Figma 누락/조건 불일치 0건·BEFORE 원본 2장 불변·동결 fixture 일치·외곽 크기/위치 보존·내부 가로/세로 각 2px 증가·사방 16px·기존 crop/fit 보존을 확인했습니다.
+같은 데이터·1배율·키보드 숨김·스크롤 0의 OS 포함 원본을 사용하며 OS 창/안전 여백 차이를 제거하거나 원본을 잘라 맞추지 않습니다.
+확대용 대체 디자인은 만들지 않았고 과거 `261008` 비교를 이번 Page 1 검증으로 사용하지 않습니다.
+
+AFTER 영상은 [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/ios/after/interaction.mp4) **8.861667초·2,601,967바이트**,
+[Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/android-gesture/after/interaction.mp4) **14.535733초·1,804,959바이트**입니다.
+[iOS 미디어 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/ios-after-media-verification.json)는 전체 디코딩 종료 코드 0·오류 로그 0바이트와 시작/중간/끝 화면의 예기치 않은 팝업 없음을 확인했습니다.
+iOS의 최초 기본 null muxer 검사는 가변 프레임 시각을 반올림해 duplicate DTS 경고를 냈습니다. 원본 영상을 바꾸지 않고 demux 시간 기준과 프레임 passthrough로 전체 디코딩을 다시 검증했습니다.
+[Android 미디어 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/android-gesture/after/media-verification.json)도 같은 demux 시간 기준으로 전체 디코딩해 종료 코드 0·오류 로그 0바이트를 확인했습니다. [종합 미디어 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/media-verification.json)의 두 영상은 모두 `passed: true`이며 원본 재인코딩은 하지 않았습니다.
+양 플랫폼 앱과 Simulator/Emulator를 종료하고 사용자 데이터를 보존했습니다. Android 탐색 설정 변경은 0건이며 원래 모드/오버레이 일치·임시 포워딩 없음·adb 기기 목록 비어 있음을 확인했습니다.
+이번 완료 표시는 사진 선택 프레임 치수·여백에 한정하며 사진 비율/잘림·카테고리 편집·결과 전체 배치는 후속입니다.
+메모리 저장/사진 선택 대역·Flutter 합성 입력·OS 화면 증거를 운영 API·OAuth·실기기·원격 CI와 구분합니다.
 화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
 
 ## 상단 안전 영역과 헤더

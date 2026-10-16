@@ -9,6 +9,7 @@
 // /base-style-scene?kind=empty|valid|invalid|photo-empty|photo-selected|link|photo
 // and /base-style-run inspect only text scale 1 for the current typography work.
 // /base-style-run?resultsOnly=1 limits behavior checks to link/photo results.
+// /photo-frame-run inspects D07 geometry and photo save behavior at text scale 1.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
@@ -79,7 +80,11 @@ Future<void> main() async {
     }
     final mutates = request.uri.path != '/status';
     if (mutates) _busy = true;
-    if (mutates) _baseStyleMode = request.uri.path.startsWith('/base-style-');
+    if (mutates) {
+      _baseStyleMode =
+          request.uri.path.startsWith('/base-style-') ||
+          request.uri.path == '/photo-frame-run';
+    }
     try {
       switch (request.uri.path) {
         case '/status':
@@ -125,6 +130,8 @@ Future<void> main() async {
           await _baseStyleRun(
             resultsOnly: request.uri.queryParameters['resultsOnly'] == '1',
           );
+        case '/photo-frame-run':
+          await _photoFrameRun();
         case '/keyboard':
           final scale = _requestedScale(request.uri);
           await _open('link-input', scale: scale);
@@ -209,6 +216,7 @@ class _PreviewState extends State<_Preview> {
       'filename': filename,
       'byteLength': bytes?.length,
       'matchesOriginalPhoto': bytes == null || _same(bytes, _picker.photo),
+      'matchesAlternatePhoto': bytes == null || _same(bytes, _picker.alternate),
     });
     if (mode == 'pending') {
       pending = Completer<ContentItem>();
@@ -570,6 +578,25 @@ Map<String, Element> _layoutNodes() {
           (e.widget as SizedBox).width == 40 &&
           (e.widget as SizedBox).height == 40,
     );
+  }
+  if (_has<SelectedPhotoPreview>()) {
+    final preview = _first<SelectedPhotoPreview>();
+    final outer = _elements(preview).firstWhere((e) => e.widget is Container);
+    final innerWidget = (outer.widget as Container).child!;
+    nodes['photoFrameOuter'] = outer;
+    nodes['photoFrameInner'] = _elements(
+      outer,
+    ).firstWhere((e) => identical(e.widget, innerWidget));
+    for (final entry in <String, bool Function(Widget)>{
+      'photoFrameClip': (w) => w is ClipRect,
+      'photoFrameLayout': (w) => w is LayoutBuilder,
+      'photoFrameStack': (w) => w is Stack,
+      'photoFrameImage': (w) => w is Image,
+    }.entries) {
+      nodes[entry.key] = _elements(
+        preview,
+      ).firstWhere((e) => entry.value(e.widget));
+    }
   }
   if (_has<SavedContentConfirmation>()) {
     final result = _first<SavedContentConfirmation>();
@@ -1466,6 +1493,169 @@ Map<String, Object?> _baseTextMetrics(Element element) {
   };
 }
 
+Map<String, Object?> _photoFrameMetrics() {
+  if (!_has<SelectedPhotoPreview>()) return {};
+  final nodes = _layoutNodes();
+  final outerElement = nodes['photoFrameOuter']!;
+  final outerWidget = outerElement.widget as Container;
+  final outer = _rect(outerElement);
+  final inner = _rect(nodes['photoFrameInner']!);
+  final clip = _rect(nodes['photoFrameClip']!);
+  final image = _rect(nodes['photoFrameImage']!);
+  final imageWidget = nodes['photoFrameImage']!.widget as Image;
+  final layout = _rect(nodes['photoFrameLayout']!);
+  final stack = nodes['photoFrameStack']!.widget as Stack;
+  final clipWidget = nodes['photoFrameClip']!.widget as ClipRect;
+  final selected =
+      _first<SelectedPhotoPreview>().widget as SelectedPhotoPreview;
+  final outerDecoration = outerWidget.decoration as BoxDecoration?;
+  final foreground = outerWidget.foregroundDecoration as BoxDecoration?;
+  final padding = outerWidget.padding!.resolve(Directionality.of(outerElement));
+  Map<String, Object?>? decorationMetrics(BoxDecoration? decoration) =>
+      decoration == null
+      ? null
+      : {
+          'color': decoration.color == null
+              ? null
+              : _colorArgb(decoration.color!),
+          'borderRadius': decoration.borderRadius?.toString(),
+          'border': decoration.border?.toString(),
+          'borderPadding': decoration.padding.toString(),
+        };
+  return {
+    'outer': _rectJson(outer),
+    'inner': _rectJson(inner),
+    'clip': _rectJson(clip),
+    'layoutBuilder': _rectJson(layout),
+    'stack': _rectJson(_rect(nodes['photoFrameStack']!)),
+    'image': _rectJson(image),
+    'sideInsets': {
+      'left': inner.left - outer.left,
+      'top': inner.top - outer.top,
+      'right': outer.right - inner.right,
+      'bottom': outer.bottom - inner.bottom,
+    },
+    'explicitPadding': {
+      'left': padding.left,
+      'top': padding.top,
+      'right': padding.right,
+      'bottom': padding.bottom,
+    },
+    'expectedInnerWidth': outer.width - 32,
+    'expectedOuterHeight': 437,
+    'expectedInnerHeight': 405,
+    'decoration': decorationMetrics(outerDecoration),
+    'foregroundDecoration': decorationMetrics(foreground),
+    'innerDecoration': decorationMetrics(
+      (nodes['photoFrameInner']!.widget as DecoratedBox).decoration
+          as BoxDecoration,
+    ),
+    'imageProvider': imageWidget.image.runtimeType.toString(),
+    'photoByteLength': selected.photoBytes?.length,
+    'photoMatchesOriginal': selected.photoBytes == null
+        ? null
+        : _same(selected.photoBytes!, _picker.photo),
+    'photoMatchesAlternate': selected.photoBytes == null
+        ? null
+        : _same(selected.photoBytes!, _picker.alternate),
+    'imageFit': imageWidget.fit?.name,
+    'imageTopCoefficient': (image.top - layout.top) / layout.height,
+    'imageHeightCoefficient': image.height / layout.height,
+    'clipBehavior': clipWidget.clipBehavior.name,
+    'stackClipBehavior': stack.clipBehavior.name,
+    'boundaryScope':
+        'Actual logical frame/clip/image render bounds. The full image intentionally exceeds the clip under the unchanged crop coefficients; viewport scrolling is not frame clipping. Native width follows the actual outer width, never a forced 375px Figma frame.',
+  };
+}
+
+List<String> _photoFrameStyleFindings() {
+  if (!_has<SelectedPhotoPreview>()) return [];
+  final findings = <String>[];
+  final outerWidget = _layoutNodes()['photoFrameOuter']!.widget as Container;
+  final background = outerWidget.decoration! as BoxDecoration;
+  final foreground = outerWidget.foregroundDecoration as BoxDecoration?;
+  final outline = foreground ?? background;
+  final border = outline.border;
+  if (background.color != AppColors.surface ||
+      background.borderRadius != BorderRadius.circular(8) ||
+      outline.borderRadius != BorderRadius.circular(8) ||
+      border is! Border ||
+      border.top.width != 1 ||
+      border.right.width != 1 ||
+      border.bottom.width != 1 ||
+      border.left.width != 1 ||
+      border.top.color != AppColors.subtler ||
+      border.right.color != AppColors.subtler ||
+      border.bottom.color != AppColors.subtler ||
+      border.left.color != AppColors.subtler) {
+    findings.add('Photo outer background/radius/1px border/color changed');
+  }
+  return findings;
+}
+
+List<String> _photoFrameLayoutFindings() {
+  if (!_has<SelectedPhotoPreview>()) return [];
+  final findings = <String>[];
+  final nodes = _layoutNodes();
+  final metrics = _photoFrameMetrics();
+  final outer = _rect(nodes['photoFrameOuter']!);
+  final inner = _rect(nodes['photoFrameInner']!);
+  final image = _rect(nodes['photoFrameImage']!);
+  bool near(num actual, num expected) => (actual - expected).abs() < 0.1;
+  final insets = metrics['sideInsets']! as Map<String, double>;
+  if (!near(outer.height, 437) ||
+      !near(inner.height, 405) ||
+      !near(inner.width, outer.width - 32) ||
+      insets.values.any((value) => !near(value, 16))) {
+    findings.add(
+      'Photo frame must retain outer height 437px, inner height 405px, inner width outer-minus-32px and four 16px insets',
+    );
+  }
+  final padding = metrics['explicitPadding']! as Map<String, double>;
+  if (padding.values.any((value) => !near(value, 16))) {
+    findings.add('Photo frame explicit padding must remain 16px per side');
+  }
+  for (final role in [
+    'photoFrameClip',
+    'photoFrameLayout',
+    'photoFrameStack',
+  ]) {
+    final rect = _rect(nodes[role]!);
+    if (!near(rect.left, inner.left) ||
+        !near(rect.top, inner.top) ||
+        !near(rect.width, inner.width) ||
+        !near(rect.height, inner.height)) {
+      findings.add('$role must match the actual inner frame');
+    }
+  }
+  final innerBorder =
+      ((nodes['photoFrameInner']!.widget as DecoratedBox).decoration
+              as BoxDecoration)
+          .border;
+  if (innerBorder != Border.all(color: AppColors.subtler) ||
+      metrics['clipBehavior'] != 'hardEdge' ||
+      metrics['stackClipBehavior'] != 'hardEdge' ||
+      metrics['imageFit'] != 'fill' ||
+      ((metrics['imageTopCoefficient']! as num) + 0.4067).abs() > 0.000001 ||
+      ((metrics['imageHeightCoefficient']! as num) - 1.6607).abs() > 0.000001 ||
+      !near(image.left, inner.left) ||
+      !near(image.width, inner.width)) {
+    findings.add(
+      'Photo inner border/clip/image fit or crop coefficients changed',
+    );
+  }
+  return findings;
+}
+
+void _checkPhotoFrame() {
+  if (_phase != 'after') return;
+  final findings = [
+    ..._photoFrameStyleFindings(),
+    ..._photoFrameLayoutFindings(),
+  ];
+  _require(findings.isEmpty, 'Photo frame: ${findings.join('; ')}');
+}
+
 Map<String, Object?> _previewGeometryMetrics() {
   if (!_has<SavedContentConfirmation>()) return {};
   final nodes = _layoutNodes();
@@ -1867,6 +2057,7 @@ void _checkBaseStyle() {
   final layout = _baseLayoutFindings();
   _require(styles.isEmpty, 'Base typography: ${styles.join('; ')}');
   _require(layout.isEmpty, 'Base geometry: ${layout.join('; ')}');
+  _checkPhotoFrame();
 }
 
 Future<void> _baseStyleScene(String kind) async {
@@ -2166,6 +2357,124 @@ Future<void> _baseStyleRun({bool resultsOnly = false}) async {
   _checksCompleted = true;
 }
 
+Future<void> _photoFrameRun() async {
+  _checksCompleted = false;
+  await _baseStyleScene('photo-selected');
+  _require(_picker.calls == 1, 'Photo-frame initial selection missing');
+  _require(
+    _photoFrameMetrics()['photoMatchesOriginal'] == true &&
+        _selectedTabFromUnderline() == '사진 첨부',
+    'Photo-frame initial bytes/tab changed',
+  );
+  await _capture('photo_frame_selected_scale_1');
+
+  await _tapText('링크 첨부');
+  await _type(_url);
+  final controller = (_first<EditableText>().widget as EditableText).controller;
+  await _tapText('사진 첨부');
+  _require(
+    _picker.calls == 1 &&
+        _photoFrameMetrics()['photoMatchesOriginal'] == true &&
+        _appKey.currentState!.calls == 0,
+    'Photo-frame tab round trip changed selected bytes or submitted',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'photo_frame_tab_round_trip_preserves_photo',
+    'passed': true,
+    ..._snapshot(),
+  });
+
+  await _selectPhoto();
+  _require(
+    _picker.calls == 2 && _photoFrameMetrics()['photoMatchesAlternate'] == true,
+    'Photo-frame reselection did not replace bytes',
+  );
+  await _tapText('링크 첨부');
+  _require(
+    identical(
+          (_first<EditableText>().widget as EditableText).controller,
+          controller,
+        ) &&
+        controller.text == _url,
+    'Photo-frame tab round trip replaced link controller/draft',
+  );
+  await _tapText('사진 첨부');
+  _require(
+    _picker.calls == 2 && _photoFrameMetrics()['photoMatchesAlternate'] == true,
+    'Photo-frame tab return changed reselected bytes',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'photo_frame_reselect_and_link_draft_preserved',
+    'passed': true,
+    ..._snapshot(),
+  });
+
+  if (_bodyPosition.maxScrollExtent > 0) {
+    await _drag(const Offset(0, -180));
+    _require(_bodyPosition.pixels > 0, 'Photo frame did not respond to drag');
+  }
+  await _scrollToMax();
+  _checkFooter(atMaximum: true);
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'photo_frame_maximum_scroll',
+    'passed': true,
+    ..._snapshot(),
+  });
+  _bodyPosition.jumpTo(0);
+  await _settle();
+  await _save();
+  final state = _appKey.currentState!;
+  final result =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  _require(
+    state.calls == 1 &&
+        state.submissions.length == 1 &&
+        state.submissions.single['kind'] == 'photo' &&
+        state.submissions.single['filename'] == 'other-photo.png' &&
+        state.submissions.single['byteLength'] == _picker.alternate.length &&
+        state.submissions.single['matchesAlternatePhoto'] == true &&
+        result.originalUrl == 'other-photo.png' &&
+        result.photoBytes != null &&
+        _same(result.photoBytes!, _picker.alternate),
+    'Photo-frame reselected file/bytes were not submitted exactly once',
+  );
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'photo_frame_reselected_submission',
+    'passed': true,
+    'submittedBytesMatchAlternate': true,
+    ..._snapshot(),
+  });
+  await _tapText('링크 첨부');
+  final pinned =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  _require(
+    _selectedTabFromUnderline() == '사진 첨부' &&
+        pinned.originalUrl == result.originalUrl &&
+        identical(pinned.photoBytes, result.photoBytes) &&
+        state.calls == 1,
+    'Photo-frame completion tab/result changed or resubmitted',
+  );
+  await _scrollToMax();
+  _checkFooter(atMaximum: true);
+  _checkBaseStyle();
+  _checks.add({
+    'scenario': 'photo_frame_result_pinned_maximum_scroll',
+    'passed': true,
+    ..._snapshot(),
+  });
+  await _tapText('닫기');
+  _require(
+    !_has<AddContentSheet>() && state.calls == 1,
+    'Photo-frame close failed or submitted again',
+  );
+  _checks.add({'scenario': 'photo_frame_close', 'passed': true});
+  _checksCompleted = true;
+}
+
 Map<String, Object?> _snapshot() {
   final confirmation = _has<SavedContentConfirmation>()
       ? _first<SavedContentConfirmation>().widget as SavedContentConfirmation
@@ -2217,18 +2526,38 @@ Map<String, Object?> _snapshot() {
     'baseStylePassed': _baseStyleFindings().isEmpty,
     'baseLayoutFindings': _baseLayoutFindings(),
     'baseLayoutPassed': _baseLayoutFindings().isEmpty,
-    'targetStyleFindings': [..._pasteStyleFindings(), ..._baseStyleFindings()],
+    'photoFrameMetrics': _photoFrameMetrics(),
+    'photoFrameFindings': [
+      ..._photoFrameStyleFindings(),
+      ..._photoFrameLayoutFindings(),
+    ],
+    'photoFramePassed':
+        _photoFrameStyleFindings().isEmpty &&
+        _photoFrameLayoutFindings().isEmpty,
+    'photoFrameStyleFindings': _photoFrameStyleFindings(),
+    'photoFrameStylePassed': _photoFrameStyleFindings().isEmpty,
+    'photoFrameLayoutFindings': _photoFrameLayoutFindings(),
+    'photoFrameLayoutPassed': _photoFrameLayoutFindings().isEmpty,
+    'targetStyleFindings': [
+      ..._pasteStyleFindings(),
+      ..._baseStyleFindings(),
+      ..._photoFrameStyleFindings(),
+    ],
     'targetStylePassed':
-        _pasteStyleFindings().isEmpty && _baseStyleFindings().isEmpty,
+        _pasteStyleFindings().isEmpty &&
+        _baseStyleFindings().isEmpty &&
+        _photoFrameStyleFindings().isEmpty,
     'targetLayoutFindings': [
       ..._footerFindings(),
       ..._pasteFindings(),
       ..._baseLayoutFindings(),
+      ..._photoFrameLayoutFindings(),
     ],
     'targetLayoutPassed':
         _footerFindings().isEmpty &&
         _pasteFindings().isEmpty &&
-        _baseLayoutFindings().isEmpty,
+        _baseLayoutFindings().isEmpty &&
+        _photoFrameLayoutFindings().isEmpty,
     'geometry': _geometry(),
   };
 }

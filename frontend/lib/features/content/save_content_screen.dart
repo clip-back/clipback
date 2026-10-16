@@ -912,6 +912,9 @@ class SelectedPhotoPreview extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      foregroundDecoration: BoxDecoration(
         border: Border.all(color: AppColors.subtler),
         borderRadius: BorderRadius.circular(8),
       ),
