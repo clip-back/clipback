@@ -261,12 +261,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
                     Expanded(
                       child: SingleChildScrollView(
                         controller: _bodyScrollController,
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          savedResult == null ? 32 : 80,
-                          16,
-                          24,
-                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
                         child: savedResult != null
                             ? SavedContentConfirmation(
                                 content: savedResult.content,

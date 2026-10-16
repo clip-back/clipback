@@ -1851,7 +1851,17 @@ Map<String, Object?> _baseStyleMetrics() {
   ).firstWhere((e) => e.widget.runtimeType.toString() == 'SvgIcon');
   final title = _textElement('콘텐츠 저장하기', top);
   final button = _first<SaveFlowButton>();
-  final viewport = _rect(_first<SingleChildScrollView>());
+  final scrollElement = _first<SingleChildScrollView>();
+  final scrollWidget = scrollElement.widget as SingleChildScrollView;
+  final viewport = _rect(scrollElement);
+  final padding = scrollWidget.padding!.resolve(
+    Directionality.of(scrollElement),
+  );
+  final roles = _baseStyleTextNodes();
+  final heading = _rect(roles['heading']!);
+  final tabs = _rect(_tabContainer(roles['linkTab']!));
+  final scrollOffset = _bodyPosition.pixels;
+  final atScrollZero = scrollOffset.abs() < 0.1;
   final validation = _has<ValidationMessage>()
       ? _rect(_first<ValidationMessage>())
       : null;
@@ -1865,7 +1875,7 @@ Map<String, Object?> _baseStyleMetrics() {
     }
   }
   return {
-    'roles': _baseStyleTextNodes().map(
+    'roles': roles.map(
       (name, element) => MapEntry(name, _baseTextMetrics(element)),
     ),
     'layout': {
@@ -1884,6 +1894,23 @@ Map<String, Object?> _baseStyleMetrics() {
       'linkTab': _tabMetrics('링크 첨부'),
       'photoTab': _tabMetrics('사진 첨부'),
       'bodyViewport': _rectJson(viewport),
+      'bodyHeading': _rectJson(heading),
+      'tabsBottom': tabs.bottom,
+      'viewportToTabsGap': viewport.top - tabs.bottom,
+      'bodyPadding': {
+        'left': padding.left,
+        'top': padding.top,
+        'right': padding.right,
+        'bottom': padding.bottom,
+      },
+      'scrollOffset': scrollOffset,
+      'maxScrollExtent': _bodyPosition.maxScrollExtent,
+      'startGap': heading.top - viewport.top,
+      'startGapFromTabs': heading.top - tabs.bottom,
+      'expectedStartGap': 32,
+      'startGapChecked': atScrollZero,
+      'startGapScope':
+          'The raw heading-to-viewport and heading-to-tabs gaps are judged only at scroll zero. Scrolled heading positions are recorded without resetting or compensating the scroll offset.',
       'cta': _rectJson(_rect(button)),
       'validationGap': validation == null || validationPrevious == null
           ? null
@@ -1898,7 +1925,7 @@ Map<String, Object?> _baseStyleMetrics() {
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles. Category editing, photo crop and overall result placement remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
   };
 }
 
@@ -2013,6 +2040,21 @@ List<String> _baseLayoutFindings() {
     }
   }
   final viewport = _rect(_first<SingleChildScrollView>());
+  if (!near(layout['viewportToTabsGap'], 0)) {
+    findings.add('Body viewport must start at the tabs bottom');
+  }
+  final padding = layout['bodyPadding']! as Map;
+  if (!near(padding['left'], 16) ||
+      !near(padding['right'], 16) ||
+      !near(padding['bottom'], 24)) {
+    findings.add('Body must retain 16px side and 24px bottom padding');
+  }
+  if (layout['startGapChecked'] == true &&
+      (!near(padding['top'], 32) ||
+          !near(layout['startGap'], 32) ||
+          !near(layout['startGapFromTabs'], 32))) {
+    findings.add('Body heading must start 32px below the tabs at scroll zero');
+  }
   for (final role in ['heading', 'urlOrFilename', 'validation']) {
     if (roles[role] case final Element element) {
       final rect = _rect(element);

@@ -383,7 +383,27 @@ void _contracts(
   );
   _tabs(tester, failures, photo: scene.photo);
 
-  final viewport = tester.getRect(find.byType(SingleChildScrollView));
+  final body = find.byType(SingleChildScrollView);
+  final viewport = tester.getRect(body);
+  final scrollView = tester.widget<SingleChildScrollView>(body);
+  _near(
+    failures,
+    'body viewport begins at tab bottom',
+    viewport.top,
+    tester.getRect(_tab('링크 첨부')).bottom,
+  );
+  _same(
+    failures,
+    'body padding',
+    scrollView.padding,
+    const EdgeInsets.fromLTRB(16, 32, 16, 24),
+  );
+  _near(
+    failures,
+    'body initial scroll offset',
+    scrollView.controller!.offset,
+    0,
+  );
   final inputTitle = scene.photo ? '저장할 사진' : '저장할 링크';
   _text(
     tester,
@@ -397,7 +417,7 @@ void _contracts(
     failures,
     'body top gap',
     tester.getRect(find.text(inputTitle)).top - viewport.top,
-    scene.result ? 80 : 32,
+    32,
   );
 
   if (!scene.photo && !scene.result) {

@@ -11,8 +11,11 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 [메타데이터 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-transition-20261017/page1-metadata.xml)과 [조회 기록·노드 목록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/page1-reference-transition-20261017/reference-manifest.json)을 보존했습니다.
 사용자가 전달한 URL의 `85:3222`는 이번 Page 1 메타데이터에 없어 기준 노드로 사용하지 않습니다. 중복된 화면 이름은 노드 ID와 설명으로 구분하며 불명확한 대응은 확인 필요로 남깁니다. 이번 구조 확인을 전체 화면의 시각 대조나 기기 검증으로 보고하지 않습니다.
 
-현재 [D07 사진 선택 후(`111:4814`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4814)는 **2026-10-16 17:52:02~17:52:10 UTC(2026-10-17 02:52:02~02:52:10 KST)**에 컨텍스트·원본을 한 번 새로 조회했습니다. [정확한 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07.png)·[컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07-context.txt)와 [조회 시각·SHA256](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/reference-manifest.json)을 보존했으며 호출 제한이나 보관 원본 fallback은 없었습니다.
-`4d46dfa` 기준의 이번 적용은 **D07 사진 선택 프레임의 내부 크기·16px 여백**에 한정합니다. 외곽 343×437px에서 내부 309×403px·사방 17px이던 차이를 재현하고, 외곽 테두리를 레이아웃에서 분리해 내부 311×405px·사방 16px로 수정했습니다. 자동 검사와 iOS·Android AFTER 실행·새 2쌍 비교로 확인했습니다. 사진 전체 보기·채우기·잘림 정책, 카테고리 편집과 결과 전체 배치는 별도 미정 항목으로 유지합니다. 저장 화면 전체 맞춤 완료로 표시하지 않습니다.
+앞선 사진 프레임 작업의 [D07 사진 선택 후(`111:4814`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4814)는 **2026-10-16 17:52:02~17:52:10 UTC(2026-10-17 02:52:02~02:52:10 KST)**에 컨텍스트·원본을 한 번 새로 조회했습니다. [정확한 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07.png)·[컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/D07-context.txt)와 [조회 시각·SHA256](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-photo-frame/figma/reference-manifest.json)을 보존했으며 호출 제한이나 보관 원본 fallback은 없었습니다.
+`4d46dfa`를 기준으로 `d1f13d4`에 저장한 적용은 **D07 사진 선택 프레임의 내부 크기·16px 여백**에 한정합니다. 외곽 343×437px에서 내부 309×403px·사방 17px이던 차이를 재현하고, 외곽 테두리를 레이아웃에서 분리해 내부 311×405px·사방 16px로 수정했습니다. 자동 검사와 iOS·Android AFTER 실행·새 2쌍 비교로 확인했습니다. 사진 전체 보기·채우기·잘림 정책, 카테고리 편집과 결과 전체 배치는 별도 미정 항목으로 유지합니다. 저장 화면 전체 맞춤 완료로 표시하지 않습니다.
+
+이번 `d1f13d4` 기준 작업은 Page 1 > 261007의 [D05 링크 결과(`111:4902`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4902)·[D09 사진 결과(`111:4865`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4865)의 **탭 하단부터 결과 제목까지 시작 여백**만 80→32px로 맞췄습니다.
+저장 본문의 패딩을 좌16·상32·우16·하24px로 통일하며 입력 화면의 32px·본문 viewport·헤더/탭·하단 버튼·안전 영역은 유지합니다. 사진 비율/잘림·미리보기 내부 간격·카테고리 편집·결과 전체 배치는 후속으로 남깁니다.
 
 이전 파일 `b2lmAo9VtbL6Qi0mzX5IMu`의 **WireFrame & UI(`3:5961`) > [261008(`912:13961`)](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-13961)**은 당시 구현·조회·비교 기록의 기준으로 보존합니다. 해당 파일의 M 보완안은 이전 제안이며 새 Page 1의 확정 디자인으로 채택하지 않습니다.
 아래 네 화면의 조회 기록은 이 이전 `261008` 파일에 해당합니다.
@@ -1371,6 +1374,73 @@ iOS의 최초 기본 null muxer 검사는 가변 프레임 시각을 반올림�
 이번 완료 표시는 사진 선택 프레임 치수·여백에 한정하며 사진 비율/잘림·카테고리 편집·결과 전체 배치는 후속입니다.
 메모리 저장/사진 선택 대역·Flutter 합성 입력·OS 화면 증거를 운영 API·OAuth·실기기·원격 CI와 구분합니다.
 화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
+
+## 저장 결과 상단 여백 (`d1f13d4` 기준, 해당 범위 적용·검증 완료)
+
+Page 1 > 261007의 D05 `111:4902`·D09 `111:4865`를 기준으로 저장 본문의 조건부 상단 패딩을 제거하고 `const EdgeInsets.fromLTRB(16, 32, 16, 24)`를 적용했습니다.
+입력 화면은 기존 32px을 유지하며 결과 제목과 뒤따르는 본문만 스크롤 0에서 48px 위로 이동합니다. 절대 좌표나 개별 요소의 위치 보정은 추가하지 않습니다.
+헤더 64px·탭 56px·본문 viewport·CTA 56px·OS 하단 여백/키보드 회피·저장/닫기와 제출 입력/완료 탭 고정 정책은 유지합니다.
+미리보기의 116px 최소 높이·이미지 164×100px·내부 8px/16px과 제목–출처 8px, 카테고리 행 55px은 이번 조정 대상이 아닙니다.
+
+```bash
+# frontend/ — 실제 Pretendard·1배율 76건과 기존 확대/하단/입력 보존 회귀
+flutter test --no-pub test/save_base_typography_test.dart
+flutter test --no-pub test/save_paste_layout_test.dart test/save_footer_layout_test.dart test/save_search_safe_area_test.dart test/save_scaled_layout_test.dart test/saved_content_confirmation_test.dart test/screenshot_asset_test.dart test/screenshot_asset_api_test.dart test/screenshot_auth_test.dart test/content_auto_category_test.dart test/share/manual_save_preservation_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 제품 수정 전에는 before, 수정 후에는 after로 같은 fixture를 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# Android는 포워딩한 8768, iOS는 8767로 접근합니다.
+adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+curl 'http://127.0.0.1:8768/base-style-scene?kind=link'
+curl 'http://127.0.0.1:8768/base-style-scene?kind=photo'
+# after 앱에서 기존 결과 전용 runner를 실행하며 영상으로 기록합니다.
+curl 'http://127.0.0.1:8768/base-style-run?resultsOnly=1'
+```
+
+기존 76개 검사와 프리뷰에 탭 하단·본문 viewport·결과 제목 경계, 실제 패딩·스크롤 위치와 시작 간격을 연결했습니다.
+32px 위치 판정은 스크롤 0에서만 적용하고 스크롤된 제목 위치를 보정하거나 검사 중 스크롤을 되돌리지 않습니다.
+최대 스크롤에서는 마지막 안내 노출·본문 하단 최소 24px·버튼과 겹침 없음을 검사하며 BEFORE의 목표치 실패는 원본 촬영을 막지 않습니다.
+[수정 전 집중 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/focused-red-summary.json)는 **76건 중 68건 통과·링크/사진 결과 8건만 예상 실패**로 기존 상단 80px과 목표 32px 차이를 재현했습니다.
+실제 Pretendard·iOS/Android 테마 × 폭 320/375px × 1배율이며 입력·기존 D07 프레임·글자·미리보기 내부·CTA 검사를 유지했습니다.
+
+[이번 Figma 조회](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/figma/reference-manifest.json)는 **2026-10-16 18:22:34~18:22:41 UTC(2026-10-17 03:22:34~03:22:41 KST)**에 현재 파일의 두 노드를 각각 한 번 조회해 컨텍스트와 원본 375×812px을 확보했습니다.
+[D05 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/figma/D05.png)·[D05 컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/figma/D05-context.txt), [D09 원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/figma/D09.png)·[D09 컨텍스트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/figma/D09-context.txt)를 보존하며 호출 제한·fallback·Figma 누락은 없습니다. 이전 `261008` 파일 이미지는 사용하지 않습니다.
+[BEFORE 게이트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/before-gate.json)는 **18:24:04 UTC**에 `d1f13d4` 제품 불변·검사/fixture 동결·새 OS 원본 4장을 확인했습니다.
+두 플랫폼의 링크/사진 BEFORE는 모두 시작 간격 80px·`stylePassed: true`·`layoutPassed: false`·프레임워크 오류 0건입니다. 이전 앱 캡처로 대체하지 않고 BEFORE의 목표치 실패를 그대로 기록합니다.
+
+[집중 76건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/base-typography-green.log)은 통과(명령 9.47초), [관련 335건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/related-green.log)도 통과(23.6초)했습니다.
+[전체 Flutter 953건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/full-test.log)은 통과(80.77초), [정적 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/analyze.log)은 문제 없음(6.3초), [세 Dart 파일 형식 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/tests/format-check.log)는 변경 0건(0.81초)입니다.
+[이번 자동 검사 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/automatic-checks.json)의 종료 코드는 모두 0입니다. 기존 확대·D07 프레임·하단 배치·입력 보존 검사를 포함하며 과거 953건 성공을 이번 실행으로 대신 보고하지 않습니다.
+BEFORE/AFTER의 iOS·Android 빌드도 각각 성공했고, 같은 동결 검사/fixture를 사용한 [BEFORE 소스·빌드](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/before-build.json)와 [AFTER 소스·빌드](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/final-implementation.json)에 실제 SHA256을 기록했습니다. 빌드 성공과 아래 native 실행 결과를 구분합니다.
+
+[iOS AFTER 실행](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/ios-after-driver-result.json)·[Android AFTER 실행](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/android-gesture/after/driver-result.json)은 각각 **기록 10건(정적/runner 캡처 4건·동작 6건)·프레임워크 오류 0건**입니다.
+두 [iOS 보고서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/ios/after/flutter/report.json)·[Android 보고서](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/android-gesture/after/flutter/report.json)의 `stylePassed`·`layoutPassed`·`behaviorPassed`·`checksCompleted`·전체 `passed`는 모두 `true`입니다.
+링크/사진 결과 진입·반대 탭을 눌러도 완료 탭/결과 유지·최대 스크롤 분기·추가 저장 없는 닫기를 확인했습니다. AFTER는 두 결과 모두 최대 스크롤이 0px이므로 무스크롤 상태와 마지막 안내의 전체 노출을 확인했으며 실제 드래그 성공으로 보고하지 않습니다.
+본문 하단 패딩 24px·CTA와 맞닿는 viewport 경계·추가 여유 공간을 구분하며 마지막 안내와 버튼의 겹침은 없습니다.
+
+| 실제 실행 구성 | 탭 하단/viewport 시작 (전·후 동일) | 결과 제목 top (링크·사진) | 시작 간격 | CTA top (전·후 동일) |
+| --- | --- | --- | --- | --- |
+| iPhone 16 / iOS 18.6, 393×852·DPR 3·상하 59/34px | 179px | 259 → 211px | 80 → 32px | 730px |
+| Android 13/API 33 제스처, 약392.7×783.3·DPR 2.75·상하 24/0px | 144px | 224 → 176px | 80 → 32px | 약695.273px |
+
+본문의 제목·미리보기·카테고리/마지막 안내는 스크롤 0에서 모두 48px 위로 이동했고 내부 크기·상대 간격·글자와 헤더/탭/viewport/CTA는 유지했습니다.
+Figma 375×812px 원본의 탭 하단 170px·제목 202px도 시작 간격은 32px입니다. 실제 OS 상단 여백 때문에 앱의 절대 좌표가 다르며 비교용으로 OS 표시를 지우거나 창 크기를 강제하지 않습니다.
+[완전한 3열 비교 4쌍](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-document.html)은 **변경 전 → 변경 후 → 현재 Figma D05/D09 원본** 순서이며 [비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-qa.json)에 누락/조건 불일치 0건·BEFORE 원본 4장 불변·동결 검사/fixture 일치·−48px 이동·내부/CTA 유지 결과를 기록했습니다.
+직접 볼 수 있는 비교는 [iOS 링크](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-ios-link.png)·[iOS 사진](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-ios-photo.png)·[Android 링크](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-android-gesture-link.png)·[Android 사진](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/comparison-android-gesture-photo.png)입니다.
+
+새 AFTER 영상은 [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/ios/after/interaction.mp4) **13.16초·1,111,623바이트**, [Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/android-gesture/after/interaction.mp4) **15.313511초·951,268바이트**입니다.
+[미디어 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/media-verification.json)는 두 원본의 전체 디코딩 종료 코드 0·오류 로그 0바이트·시작/중간/끝 및 0.5초 간격 표본의 팝업 없음·결과 진입/탭 선택/닫기 장면과 원본 재인코딩 없음을 확인했습니다. BEFORE 영상/동작과 이전 작업의 영상은 이번 증거로 사용하지 않습니다.
+iOS 앱/Simulator와 Android 앱/Emulator를 종료하고 데이터를 보존했습니다. Android는 원래 제스처 모드 2/여섯 오버레이 일치·탐색 설정 변경 0건·8768 포워딩 제거·정리 후 기기 목록 비어 있음을 실행 기록에 남겼습니다.
+
+[최종 환경 정리](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-result-top-gap/cleanup-verification.json)는 **18:30:08 UTC**에 iPhone 16 Shutdown·adb/Emulator/qemu 프로세스 0건·8767/8768 listener 없음·포워딩 제거·adb 서버 종료·데이터 보존을 확인했습니다. 임시 비교 서버는 시작하지 않았습니다.
+비교 HTML은 JS 문법·36개 파일 경로·PNG 직접 시각 검사를 확인했으며 브라우저 상호작용 실행은 이번에 검증하지 않았습니다. 이 한계와 양 플랫폼 native 실행/영상 성공은 구분합니다.
+
+이번 완료 범위는 결과 시작 여백이며 사진 비율/잘림·미리보기 제목–출처 간격·카테고리 편집·결과 전체 배치는 계속 보류합니다. 과거 절의 ‘결과 상단 80px 유지’는 당시 범위 기록이며 현재 값은 이 절의 32px을 따릅니다.
+새 확대 대응·배율별/3버튼/키보드 기기 촬영은 추가하지 않으며 기존 확대 구현과 자동 회귀는 유지합니다. 메모리 저장/사진 선택 대역·Flutter 합성 입력·실제 OS 창과 운영 API·OAuth·실기기·원격 CI 검증을 구분합니다.
+화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 같은 `feature/figma-ui-alignment`에서 한 커밋으로 저장하며 푸시·PR은 하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 
