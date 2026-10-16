@@ -17,10 +17,12 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
+import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -584,6 +586,30 @@ Map<String, Element> _layoutNodes() {
       (e) => e.widget is Text && (e.widget as Text).data == content.source,
     );
     nodes['previewText'] = _ancestor(title, (w) => w is Column);
+    final processingVideo =
+        content.source == sourceLabel('youtube') &&
+        (content.summaryStatus == 'queued' ||
+            content.summaryStatus == 'processing');
+    final categoryMessage = processingVideo
+        ? '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.'
+        : content.category.name == catUncategorized.name
+        ? '아직 분류되지 않았어요.'
+        : '저장된 카테고리';
+    nodes['categoryHeading'] = _textElement('카테고리', result);
+    nodes['categoryMessage'] = _textElement(categoryMessage, result);
+    nodes['categoryName'] = _textElement(content.category.name, result);
+    nodes['categoryRow'] = _ancestor(
+      nodes['categoryName']!,
+      (w) => w is Container,
+    );
+    nodes['categoryFolder'] = _elements(
+      nodes['categoryRow']!,
+    ).firstWhere((e) => e.widget is FolderGlyph);
+    nodes['categoryText'] = _ancestor(
+      nodes['categoryHeading']!,
+      (w) => w is Column,
+    );
+    nodes['categoryEditHint'] = _textElement('분류는 상세 화면에서 변경할 수 있어요.', result);
   }
   return nodes;
 }
@@ -1332,7 +1358,14 @@ Map<String, Element> _baseStyleTextNodes() {
   );
   if (_has<SavedContentConfirmation>()) {
     final preview = _layoutNodes();
-    for (final role in ['previewHeading', 'previewTitle', 'previewSource']) {
+    for (final role in [
+      'previewHeading',
+      'previewTitle',
+      'previewSource',
+      'categoryHeading',
+      'categoryMessage',
+      'categoryName',
+    ]) {
       nodes[role] = preview[role]!;
     }
   }
@@ -1519,6 +1552,106 @@ List<String> _previewLayoutFindings() {
   return findings;
 }
 
+Map<String, Object?> _categoryGeometryMetrics() {
+  if (!_has<SavedContentConfirmation>()) return {};
+  final nodes = _layoutNodes();
+  final rowElement = nodes['categoryRow']!;
+  final rowWidget = rowElement.widget as Container;
+  final row = _rect(rowElement);
+  final heading = _rect(nodes['categoryHeading']!);
+  final message = _rect(nodes['categoryMessage']!);
+  final name = _rect(nodes['categoryName']!);
+  final folder = _rect(nodes['categoryFolder']!);
+  final hint = _rect(nodes['categoryEditHint']!);
+  final padding = rowWidget.padding!.resolve(Directionality.of(rowElement));
+  return {
+    'row': _rectJson(row),
+    'innerRow': _rectJson(padding.deflateRect(row)),
+    'heading': _rectJson(heading),
+    'message': _rectJson(message),
+    'name': _rectJson(name),
+    'folder': _rectJson(folder),
+    'editHint': _rectJson(hint),
+    'editHintMetrics': _baseTextMetrics(nodes['categoryEditHint']!),
+    'rowPadding': {
+      'left': padding.left,
+      'top': padding.top,
+      'right': padding.right,
+      'bottom': padding.bottom,
+    },
+    'headingToMessageGap': message.top - heading.bottom,
+    'messageToRowGap': row.top - message.bottom,
+    'folderToNameGap': name.left - folder.right,
+    'rowToHintGap': hint.top - row.bottom,
+    'folderCenterDelta': folder.center.dy - row.center.dy,
+    'nameCenterDelta': name.center.dy - row.center.dy,
+    'boundaryScope':
+        'Category paragraph layout is checked against the actual row and body width, not the visible scroll position. Selection boxes and intentional ellipsis are diagnostic rather than clipping failures.',
+  };
+}
+
+List<String> _categoryLayoutFindings() {
+  if (!_has<SavedContentConfirmation>()) return [];
+  final findings = <String>[];
+  final nodes = _layoutNodes();
+  final metrics = _categoryGeometryMetrics();
+  final rowElement = nodes['categoryRow']!;
+  final row = _rect(rowElement);
+  final padding = (rowElement.widget as Container).padding!.resolve(
+    Directionality.of(rowElement),
+  );
+  final inner = padding.deflateRect(row);
+  final viewport = _rect(nodes['bodyViewport']!);
+  bool near(Object? value, double target) =>
+      value is num && (value - target).abs() < 0.1;
+  if (!near(row.height, 55) ||
+      !near(padding.left, 16) ||
+      !near(padding.right, 16) ||
+      !near(padding.top, 0) ||
+      !near(padding.bottom, 0)) {
+    findings.add('Category row must retain 55px height and 16px side padding');
+  }
+  final folder = _rect(nodes['categoryFolder']!);
+  if (!near(folder.width, 28) ||
+      !near(folder.height, 28) ||
+      !near(metrics['folderToNameGap'], 8) ||
+      !near(metrics['folderCenterDelta'], 0) ||
+      !near(metrics['nameCenterDelta'], 0)) {
+    findings.add(
+      'Category folder/name size, 8px gap or vertical center changed',
+    );
+  }
+  if (!near(metrics['headingToMessageGap'], 8) ||
+      !near(metrics['messageToRowGap'], 16) ||
+      !near(metrics['rowToHintGap'], 8)) {
+    findings.add('Category heading/message/row/hint gaps changed');
+  }
+  for (final role in ['categoryFolder', 'categoryName']) {
+    if (!_inside(_rect(nodes[role]!), inner)) {
+      findings.add('$role layout clips the padded category row');
+    }
+  }
+  for (final role in ['categoryHeading', 'categoryMessage']) {
+    final rect = _rect(nodes[role]!);
+    if (!_inside(rect, _rect(nodes['categoryText']!)) ||
+        rect.left < viewport.left - 0.1 ||
+        rect.right > viewport.right + 0.1) {
+      findings.add('$role clips its parent or exceeds body viewport width');
+    }
+  }
+  final paragraph =
+      nodes['categoryName']!.findRenderObject()! as RenderParagraph;
+  final content =
+      (_first<SavedContentConfirmation>().widget as SavedContentConfirmation)
+          .content;
+  if (paragraph.maxLines != 1 ||
+      paragraph.overflow != TextOverflow.ellipsis ||
+      paragraph.text.toPlainText() != content.category.name) {
+    findings.add('Category name must retain actual data and one-line ellipsis');
+  }
+  return findings;
+}
+
 Map<String, Object?> _baseStyleMetrics() {
   if (!_has<AddContentSheet>()) return {};
   final top = _first<SaveContentTopBar>();
@@ -1567,13 +1700,15 @@ Map<String, Object?> _baseStyleMetrics() {
           : validation.top - validationPrevious.bottom,
       if (_has<SavedContentConfirmation>())
         'preview': _previewGeometryMetrics(),
+      if (_has<SavedContentConfirmation>())
+        'category': _categoryGeometryMetrics(),
     },
     'ctaEnabled': (button.widget as SaveFlowButton).enabled,
     'ctaLoading': (button.widget as SaveFlowButton).loading,
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview text roles. Category typography and photo crop remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles. Category editing, photo crop and overall result placement remain outside this judgment.',
   };
 }
 
@@ -1606,6 +1741,9 @@ List<String> _baseStyleFindings() {
     'previewHeading': [16, 600, -0.4, '0xFF000000'],
     'previewTitle': [15, 500, -0.375, '0xFF000000'],
     'previewSource': [14, 400, -0.35, '0xFF767676'],
+    'categoryHeading': [16, 600, -0.4, '0xFF000000'],
+    'categoryMessage': [14, 500, -0.35, '0xFF767676'],
+    'categoryName': [16, 500, 0, '0xFF000000'],
     'cta': [16, 600, 0, enabled ? '0xFFFFD75C' : '0xFFFFFFFF'],
   };
   for (final entry in roles.entries) {
@@ -1628,6 +1766,8 @@ List<String> _baseStyleFindings() {
         ? 1.375
         : role == 'previewTitle' || role == 'previewSource'
         ? 1.6
+        : role == 'categoryName'
+        ? 22 / 16
         : null;
     if (expectedHeight != null) {
       if (actual['height'] != expectedHeight) {
@@ -1717,6 +1857,7 @@ List<String> _baseLayoutFindings() {
     }
   }
   findings.addAll(_previewLayoutFindings());
+  findings.addAll(_categoryLayoutFindings());
   return findings;
 }
 

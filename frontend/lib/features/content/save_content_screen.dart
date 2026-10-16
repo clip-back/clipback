@@ -414,6 +414,23 @@ class _SaveTextStyles {
     height: 1.6,
     color: AppColors.subtle,
   );
+  static const categoryMessage = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.subtle,
+  );
+  static const categoryName = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0,
+    height: 22 / 16,
+    color: Colors.black,
+  );
   static const input = TextStyle(
     inherit: false,
     textBaseline: TextBaseline.alphabetic,
@@ -705,24 +722,9 @@ class SavedContentConfirmation extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '카테고리',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
-            ),
+            const Text('카테고리', style: _SaveTextStyles.heading),
             const SizedBox(height: 8),
-            Text(
-              categoryMessage,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.35,
-              ),
-            ),
+            Text(categoryMessage, style: _SaveTextStyles.categoryMessage),
           ],
         ),
         const SizedBox(height: 16),
@@ -743,10 +745,7 @@ class SavedContentConfirmation extends StatelessWidget {
                   content.category.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: _SaveTextStyles.categoryName,
                 ),
               ),
             ],

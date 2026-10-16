@@ -2,10 +2,12 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
+import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
+import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -19,6 +21,9 @@ const _shortTitle = '짧은 제목';
 const _shortSource = '출처';
 const _longTitle = '긴 저장 콘텐츠 제목이 아주 길어서 두 줄을 넘는 경우에도 말줄임이 유지되는지 확인해요';
 const _longSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름';
+const _longCategory = '매일 다시 확인하는 아주 긴 카테고리 이름이 끝까지 보존돼요';
+const _processingCategoryMessage = '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
+const _categoryHint = '분류는 상세 화면에서 변경할 수 있어요.';
 
 enum _Scene {
   empty,
@@ -59,10 +64,17 @@ class _Picker extends FilePicker {
 }
 
 class _Saved {
-  _Saved({this.title = _shortTitle, this.source = _shortSource});
+  _Saved({
+    this.title = _shortTitle,
+    this.source = _shortSource,
+    this.category = catUncategorized,
+    this.summaryStatus = 'not_requested',
+  });
 
   final String title;
   final String source;
+  final CategoryItem category;
+  final String summaryStatus;
   int calls = 0;
   String? label;
   Uint8List? photo;
@@ -71,7 +83,7 @@ class _Saved {
     id: 'base-typography',
     title: title,
     summary: '기본 글자와 공통 상단 검사',
-    category: catUncategorized,
+    category: category,
     savedAt: '26.10.15',
     savedAtFull: '2026. 10. 15 오후 02:00',
     savedAtFullShort: '2026. 10. 15 02:00',
@@ -79,6 +91,7 @@ class _Saved {
     source: source,
     originalUrl: _url,
     originalText: '',
+    summaryStatus: summaryStatus,
   );
 }
 
@@ -89,6 +102,8 @@ Future<_Saved> _open(
   required double width,
   String title = _shortTitle,
   String source = _shortSource,
+  CategoryItem category = catUncategorized,
+  String summaryStatus = 'not_requested',
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 812);
@@ -98,7 +113,12 @@ Future<_Saved> _open(
   tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
   addTearDown(tester.view.reset);
   addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
-  final saved = _Saved(title: title, source: source);
+  final saved = _Saved(
+    title: title,
+    source: source,
+    category: category,
+    summaryStatus: summaryStatus,
+  );
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(
@@ -230,6 +250,7 @@ void _text(
   required Rect boundary,
   bool localAutoHeight = true,
   bool respectEllipsisClip = false,
+  bool checkSelectionBounds = true,
 }) {
   final finder = find.text(text);
   expect(finder, findsOneWidget);
@@ -246,6 +267,9 @@ void _text(
     );
   }
   _inside(failures, '$text paragraph', tester.getRect(finder), boundary);
+  // A selection box is not the painted glyph boundary. Category roles use
+  // their actual paragraph/row/ellipsis clip for containment instead.
+  if (!checkSelectionBounds) return;
   for (final box in paragraph.getBoxesForSelection(
     TextSelection(baseOffset: 0, extentOffset: text.length),
     boxHeightStyle: ui.BoxHeightStyle.tight,
@@ -435,6 +459,7 @@ void _contracts(
       boundary: labelContainer,
     );
     _preview(tester, failures, saved: saved, longText: false);
+    _category(tester, failures, saved: saved);
   }
   if (scene == _Scene.photoEmpty) {
     final prompt = tester.getRect(find.byType(PhotoEmptyPrompt));
@@ -665,6 +690,212 @@ void _preview(
   }
 }
 
+void _category(
+  WidgetTester tester,
+  List<String> failures, {
+  required _Saved saved,
+  String message = '아직 분류되지 않았어요.',
+  bool longName = false,
+}) {
+  final result = find.byType(SavedContentConfirmation);
+  final resultBounds = tester.getRect(result);
+  final heading = find.text('카테고리');
+  final status = find.text(message);
+  final name = find.text(saved.category.name);
+  expect(heading, findsOneWidget);
+  expect(status, findsOneWidget);
+  expect(name, findsOneWidget);
+  final rowFinder = find
+      .ancestor(of: name, matching: find.byType(Container))
+      .first;
+  final row = tester.getRect(rowFinder);
+  final folderFinder = find.descendant(
+    of: rowFinder,
+    matching: find.byType(FolderGlyph),
+  );
+  expect(folderFinder, findsOneWidget);
+  final folder = tester.getRect(folderFinder);
+  final nameBounds = tester.getRect(name);
+  final viewport = tester.getRect(find.byType(SingleChildScrollView));
+
+  // These roles may be below the viewport at scroll zero. Their actual
+  // parent/row bounds own clipping; the maximum-scroll check owns visibility.
+  _text(
+    tester,
+    failures,
+    '카테고리',
+    const _Style(16, FontWeight.w600, -0.4, Colors.black),
+    boundary: resultBounds,
+    checkSelectionBounds: false,
+  );
+  _text(
+    tester,
+    failures,
+    message,
+    const _Style(14, FontWeight.w500, -0.35, AppColors.subtle),
+    boundary: resultBounds,
+    checkSelectionBounds: false,
+  );
+  _text(
+    tester,
+    failures,
+    saved.category.name,
+    const _Style(16, FontWeight.w500, 0, Colors.black, height: 22 / 16),
+    boundary: row,
+    respectEllipsisClip: true,
+    checkSelectionBounds: false,
+  );
+  _near(failures, 'category row height', row.height, 55);
+  _near(failures, 'category row left', row.left, viewport.left + 16);
+  _near(failures, 'category row right', row.right, viewport.right - 16);
+  _near(
+    failures,
+    'category heading left',
+    tester.getRect(heading).left,
+    row.left,
+  );
+  _near(
+    failures,
+    'category status left',
+    tester.getRect(status).left,
+    row.left,
+  );
+  _near(
+    failures,
+    'category heading/status gap',
+    tester.getRect(status).top - tester.getRect(heading).bottom,
+    8,
+  );
+  _near(
+    failures,
+    'category status/row gap',
+    row.top - tester.getRect(status).bottom,
+    16,
+  );
+  _near(failures, 'category folder width', folder.width, 28);
+  _near(failures, 'category folder height', folder.height, 28);
+  _near(failures, 'category left padding', folder.left - row.left, 16);
+  _near(
+    failures,
+    'category folder/name gap',
+    nameBounds.left - folder.right,
+    8,
+  );
+  _near(failures, 'category right padding', row.right - nameBounds.right, 16);
+  _near(failures, 'category folder center', folder.center.dy, row.center.dy);
+  _near(failures, 'category name center', nameBounds.center.dy, row.center.dy);
+  _inside(failures, 'category folder containment', folder, row);
+  _inside(failures, 'category name containment', nameBounds, row);
+  final glyph = tester.widget<FolderGlyph>(folderFinder);
+  _same(failures, 'actual category color', glyph.color, saved.category.color);
+  final paragraph = tester.renderObject<RenderParagraph>(name);
+  _same(failures, 'category name max lines', paragraph.maxLines, 1);
+  _same(
+    failures,
+    'category name ellipsis',
+    paragraph.overflow,
+    TextOverflow.ellipsis,
+  );
+  _same(
+    failures,
+    'category actual truncation',
+    paragraph.didExceedMaxLines,
+    longName,
+  );
+  _near(failures, 'category name line height', nameBounds.height, 22);
+  _same(
+    failures,
+    'category source value unchanged',
+    tester.widget<Text>(name).data,
+    saved.category.name,
+  );
+  for (final other in [
+    '아직 분류되지 않았어요.',
+    '저장된 카테고리',
+    _processingCategoryMessage,
+  ]) {
+    _same(
+      failures,
+      'category status $other',
+      find.text(other).evaluate().length,
+      other == message ? 1 : 0,
+    );
+  }
+  expect(find.text('허투루가 자동으로 분류했어요!'), findsNothing);
+  if (message == _processingCategoryMessage) {
+    final text = tester.renderObject<RenderParagraph>(status);
+    final lineTops = text
+        .getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: message.length),
+        )
+        .map((box) => (box.top * 100).round())
+        .toSet();
+    _same(
+      failures,
+      'processing message natural line count',
+      lineTops.length,
+      viewport.width == 320 ? 2 : 1,
+    );
+    _same(
+      failures,
+      'processing message max lines unchanged',
+      text.maxLines,
+      null,
+    );
+    _same(
+      failures,
+      'processing message overflow unchanged',
+      text.overflow,
+      TextOverflow.clip,
+    );
+  }
+  final hint = tester.widget<Text>(find.text(_categoryHint));
+  _same(
+    failures,
+    'existing detail hint style unchanged',
+    hint.style,
+    const TextStyle(color: AppColors.subtle, fontSize: 14),
+  );
+  _near(
+    failures,
+    'category existing detail hint gap',
+    tester.getRect(find.text(_categoryHint)).top - row.bottom,
+    8,
+  );
+}
+
+Future<void> _categoryMaximumScroll(
+  WidgetTester tester,
+  List<String> failures,
+) async {
+  final scrollable = tester.widget<SingleChildScrollView>(
+    find.byType(SingleChildScrollView),
+  );
+  final position = scrollable.controller!.position;
+  position.jumpTo(position.maxScrollExtent);
+  await tester.pumpAndSettle();
+  final viewport = tester.getRect(find.byType(SingleChildScrollView));
+  final hint = tester.getRect(find.text(_categoryHint));
+  final heading = tester.getRect(find.text('카테고리'));
+  _inside(failures, 'category heading at maximum scroll', heading, viewport);
+  _inside(failures, 'existing detail hint at maximum scroll', hint, viewport);
+  if (hint.bottom > viewport.bottom - 23.8) {
+    failures.add('Last category hint must retain the 24px body bottom padding');
+  }
+  if (position.maxScrollExtent > 0) {
+    _near(
+      failures,
+      'category maximum scroll bottom padding',
+      viewport.bottom - hint.bottom,
+      24,
+    );
+  }
+  final button = tester.getRect(find.byType(SaveFlowButton));
+  if (viewport.bottom > button.top + 0.2) {
+    failures.add('Category viewport overlaps the footer button');
+  }
+}
+
 Future<void> _interaction(
   WidgetTester tester,
   _Scene scene,
@@ -756,6 +987,7 @@ void main() {
             saved: saved,
           );
           expect(tester.takeException(), isNull);
+          if (scene.result) await _categoryMaximumScroll(tester, failures);
           expect(failures, isEmpty, reason: failures.join('\n'));
           await _interaction(tester, scene, saved, photo);
           expect(tester.takeException(), isNull);
@@ -778,11 +1010,78 @@ void main() {
           );
           final failures = <String>[];
           _preview(tester, failures, saved: saved, longText: true);
+          _category(tester, failures, saved: saved);
+          await _categoryMaximumScroll(tester, failures);
           expect(tester.takeException(), isNull);
           expect(failures, isEmpty, reason: failures.join('\n'));
           await _interaction(tester, scene, saved, photo);
           expect(tester.takeException(), isNull);
         });
+        for (final variant in [
+          (
+            label: 'classified',
+            category: catUncategorized.copyWith(name: '알아두기'),
+            source: _shortSource,
+            summaryStatus: 'not_requested',
+            message: '저장된 카테고리',
+            longName: false,
+          ),
+          (
+            label: 'long classified',
+            category: catUncategorized.copyWith(name: _longCategory),
+            source: _shortSource,
+            summaryStatus: 'not_requested',
+            message: '저장된 카테고리',
+            longName: true,
+          ),
+          (
+            label: 'youtube queued',
+            category: catUncategorized.copyWith(name: _longCategory),
+            source: sourceLabel('youtube'),
+            summaryStatus: 'queued',
+            message: _processingCategoryMessage,
+            longName: true,
+          ),
+          (
+            label: 'youtube processing',
+            category: catUncategorized,
+            source: sourceLabel('youtube'),
+            summaryStatus: 'processing',
+            message: _processingCategoryMessage,
+            longName: false,
+          ),
+        ]) {
+          testWidgets(
+            'category typography $platform width $width ${scene.name} ${variant.label}',
+            (tester) async {
+              final previous = FilePicker.platform;
+              FilePicker.platform = _Picker(photo);
+              addTearDown(() => FilePicker.platform = previous);
+              final saved = await _open(
+                tester,
+                scene: scene,
+                platform: platform,
+                width: width,
+                category: variant.category,
+                source: variant.source,
+                summaryStatus: variant.summaryStatus,
+              );
+              final failures = <String>[];
+              _category(
+                tester,
+                failures,
+                saved: saved,
+                message: variant.message,
+                longName: variant.longName,
+              );
+              await _categoryMaximumScroll(tester, failures);
+              expect(tester.takeException(), isNull);
+              expect(failures, isEmpty, reason: failures.join('\n'));
+              await _interaction(tester, scene, saved, photo);
+              expect(tester.takeException(), isNull);
+            },
+          );
+        }
       }
     }
   }

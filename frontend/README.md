@@ -31,6 +31,7 @@ OS 하단 안전 영역은 `a9eb69d`에서 적용했습니다. **새 261008과 �
 이 부분 적용을 새 디자인 전체의 완료로 보고하지 않습니다.
 `a54c387`을 기준으로 한 이번 후속 작업에서는 저장 화면의 기본 1배율 글자·공통 상단을 적용하고 자동·양 플랫폼 실행·비교 검증을 마쳤습니다. D07 원본 미확보와 나머지 저장 화면의 보류 범위는 아래 기록을 따릅니다.
 이후 `b082db8` 기준의 작업에서 저장 결과 미리보기 제목·콘텐츠 제목·출처의 1배율 글자까지 적용하고 새 자동 검사·양 플랫폼 실행·4쌍 비교를 확인했습니다. 저장 화면 전체 맞춤은 계속 미완료입니다.
+이번 `108ef0f` 기준 작업은 저장 결과 카테고리 제목·상태 안내·실제 이름의 1배율 글자에 한정해 적용·검증했습니다. 실제 문구·읽기 전용 카테고리·기존 상세 변경 안내는 유지합니다.
 
 카테고리 삭제 시 콘텐츠 보존과 `64px + 글자 확대 증가분 + viewPadding.bottom`을 한 번 합산하는
 공통 하단 바의 OS 정책은 유지합니다. 저장 창의 별도 키보드 회피 기준은 아래 후속 작업에 기록합니다. 미정·불명확한 화면은 임의로 구현하지 않습니다.
@@ -1191,6 +1192,102 @@ API·저장 정책은 이번 변경 범위에서 제외했고 기존 연결을 �
 증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-typography`입니다.
 실제 저장 위젯·고정 사진 선택기/메모리 저장 콜백·Flutter 합성 입력을 사용하며 운영 서버·OAuth·실기기·원격 CI는 검증 범위 밖입니다.
 화면 증거·빌드 생성물·로컬 `AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
+
+## 저장 결과 카테고리 1배율 글자 (`108ef0f` 기준, 해당 범위 적용·검증 완료)
+
+최신 `261008`의 링크 결과 D05(`912:16639`)·사진 결과 D09(`912:16602`)에서
+**카테고리 제목·기존 상태 안내·실제 카테고리명** 세 역할의 글자만 맞춥니다.
+
+| 역할 | 저장 전용 스타일 |
+| --- | --- |
+| 카테고리 제목 | Pretendard 16px/SemiBold·자간 −0.4px·검정·AUTO |
+| 기존 상태 안내 | Pretendard 14px/Medium·자간 −0.35px·`#767676`·AUTO |
+| 실제 카테고리명 | Pretendard 16px/Medium·자간 0·검정·행간 `22 / 16` |
+
+실제 저장 결과의 처리 중/미분류/분류됨 분기와 문구를 유지합니다.
+Figma의 예제 문구인 ‘허투루가 자동으로 분류했어요!’를 모든 결과에 표시하지 않습니다.
+55px 카테고리 행·좌우 16px·폴더 28px·폴더/이름 간격 8px·세로 중앙 정렬·이름 한 줄 말줄임을 유지합니다.
+기존 ‘분류는 상세 화면에서 변경할 수 있어요.’의 문구와 스타일도 변경하지 않습니다.
+카테고리 추가/제거·저장 확정 시점(DEC-03), 자동분류 문구 정책(DEC-05), 사진 비율/잘림·미리보기 전체 배치·결과 상단 80px·API는 제외합니다.
+새 확대 대응과 배율별/3버튼 기기 촬영을 추가하지 않으며 기존 확대 구현·자동 회귀는 유지합니다.
+
+```bash
+# frontend/ — 실제 Pretendard를 로드한 1배율 집중 검사와 전체 검사
+flutter test --no-pub test/save_base_typography_test.dart
+flutter test --no-pub test/saved_content_confirmation_test.dart test/save_scaled_layout_test.dart test/save_footer_layout_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+
+# 제품 수정 전에는 before, 수정 후에는 after로 같은 fixture를 실행합니다.
+flutter run --no-pub -d <device-id> -t test/support/save_result_preview.dart \
+  --dart-define=SAVE_RESULT_PHASE=before
+# Android는 포워딩 후 8768, iOS는 8767로 접근합니다.
+adb -s "$EMULATOR_ID" forward tcp:8768 tcp:8767
+curl 'http://127.0.0.1:8768/base-style-scene?kind=link'
+curl 'http://127.0.0.1:8768/base-style-scene?kind=photo'
+# after 앱에서 결과만 검사하고 영상으로 기록합니다.
+curl 'http://127.0.0.1:8768/base-style-run?resultsOnly=1'
+```
+
+기존 scene/runner·폰트/사진 에셋을 재사용하고 신규 카테고리 역할의 실제 `RenderParagraph` 스타일과 행 내부 경계를 전체 판정에 포함합니다.
+AUTO는 제목·상태 안내, `22 / 16`은 카테고리명에 따로 검사합니다.
+선택 상자는 진단값으로 기록하고 문단/행 경계·의도된 말줄임 clip으로 잘림을 판정합니다.
+스크롤 0에서 viewport 아래에 있는 카테고리를 잘림으로 처리하지 않으며 최대 스크롤에서 마지막 안내와 본문 하단 24px을 검사합니다.
+기존 기본 28건·미리보기 긴 글자 8건과 새 상태별 32건, 총 68건을 유지합니다.
+상태별 자동 검사는 짧은/긴 실제 카테고리, 미분류, YouTube `queued/processing`과 긴 상태 안내를 포함합니다.
+
+[Figma 재조회](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/figma/implementation-refresh.json)는
+**2026-10-16 02:01:15~02:01:18 UTC**에 두 노드 모두 Starter MCP 호출 한도로 실패했습니다.
+[원본 출처](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/figma/reference-manifest.json)에 기록된 정확한 보관 원본 D05 **2026-10-15 09:07:32 UTC**·D09 **08:56:18 UTC**를 사용하며 새 조회 성공으로 보고하지 않습니다.
+이전 앱 화면을 이번 BEFORE로 사용하지 않습니다.
+[변경 전 게이트](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/before-gate.json)는
+**02:04:05 UTC**에 제품 원본 불변·동결 fixture·새 OS 원본 네 장을 확인했고,
+[제품 수정](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/product-edit-start.json)은 **02:04:36 UTC**에 시작했습니다.
+BEFORE는 iPhone 16/iOS 18.6과 Android 13/API 33 제스처의 각 플랫폼에서 링크 한 장·사진 한 장, 총 네 장입니다. 프레임워크 오류 0건·`layoutPassed: true`·`stylePassed: false`이며 행동/영상은 실행하지 않았습니다.
+
+[최종 수정 전 재현](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/red-checks.json)은
+**68건 중 20건 통과·48건 실패**(로그 28초/명령 36.41초)로 세 역할의 상속 글꼴/색상·카테고리명 행간 차이를 재현했습니다.
+초기 준비의 중괄호 린트 두 건·출처 헬퍼 import를 수정한 시도와, 선택 상자를 글자 paint로 오판한 초기 재현 시도는 각각 별도 로그로 보존합니다.
+첫 수정 후 검사에서 넓은 375px에서도 안내가 무조건 두 줄이어야 한다는 검사 오판으로 60건 통과·8건 실패(명령 10.11초)가 발생했습니다.
+제품 변경 없이 실제 Pretendard의 자연 줄바꿈(320px 두 줄·375px 한 줄)에 맞게 검사만 수정하고 `tests/initial-wrap-expectation-attempt`에 첫 시도를 보존했습니다. 최대 줄 수 제한 없음·기존 문구·부모 경계 검사와 네이티브 fixture/BEFORE 원본은 유지했습니다.
+[집중 검사 68건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/tests/base-typography-green.log)은 모두 통과(로그 6초/명령 9.82초)했고,
+[기존 관련 회귀 335건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/tests/related-green.log)도 통과했습니다(로그 17초/명령 20.33초).
+[전체 Flutter 945건](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/tests/full-test.log)은 통과(로그 59초/명령 62.29초),
+[전체 분석](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/tests/analyze.log)은 문제 없음(로그 3.9초/명령 5.19초)입니다.
+첫 형식 검사에서 제품 파일의 포맷 차이를 발견해 `tests/initial-format-attempt`에 보존했습니다. 제품 formatter는 공백 정리 한 건(로그 0.03초/명령 0.4초)만 적용했고 의미 변경은 없습니다.
+이후 [세 파일 최종 형식 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/tests/format-check.log)는 변경 0건(로그 0.07초/명령 0.35초)이며 [실제 명령 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/automatic-checks.json)의 최종 명령은 모두 종료 코드 0입니다.
+[AFTER 소스·빌드 기록](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/final-implementation.json)은
+제품·최종 검사 소스와 변경 전·후 동일한 fixture SHA를 기록합니다. Android 빌드는 로그 17.2초/명령 19.91초, iOS 빌드는 로그 30초/명령 46.33초로 모두 종료 코드 0입니다. 빌드 성공과 실제 기기 실행/화면 비교 완료는 구분합니다.
+[iOS AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/ios-after-result.json)와
+[Android AFTER](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/android-after-driver-result.json)는 각각 새 OS 원본 2장·기록 10건(캡처 4건·동작 6건)·프레임워크 오류 0건이며 `stylePassed`·`layoutPassed`·`behaviorPassed`·`checksCompleted`·전체 `passed`가 모두 `true`입니다.
+
+| 실행 구성 | 논리 창·DPR | 상단/하단 여백 | 링크 최대 스크롤 | 사진 최대 스크롤 |
+| --- | --- | --- | --- | --- |
+| iPhone 16 / iOS 18.6 Simulator | 393×852·3 | 59/34px | 14px | 0px |
+| Android 13/API 33 제스처 Emulator | 392.7×783.3·2.75 | 24/0px | 약 13.727px | 0px |
+
+결과 진입·완료 탭 고정·추가 저장 없는 닫기, 링크의 실제 드래그/최대 스크롤·마지막 안내 노출/본문 하단 24px을 확인했습니다.
+사진은 최대 스크롤 0px이므로 드래그 성공으로 보고하지 않습니다. 처리 중/미분류 상태의 추가 기기 촬영은 하지 않았고 해당 분기는 자동 검사로 확인했습니다.
+양쪽 플랫폼의 문단 높이는 제목 23→19px·안내 21→17px·이름 24→22px이며 카테고리 행/기존 안내는 자연 본문 흐름으로 8px 위로 이동했습니다. 위치 보정값은 추가하지 않았습니다.
+같은 고정 카테고리명은 Pretendard에서 한 줄로 전부 표시됐습니다. 더 긴 이름의 실제 말줄임은 단위 검사에서 확인했고 기본 한 줄/말줄임 정책은 유지했습니다.
+[iOS 원본 시각 확인](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/ios-after-visual-review.json)과 Android 기록에서 팝업·대상 영역 잘림/겹침이 없음을 확인했습니다.
+
+[새 4쌍 비교](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/comparison-document.html)는 모두 **변경 전 → 변경 후 → Figma 원본** 순서이며 [브라우저에서 보기](http://127.0.0.1:8776/comparison-document.html)로도 확인할 수 있습니다.
+[비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/comparison-qa.json)·[전후 상태 검증](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/pair-verification.json)은 Figma 누락/조건 불일치 0건·BEFORE 원본 4장 불변·fixture/최종 빌드 일치와 이번 카테고리 역할 **12개**의 실효 스타일/행간·행 내부 문단/말줄임 경계·기존 행/폴더 기하 상수·상단/미리보기 글자·기존 상세 변경 안내의 문구/스타일 보존을 확인했습니다.
+[최종 실측 요약](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/final-evidence-summary.json)에 8px 자연 이동과 AUTO/이름22px 실측을 구분했습니다. OS 창/안전 여백 차이는 원본 그대로 표시하며 확대용 대체 디자인은 만들지 않았습니다.
+
+AFTER 동작 영상은 [iOS](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/ios/after/interaction.mp4) **02:11:35~02:11:53 UTC·2,019,274바이트**,
+[Android](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/android-gesture/after/interaction.mp4) **02:12:40~02:13:08 UTC·952,887바이트**입니다.
+[영상 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/media-verification.json)는 이번 새 영상 두 개(iOS 14.96초·Android 약25.87초)를 전체 디코딩해 종료 코드 0·오류 로그 0바이트를 확인했습니다. BEFORE 행동/영상은 실행하지 않았고 이전 영상을 이번 것으로 사용하지 않았습니다.
+[iOS 실행/정리](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/ios-after-driver-result.json)는 앱 종료·Simulator Shutdown·데이터 보존을 확인했습니다.
+[Android 정리](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/android-after-navigation-restored.json)와 실행 기록은 원래 mode2/여섯 오버레이 일치·설정 변경 0건·앱/에뮬레이터 종료·포워딩8768 제거·adb 기기 목록 비어 있음·데이터 보존을 확인했습니다.
+[브라우저 검증](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography/browser-verification.json)은 네 조건을 직접 선택해 원본 이미지 12개 로딩·Figma 누락 0건·두 영상 `readyState: 4`/오류 없음·iOS/링크 기본 상태 복귀를 확인했습니다.
+이번 기기 실행은 결과 두 상태의 1배율이며 클립보드/키보드·새 확대 배율·3버튼 동작을 확인한 것으로 확대하지 않습니다.
+
+이번 완료 범위는 카테고리 세 역할의 1배율 글자입니다. 기존 결과 정책·이름/상태 안내를 보존하며 저장 화면 전체 맞춤으로 표시하지 않습니다.
+증거 루트는 `/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-category-typography`입니다.
+메모리 저장/사진 선택 대역·Flutter 합성 입력과 실제 OS 창을 사용하며 운영 서버·OAuth·실기기·원격 CI는 검증 범위 밖입니다.
+화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 푸시·PR은 하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 
