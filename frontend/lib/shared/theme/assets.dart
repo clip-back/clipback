@@ -46,6 +46,12 @@ class Assets {
   static const archiveAllMore = 'assets/icons/archive-all-more.svg';
   static const archiveAllDivider = 'assets/icons/archive-all-divider.svg';
   static const bookmarkBookOpen = 'assets/icons/bookmark-book-open.svg';
+  static const searchHint = 'assets/icons/search-hint-original.svg';
+  static const searchInput = 'assets/icons/search-input-original.svg';
+  static const searchHistoryClock = 'assets/icons/search-history-clock.svg';
+  static const searchHistoryRemove = 'assets/icons/search-history-remove.svg';
+  static const searchEmptyIllustration =
+      'assets/figma/search-empty-original.png';
   static const bell = 'assets/icons/bell.svg';
   static const chevronRight = 'assets/icons/chevron-right.svg';
   static const chevronDown = 'assets/icons/chevron-down.svg';

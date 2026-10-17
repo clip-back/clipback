@@ -4,8 +4,8 @@
 
 - 작성일: 2026-10-13. 현재 디자인 기준 전환일: **2026-10-17**. 아래 커밋별 구현·검증 기록의 날짜와 출처는 당시 기준으로 보존한다.
 - 작업 브랜치: `feature/figma-ui-alignment`.
-- 이번 즐겨찾기 작업 기준: `5a19b9d`. I01 `111:4091`·I02 `111:4103`의1배율 상단/목록/확인된 빈 표현을 맞춘다. 설정은 기존 관리로, 정렬은 읽기 전용 최신순/불러온 개수로 유지한다. 실제 북마크/추가 조회/복귀/저장·콘텐츠 보존과 OS 하단 기준은 유지한다.
-- 현재 상태: **즐겨찾기 승인 영역을 적용·검증했다. 집중41/관련651/전체1207·분석0과 양 플랫폼 오류0·새 비교4쌍/영상2개·환경 정리를 확인했다. 검색·정렬 메뉴/전체 집계·별도 미정 상태·공통 하단 별 모양·새 확대 맞춤은 후속이다.** E01·E06·E02/E03 목록·E04 관리·E08~E12 시트와 이전 적용/검증은 당시 독립 기록으로 보존한다.
+- 이번 검색 작업 기준: `50ec0c3`. H01 `111:3991`·H02 `111:4070`·H03 `111:4043`의1배율 상단/최근 검색어/결과 목록/확인된 빈 표현을 맞춘다. 개수 행 숨김·취소15px/최근어14px 통일·기존 예제5개와 검색/복귀·보존 정책을 유지한다.
+- 현재 상태: **검색 승인 영역을 적용·검증했다. 집중34/관련687/전체1241·분석0과 양 플랫폼 오류0·새 비교6쌍/영상2개·환경 정리를 확인했다. 실제 검색 기록 저장/삭제·전체 집계·미정 상태·새 확대는 후속이다.** I01/I02·E01/E06·카테고리 목록/관리/시트와 이전 적용·검증은 당시 독립 기록으로 보존한다.
   앞선 D05·D09의 사진 요약89px·원본 cover/중앙·사진 썸네일 테두리와 카테고리 자연 Wrap·정확한 SVG의 집중143/관련337/전체971건·새10쌍 비교는 당시 결과 기록으로 보존한다. 저장 화면 전체 맞춤 완료를 뜻하지 않는다.
   과거 `261007` 작업에서 공통 스타일·홈·확대 레이아웃·OS 하단 안전 영역을 부분 적용·검증했다.
   이후 별도 파일의 `261008` 기준으로 UI-06의 저장 결과 문구·제출 입력 고정을 적용했다.
@@ -112,7 +112,7 @@ Page 1에도 M 이름의 노드가 있으나 이번에는 구조만 확인했으
 | UI-08 / 중간·부분 적용 | E01 `111:4117`, E02 `111:4133`, E03 `111:4160`, E04 `111:4569`, E06 `111:4525`, E08 `111:4236`, E09 `111:4287`, E10 `111:4376`, E11 `111:4427`, E12 `111:4484`, 빈 미분류 `142:5097` | E02/E03·E04·E08~E12·E01에 이어 E06 정상 미분류와 확인된 빈 상태의1배율 상단/카드/빈 표현을 적용했다. 미분류에서만 정렬/개수·랜덤 진입을 숨기고 설정을 기존 관리로 연결하며 실제 ID/소속·콘텐츠·정렬·페이지/복귀는 유지한다. | 완료는 각 독립 기록의 승인 영역이다. E06 작업 당시 집중28/관련451/전체1169·분석0과 양 플랫폼 오류0·새6쌍/영상2개를 확인했다. 미조회/로딩/오류·일반 목록의 미확정 빈 상태·시트 배경/자유 색상·정렬/미선택 탭 굵기와 새 확대는 후속이다. [아카이브](../frontend/lib/features/archive/archive_screen.dart)·[미분류 전용 표현](../frontend/lib/features/archive/unclassified_widgets.dart) |
 | UI-09 / 높음·부분 적용 | F02 `111:3842`, F03 `111:3771`, F04 `111:3909` | `bff0a7c`의 회색 배경·노란 태그·테두리 없는 행을 흰 배경·상세 전용 기본 글자·회색 태그·테두리 카드로 맞춘다. 사용자 확정으로 제목/요약 전체와 실제 복수 소속을 표시하고, 복수 소속 연관 카드는 배지 위/제목 아래로 구성한다. | 연관 선정/순서는 불러온 목록의 같은 첫 카테고리 기준을 유지하고 빈 문구에 불러온 범위를 명시한다. 실제 원문/미디어·외부 링크 실행·추천 API와 F03 하단 간격은 아래 확인 필요로 남긴다. 이번 구현/검증 결과는 마지막 독립 기록으로 구분하며 상세 화면 전체 기능 완료로 표시하지 않는다. [DetailScreen](../frontend/lib/features/content/detail_screen.dart), [contentFromApi](../frontend/lib/shared/presentation/content_mapper.dart) |
 | UI-10 / 중간 | G02 `111:5047`, G11 `111:5275` | 카드 기울기·쌓이는 방향이 다르고 마지막 카드 이후 카드만 사라진 채 진행 표시와 나가기만 남는다. | 카드 겹침과 이동을 대조한다. 이전 파일 G-M04의 완료 메시지·실제 열람 개수·다시 보기·다른 카테고리 이동은 과거 제안이며 Page 1 M의 채택·기능 범위는 별도 확인한다. [카드 다시보기](../frontend/lib/features/archive/category_card_review_screen.dart) |
-| UI-11 / 중간·부분 적용 | H01 `111:3991`, H02 `111:4070`, H03 `111:4043`, I01 `111:4091`, I02 `111:4103` | I01 정상·I02 조회 완료0의1배율 상단/카드/빈 표현을 적용·검증했다. 설정은 기존 관리/복귀, 최신순은 읽기 전용·개수는 불러온 범위이며 실제 독립 즐겨찾기 조회/추가 페이지·콘텐츠·복수 소속을 보존한다. H01~H03 검색은 아직 화면 맞춤 전이다. | 이번 집중41/관련651/전체1207·분석0과 양 플랫폼 오류0·새 비교4쌍/영상2개를 확인했다. 검색 입력/최근 검색어/결과·빈 상태, 새 정렬 메뉴/집계·미확정 상태·공통 하단 별 모양과 새 확대 맞춤은 후속이다. [즐겨찾기](../frontend/lib/features/archive/bookmark_screen.dart)·[검색](../frontend/lib/features/search/search_screen.dart) |
+| UI-11 / 중간·부분 적용 | H01 `111:3991`, H02 `111:4070`, H03 `111:4043`, I01 `111:4091`, I02 `111:4103` | I01/I02에 이어 H01 검색 전·H02 결과·H03 현재 조회 완료0의1배율 상단/최근어/카드/빈 표현을 적용했다. 개수 행은 숨기고 취소15px/최근어14px을 통일하며 실제 q·페이지·소속/내용·복귀/보존을 유지한다. | 검색 집중34/관련687/전체1241·분석0과 양 플랫폼 오류0·새6쌍/영상2개를 확인했다. 최근 검색어는 예제5개와 화면 내 이력이며 실제 기록 저장/삭제·전체 집계·미확정 상태·새 확대는 후속이다. 이전 즐겨찾기 검증은 독립 기록을 따른다. [검색](../frontend/lib/features/search/search_screen.dart)·[즐겨찾기](../frontend/lib/features/archive/bookmark_screen.dart) |
 | UI-12 / 중간 | J01 `111:4707`, J02 `111:4533` | 알림/권한 메뉴가 중복되고 약관 메뉴가 없다. 설정 대신 더보기 아이콘이며 공급자 배지는 이름 아래 텍스트로 표시한다. | 메뉴 중복·설정 아이콘·공급자 배지와 타이포를 정리하고 약관 진입점을 추가한다. 기존 카테고리 관리의 진입점은 유지할 위치를 정한다. [마이페이지](../frontend/lib/features/account/my_screen.dart), [계정 관리](../frontend/lib/features/account/account_management_screen.dart) |
 | UI-13 / 기능 선정 후 | J04 `111:5780`, J05 `111:5824`, J06 `111:5756`, K01 `111:4592`, K05 `111:4629` | 회원 탈퇴는 API 미지원 안내만 표시한다. 공지는 고정 목록 바텀시트이고 문의는 안내 문장뿐이다. 알림·권한 값도 mock이다. | 탈퇴 사유·처리·완료, 공지 목록/상세, 약관을 별도 화면과 실제 데이터로 연결한다. 알림·문의는 Page 1 본문과 이전 M 제안의 차이·채택 여부를 확인한 뒤 범위를 정한다. [설정 시트](../frontend/lib/features/account/settings_sheets.dart), [계정 관리](../frontend/lib/features/account/account_management_screen.dart) |
 | UI-14 / 디자인·기능 확인 후 | 홈 최초 로딩 `125:4105`, 설명 `125:4119`, C03-1 `125:4173`, C03-2 `111:5410` | 홈 로딩/오류는 기존 상태 표시를 사용하고 알림은 고정 예제 목록 시트로 연결돼 있다. | 최초 로딩의 전면 화면과 스켈레톤 설명을 먼저 확인한다. 알림 없음/목록 화면의 진입·복귀와 실제 읽지 않은 데이터는 별도 기능 범위로 정하며 고정 알림 점을 추가하지 않는다. [홈](../frontend/lib/features/home/home_screen.dart), [알림 시트](../frontend/lib/shared/widgets/notification_sheet.dart) |
@@ -310,6 +310,7 @@ Page 1의 대응 상세·채택을 확정한 목록이 아니며, 모든 M 카�
 | 알림 설정·문의 본문 | 실제 알림 옵션/저장 상태, 문의 입력·접수·실패 및 운영 계약 | J07 `111:4566`, K04 `111:4626`; Page 1 J-M02 `120:4576`·J-M03 `120:4599`·K-M03 `120:4769`·K-M06 `120:4836`은 구조만 확인 | 기본 본문은 미작성이다. 이전261008 M 제안은 별도 기록으로 보존하고 Page 1 보완안의 상세·채택·API·운영 기준이 확정되기 전 새 화면은 구현하지 않는다. |
 | 약관·개인정보 실제 문안 | 운영 서비스와 일치하는 최종 문안·시행일·링크 | K05 `111:4629`, 설명 `111:5715` | 본문은 존재하지만 임시 시행일 등이 있으므로 운영 문안 확정으로 간주하지 않는다. DEC-06 확인 후 적용한다. |
 | 즐겨찾기 정렬·집계·별도 상태 | 정렬 선택지/메뉴·정확한 전체 집계와 미조회/오류 등 상태별 확정 원본 | I01 `111:4091`, I02 `111:4103`, DEC-04 | 사용자 선택으로 최신순은 읽기 전용 글자만·화살표/메뉴는 보류하고 불러온 개수를 유지한다. 실제 조회 완료0만 I02를 적용하며 원본 없는 상태의 기존 안내/재시도는 유지한다. |
+| 검색 기록·집계·원본 없는 상태 | 실제 이력의 기기/계정 저장·보존/삭제 정책과 미조회/로딩/오류 원본 | H01 `111:3991`, H02 `111:4070`, H03 `111:4043`, DEC-04 | 이번은 기존 예제5개·화면 내 이력을 보존하고 결과 개수 행을 숨긴1배율 외형 맞춤이다. 기록 영속화/초기 예제 제거와 새 상태 화면은 결정 뒤 진행한다. 조회 완료0만 H03를 적용하며 기존 안내/재시도와 새 확대 후속을 유지한다. |
 | 공통 하단 탭의 활성 즐겨찾기 별 — 후속 범위 | 공통 탭 전반의 선택 아이콘 맞춤 및 회귀 범위 | I01 `111:4091`, I02 `111:4103`의 navigationBar | 원본은 채움별이나 현재 공통 탭은 윤곽선 별이다. 디자인은 확보됐으며 이번 승인 범위에서 공통 하단 바를 유지하므로 후속으로 분리한다. OS 안전 영역 정책은 그대로 유지한다. |
 
 UI-04·UI-05·UI-06은 당시 기록의 적용 영역만 부분 완료다. UI-09 상세와 UI-08 카테고리 목록·관리 본화면도 아래 각 독립 기록의 승인 영역만 완료다. 전체 화면 재대조·추천 API·미정 상태는 후속 범위다.
@@ -1081,3 +1082,50 @@ D06·D09 직전 재조회는 Starter 호출 한도에 막혀 같은 작업에서
 - 개요: [iOS](/private/tmp/clipback-bookmark-alignment-20261017/comparisons/ios-comparison-overview.png)·[Android](/private/tmp/clipback-bookmark-alignment-20261017/comparisons/android-gesture-comparison-overview.png). 영상: [iOS AFTER](/private/tmp/clipback-bookmark-alignment-20261017/ios/after/interaction.mp4)·[Android AFTER](/private/tmp/clipback-bookmark-alignment-20261017/android-gesture/after/interaction.mp4). [미디어 확인](/private/tmp/clipback-bookmark-alignment-20261017/media-verification.json)에서 동작 완료까지 녹화·전체 디코딩 오류0을 확인했다.
 - [환경 정리](/private/tmp/clipback-bookmark-alignment-20261017/cleanup-verification.json)·[최종 자원](/private/tmp/clipback-bookmark-alignment-20261017/final-resource-check.json): 소유 앱/기기/포워딩/adb 종료·임시 포트 비움·탐색/키보드 원설정 보존을 확인했다. [HTML 검사](/private/tmp/clipback-bookmark-alignment-20261017/comparison-html-verification.json)는 정적 참조/문법 검사이며 비교 브라우저/HTTP서버 실행 성공으로 보고하지 않는다.
 - 검증은 실제 ClipbackApp/Repository와 HTTP MockClient·메모리 세션·합성 입력의 로컬 실행이다. 운영 서버/실제 OAuth/영속 저장/실기기/원격 CI·새 확대/3버튼 기기 검증은 아니다. 공통 하단 활성 즐겨찾기 아이콘은 기존 윤곽선을 유지해 Figma 채움별과 다르며 **공통 하단 바 후속 범위**로 남긴다. 정렬 화살표/메뉴·정확한 전체 집계·원본 없는 별도 상태·검색 화면·새 확대 맞춤도 후속이다.
+
+## 검색 화면의1배율 맞춤 — 2026-10-18 작업
+
+`50ec0c3` 기준으로 Page 1 > `261007`의 [H01 검색 전](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-3991) (`111:3991`)·[H02 결과 있음](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4070) (`111:4070`)·[H03 결과 없음](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4043) (`111:4043`)의 **승인된 검색 1배율 표현**을 적용·검증했다. 검색 기록 영속화·검색 전체 기능·새 확대 맞춤 완료를 뜻하지 않는다.
+
+- **사용자 확정:** 검색 결과 개수 행은 숨기고 종료 문구는 ‘취소’15px/Medium, 최근 검색어는 모두14px/Medium으로 통일한다. H01의 ‘닫기’와 한 행만15px인 원본 차이를 승인 예외로 구분한다. 기존 예제5개·화면 내 추가/삭제·중복 제거/최신 우선/최대5개는 유지하며 화면 재생성 시 예제 초기화도 그대로다. 실제 기기/계정 기록 저장·삭제 정책은 후속이다.
+- **상단/목록:** 실제 OS 상단 여백 다음16px·입력44px·하단16px의 검색 전용76px 영역과 입력14 Medium/−0.35/1.4·취소15 Medium/−0.375/AUTO를 적용했다. 다른 화면의64px 헤더는 유지한다. 최근 제목은 상단 아래16px·15 SemiBold/−0.375/#121212/AUTO, 제목→행16px·행32px/행간4px·시계18px/글자 간격9.542px이다. 입력칸은 남은 폭을 사용하며 원본292px을 강제하지 않는다. 개수 행/기존32px 공백을 제거해 첫 카드는 입력칸 하단16px 뒤에서 시작한다. 검색에서만 E01 카드 표현을 선택하고 실제 소속/색/순서·복수 배지 Wrap·173px 기본 본문·말줄임·원문을 보존한다.
+- **확인된 빈 결과:** 현재 입력의 trim값과 제출 피드 검색어가 일치하고 다른 필터 없음·조회 완료·로딩/오류/다음 페이지 없음·피드/표시0일 때만 H03를 적용한다. 콜백 전용 사용도 현재 성공 요청의0만 적용한다. 원본 캐릭터81×123/cover·제목16 Medium/−0.4/#484848/AUTO·본문14 Medium/−0.35/#767676/1.6·16/8/16 간격·책18px/버튼을 맞췄다. 그룹은 최대260px·자연 높이/문단 폭으로 본문 중앙−92.5px을 본문 안으로 제한하고 짧은 공간에서는 스크롤한다. 버튼은 기존 전체보기 탭0·검색/카테고리 필터 없음으로 이동하며 기존 정렬은 보존한다.
+- **동작 보존:** 입력만으로 API를 호출하지 않고 제출/최근어 선택에서만 조회한다. 공백 제출·지우기·독립 검색/커서·A→B→A/늦은 응답·기존 행을 남긴 추가 조회/오류/재시도·변경 잠금/실패 복원/성공 후 동일q 재조회·상세 왕복의 query/offset/비포커스를 유지한다. 공개 생성자/콜백·API/Repository/모델·공통 카드 기본값·공통 하단 바/OS·기존 키보드 회피는 바꾸지 않았다([보존 감사](/private/tmp/clipback-search-alignment-20261018/preservation-audit.json)).
+
+### 이번 원본과 검사
+
+- [Figma 조회/원본](/private/tmp/clipback-search-alignment-20261018/figma/reference-index.json): **2026-10-17 15:16:17~15:16:23 UTC /2026-10-18 00:16:17~00:16:23 KST**에 세 노드의 컨텍스트·375×812 원본을 각각 한 번, 구현 MCP3호출로 확보했다. 계획 단계 조회와 구분하며 별도 메타데이터/스크린샷 호출·fallback·대체 원본은 없다.
+- [에셋 감사](/private/tmp/clipback-search-alignment-20261018/static-assets-verification.json): 원본10개 중 신규4SVG(검색 힌트/입력·시계·삭제)와 H03 PNG1개를 그대로 등록했다. 지우기/비선택 별은 ID/속성 순서를 정규화한 XML이 동일하고 더보기/구분선/책은 byte동일해 기존5개를 재사용했다. 최종 로컬/양 번들·실제6정적 상태의 경로/슬롯/색 필터·PNG cover를 확인한다. 기존 선택 별은 공유 E01의 보조 상태이며 이번 H02 비선택 원본과 혼동하지 않는다.
+- [변경 전 게이트](/private/tmp/clipback-search-alignment-20261018/before-gate.json): 초기 실패 자료를 보존한 뒤 제품을 기준 커밋의 정확한 바이트로 되돌려 새 OS원본6장을 다시 확보하고 동일 제품 변경을 재적용했다. [동결 소스](/private/tmp/clipback-search-alignment-20261018/fixture-manifest.json) SHA `7e8c925a1e7960e874e2f8c9e34da6fa1fbf99f48d390a334f0e3274297459c6`를 전후 동일하게 유지했다. 고정 대역은 검색 대상8건/4+4페이지·다른 저장 콘텐츠1건·계정 통계999를 구분하고 결과0을 삭제/전체 저장0으로 만들지 않는다. 실제 앱의 변경 전3상태 별도 probe도3/3·오류0·JSON 직렬화를 확인했으며 native IME 증거와 구분한다.
+- [변경 전 재현](/private/tmp/clipback-search-alignment-20261018/tests/focused-before-summary.json): 첫 구현 전 동일한`50ec0c3`·동일 집중 검사에서34건 중15통과/예상 차이19/예상 밖0을 재현했다. 이 원본 로그는 당시 시각으로 보존하며 모달 촬영 도구 교정과 독립적이다. 새 동결 이후 AFTER 집중 **34/34**, 관련 **687/687**, 전체 **1241/1241** 통과·실패/건너뜀0, `flutter analyze --no-pub` 문제0이다([집중](/private/tmp/clipback-search-alignment-20261018/tests/focused-after-summary.json)·[관련](/private/tmp/clipback-search-alignment-20261018/tests/related-after-summary.json)·[전체](/private/tmp/clipback-search-alignment-20261018/tests/all-after-summary.json)·[분석](/private/tmp/clipback-search-alignment-20261018/tests/analyze-after-summary.json)). 실제 Pretendard·iOS/Android×320/375px×1배율의 실효 스타일·긴/복수 소속·타깃/가드·짧은 본문 스크롤을 확인했다. 기존 확대 회귀를 유지하고 상단 안전 영역 검사의 검색 입력 기대치만+10→+16px로 갱신했다.
+- [AFTER 동일 프리뷰 별도 실제 앱 검사](/private/tmp/clipback-search-alignment-20261018/tests/after-fixture-probe-summary.json)에서도 세 상태의 실제 스타일·레이아웃 true·프레임워크 오류0·JSON 직렬화를 확인했다. 자동·대역 검사와 아래 네이티브 실행을 별도로 기록한다.
+
+- **검사 도구 교정과 재촬영:** 첫 동결 도구는 더보기 시트를 실제 배경 탭으로 닫은 뒤150ms에 제거 여부를 검사해,200ms 종료 애니메이션 도중 동작 검사가 실패했다. [외부 실제 앱 진단](/private/tmp/clipback-search-alignment-20261018/tests/modal-dismiss-diagnostic.json)에서 정상 종료·데이터/쓰기 불변을 확인하고 도구만 실제 진입/종료 완료를 기다리게 고쳤다. [초기 실패 자료](/private/tmp/clipback-search-alignment-20261018/.attempts/fbe4-epoch/attempt.json)는 실패로 보존했으며 현재 성공 수에 포함하지 않는다. 새 동결 도구로 변경 전6장·변경 후6장과 동작 영상을 모두 새로 만들었다. 제품 변경8파일의 바이트는 초기 구현과 동일하다([재촬영 기준 복원](/private/tmp/clipback-search-alignment-20261018/baseline-recapture-restored.json)·[도구 교정 이력](/private/tmp/clipback-search-alignment-20261018/modal-synchronization-amendment.json)).
+
+### 양 플랫폼 실행과 새 비교
+
+| 플랫폼 | 논리창 / DPR | OS 상·하 여백 | 실제 IME: 검색 전 / 결과 / 없음 | 동작 기록 |
+| --- | --- | --- | --- | --- |
+| iPhone16 / iOS18.6 | Size(393.0, 852.0) / 3.0 | 59 / 34px | 336 / 336 / 0px | 42 · 전체 통과/오류0 |
+| Android13 / API33 제스처 | Size(392.7, 783.3) / 2.75 | 24 / 0px | 274.909 / 274.909 / 0px | 42 · 전체 통과/오류0 |
+
+
+| 플랫폼 | 입력칸 상단 OS 여백 이후 전→후 | 입력칸 하단→첫 카드 전→후 | AFTER 빈 그룹 / 이미지 / 버튼 |
+| --- | --- | --- | --- |
+| iOS | 10→16px | 79→16px | 260×239 / 81×123 / 155.009×35px |
+| Android | 10→16px | 79→16px | 260×239 / 81×123 / 155.009×35px |
+
+
+- [실측/동작 요약](/private/tmp/clipback-search-alignment-20261018/native-validation-summary.json)·[독립 판정](/private/tmp/clipback-search-alignment-20261018/pair-verification.json): 실제 입력/제출·최근어 선택/삭제·공백/지우기·추가 조회/전체 행 노출/최대 스크롤·상세 왕복/비포커스·더보기 취소·변경 실패/재시도·지연 응답·조회 오류/재시도·진입원별 취소·빈 CTA·저장 진입/추가 저장 없는 닫기를 확인했다. H02는 원본 조건을 위해 제출 후 입력창을 다시 탭한 준비를 기록하며 제품의 포커스 정책을 바꾸지 않는다. 첫 실행부터 공유 채널을 메모리 격리했고 기존 공유 큐/자격의 내용을 조회/출력/삭제하지 않았다.
+- [3열 비교6쌍](/private/tmp/clipback-search-alignment-20261018/comparison-document.html)·[비교 QA](/private/tmp/clipback-search-alignment-20261018/comparison-qa.json): 같은 기종·고정 데이터·1배율·스크롤0·동일 실제 키보드 상태로 전후 OS원본 각6장을 비교했다. 원본 자르기/보정 없이 OS 창·안전 여백·키보드 언어/높이·기존 PhoneFrame375px 상한·예제 데이터 차이를 명시한다.
+
+| 상태 | iOS | Android 제스처 |
+| --- | --- | --- |
+| H01 검색 전 · 실제 키보드 표시 | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/ios-search_initial_scale_1_scroll_0.png) | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/android-gesture-search_initial_scale_1_scroll_0.png) |
+| H02 결과 있음 · 실제 키보드 표시 | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/ios-search_results_scale_1_scroll_0.png) | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/android-gesture-search_results_scale_1_scroll_0.png) |
+| H03 조회 완료0 · 키보드 숨김 | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/ios-search_empty_scale_1_scroll_0.png) | [3열 비교](/private/tmp/clipback-search-alignment-20261018/comparisons/android-gesture-search_empty_scale_1_scroll_0.png) |
+
+
+- 개요: [iOS](/private/tmp/clipback-search-alignment-20261018/comparisons/ios-comparison-overview.png)·[Android](/private/tmp/clipback-search-alignment-20261018/comparisons/android-gesture-comparison-overview.png). AFTER 영상: [iOS](/private/tmp/clipback-search-alignment-20261018/ios/after/interaction.mp4)·[Android](/private/tmp/clipback-search-alignment-20261018/android-gesture/after/interaction.mp4). [미디어 검사](/private/tmp/clipback-search-alignment-20261018/media-verification.json)에서 원본의 실제 시작/마지막 상태·전체 디코딩 오류0·동작 전후 녹화 프로세스 생존을 확인했다. Android는 실제 동작72.132초/영상74.395초다. 정적 대기2.5+3초를 MP4 길이에 합산하는 추가 보조식은 벽시계와 인코딩 시간축이 일치한다는 가정에서 실패했으므로 [원값과 진단](/private/tmp/clipback-search-alignment-20261018/media-duration-diagnostic.json)을 보존했다. 정확한 인코더 시작 지연/정적 프레임 원인은 별도 계측하지 않았다. 완료 판정은 원본의 /run 이전 H03와 저장 닫기 이후 마이 화면, 중간 동작 표본·전체 디코딩·영상 길이가 실제 동작 시간 이상인지를 함께 확인하며 원본을 편집/시간 보정하지 않았다.
+- [환경 정리](/private/tmp/clipback-search-alignment-20261018/cleanup-verification.json)·[최종 자원](/private/tmp/clipback-search-alignment-20261018/final-resource-check.json): 소유 앱/기기/포워딩/adb·임시 포트를 정리하고 탐색/키보드 원설정과 기기 데이터를 보존했다. [HTML 검사](/private/tmp/clipback-search-alignment-20261018/comparison-html-verification.json)는 정적 참조/문법 검사이며 브라우저/HTTP서버 실행 성공으로 보고하지 않는다.
+- 실제 ClipbackApp/Repository·HTTP MockClient·메모리 세션·합성 입력과 네이티브 키보드 표시/여백의 로컬 검증이다. 운영 서버·실제 OAuth·영속 저장·실기기·원격 CI·새 확대/3버튼 검증은 아니다. 원본 없는 로딩/오류 등 표현과 실제 검색 기록 저장·삭제/전체 집계는 후속으로 유지한다.

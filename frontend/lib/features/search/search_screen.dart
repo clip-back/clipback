@@ -7,10 +7,11 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
-import 'package:clipback_frontend/shared/theme/layout.dart';
+import 'package:clipback_frontend/features/search/search_widgets.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
@@ -57,6 +58,7 @@ class _SearchScreenState extends State<SearchScreen> {
   late final TextEditingController _controller;
   late List<String> _terms;
   List<ContentItem>? _serverResults;
+  String? _completedQuery;
   var _isSearching = false;
   int _requestVersion = 0;
 
@@ -91,12 +93,14 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _isSearching = true;
       _serverResults = null;
+      _completedQuery = null;
     });
     try {
       final results = await widget.onSearch(term);
       if (!mounted || version != _requestVersion) return;
       setState(() {
         _serverResults = results;
+        _completedQuery = term;
         _isSearching = false;
       });
     } catch (_) {
@@ -115,221 +119,147 @@ class _SearchScreenState extends State<SearchScreen> {
     return _serverResults ?? const [];
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PhoneFrame(
-      child: Scaffold(
-        body: SafeArea(
-          child: Column(
-            children: [
-              SizedBox(
-                height: appHeaderHeight,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 44,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            children: [
-                              SvgIcon(
-                                asset: Assets.search,
-                                size: 16,
-                                color: AppColors.subSubtle,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: _controller,
-                                  autofocus: widget.initialQuery.trim().isEmpty,
-                                  onChanged: (value) {
-                                    _requestVersion++;
-                                    widget.onQueryChanged(value);
-                                    setState(() {
-                                      _serverResults = null;
-                                      _isSearching = false;
-                                    });
-                                  },
-                                  onSubmitted: (value) {
-                                    unawaited(_submitQuery(value));
-                                  },
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    hintText: '찾고 싶은 정보를 검색해보세요',
-                                    hintStyle: TextStyle(
-                                      color: AppColors.subSubtle,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (_hasQuery)
-                                GestureDetector(
-                                  onTap: () {
-                                    _requestVersion++;
-                                    _controller.clear();
-                                    widget.onQueryChanged('');
-                                    setState(() {
-                                      _serverResults = null;
-                                      _isSearching = false;
-                                    });
-                                  },
-                                  child: const SvgIcon(
-                                    asset: Assets.close,
-                                    size: 18,
-                                    color: AppColors.subSubtle,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: TextButton(
-                          onPressed: widget.onClose,
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF595959),
-                            padding: EdgeInsets.zero,
-                          ),
-                          child: const Text(
-                            '취소',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              Expanded(
-                child: _hasQuery && widget.feed != null
-                    ? (widget.feed!.query == null
-                          ? const Center(child: Text('검색어를 입력하고 검색해 주세요.'))
-                          : Column(
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Text('불러온 ${_results.length}개'),
-                                ),
-                                Expanded(
-                                  child: PagedContentList(
-                                    feed: widget.feed,
-                                    contents: _results,
-                                    onLoadMore: widget.onLoadMore,
-                                    onRetry: widget.onRetry,
-                                    empty: EmptySearchResult(
-                                      onOpenArchive: widget.onOpenArchive,
-                                    ),
-                                    itemBuilder: (content) => ContentListCard(
-                                      content: content,
-                                      bookmarked: widget.bookmarkedIds.contains(
-                                        content.id,
-                                      ),
-                                      onToggleBookmark: () =>
-                                          widget.onToggleBookmark(content),
-                                      categories: widget.categories,
-                                      onChangeCategory: (category) =>
-                                          widget.onChangeContentCategory(
-                                            content,
-                                            category,
-                                          ),
-                                      onDelete: () =>
-                                          widget.onDeleteContent(content),
-                                      onTap: () =>
-                                          widget.onOpenContent(content),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ))
-                    : ListView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        children: [
-                          if (!_hasQuery) ...[
-                            const Text(
-                              '최근 검색어',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            for (final term in _terms)
-                              SearchHistoryRow(
-                                term: term,
-                                onTap: () {
-                                  _controller.text = term;
-                                  unawaited(_submitQuery(term));
-                                },
-                                onRemove: () =>
-                                    setState(() => _terms.remove(term)),
-                              ),
-                          ] else ...[
-                            if (_isSearching)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 72),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    color: AppColors.mainDeep,
-                                  ),
-                                ),
-                              )
-                            else ...[
-                              for (final content in _results)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: ContentListCard(
-                                    content: content,
-                                    bookmarked: widget.bookmarkedIds.contains(
-                                      content.id,
-                                    ),
-                                    onToggleBookmark: () =>
-                                        widget.onToggleBookmark(content),
-                                    categories: widget.categories,
-                                    onChangeCategory: (category) =>
-                                        widget.onChangeContentCategory(
-                                          content,
-                                          category,
-                                        ),
-                                    onDelete: () =>
-                                        widget.onDeleteContent(content),
-                                    onTap: () => widget.onOpenContent(content),
-                                  ),
-                                ),
-                              if (_results.isEmpty)
-                                EmptySearchResult(
-                                  onOpenArchive: widget.onOpenArchive,
-                                ),
-                            ],
-                          ],
-                        ],
-                      ),
-              ),
-            ],
-          ),
+  bool get _confirmedEmpty {
+    if (!_hasQuery || _results.isNotEmpty) return false;
+    final page = widget.feed;
+    if (page == null) {
+      return !_isSearching &&
+          _serverResults?.isEmpty == true &&
+          _completedQuery == _controller.text.trim();
+    }
+    return page.query == _controller.text.trim() &&
+        page.categoryId == null &&
+        page.isFavorite == null &&
+        page.initialized &&
+        !page.loading &&
+        page.error == null &&
+        !page.hasMore &&
+        page.items.isEmpty;
+  }
+
+  void _changeQuery(String value) {
+    _requestVersion++;
+    widget.onQueryChanged(value);
+    setState(() {
+      _serverResults = null;
+      _completedQuery = null;
+      _isSearching = false;
+    });
+  }
+
+  void _clearQuery() {
+    _controller.clear();
+    _changeQuery('');
+  }
+
+  Widget _card(ContentItem content) => ContentListCard(
+    archiveAllStyle: true,
+    content: content,
+    bookmarked: widget.bookmarkedIds.contains(content.id),
+    onToggleBookmark: () => widget.onToggleBookmark(content),
+    categories: widget.categories,
+    onChangeCategory: (category) =>
+        widget.onChangeContentCategory(content, category),
+    onDelete: () => widget.onDeleteContent(content),
+    onTap: () => widget.onOpenContent(content),
+  );
+
+  Widget _emptyResult() => _confirmedEmpty
+      ? SearchEmptyState(onOpenArchive: widget.onOpenArchive)
+      : EmptySearchResult(onOpenArchive: widget.onOpenArchive);
+
+  Widget _resultsBody() {
+    if (widget.feed != null) {
+      if (widget.feed!.query == null) {
+        return const Center(child: Text('검색어를 입력하고 검색해 주세요.'));
+      }
+      return PagedContentList(
+        feed: widget.feed,
+        contents: _results,
+        onLoadMore: widget.onLoadMore,
+        onRetry: widget.onRetry,
+        empty: _emptyResult(),
+        itemBuilder: _card,
+      );
+    }
+    if (_isSearching) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 72),
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.mainDeep),
         ),
-      ),
+      );
+    }
+    if (_confirmedEmpty) return _emptyResult();
+    return ListView(
+      padding: _results.isEmpty
+          ? const EdgeInsets.symmetric(horizontal: 16)
+          : EdgeInsets.zero,
+      children: [
+        for (final content in _results)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _card(content),
+          ),
+        if (_results.isEmpty) _emptyResult(),
+      ],
     );
   }
+
+  Widget _historyBody() => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+    children: [
+      const Text(
+        '최근 검색어',
+        key: ValueKey('search-history-title'),
+        style: SearchTextStyles.historyHeading,
+      ),
+      const SizedBox(height: 16),
+      Column(
+        key: const ValueKey('search-history-list'),
+        children: [
+          for (final (index, term) in _terms.indexed) ...[
+            if (index > 0) const SizedBox(height: 4),
+            SearchHistoryRow(
+              term: term,
+              onTap: () {
+                _controller.text = term;
+                unawaited(_submitQuery(term));
+              },
+              onRemove: () => setState(() => _terms.remove(term)),
+            ),
+          ],
+        ],
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => PhoneFrame(
+    child: Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            SearchInputBar(
+              controller: _controller,
+              autofocus: widget.initialQuery.trim().isEmpty,
+              hasQuery: _hasQuery,
+              onChanged: _changeQuery,
+              onSubmitted: (value) => unawaited(_submitQuery(value)),
+              onClear: _clearQuery,
+              onClose: widget.onClose,
+            ),
+            Expanded(
+              child: SizedBox(
+                key: const ValueKey('search-results-viewport'),
+                child: _hasQuery ? _resultsBody() : _historyBody(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class SearchHistoryRow extends StatelessWidget {
@@ -345,37 +275,50 @@ class SearchHistoryRow extends StatelessWidget {
   final VoidCallback onRemove;
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 36,
-      child: InkWell(
-        onTap: onTap,
-        child: Row(
-          children: [
-            SvgIcon(asset: Assets.clock, size: 18, color: AppColors.subtle),
-            const SizedBox(width: 10),
-            Text(
-              term,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+  Widget build(BuildContext context) => SizedBox(
+    key: ValueKey('search-history-row-$term'),
+    height: 32,
+    child: InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                SvgPicture.asset(
+                  Assets.searchHistoryClock,
+                  key: ValueKey('search-history-clock-$term'),
+                  width: 18,
+                  height: 18,
+                ),
+                const SizedBox(width: 9.542),
+                Expanded(
+                  child: Text(
+                    term,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: SearchTextStyles.history,
+                  ),
+                ),
+              ],
             ),
-            const Spacer(),
-            GestureDetector(
-              onTap: onRemove,
-              child: const SvgIcon(
-                asset: Assets.close,
-                size: 18,
-                color: AppColors.subtle,
-              ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            key: ValueKey('search-history-remove-$term'),
+            behavior: HitTestBehavior.opaque,
+            onTap: onRemove,
+            child: SvgPicture.asset(
+              Assets.searchHistoryRemove,
+              width: 18,
+              height: 18,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 class EmptySearchResult extends StatelessWidget {

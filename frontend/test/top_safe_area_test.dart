@@ -204,7 +204,7 @@ void main() {
                       ),
                     )
                     .first,
-                inset + 10,
+                inset + 16,
                 44,
               ),
               ('detail', detail, () => find.byType(DetailTopBar), inset, 64),
