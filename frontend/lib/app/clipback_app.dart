@@ -43,6 +43,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
   bool _persistenceBannerUpdateScheduled = false;
+  PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
+  int _archiveStorageAccountGeneration = 0;
+  AppRoute _categoryManagementReturnRoute = AppRoute.my;
 
   @override
   void initState() {
@@ -52,6 +55,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       storage: widget.sessionStorage,
       socialAuth: widget.socialAuth,
     );
+    _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {
       viewModel.addListener(_onChanged);
@@ -83,6 +87,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
+      _archiveStorageAccountGeneration = _d.app.accountGeneration;
+      _archivePageStorageBucket = PageStorageBucket();
+      _categoryManagementReturnRoute = AppRoute.my;
+    }
     setState(() {});
     final effects = [
       ..._d.app.drainEffects(),
@@ -201,6 +210,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void _go(AppRoute route) {
     if (route != AppRoute.detail) _d.detail.close();
     _d.app.go(route);
+  }
+
+  void _openCategoryManagement(AppRoute returnRoute) {
+    _categoryManagementReturnRoute = returnRoute;
+    _go(AppRoute.categoryManagement);
   }
 
   void _selectRootTab(AppRoute route) {
@@ -330,39 +344,45 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onAddScreenshot: _d.save.addScreenshot,
           onTab: _selectRootTab,
         ),
-        AppRoute.archive => ArchiveScreen(
-          activeTab: _d.archive.activeTab,
-          contents: _d.archive.page.items,
-          feed: _d.archive.page,
-          onLoadMore: _d.archive.loadMore,
-          onRetry: _d.archive.retry,
-          categories: _d.categories.categories,
-          bookmarkedIds: _d.home.bookmarkedIds,
-          bookmarkedFirst: _d.archive.bookmarkedFirst,
-          randomViewing: _d.archive.randomViewing,
-          activeCategoryName: _d.archive.activeCategoryName,
-          onTabChanged: _d.archive.selectTab,
-          onSortChanged: _d.archive.sort,
-          onOpenRandomView: () => _d.archive.setRandomViewing(true),
-          onExitRandomView: () => _d.archive.setRandomViewing(false),
-          onClearCategory: _d.archive.clearCategory,
-          onSearch: _openSearch,
-          onOpenContent: _openDetail,
-          onToggleBookmark: _d.archive.toggleBookmark,
-          onChangeContentCategory: _d.archive.changeCategory,
-          onDeleteContent: _d.archive.deleteContent,
-          onAddCategory: _d.categories.add,
-          onUpdateCategory: _d.categories.update,
-          onDeleteCategory: _d.categories.delete,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onOpenCategory: (category) {
-            unawaited(_d.archive.selectCategory(category));
-            if (category.id != null) {
-              _d.archive.recordCategoryOpen(category.id!);
-            }
-          },
-          onTab: _selectRootTab,
+        AppRoute.archive => PageStorage(
+          key: ValueKey(_archiveStorageAccountGeneration),
+          bucket: _archivePageStorageBucket,
+          child: ArchiveScreen(
+            activeTab: _d.archive.activeTab,
+            contents: _d.archive.page.items,
+            feed: _d.archive.page,
+            onLoadMore: _d.archive.loadMore,
+            onRetry: _d.archive.retry,
+            categories: _d.categories.categories,
+            bookmarkedIds: _d.home.bookmarkedIds,
+            bookmarkedFirst: _d.archive.bookmarkedFirst,
+            randomViewing: _d.archive.randomViewing,
+            activeCategoryName: _d.archive.activeCategoryName,
+            onTabChanged: _d.archive.selectTab,
+            onSortChanged: _d.archive.sort,
+            onOpenRandomView: () => _d.archive.setRandomViewing(true),
+            onExitRandomView: () => _d.archive.setRandomViewing(false),
+            onClearCategory: _d.archive.clearCategory,
+            onSearch: _openSearch,
+            onOpenCategoryManagement: () =>
+                _openCategoryManagement(AppRoute.archive),
+            onOpenContent: _openDetail,
+            onToggleBookmark: _d.archive.toggleBookmark,
+            onChangeContentCategory: _d.archive.changeCategory,
+            onDeleteContent: _d.archive.deleteContent,
+            onAddCategory: _d.categories.add,
+            onUpdateCategory: _d.categories.update,
+            onDeleteCategory: _d.categories.delete,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onOpenCategory: (category) {
+              unawaited(_d.archive.selectCategory(category));
+              if (category.id != null) {
+                _d.archive.recordCategoryOpen(category.id!);
+              }
+            },
+            onTab: _selectRootTab,
+          ),
         ),
         AppRoute.bookmark => BookmarkScreen(
           contents: _d.bookmark.page.items,
@@ -423,7 +443,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onAddLink: _d.save.addLink,
           onAddScreenshot: _d.save.addScreenshot,
           onOpenAccount: () => _go(AppRoute.account),
-          onOpenCategoryManagement: () => _go(AppRoute.categoryManagement),
+          onOpenCategoryManagement: () => _openCategoryManagement(AppRoute.my),
           onTab: _selectRootTab,
         ),
         AppRoute.account => AccountManagementScreen(
@@ -434,13 +454,19 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onConnect: _d.app.openAccountLogin,
           busy: _d.app.authBusy,
         ),
-        AppRoute.categoryManagement => CategoryManagementScreen(
-          categories: _d.categories.categories,
-          contents: _d.home.page.items,
-          onBack: () => _go(AppRoute.my),
-          onAddCategory: _d.categories.add,
-          onUpdateCategory: _d.categories.update,
-          onDeleteCategory: _d.categories.delete,
+        AppRoute.categoryManagement => PopScope<void>(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _go(_categoryManagementReturnRoute);
+          },
+          child: CategoryManagementScreen(
+            categories: _d.categories.categories,
+            contents: _d.home.page.items,
+            onBack: () => _go(_categoryManagementReturnRoute),
+            onAddCategory: _d.categories.add,
+            onUpdateCategory: _d.categories.update,
+            onDeleteCategory: _d.categories.delete,
+          ),
         ),
       },
     );

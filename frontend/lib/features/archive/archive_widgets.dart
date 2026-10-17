@@ -388,11 +388,13 @@ class ArchiveTabs extends StatelessWidget {
   const ArchiveTabs({
     required this.activeTab,
     required this.onChanged,
+    this.labelStyle,
     super.key,
   });
 
   final int activeTab;
   final ValueChanged<int> onChanged;
+  final TextStyle? labelStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -409,6 +411,7 @@ class ArchiveTabs extends StatelessWidget {
             Expanded(
               child: ArchiveTabButton(
                 label: '카테고리',
+                labelStyle: labelStyle,
                 active: activeTab == 1,
                 onTap: () => onChanged(1),
               ),
@@ -416,6 +419,7 @@ class ArchiveTabs extends StatelessWidget {
             Expanded(
               child: ArchiveTabButton(
                 label: '전체보기',
+                labelStyle: labelStyle,
                 active: activeTab == 0,
                 onTap: () => onChanged(0),
               ),
@@ -432,12 +436,14 @@ class ArchiveTabButton extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.labelStyle,
     super.key,
   });
 
   final String label;
   final bool active;
   final VoidCallback onTap;
+  final TextStyle? labelStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -452,12 +458,16 @@ class ArchiveTabButton extends StatelessWidget {
           child: Center(
             child: Text(
               label,
-              style: TextStyle(
-                color: active ? AppColors.text : AppColors.subtle,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
+              style:
+                  labelStyle?.copyWith(
+                    color: active ? AppColors.text : AppColors.subtle,
+                  ) ??
+                  TextStyle(
+                    color: active ? AppColors.text : AppColors.subtle,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                  ),
             ),
           ),
         ),

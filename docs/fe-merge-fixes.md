@@ -2157,3 +2157,28 @@ flutter build web --no-pub
 - 기존 좌우24px·실제 가용 폭을 사용한다. Figma 제목343px/부모327px의 초과 폭, F02/F04 하단 간격16px과 F03의8px 차이, 실제 원문/미디어/외부 실행·추천 계약과 새 확대 대응은 ‘디자인 확인 필요’로 유지했다. 기존 원본 이미지 컨트롤러/시트·저장 정책·공통 탭/OS 안전 영역은 보존했다.
 - 실제 OS 원본을 자르거나 보정하지 않았다. iOS 창393×852/DPR3·상단59/하단34px, Android 창392.7×783.3/DPR2.75·상단24/하단0px이며 본문375px과 실제 viewport559/559.27px를 구분한다. 긴 대역 요약/원문은 Figma 예제와 내용·길이가 다르므로 전체 절대 좌표 일치를 뜻하지 않는다.
 - 전문의 고정 위치는 BEFORE 스크롤0에서 보고된 초기 `maxScrollExtent`(sliver 추정값)/2로 정한 **iOS1415.0384615384617px / Android1414.902097902098px**를 전후 그대로 사용한다. 실제 전체 범위의 정확한 중간점이라고 보고하지 않으며 안정화한 최대 스크롤은 runner에서 별도로 기록한다.
+
+
+## 카테고리 목록 화면의 1배율 맞춤 — 2026-10-17
+
+기준 `36e9725`, Page 1 >261007의 E02(`111:4133`)·E03(`111:4160`)에서 상단/탭/정렬 행·일반 행·미분류 배너의 확정 표현을 적용했다. 원본SVG7개와 역할별 Pretendard를 사용하고 일반 행의 개수만 숨겼으며 실제 서버 집계/더보기 안내·실제 이름/날짜/분류색과 시각/ID/null 정렬을 유지했다. 미분류 배너는 실제 메타데이터 양수에만 표시한다. 설정→기존 관리·마이 진입을 유지하고 관리 복귀 탭/스크롤 보존·계정 세대 변경 초기화를 추가했다.
+
+- [이번 Figma 기록](/private/tmp/clipback-category-archive-20261017/figma/reference-manifest.json): 08:24:09~08:24:15 UTC(17:24:09~17:24:15 KST), E02/E03 컨텍스트+원본2회 성공·누락/fallback0이다.
+- 제품 수정 전 실제 앱 테마 누락을 보완하고 동결했다. 초기 빌드/시도는 `.attempts/theme-preflight/`이며 최종 촬영으로 사용하지 않았다. 최종 RED7통과/10목표 실패·예상 밖 실패0과 theme probe1통과 뒤 새 BEFORE4원본/[게이트](/private/tmp/clipback-category-archive-20261017/before-gate.json)를 확보했다. [동결 SHA](/private/tmp/clipback-category-archive-20261017/fixture-manifest.json)는 전후 동일하다.
+- [자동 검사](/private/tmp/clipback-category-archive-20261017/automatic-checks.json): 집중72/관련246/전체1,008건 통과·건너뜀/오류0, `flutter analyze --no-pub` 문제0건이다. 실제 `ClipbackApp`에서 관리 복귀/마이 출처/계정 전환/OS뒤로가기4건도 확인했다. 기존 확대·상세·저장 검사를 유지했다. [API/기존 행 보존](/private/tmp/clipback-category-archive-20261017/preservation-audit.json)·[에셋 검사](/private/tmp/clipback-category-archive-20261017/static-assets-verification.json)를 남긴다.
+- 완료는 확정된 카테고리 목록1배율이다. 정렬 메뉴/화살표·미선택 탭 굵기 충돌·원본 없는 로딩/오류/전체 빈 상태는 확인 필요로 남겼다. 전체/미분류 콘텐츠 목록·관리 화면 맞춤과 새 확대 대응은 후속이다. API/모델/CRUD·콘텐츠 보존 정책 변경은 없다.
+
+- 첫 AFTER 동작 검사의 하단 ‘아카이브’ 선택자가 같은 이름의 상단 제목을 눌러 검증이 중단됐다. 제품 오류/통과로 처리하지 않고 `.attempts/nav-locator/`에 실패 원본·영상·리포트를 보존했다. 하단 바 내부로 합성 포인터 대상을 한정하는 검증 코드 한 줄만 수정하고, 기준 커밋 소스를 다시 적용해 BEFORE4원본을 새로 촬영한 뒤 동일 도구/데이터로 AFTER를 재검증했다. 렌더링·데이터·목표 판정은 바꾸지 않았으며 최초 성공 검사를 재촬영 결과로 사용하지 않는다.
+
+- 검증 도구의 선택자 보완 후 최종 동결 소스로 전체1,008건과 분석0건을 다시 확인했다. [소스 일치 기록](/private/tmp/clipback-category-archive-20261017/automatic-source-stamps.json)에 실행 전후 제품/프리뷰/검사 SHA256을 남겼다. SDK 캐시 권한으로 시작 전 중단된0건 실행은 시도 로그에 보존하고 테스트 성공으로 합산하지 않았다.
+
+- [최종 양 플랫폼 실측/동작](/private/tmp/clipback-category-archive-20261017/native-validation-summary.json)과 [동일 조건/동결 QA](/private/tmp/clipback-category-archive-20261017/pair-verification.json): 새 BEFORE/AFTER OS원본 각4장·완전3열4쌍, Figma/조건 누락0건이다. 같은 대역 데이터·1배율·키보드0·스크롤0을 유지하며 원본을 자르거나 OS 영역을 보정하지 않았다.
+- iPhone16/iOS18.6: 창 Size(393.0, 852.0)·DPR3.0·OS상단59.0/하단34.0px, 30기록·프레임워크 오류0건·style/layout/behavior/coverage/checksCompleted/전체 passed:true다. 실제 키보드 inset336.0→0px, 관리 복귀 탭1·스크롤180.0→180.0px을 확인했다.
+- Android13/API33 제스처(AVD `Clipback_Share_API_33`·`sdk_gphone64_arm64`): 창 Size(392.7, 783.3)·DPR2.75·OS상단24.0/하단0.0px, 30기록·프레임워크 오류0건·style/layout/behavior/coverage/checksCompleted/전체 passed:true다. 실제 키보드 inset약274.91→0px, 관리 복귀 탭1·스크롤180.0→180.0px을 확인했다.
+- 양 플랫폼에서 미분류0/2 각각 스크롤하며 일반 행12개의 완전 노출·최대 스크롤 마지막 행, 합성 포인터8회 이동의 실제 드래그, 검색/탭 왕복·실제 미분류ID99/일반ID101·관리 복귀, 생성/수정/삭제 시트와 실제 키보드·입력 보존·취소, 메모리콜백 생성/수정/삭제 및 고정 데이터 복원, 저장 진입 후 추가 저장 없는 닫기·네 하단 탭 콜백을 확인했다. 기본1배율의 목록 확인이며 전용 확대/3버튼 촬영은 추가하지 않았다.
+- 네이티브 호스트의 관리/다른 화면 이동은 제품 위젯과 Navigator/메모리 대역을 사용한다. 실제 루트 앱의 관리 출처/OS뒤로가기/계정 세대 분리는 별도 ClipbackApp 자동 검사로 확인했다. 합성 포인터·controller 입력/로컬 콜백은 실제 HTTP 저장·OAuth·운영 서버·실기기·원격 CI 증거가 아니다.
+- Figma375×812·예시6행과 실제 OS 창/안전 여백·대역12행/이름/날짜/분류색은 다르다. 공통 하단 바의64px+OS여백 정책을 유지하므로 Figma고정96px와 같다고 보고하지 않는다. 확정된 구성요소의 치수·역할·색상/간격을 확인했으며 전체 절대 좌표 일치를 주장하지 않는다.
+- [새3열 비교4쌍](/private/tmp/clipback-category-archive-20261017/comparison-document.html) · [비교 QA](/private/tmp/clipback-category-archive-20261017/comparison-qa.json) · [영상 전체 디코딩](/private/tmp/clipback-category-archive-20261017/media-verification.json) · [환경 정리](/private/tmp/clipback-category-archive-20261017/cleanup-verification.json). 초기 실패 자료를 최종 성공 자료로 재사용하지 않았다.
+- [iOS AFTER 영상](/private/tmp/clipback-category-archive-20261017/ios/after/interaction.mp4): 39.570000초·[1178, 2556]px, 전체 디코딩 종료코드0/오류로그0바이트·동작 완료까지 녹화 유지 확인.
+- [Android AFTER 영상](/private/tmp/clipback-category-archive-20261017/android-gesture/after/interaction.mp4): 81.898311초·[1080, 2220]px, 전체 디코딩 종료코드0/오류로그0바이트·동작 완료까지 녹화 유지 확인.
+- 검증 후 앱/기기·이번8767/8768포워딩·서버를 정리했고 Android 탐색/IME와 iOS 키보드 설정을 보존했다. [HTML 참조/문법 검사](/private/tmp/clipback-category-archive-20261017/comparison-html-verification.json)는 정적 검사이며 이번에는 비교HTTP서버·브라우저 상호작용을 실행하지 않았다.

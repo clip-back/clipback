@@ -19,6 +19,7 @@ class ArchiveScreen extends StatelessWidget {
     this.feed,
     this.onLoadMore,
     this.onRetry,
+    this.onOpenCategoryManagement,
     required this.activeTab,
     required this.contents,
     required this.categories,
@@ -50,6 +51,7 @@ class ArchiveScreen extends StatelessWidget {
   final FeedPage? feed;
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
+  final VoidCallback? onOpenCategoryManagement;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
@@ -78,6 +80,7 @@ class ArchiveScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final categoryRoot = activeCategoryName == null && activeTab == 1;
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -107,7 +110,12 @@ class ArchiveScreen extends StatelessWidget {
           bottom: false,
           child: Column(
             children: [
-              if (activeCategoryName == null)
+              if (categoryRoot)
+                CategoryArchiveTopBar(
+                  onSearch: onSearch,
+                  onOpenCategoryManagement: onOpenCategoryManagement,
+                )
+              else if (activeCategoryName == null)
                 AppTopBar(title: '아카이브', onSearch: onSearch)
               else
                 CategoryTopBar(
@@ -124,9 +132,29 @@ class ArchiveScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
-              if (activeCategoryName == null)
-                ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
+              if (categoryRoot)
+                SizedBox(
+                  key: const ValueKey('archive-category-tabs'),
+                  height: 64,
+                  child: Center(
+                    child: ArchiveTabs(
+                      activeTab: activeTab,
+                      onChanged: onTabChanged,
+                      labelStyle: const TextStyle(
+                        inherit: false,
+                        fontFamily: 'Pretendard',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                )
+              else ...[
+                const SizedBox(height: 8),
+                if (activeCategoryName == null)
+                  ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
+              ],
               Expanded(
                 child: activeTab == 0
                     ? Stack(

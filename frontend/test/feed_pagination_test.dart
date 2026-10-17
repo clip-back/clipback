@@ -11,6 +11,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
@@ -20,6 +21,8 @@ import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
+import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +50,18 @@ const _uncategorized = {
   'is_default': true,
 };
 const _allCategories = [_category, _otherCategory, _uncategorized];
+
+List<Map<String, Object?>> _navigationCategories() => [
+  ..._allCategories,
+  for (var index = 0; index < 24; index++)
+    {
+      ..._category,
+      'id': 1000 + index,
+      'name': '복귀 카테고리 ${index + 1}',
+      'content_count': index + 1,
+      'last_saved_at': '2026-10-07T00:00:00Z',
+    },
+];
 
 http.Response _json(Object body, [int status = 200]) => http.Response(
   jsonEncode(body),
@@ -261,6 +276,36 @@ Future<void> _withApp(
 
 Future<void> _openArchive(WidgetTester tester) async {
   tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenArchive();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openArchiveCategories(WidgetTester tester) async {
+  tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenCategories();
+  await tester.pumpAndSettle();
+  expect(tester.widget<ArchiveScreen>(find.byType(ArchiveScreen)).activeTab, 1);
+}
+
+ScrollPosition _categoryListPosition(WidgetTester tester) {
+  final list = find.byKey(
+    const PageStorageKey<String>('archive-category-list'),
+  );
+  expect(list, findsOneWidget);
+  final scrollable = find.descendant(
+    of: list,
+    matching: find.byType(Scrollable),
+  );
+  return tester.state<ScrollableState>(scrollable).position;
+}
+
+Future<void> _backFromCategoryManagement(WidgetTester tester) async {
+  final back = find.descendant(
+    of: find.byType(CategoryManagementScreen),
+    matching: find.byWidgetPredicate(
+      (widget) => widget is SvgIconButton && widget.asset == Assets.back,
+    ),
+  );
+  expect(back, findsOneWidget);
+  await tester.tap(back);
   await tester.pumpAndSettle();
 }
 
@@ -1525,6 +1570,158 @@ void main() {
     },
   );
 
+  testWidgets(
+    'archive category settings returns to category tab and its scroll offset',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final position = _categoryListPosition(tester);
+        expect(position.maxScrollExtent, greaterThan(360));
+        position.jumpTo(360);
+        await tester.pumpAndSettle();
+        final offset = _categoryListPosition(tester).pixels;
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 1);
+        expect(archive.activeCategoryName, isNull);
+        expect(_categoryListPosition(tester).pixels, closeTo(offset, 0.01));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'system back dismisses a management modal before restoring the archive',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final position = _categoryListPosition(tester);
+        expect(position.maxScrollExtent, greaterThan(360));
+        position.jumpTo(360);
+        await tester.pumpAndSettle();
+        final offset = _categoryListPosition(tester).pixels;
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+
+        tester.widget<CategoryRow>(find.byType(CategoryRow).first).onMore!();
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryActionSheet), findsOneWidget);
+        expect(await tester.binding.handlePopRoute(), isTrue);
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryActionSheet), findsNothing);
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        expect(find.byType(ArchiveScreen), findsNothing);
+
+        expect(await tester.binding.handlePopRoute(), isTrue);
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsNothing);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 1);
+        expect(archive.activeCategoryName, isNull);
+        expect(_categoryListPosition(tester).pixels, closeTo(offset, 0.01));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'My management entry returns to My after an earlier archive entry',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        await _backFromCategoryManagement(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('카테고리 관리'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        expect(find.byType(MyScreen), findsOneWidget);
+        expect(find.byType(ArchiveScreen), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'new account cannot restore the prior account category-list offset',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final oldPosition = _categoryListPosition(tester);
+        expect(oldPosition.maxScrollExtent, greaterThan(360));
+        oldPosition.jumpTo(360);
+        await tester.pumpAndSettle();
+        expect(_categoryListPosition(tester).pixels, greaterThan(0));
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+        await tester.pumpAndSettle();
+        await tester
+            .widget<AccountManagementScreen>(
+              find.byType(AccountManagementScreen),
+            )
+            .onLogout();
+        await tester.pumpAndSettle();
+        final guest = tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onContinue();
+        await tester.pumpAndSettle();
+        await guest;
+        tester.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
+        await tester.pumpAndSettle();
+        tester
+            .widget<InterestSelectionScreen>(
+              find.byType(InterestSelectionScreen),
+            )
+            .onDone();
+        await tester.pumpAndSettle();
+        expect(server.userId, 2);
+        await _openArchiveCategories(tester);
+        expect(_categoryListPosition(tester).maxScrollExtent, greaterThan(360));
+        expect(_categoryListPosition(tester).pixels, 0);
+        expect(
+          server.calls('/api/v1/categories').last.headers['Authorization'],
+          'Bearer guest-access',
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
   test(
     'category editing preserves server counts and raw ordering timestamps',
     () {
@@ -1607,7 +1804,7 @@ void main() {
               .count,
           94,
         );
-        expect(find.text('51'), findsOneWidget);
+        expect(find.text('51'), findsNothing);
         rows.first.onMore!();
         await tester.pumpAndSettle();
         expect(
