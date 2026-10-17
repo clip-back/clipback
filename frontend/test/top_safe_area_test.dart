@@ -160,7 +160,20 @@ void main() {
             .first;
         final cases =
             <(String, Widget Function(), Finder Function(), double, double)>[
-              ('archive', archive, () => find.byType(AppTopBar), inset, 64),
+              (
+                'archive',
+                archive,
+                () {
+                  final aligned = find.byKey(
+                    const ValueKey('archive-category-header'),
+                  );
+                  return aligned.evaluate().isNotEmpty
+                      ? aligned
+                      : find.byType(AppTopBar);
+                },
+                inset,
+                64,
+              ),
               (
                 'category archive',
                 () => archive(categoryName: '분류'),

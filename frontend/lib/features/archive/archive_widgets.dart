@@ -14,6 +14,16 @@ import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+const _archiveAllToolbarStyle = TextStyle(
+  inherit: false,
+  fontFamily: 'Pretendard',
+  fontSize: 14,
+  fontWeight: FontWeight.w500,
+  letterSpacing: -0.35,
+  color: AppColors.subtle,
+);
 
 class ContentListView extends StatelessWidget {
   const ContentListView({
@@ -32,6 +42,7 @@ class ContentListView extends StatelessWidget {
     this.feed,
     this.onLoadMore,
     this.onRetry,
+    this.archiveAllStyle = false,
     super.key,
   });
 
@@ -51,6 +62,7 @@ class ContentListView extends StatelessWidget {
   final FeedPage? feed;
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
+  final bool archiveAllStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +87,7 @@ class ContentListView extends StatelessWidget {
     return Column(
       children: [
         ArchiveToolbar(
+          archiveAllStyle: archiveAllStyle,
           countLabel: feed == null
               ? '총 ${visibleContents.length}개'
               : '불러온 ${visibleContents.length}개',
@@ -100,6 +113,7 @@ class ContentListView extends StatelessWidget {
               onAction: activeCategoryName == null ? onGoHome : onClearCategory,
             ),
             itemBuilder: (content) => ContentListCard(
+              archiveAllStyle: archiveAllStyle,
               content: content,
               bookmarked: bookmarkedIds.contains(content.id),
               onToggleBookmark: () => onToggleBookmark(content),
@@ -481,22 +495,26 @@ class ArchiveToolbar extends StatelessWidget {
     required this.countLabel,
     this.sortLabel = '최신순',
     this.onSortChanged,
+    this.archiveAllStyle = false,
     super.key,
   });
 
   final String countLabel;
   final String sortLabel;
   final ValueChanged<bool>? onSortChanged;
+  final bool archiveAllStyle;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 56,
+      key: archiveAllStyle ? const ValueKey('archive-all-toolbar') : null,
+      height: archiveAllStyle ? 52 : 56,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
             ArchiveSortButton(
+              archiveAllStyle: archiveAllStyle,
               label: sortLabel,
               bookmarkedFirst: sortLabel == '북마크 우선',
               onSelected: onSortChanged ?? (_) {},
@@ -504,11 +522,13 @@ class ArchiveToolbar extends StatelessWidget {
             const Spacer(),
             Text(
               countLabel,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+              style: archiveAllStyle
+                  ? _archiveAllToolbarStyle
+                  : const TextStyle(
+                      color: AppColors.subtle,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
             ),
           ],
         ),
@@ -522,12 +542,14 @@ class ArchiveSortButton extends StatelessWidget {
     required this.label,
     required this.bookmarkedFirst,
     required this.onSelected,
+    this.archiveAllStyle = false,
     super.key,
   });
 
   final String label;
   final bool bookmarkedFirst;
   final ValueChanged<bool> onSelected;
+  final bool archiveAllStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -566,19 +588,28 @@ class ArchiveSortButton extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.35,
-              ),
+              style: archiveAllStyle
+                  ? _archiveAllToolbarStyle
+                  : const TextStyle(
+                      color: AppColors.subtle,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.35,
+                    ),
             ),
             const SizedBox(width: 2),
-            const SvgIcon(
-              asset: Assets.chevronDown,
-              size: 16,
-              color: AppColors.subtle,
-            ),
+            if (archiveAllStyle)
+              SvgPicture.asset(
+                Assets.archiveAllChevronDown,
+                width: 16,
+                height: 16,
+              )
+            else
+              const SvgIcon(
+                asset: Assets.chevronDown,
+                size: 16,
+                color: AppColors.subtle,
+              ),
           ],
         ),
       ),

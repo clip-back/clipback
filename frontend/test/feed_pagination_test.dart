@@ -297,6 +297,17 @@ ScrollPosition _categoryListPosition(WidgetTester tester) {
   return tester.state<ScrollableState>(scrollable).position;
 }
 
+ScrollPosition _allContentPosition(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(ContentListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    )
+    .position;
+
 Future<void> _backFromCategoryManagement(WidgetTester tester) async {
   final keyedBack = find.descendant(
     of: find.byType(CategoryManagementScreen),
@@ -1572,6 +1583,77 @@ void main() {
           999,
         );
         expect(find.text('999'), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'archive all settings, search and detail preserve tab, pixels and feed',
+    (tester) async {
+      final server = _Server(count: 45);
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        _allContentPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        final ids = archive.contents.map((item) => item.id).toList();
+        final feed = archive.feed!;
+        final cursor = feed.nextCursor;
+        final version = feed.version;
+        final calls = server.feedCalls.length;
+
+        void checkPreserved() {
+          final current = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          expect(current.activeTab, 0);
+          expect(current.activeCategoryName, isNull);
+          expect(current.contents.map((item) => item.id), ids);
+          expect(current.feed, same(feed));
+          expect(current.feed!.version, version);
+          expect(current.feed!.nextCursor, cursor);
+          expect(_allContentPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(calls));
+        }
+
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        checkPreserved();
+
+        await tester.tap(find.byKey(const Key('archive-category-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onOpenContent(archive.contents[2]);
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsOneWidget);
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        await tester.tap(find.text('카테고리'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('전체보기'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        expect(_allContentPosition(tester).pixels, 0);
+        expect(feed.version, greaterThan(version));
+        expect(server.feedCalls.length, greaterThan(calls));
+        expect(tester.takeException(), isNull);
       });
     },
   );

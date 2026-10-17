@@ -11,7 +11,6 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
 import 'package:flutter/material.dart';
 
 class ArchiveScreen extends StatelessWidget {
@@ -80,7 +79,8 @@ class ArchiveScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final categoryRoot = activeCategoryName == null && activeTab == 1;
+    final rootArchive = activeCategoryName == null;
+    final allRoot = rootArchive && activeTab == 0;
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -110,13 +110,11 @@ class ArchiveScreen extends StatelessWidget {
           bottom: false,
           child: Column(
             children: [
-              if (categoryRoot)
+              if (rootArchive)
                 CategoryArchiveTopBar(
                   onSearch: onSearch,
                   onOpenCategoryManagement: onOpenCategoryManagement,
                 )
-              else if (activeCategoryName == null)
-                AppTopBar(title: '아카이브', onSearch: onSearch)
               else
                 CategoryTopBar(
                   title: activeCategoryName!,
@@ -132,9 +130,11 @@ class ArchiveScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (categoryRoot)
+              if (rootArchive)
                 SizedBox(
-                  key: const ValueKey('archive-category-tabs'),
+                  key: ValueKey(
+                    allRoot ? 'archive-all-tabs' : 'archive-category-tabs',
+                  ),
                   height: 64,
                   child: Center(
                     child: ArchiveTabs(
@@ -161,6 +161,7 @@ class ArchiveScreen extends StatelessWidget {
                         children: [
                           Positioned.fill(
                             child: ContentListView(
+                              archiveAllStyle: allRoot,
                               feed: feed,
                               onLoadMore: onLoadMore,
                               onRetry: onRetry,

@@ -37,6 +37,12 @@ class Assets {
   static const archiveUnclassified = 'assets/icons/archive-unclassified.svg';
   static const archiveCategoryMore = 'assets/icons/archive-category-more.svg';
   static const archiveChevronRight = 'assets/icons/archive-chevron-right.svg';
+  static const archiveAllChevronDown =
+      'assets/icons/archive-all-chevron-down.svg';
+  static const archiveAllStarFilled =
+      'assets/icons/archive-all-star-filled.svg';
+  static const archiveAllMore = 'assets/icons/archive-all-more.svg';
+  static const archiveAllDivider = 'assets/icons/archive-all-divider.svg';
   static const bell = 'assets/icons/bell.svg';
   static const chevronRight = 'assets/icons/chevron-right.svg';
   static const chevronDown = 'assets/icons/chevron-down.svg';
