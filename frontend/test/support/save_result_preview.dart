@@ -1668,6 +1668,14 @@ Map<String, Object?> _previewGeometryMetrics() {
   final source = _rect(nodes['previewSource']!);
   final heading = _rect(nodes['previewHeading']!);
   final padding = cardWidget.padding!.resolve(Directionality.of(cardElement));
+  final columnRender = nodes['previewText']!.findRenderObject()! as RenderBox;
+  final titleRender =
+      nodes['previewTitle']!.findRenderObject()! as RenderParagraph;
+  final sourceRender =
+      nodes['previewSource']!.findRenderObject()! as RenderParagraph;
+  final columnMaxWidth = columnRender.constraints.maxWidth;
+  final titleMaxWidth = titleRender.constraints.maxWidth;
+  final sourceMaxWidth = sourceRender.constraints.maxWidth;
   Map<String, Object?> paragraphLines(Element element) {
     final render = element.findRenderObject()! as RenderParagraph;
     final boxes = render.getBoxesForSelection(
@@ -1706,6 +1714,19 @@ Map<String, Object?> _previewGeometryMetrics() {
     'imageToTextGap': text.left - image.right,
     'textGap': source.top - title.bottom,
     'expectedTextGap': 14,
+    'textConstraintsMaxWidth': columnMaxWidth,
+    'textColumnWidth': text.width,
+    'titleConstraintsMaxWidth': titleMaxWidth,
+    'titleParagraphWidth': title.width,
+    'titleParagraphBounds': _rectJson(title),
+    'sourceConstraintsMaxWidth': sourceMaxWidth,
+    'sourceParagraphWidth': source.width,
+    'sourceParagraphBounds': _rectJson(source),
+    'titleWidthReduction': columnMaxWidth - titleMaxWidth,
+    'sourceWidthReduction': columnMaxWidth - sourceMaxWidth,
+    'expectedTitleMaxWidth': columnMaxWidth - 8,
+    'expectedSourceMaxWidth': columnMaxWidth,
+    'columnToInnerRightGap': padding.deflateRect(card).right - text.right,
     'titleLines': paragraphLines(nodes['previewTitle']!),
     'sourceLines': paragraphLines(nodes['previewSource']!),
     'textHeight': text.height,
@@ -1714,7 +1735,7 @@ Map<String, Object?> _previewGeometryMetrics() {
     'textCenterDelta': text.center.dy - card.center.dy,
     'headingToCardGap': card.top - heading.bottom,
     'boundaryScope':
-        'Paragraph layout bounds are checked against the actual padded card. Selection boxes are recorded separately and are not treated as pixel paint bounds.',
+        'The actual RenderParagraph maximum constraints reserve 8px only for the title; source keeps the full text-column maximum. Short paragraph widths may be smaller than their maximum constraints. Paragraph layout bounds are checked against the actual padded card. Selection boxes are diagnostic rather than pixel paint bounds; intentional ellipsis is retained.',
   };
 }
 
@@ -1748,6 +1769,30 @@ List<String> _previewLayoutFindings() {
     findings.add(
       'Preview must retain horizontal/heading gaps 16px and title-to-source gap 14px',
     );
+  }
+  final columnMaxWidth = (metrics['textConstraintsMaxWidth']! as num)
+      .toDouble();
+  if (!near(metrics['textColumnWidth'], columnMaxWidth) ||
+      !near(metrics['titleConstraintsMaxWidth'], columnMaxWidth - 8) ||
+      !near(metrics['sourceConstraintsMaxWidth'], columnMaxWidth) ||
+      !near(metrics['titleWidthReduction'], 8) ||
+      !near(metrics['sourceWidthReduction'], 0) ||
+      !near(metrics['columnToInnerRightGap'], 0)) {
+    findings.add(
+      'Preview title maximum width must reserve 8px within the unchanged full-width source column',
+    );
+  }
+  final text = _rect(nodes['previewText']!);
+  for (final role in ['previewTitle', 'previewSource']) {
+    final paragraph = nodes[role]!.findRenderObject()! as RenderParagraph;
+    final bounds = _rect(nodes[role]!);
+    if (!near(bounds.left, text.left) ||
+        bounds.width > paragraph.constraints.maxWidth + 0.1 ||
+        !_inside(bounds, text)) {
+      findings.add(
+        '$role layout exceeds its actual paragraph constraint/column',
+      );
+    }
   }
   if (!near(
     metrics['textHeight'],
@@ -1969,7 +2014,7 @@ Map<String, Object?> _baseStyleMetrics() {
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the 14px preview title-to-source gap and visible paragraph lines, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
   };
 }
 
@@ -2690,7 +2735,7 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
         !_checks.any((c) => c['targetLayoutPassed'] == false),
     'stylePassed': !_checks.any((c) => c['targetStylePassed'] == false),
     'scope':
-        'Style and geometry judgments remain separate. Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
+        'Style and geometry judgments remain separate. The result title/source actual paragraph constraints are included in layoutPassed and overall passed; before-phase width findings are diagnostic and do not stop capture. Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
     'checks': _checks,
     'frameworkErrors': _errors,
   }),

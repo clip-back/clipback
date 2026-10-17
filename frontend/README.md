@@ -17,7 +17,8 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 앞선 `d1f13d4` 기준 작업은 Page 1 > 261007의 [D05 링크 결과(`111:4902`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4902)·[D09 사진 결과(`111:4865`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4865)의 **탭 하단부터 결과 제목까지 시작 여백**만 80→32px로 맞췄습니다.
 저장 본문의 패딩을 좌16·상32·우16·하24px로 통일하며 입력 화면의 32px·본문 viewport·헤더/탭·하단 버튼·안전 영역은 유지합니다. 사진 비율/잘림·미리보기 내부 간격·카테고리 편집·결과 전체 배치는 후속으로 남깁니다.
 
-현재 `a6dfb4e` 기준 작업은 같은 D05·D09에서 **저장 결과 미리보기 제목–출처 간격 8→14px**만 맞췄습니다. 카드·이미지 크기와 자연 높이/중앙 정렬·글자 스타일·결과 시작 32px·하단 버튼/안전 영역은 유지하며 아래 새 검증 기록으로 구분합니다. 사진 비율/잘림·카테고리 편집·결과 전체 배치는 계속 후속입니다.
+앞선 `a6dfb4e` 기준 작업은 같은 D05·D09에서 **저장 결과 미리보기 제목–출처 간격 8→14px**만 맞추고 `63800e6`에 저장했습니다. 카드·이미지 크기와 자연 높이/중앙 정렬·글자 스타일·결과 시작 32px·하단 버튼/안전 영역은 유지하며 아래 새 검증 기록으로 구분합니다. 사진 비율/잘림·카테고리 편집·결과 전체 배치는 계속 후속입니다.
+현재 `63800e6` 기준 작업은 **미리보기 콘텐츠 제목 최대 폭만 컬럼보다8px 작게** 맞췄습니다. 본문375px에서 제목139px·출처147px이며 출처 폭·간격14px·자연 높이·중앙 정렬은 유지합니다. 한 줄 전용 세로 배치·출처 폭 원본 기준은 후속 확인 항목이며 저장 화면 전체 맞춤 완료가 아닙니다.
 
 이전 파일 `b2lmAo9VtbL6Qi0mzX5IMu`의 **WireFrame & UI(`3:5961`) > [261008(`912:13961`)](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-13961)**은 당시 구현·조회·비교 기록의 기준으로 보존합니다. 해당 파일의 M 보완안은 이전 제안이며 새 Page 1의 확정 디자인으로 채택하지 않습니다.
 아래 네 화면의 조회 기록은 이 이전 `261008` 파일에 해당합니다.
@@ -1511,6 +1512,21 @@ Android 첫 AFTER 시도는 앱 보고서 10건이 통과했어도 원본 직접
 비교 HTML의 JS 문법·참조 31개 경로와 PNG 직접 시각 검사는 확인했으나 브라우저 상호작용 실행은 이번에 검증하지 않았습니다. native 앱 실행·영상 성공과 구분합니다. 메모리 저장/사진 선택 대역·Flutter 합성 입력을 사용했으며 운영 API·OAuth·실기기·원격 CI는 이번 검증 범위가 아닙니다.
 화면 증거·빌드 생성물·`AGENTS.md`는 Git에서 제외하고 같은 `feature/figma-ui-alignment`에서 한 커밋으로 저장하며 푸시·PR은 하지 않습니다. 이전 절의 성공/촬영/조회 시각은 당시 기록으로 보존합니다.
 과거 절의 제목–출처 8px 유지 기록은 당시 범위로 보존하며 현재 간격은 이 절의 14px을 따릅니다. 이번 완료 범위는 두 문단 사이 간격에 한정합니다. 사진 비율/잘림·카테고리 편집·결과 전체 배치·한 줄 전용 Figma 디자인 미확인은 유지하고 저장 화면 전체 완료로 표시하지 않습니다.
+
+## 저장 결과 미리보기 제목 최대 폭 (`63800e6` 기준, 해당 범위 적용·검증 완료)
+
+- Page 1 > 261007 D05 `111:4902`·D09 `111:4865`의 제목만 우측8px을 확보했습니다. [이번 Figma 조회](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/figma/reference-manifest.json)는 **2026-10-17 04:16:05~04:16:11 UTC(13:16:05~13:16:11 KST)** 총2회 성공이며 원본 누락/fallback이 없습니다. 본문375px의 제목/출처 최대 폭은 **139/147px**, 320px 자동 검사는 **84/92px**입니다. 실제 문단 최대 제약을 검사하며 Padding 위젯 유무로 통과 처리하지 않습니다.
+- [변경 전→변경 후→Figma 4쌍](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-document.html) · [비교 QA](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-qa.json) · [실측 표](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/preview-title-width-measurements.json). 기기 제목 ‘저장 결과 확인’의 실제 문단 폭82.1074px·한 줄·출처/카드/글자 경계는 전후 같습니다. 최대 폭만8px 줄었으며 14px 간격·자연 높이/중앙 정렬·시작32px·하단24px·제출 입력/완료 탭 정책을 유지합니다. 한 줄과 두 줄 Figma의 절대 세로 위치가 같다는 의미는 아닙니다.
+- [자동 검사 요약](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/automatic-summary.json)에서 기본92·관련335·전체969건 통과, 분석 문제 없음·Dart4파일 변경0건을 확인했습니다. [수정 전 재현](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/reproduction-test-summary.json) · [정정 후 기준 코드 재현](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/amended-reproduction-summary.json)는130건 중74통과/56실패입니다. [검사 소스 정정](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/test-source-amendment.json)는 선택 상자1.2px 초과의 오판4건만 정정하고 기준 코드도 다시74/56으로 확인했습니다. 기본 검사 SHA만 바뀌었으며 네이티브 fixture·확대 검사·[새 BEFORE4원본](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/before-gate.json)은 보존했습니다.
+- iPhone16/iOS18.6·Android13/API33 제스처는 각각 기록10건·프레임워크 오류0건·스타일/레이아웃/행동/전체 통과입니다. 결과 진입·탭 고정·추가 저장 없는 닫기를 확인했습니다. 최대 스크롤0px의 무스크롤 상태로 마지막 안내와 하단 여백·버튼 겹침 없음을 확인했으며 드래그 실행 성공으로 보고하지 않습니다.
+
+| 플랫폼 | 링크 결과 비교 | 사진 결과 비교 |
+| --- | --- | --- |
+| iOS | [링크 결과](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-ios-link.png) | [사진 결과](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-ios-photo.png) |
+| Android 제스처 | [링크 결과](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-android-gesture-link.png) | [사진 결과](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-android-gesture-photo.png) |
+
+- [iOS 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/ios/after/interaction.mp4)(9.426667초) · [Android 영상](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/android-gesture/after/interaction.mp4)(13.778167초). [전체 디코딩](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/media-verification.json) · [직접 시각 검토](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/direct-visual-review.json)의 전체 디코딩 오류0·iOS20/Android29 표본 직접 시각 검사에서 팝업/목표 영역 잘림이 없습니다. 완전한3열4쌍·Figma/조건 누락0건이며 OS 원본의 시계·iOS Dynamic Island 표시 차이는 보정하지 않았습니다.
+- [최종 환경 정리](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/cleanup-verification.json)는13:30:15 KST에 기기 종료·adb/에뮬레이터0·8767/8768 리스너0·설정 변경0·데이터 보존을 확인했습니다. [비교 문서 검사](/Users/leehyeongyu/.codex/visualizations/2026/10/13/01a134c9-8406-7d63-99b0-73cf2847c45a/save-preview-title-width/comparison-document-check.json)는 JS와 참조31개만 검사했으며 서버 미시작·브라우저 상호작용 미검증입니다. 운영 API/OAuth/실기기/CI 증거가 아니며 출처 최대 폭 원본 기준·한 줄 세로 배치·사진·편집·전체 맞춤은 후속으로 유지합니다. 이전 검증 기록은 이번 성공으로 대체하지 않습니다.
 
 ## 상단 안전 영역과 헤더
 

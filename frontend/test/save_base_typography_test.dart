@@ -598,6 +598,12 @@ void _preview(
   final card = tester.getRect(cardFinder);
   final thumbnail = tester.getRect(image);
   final inner = card.deflate(8);
+  final titleBounds = Rect.fromLTRB(
+    inner.left,
+    inner.top,
+    card.right - 16,
+    inner.bottom,
+  );
   final titleFinder = find.text(saved.title);
   final sourceFinder = find.text(saved.source);
   final title = tester.getRect(titleFinder);
@@ -623,6 +629,9 @@ void _preview(
     boundary: inner,
     respectEllipsisClip: true,
   );
+  // The 16px title limit constrains paragraph layout. Selection extents may
+  // slightly overhang that logical boundary without painting outside the card.
+  _inside(failures, 'preview title layout bounds', title, titleBounds);
   _text(
     tester,
     failures,
@@ -653,6 +662,27 @@ void _preview(
     'preview text right padding',
     card.right - textColumn.right,
     8,
+  );
+  final columnMaxWidth = card.width - 8 - 164 - 16 - 8;
+  final titleParagraph = tester.renderObject<RenderParagraph>(titleFinder);
+  final sourceParagraph = tester.renderObject<RenderParagraph>(sourceFinder);
+  _near(
+    failures,
+    'preview text column width',
+    textColumn.width,
+    columnMaxWidth,
+  );
+  _near(
+    failures,
+    'preview title maximum width',
+    titleParagraph.constraints.maxWidth,
+    columnMaxWidth - 8,
+  );
+  _near(
+    failures,
+    'preview source maximum width unchanged',
+    sourceParagraph.constraints.maxWidth,
+    columnMaxWidth,
   );
   _near(failures, 'preview source left', source.left, title.left);
   _near(failures, 'preview title/source gap', source.top - title.bottom, 14);
@@ -1206,9 +1236,74 @@ void main() {
               width: width,
               title: width == 375
                   ? "'주술회전(呪術廻戦)' 초반 1~10권 감상회"
-                  : '저장 결과 확인 제목 미리보기',
+                  : '저장 결과 확인 제목 보기',
               source: scene.photo ? '사진' : 'Youtube',
             );
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.text(saved.title),
+            );
+            final reference = TextPainter(
+              text: paragraph.text,
+              textDirection: paragraph.textDirection,
+              textScaler: paragraph.textScaler,
+              maxLines: 2,
+              ellipsis: '\u2026',
+            );
+            try {
+              reference.layout(maxWidth: width - 32 - 8 - 164 - 16 - 16);
+              expect(reference.computeLineMetrics(), hasLength(2));
+              expect(reference.didExceedMaxLines, isFalse);
+            } finally {
+              reference.dispose();
+            }
+            final failures = <String>[];
+            _preview(
+              tester,
+              failures,
+              saved: saved,
+              longText: false,
+              expectedTitleLines: 2,
+            );
+            expect(tester.takeException(), isNull);
+            expect(failures, isEmpty, reason: failures.join('\n'));
+            await _interaction(tester, scene, saved, photo);
+            expect(tester.takeException(), isNull);
+          },
+        );
+        testWidgets(
+          'preview title width changes wrapping $platform width $width ${scene.name}',
+          (tester) async {
+            final previous = FilePicker.platform;
+            FilePicker.platform = _Picker(photo);
+            addTearDown(() => FilePicker.platform = previous);
+            final saved = await _open(
+              tester,
+              scene: scene,
+              platform: platform,
+              width: width,
+              title: width == 375 ? '저장콘텐츠제목확인중요1' : '저장제목확인중',
+            );
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.text(saved.title),
+            );
+            final columnMaxWidth = width - 32 - 8 - 164 - 16 - 8;
+            final reference = TextPainter(
+              text: paragraph.text,
+              textDirection: paragraph.textDirection,
+              textScaler: paragraph.textScaler,
+              maxLines: 2,
+              ellipsis: '\u2026',
+            );
+            try {
+              reference.layout(maxWidth: columnMaxWidth);
+              expect(reference.computeLineMetrics(), hasLength(1));
+              expect(reference.didExceedMaxLines, isFalse);
+              reference.layout(maxWidth: columnMaxWidth - 8);
+              expect(reference.computeLineMetrics(), hasLength(2));
+              expect(reference.didExceedMaxLines, isFalse);
+            } finally {
+              reference.dispose();
+            }
             final failures = <String>[];
             _preview(
               tester,

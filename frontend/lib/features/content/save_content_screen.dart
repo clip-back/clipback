@@ -694,11 +694,14 @@ class SavedContentConfirmation extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      content.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: _SaveTextStyles.previewTitle,
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        content.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: _SaveTextStyles.previewTitle,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     Text(

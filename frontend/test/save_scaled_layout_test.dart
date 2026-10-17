@@ -326,6 +326,14 @@ void main() {
               final title = tester.getRect(find.text(_title));
               final source = tester.getRect(find.text(_source));
               final text = title.expandToInclude(source);
+              final textColumn = tester.getRect(
+                find
+                    .ancestor(
+                      of: find.text(_title),
+                      matching: find.byType(Column),
+                    )
+                    .first,
+              );
               final thumbnail = tester.getRect(
                 find.descendant(
                   of: _previewCard(),
@@ -335,12 +343,32 @@ void main() {
               expect(card.width, width - 32);
               expect(card.height, greaterThanOrEqualTo(116));
               if (scale == 1) expect(card.height, 116);
-              _contained(title, card.deflate(8));
+              final inner = card.deflate(8);
+              _contained(
+                title,
+                Rect.fromLTRB(
+                  inner.left,
+                  inner.top,
+                  card.right - 16,
+                  inner.bottom,
+                ),
+              );
               _contained(source, card.deflate(8));
               _contained(thumbnail, card.deflate(8));
               expect(thumbnail.size, const Size(164, 100));
               expect(thumbnail.left - card.left, 8);
               expect(title.left - thumbnail.right, 16);
+              final columnMaxWidth = card.width - 8 - 164 - 16 - 8;
+              expect(textColumn.width, closeTo(columnMaxWidth, 0.01));
+              expect(card.right - textColumn.right, closeTo(8, 0.01));
+              expect(
+                _paragraph(tester, _title).constraints.maxWidth,
+                closeTo(columnMaxWidth - 8, 0.01),
+              );
+              expect(
+                _paragraph(tester, _source).constraints.maxWidth,
+                closeTo(columnMaxWidth, 0.01),
+              );
               expect(source.top - title.bottom, closeTo(14, 0.01));
               expect(
                 text.height,
