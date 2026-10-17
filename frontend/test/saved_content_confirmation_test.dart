@@ -7,6 +7,7 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -175,7 +176,14 @@ void main() {
     expect(find.text('저장할 링크'), findsNothing);
     expect(find.text('유효한 링크예요!'), findsNothing);
     expect(find.byType(ValidationMessage), findsNothing);
-    expect(find.text('first-photo.png'), findsOneWidget);
+    expect(find.text('first-photo.png'), findsNothing);
+    final submittedImage = find.byKey(
+      const ValueKey('save-result-photo-image'),
+    );
+    expect(submittedImage, findsOneWidget);
+    final image = tester.widget<Image>(submittedImage);
+    expect(image.semanticLabel, contains('first-photo.png'));
+    expect((image.image as MemoryImage).bytes, same(firstBytes));
     expect(_result(tester).content, same(returned));
     expect(_result(tester).photoBytes, orderedEquals(firstBytes));
     expect(find.text('아직 분류되지 않았어요.'), findsOneWidget);
@@ -183,6 +191,115 @@ void main() {
     _expectActiveTab(tester, '사진 첨부');
     expect(tester.takeException(), isNull);
   });
+
+  for (final portrait in [true, false]) {
+    testWidgets(
+      '${portrait ? 'portrait' : 'landscape'} submitted photo fills both result clips without changing bytes',
+      (tester) async {
+        final bytes = portrait ? firstBytes : secondBytes;
+        picker = _Picker([_Photo('orientation-photo.png', bytes)]);
+        FilePicker.platform = picker;
+        final semantics = tester.ensureSemantics();
+        try {
+          await _open(
+            tester,
+            onAddLink: ({required url, category}) async =>
+                throw StateError('link'),
+            onAddScreenshot:
+                ({required bytes, required filename, category}) async =>
+                    _savedContent(),
+          );
+          await _photo(tester);
+          await _submit(tester);
+          await tester.pumpAndSettle();
+
+          final summaryImage = find.byKey(
+            const ValueKey('save-result-photo-image'),
+          );
+          expect(summaryImage, findsOneWidget);
+          expect(_result(tester).originalUrl, 'orientation-photo.png');
+          expect(_result(tester).photoBytes, same(bytes));
+          expect(find.text('orientation-photo.png'), findsNothing);
+          expect(
+            tester.getSemantics(summaryImage).label,
+            contains('orientation-photo.png'),
+          );
+          final previewRole = find.byKey(
+            const ValueKey('save-result-preview-image'),
+          );
+          expect(previewRole, findsOneWidget);
+          final thumbnail = previewRole.evaluate().single.widget is Image
+              ? previewRole
+              : find.descendant(of: previewRole, matching: find.byType(Image));
+          // Widget settling does not wait for asynchronous image decoding. Resolve
+          // both real providers before inspecting their decoded RenderImage data.
+          await tester.runAsync(() async {
+            await Future.wait([
+              for (final imageFinder in [summaryImage, thumbnail])
+                precacheImage(
+                  tester.widget<Image>(imageFinder).image,
+                  tester.element(imageFinder),
+                ),
+            ]);
+          });
+          await tester.pumpAndSettle();
+          for (final imageFinder in [summaryImage, thumbnail]) {
+            final image = tester.widget<Image>(imageFinder);
+            expect(image.image, isA<MemoryImage>());
+            expect((image.image as MemoryImage).bytes, same(bytes));
+            expect(image.fit, BoxFit.cover);
+            expect(image.alignment, Alignment.center);
+            final render = tester.renderObject<RenderImage>(
+              find.descendant(of: imageFinder, matching: find.byType(RawImage)),
+            );
+            expect(render.image, isNotNull);
+            final decoded = Size(
+              render.image!.width.toDouble(),
+              render.image!.height.toDouble(),
+            );
+            expect(
+              decoded,
+              portrait ? const Size(1179, 2556) : const Size(399, 243),
+            );
+            final fitted = applyBoxFit(BoxFit.cover, decoded, render.size);
+            expect(fitted.destination, render.size);
+            final centeredSource = Alignment.center.inscribe(
+              fitted.source,
+              Offset.zero & decoded,
+            );
+            expect(
+              (centeredSource.center - (Offset.zero & decoded).center).distance,
+              lessThan(1e-9),
+            );
+            expect(centeredSource.width, lessThanOrEqualTo(decoded.width));
+            expect(centeredSource.height, lessThanOrEqualTo(decoded.height));
+            if (portrait || imageFinder == summaryImage) {
+              expect(centeredSource.height, lessThan(decoded.height));
+            }
+            final clips = find.ancestor(
+              of: imageFinder,
+              matching: find.byWidgetPredicate(
+                (w) => w is ClipRect || w is ClipRRect,
+              ),
+            );
+            expect(clips.evaluate(), isNotEmpty);
+            final clip = tester.getRect(clips.first);
+            expect(tester.getRect(imageFinder), clip);
+          }
+          _expectActiveTab(tester, '사진 첨부');
+          await _tab(tester, '링크 첨부');
+          _expectActiveTab(tester, '사진 첨부');
+          expect(_result(tester).photoBytes, same(bytes));
+          await tester.tap(find.text('닫기'));
+          await tester.pumpAndSettle();
+          expect(find.byType(AddContentSheet), findsNothing);
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
 
   testWidgets('link result keeps link wording and submitted trimmed URL', (
     tester,

@@ -9,6 +9,9 @@
 // /base-style-scene?kind=empty|valid|invalid|photo-empty|photo-selected|link|photo
 // and /base-style-run inspect only text scale 1 for the current typography work.
 // /base-style-run?resultsOnly=1 limits behavior checks to link/photo results.
+// Add categoryState=classified|uncategorized|processing to a result scene for
+// the five screen-level states; photo-processing has no design and is rejected.
+// /base-style-run?resultsOnly=1&screenStates=1 runs those five result states.
 // /photo-frame-run inspects D07 geometry and photo save behavior at text scale 1.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
@@ -29,6 +32,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 const _phase = String.fromEnvironment(
   'SAVE_RESULT_PHASE',
@@ -49,6 +53,9 @@ var _pointer = 7000;
 var _baseStyleMode = false;
 var _baseStyleKind = '';
 var _baseInputSetupScope = '';
+var _resultScreenMode = false;
+var _categoryState = 'classified';
+const _screenResultTitle = '기억하고 싶은 하루의 작은 순간들';
 const _baseStaticInputScope =
     'Fixed real TextField input/onChanged and deterministic in-memory picker/save callbacks; static base scenes do not use clipboard';
 
@@ -84,6 +91,11 @@ Future<void> main() async {
       _baseStyleMode =
           request.uri.path.startsWith('/base-style-') ||
           request.uri.path == '/photo-frame-run';
+      _resultScreenMode =
+          (request.uri.path == '/base-style-scene' &&
+              request.uri.queryParameters.containsKey('categoryState')) ||
+          (request.uri.path == '/base-style-run' &&
+              request.uri.queryParameters['screenStates'] == '1');
     }
     try {
       switch (request.uri.path) {
@@ -124,11 +136,15 @@ Future<void> main() async {
           await _pasteRun();
         case '/base-style-scene':
           final kind = request.uri.queryParameters['kind'] ?? 'empty';
-          await _baseStyleScene(kind);
+          await _baseStyleScene(
+            kind,
+            categoryState: request.uri.queryParameters['categoryState'],
+          );
           await _capture(_baseStyleSceneName(kind));
         case '/base-style-run':
           await _baseStyleRun(
             resultsOnly: request.uri.queryParameters['resultsOnly'] == '1',
+            screenStates: request.uri.queryParameters['screenStates'] == '1',
           );
         case '/photo-frame-run':
           await _photoFrameRun();
@@ -255,17 +271,29 @@ class _PreviewState extends State<_Preview> {
 
 ContentItem _content(String kind) => ContentItem(
   id: 'save-result-$kind',
-  title: '저장 결과 확인',
+  title: _resultScreenMode ? _screenResultTitle : '저장 결과 확인',
   summary: '고정 대역 데이터',
-  category: catUncategorized.copyWith(name: '매일 다시 확인하는 아주 긴 카테고리 이름'),
+  category: _resultScreenMode && _categoryState != 'classified'
+      ? catUncategorized
+      : catUncategorized.copyWith(
+          name: _resultScreenMode ? '영감을 모아둔 카테고리' : '매일 다시 확인하는 아주 긴 카테고리 이름',
+          color: _resultScreenMode ? AppColors.main : catUncategorized.color,
+        ),
   savedAt: '10.15',
   savedAtFull: '2026.10.15',
   savedAtFullShort: '26.10.15',
   tags: const [],
-  source: kind == 'photo' ? '사진' : '웹사이트',
+  source: _resultScreenMode && _categoryState == 'processing'
+      ? sourceLabel('youtube')
+      : kind == 'photo'
+      ? '사진'
+      : '웹사이트',
   originalUrl: kind == 'link' ? _url : '',
   originalText: '',
   isScreenshot: kind == 'photo',
+  summaryStatus: _resultScreenMode && _categoryState == 'processing'
+      ? 'processing'
+      : 'not_requested',
 );
 
 class _Picker extends FilePicker {
@@ -505,6 +533,65 @@ Element _ancestor(Element element, bool Function(Widget) matches) {
   return result!;
 }
 
+Element? _keyed(String key, [Element? root]) => _elements(
+  root,
+).where((e) => e.widget.key == ValueKey<String>(key)).firstOrNull;
+
+Element? _imageIn(Element? root) => root == null
+    ? null
+    : _elements(root).where((e) => e.widget is Image).firstOrNull;
+
+Map<String, Object?> _paintMetrics(Decoration? decoration, Element element) {
+  if (decoration is! BoxDecoration) return {};
+  final radius = decoration.borderRadius?.resolve(Directionality.of(element));
+  final border = decoration.border;
+  return {
+    'color': _colorArgb(decoration.color),
+    'radius': radius == null
+        ? null
+        : {
+            'topLeft': radius.topLeft.x,
+            'topRight': radius.topRight.x,
+            'bottomLeft': radius.bottomLeft.x,
+            'bottomRight': radius.bottomRight.x,
+          },
+    'border': border is Border
+        ? {
+            for (final entry in {
+              'top': border.top,
+              'right': border.right,
+              'bottom': border.bottom,
+              'left': border.left,
+            }.entries)
+              entry.key: {
+                'width': entry.value.width,
+                'color': _colorArgb(entry.value.color),
+                'style': entry.value.style.name,
+              },
+          }
+        : null,
+    'isSubtlerOnePixelBorder': border == Border.all(color: AppColors.subtler),
+  };
+}
+
+Map<String, Object?> _containerPaintMetrics(Element element) {
+  final widget = element.widget as Container;
+  final padding = widget.padding?.resolve(Directionality.of(element));
+  return {
+    'bounds': _rectJson(_rect(element)),
+    'padding': padding == null
+        ? null
+        : {
+            'left': padding.left,
+            'right': padding.right,
+            'top': padding.top,
+            'bottom': padding.bottom,
+          },
+    'background': _paintMetrics(widget.decoration, element),
+    'foreground': _paintMetrics(widget.foregroundDecoration, element),
+  };
+}
+
 Map<String, Element> _layoutNodes() {
   final nodes = <String, Element>{};
   if (_has<AddContentSheet>()) {
@@ -605,18 +692,30 @@ Map<String, Element> _layoutNodes() {
     final label = confirmation.originalUrl.isEmpty
         ? content.originalUrl
         : confirmation.originalUrl;
-    nodes['resultInputBox'] = _ancestor(
-      _textElement(label, result),
-      (w) => w is Container,
-    );
+    final labelElement = _elements(result)
+        .where((e) => e.widget is Text && (e.widget as Text).data == label)
+        .firstOrNull;
+    final summaryKey = confirmation.photoBytes != null
+        ? 'save-result-photo-summary'
+        : 'save-result-input-summary';
+    nodes['resultInputBox'] =
+        _keyed(summaryKey, result) ??
+        _ancestor(labelElement!, (w) => w is Container);
+    nodes['resultSummary'] = nodes['resultInputBox']!;
+    final summaryImage = _imageIn(_keyed('save-result-photo-image', result));
+    if (summaryImage != null) nodes['resultSummaryImage'] = summaryImage;
     nodes['previewPrecedingBlock'] = confirmation.photoBytes != null
         ? nodes['resultInputBox']!
         : _elements(result).firstWhere((e) => e.widget is ValidationMessage);
-    final image = _elements(result).firstWhere((e) => e.widget is Image);
+    final image =
+        _imageIn(_keyed('save-result-preview-image', result)) ??
+        _elements(result).firstWhere((e) => e.widget is Image);
     final title = _elements(result).firstWhere(
       (e) => e.widget is Text && (e.widget as Text).data == content.title,
     );
-    nodes['previewCard'] = _ancestor(image, (w) => w is Container);
+    nodes['previewCard'] =
+        _keyed('save-result-preview-card', result) ??
+        _ancestor(image, (w) => w is Container);
     nodes['previewHeading'] = _textElement('미리보기', result);
     nodes['previewImage'] = image;
     nodes['previewTitle'] = title;
@@ -636,17 +735,17 @@ Map<String, Element> _layoutNodes() {
     nodes['categoryHeading'] = _textElement('카테고리', result);
     nodes['categoryMessage'] = _textElement(categoryMessage, result);
     nodes['categoryName'] = _textElement(content.category.name, result);
-    nodes['categoryRow'] = _ancestor(
-      nodes['categoryName']!,
-      (w) => w is Container,
-    );
-    nodes['categoryFolder'] = _elements(
-      nodes['categoryRow']!,
-    ).firstWhere((e) => e.widget is FolderGlyph);
-    nodes['categoryText'] = _ancestor(
-      nodes['categoryHeading']!,
-      (w) => w is Column,
-    );
+    nodes['categoryRow'] =
+        _keyed('save-result-category-row', result) ??
+        _ancestor(nodes['categoryName']!, (w) => w is Container);
+    nodes['categoryFolder'] =
+        _keyed('save-result-category-folder', result) ??
+        _elements(
+          nodes['categoryRow']!,
+        ).firstWhere((e) => e.widget is FolderGlyph);
+    nodes['categoryText'] =
+        _keyed('save-result-category-heading', result) ??
+        _ancestor(nodes['categoryHeading']!, (w) => w is Column);
     nodes['categoryEditHint'] = _textElement('분류는 상세 화면에서 변경할 수 있어요.', result);
   }
   return nodes;
@@ -1339,7 +1438,9 @@ Future<void> _pasteRun() async {
   _checksCompleted = true;
 }
 
-String _baseStyleSceneName(String kind) => 'base_${kind}_scale_1';
+String _baseStyleSceneName(String kind) => _resultScreenMode && _isResult(kind)
+    ? 'base_${kind}_${_categoryState}_scale_1'
+    : 'base_${kind}_scale_1';
 
 Element _textElement(String text, [Element? root]) => _elements(
   root,
@@ -1414,7 +1515,10 @@ Map<String, Element> _baseStyleTextNodes() {
     final label = result.originalUrl.isEmpty
         ? result.content.originalUrl
         : result.originalUrl;
-    nodes['urlOrFilename'] = _textElement(label, body);
+    final visibleLabel = _elements(body)
+        .where((e) => e.widget is Text && (e.widget as Text).data == label)
+        .firstOrNull;
+    if (visibleLabel != null) nodes['urlOrFilename'] = visibleLabel;
   }
   if (_has<PhotoEmptyPrompt>()) {
     nodes['photoPromptTitle'] = _textElement(
@@ -1720,13 +1824,15 @@ Map<String, Object?> _previewGeometryMetrics() {
     'headingTop': heading.top,
     'precedingBlock': _rectJson(preceding),
     'precedingBlockKind': isPhoto
-        ? 'photoFilenameBox'
+        ? nodes.containsKey('resultSummaryImage')
+              ? 'photoImageSummary'
+              : 'photoFilenameBox'
         : 'linkValidationMessage',
     'precedingBlockBottom': preceding.bottom,
     'precedingToHeadingGap': heading.top - preceding.bottom,
     'expectedPrecedingToHeadingGap': isPhoto ? 16 : 32,
     'previewStartGapScope':
-        'Measured from the actual preceding result block: link ValidationMessage or the current 44px photo filename box. The Figma photo image block remains a different deferred structure; this gap does not assert overall photo-result vertical alignment.',
+        'Measured from the actual preceding result block: link ValidationMessage or photo summary. Before-phase falls back to the original filename box; the after-phase photo summary must expose its exact image role. Relative block gaps do not assert equality of device/OS absolute coordinates.',
     'card': _rectJson(card),
     'image': _rectJson(image),
     'text': _rectJson(text),
@@ -1865,6 +1971,218 @@ List<String> _previewLayoutFindings() {
   return findings;
 }
 
+Map<String, Object?> _resultSummaryMetrics() {
+  if (!_has<SavedContentConfirmation>()) return {};
+  final result = _first<SavedContentConfirmation>();
+  final confirmation = result.widget as SavedContentConfirmation;
+  final nodes = _layoutNodes();
+  final summary = nodes['resultSummary']!;
+  final imageElement = nodes['resultSummaryImage'];
+  final image = imageElement?.widget as Image?;
+  final innerElement = imageElement == null
+      ? null
+      : _ancestor(imageElement, (w) => w is Container);
+  final clip = imageElement == null
+      ? null
+      : _ancestor(imageElement, (w) => w is ClipRect);
+  final summaryRect = _rect(summary);
+  final clipRect = clip == null ? null : _rect(clip);
+  final semantics = _elements(summary)
+      .where((e) => e.widget is Semantics)
+      .map((e) => (e.widget as Semantics).properties.label)
+      .whereType<String>()
+      .toList();
+  if (image?.semanticLabel case final String label) semantics.add(label);
+  return {
+    'isPhoto': confirmation.photoBytes != null,
+    'summary': _containerPaintMetrics(summary),
+    'submittedLabel': confirmation.originalUrl,
+    'filenameVisuallyPresent': _text(confirmation.originalUrl),
+    'semanticLabels': semantics,
+    'filenameSemanticallyPresent': semantics.any(
+      (label) => label.contains(confirmation.originalUrl),
+    ),
+    'image': imageElement == null ? null : _rectJson(_rect(imageElement)),
+    'imageFit': image?.fit?.name,
+    'imageAlignment': image?.alignment.toString(),
+    'imageIsMemory': image?.image is MemoryImage,
+    'imageMatchesSubmittedBytes':
+        image?.image is MemoryImage &&
+        identical((image!.image as MemoryImage).bytes, confirmation.photoBytes),
+    'clip': clipRect == null ? null : _rectJson(clipRect),
+    'inner': innerElement == null ? null : _containerPaintMetrics(innerElement),
+    'explicitClipInsets': clipRect == null
+        ? null
+        : {
+            'left': clipRect.left - summaryRect.left,
+            'top': clipRect.top - summaryRect.top,
+            'right': summaryRect.right - clipRect.right,
+            'bottom': summaryRect.bottom - clipRect.bottom,
+          },
+    'requiredRoleKeys': {
+      for (final key in [
+        if (confirmation.photoBytes != null) ...[
+          'save-result-photo-summary',
+          'save-result-photo-image',
+        ] else
+          'save-result-input-summary',
+        'save-result-preview-card',
+        'save-result-preview-image',
+        'save-result-category-heading',
+        'save-result-category-folder',
+        'save-result-category-row',
+      ])
+        key: _keyed(key, result) != null,
+    },
+    'scope':
+        'Before-phase uses original visible filename geometry. After-phase requires keyed roles, a semantic filename, submitted original image bytes, and foreground borders that do not shrink content.',
+  };
+}
+
+Map<String, Object?> _resultThumbnailMetrics() {
+  if (!_has<SavedContentConfirmation>()) return {};
+  final nodes = _layoutNodes();
+  final element = nodes['previewImage']!;
+  final image = element.widget as Image;
+  final container = _ancestor(element, (w) => w is Container);
+  final confirmation =
+      _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+  return {
+    'image': _rectJson(_rect(element)),
+    'container': _containerPaintMetrics(container),
+    'fit': image.fit?.name,
+    'alignment': image.alignment.toString(),
+    'isMemory': image.image is MemoryImage,
+    'matchesSubmittedBytes':
+        image.image is MemoryImage &&
+        identical((image.image as MemoryImage).bytes, confirmation.photoBytes),
+  };
+}
+
+List<String> _resultScreenStyleFindings() {
+  if (!_has<SavedContentConfirmation>()) return [];
+  final findings = <String>[];
+  final summary = _resultSummaryMetrics();
+  final isPhoto = summary['isPhoto'] == true;
+  final keys = summary['requiredRoleKeys']! as Map<String, bool>;
+  if (keys.values.any((present) => !present)) {
+    findings.add('Result screen must expose every required keyed role');
+  }
+  bool radius(Object? value, double expected) =>
+      value is Map &&
+      value.values.every((v) => v is num && (v - expected).abs() < .1);
+  final outer = summary['summary']! as Map<String, Object?>;
+  final background = outer['background']! as Map<String, Object?>;
+  final foreground = outer['foreground']! as Map<String, Object?>;
+  if (isPhoto) {
+    if (background['color'] != _colorArgb(AppColors.surface) ||
+        !radius(background['radius'], 8) ||
+        !radius(foreground['radius'], 8) ||
+        foreground['isSubtlerOnePixelBorder'] != true) {
+      findings.add(
+        'Photo summary must use surface/R8 and a subtler 1px foreground border',
+      );
+    }
+    final inner = summary['inner'] as Map<String, Object?>?;
+    final innerForeground = inner?['foreground'] as Map<String, Object?>?;
+    final innerBackground = inner?['background'] as Map<String, Object?>?;
+    final innerPaint = innerForeground?.isNotEmpty == true
+        ? innerForeground!
+        : innerBackground;
+    if (innerPaint?['isSubtlerOnePixelBorder'] != true ||
+        innerPaint?['radius'] != null ||
+        summary['imageFit'] != 'cover' ||
+        summary['imageAlignment'] != Alignment.center.toString() ||
+        summary['imageMatchesSubmittedBytes'] != true ||
+        summary['filenameVisuallyPresent'] != false ||
+        summary['filenameSemanticallyPresent'] != true) {
+      findings.add(
+        'Photo summary must retain square 1px inner border, centered cover submitted image and semantic-only filename',
+      );
+    }
+  }
+  final thumb = _resultThumbnailMetrics();
+  final thumbContainer = thumb['container']! as Map<String, Object?>;
+  final thumbForeground = thumbContainer['foreground']! as Map<String, Object?>;
+  if (thumb['fit'] != 'cover' ||
+      thumb['alignment'] != Alignment.center.toString() ||
+      (isPhoto &&
+          (thumbForeground['isSubtlerOnePixelBorder'] != true ||
+              !radius(thumbForeground['radius'], 4) ||
+              thumb['matchesSubmittedBytes'] != true)) ||
+      (!isPhoto && thumbForeground['border'] != null)) {
+    findings.add(
+      'Result thumbnail must retain cover/center and photo-only R4 subtler 1px foreground border',
+    );
+  }
+  final category = _categoryGeometryMetrics();
+  final folder = category['folderVisual']! as Map<String, Object?>;
+  if (folder['isSvg'] != true ||
+      folder['asset'] != 'assets/icons/save-result-folder.svg' ||
+      folder['matchesActualCategoryColor'] != true) {
+    findings.add(
+      'Result folder must use the exact SVG with the actual category color',
+    );
+  }
+  return findings;
+}
+
+List<String> _resultSummaryLayoutFindings() {
+  if (!_has<SavedContentConfirmation>()) return [];
+  final findings = <String>[];
+  final metrics = _resultSummaryMetrics();
+  final nodes = _layoutNodes();
+  final summary = _rect(nodes['resultSummary']!);
+  final viewport = _rect(nodes['bodyViewport']!);
+  bool near(Object? value, double target) =>
+      value is num && (value - target).abs() < .1;
+  if (!near(summary.width, viewport.width - 32)) {
+    findings.add('Result summary must retain the full body width');
+  }
+  if (metrics['isPhoto'] == true) {
+    final outer = metrics['summary']! as Map<String, Object?>;
+    final padding = outer['padding'];
+    final insets = metrics['explicitClipInsets'];
+    final clip = metrics['clip'];
+    if (!near(summary.height, 89) ||
+        padding is! Map ||
+        padding.values.any((v) => !near(v, 16)) ||
+        insets is! Map ||
+        insets.values.any((v) => !near(v, 16)) ||
+        clip is! Map ||
+        !near(clip['height'], 57) ||
+        !near(clip['width'], summary.width - 32)) {
+      findings.add(
+        'Photo summary must retain height89/padding16 and full-width inner clip height57',
+      );
+    }
+    final image = metrics['image'];
+    if (image is! Map ||
+        clip is! Map ||
+        !near(image['width'], (clip['width'] as num).toDouble()) ||
+        !near(image['height'], 57) ||
+        !near(image['left'], (clip['left'] as num).toDouble()) ||
+        !near(image['top'], (clip['top'] as num).toDouble())) {
+      findings.add(
+        'Photo summary image must fill its actual clipped inner box',
+      );
+    }
+  } else if (!near(summary.height, 44)) {
+    findings.add('Link summary must retain height44');
+  }
+  if (_resultScreenMode) {
+    final preview = _previewGeometryMetrics();
+    final titleLines = preview['titleLines']! as Map<String, Object?>;
+    if (titleLines['visibleLineCount'] != 2 ||
+        titleLines['didExceedMaxLines'] != false) {
+      findings.add(
+        'Screen-state fixed title must show two natural lines without ellipsis',
+      );
+    }
+  }
+  return findings;
+}
+
 Map<String, Object?> _categoryGeometryMetrics() {
   if (!_has<SavedContentConfirmation>()) return {};
   final nodes = _layoutNodes();
@@ -1877,6 +2195,25 @@ Map<String, Object?> _categoryGeometryMetrics() {
   final name = _rect(nodes['categoryName']!);
   final folder = _rect(nodes['categoryFolder']!);
   final hint = _rect(nodes['categoryEditHint']!);
+  final groupElement = nodes['categoryText']!;
+  final group = _rect(groupElement);
+  final groupWidget = groupElement.widget;
+  final messageParagraph =
+      nodes['categoryMessage']!.findRenderObject()! as RenderParagraph;
+  final naturalMessage = TextPainter(
+    text: messageParagraph.text,
+    textDirection: messageParagraph.textDirection,
+    textScaler: messageParagraph.textScaler,
+  )..layout();
+  final messageNaturalWidth = naturalMessage.width;
+  naturalMessage.dispose();
+  final folderWidget = nodes['categoryFolder']!.widget;
+  final content =
+      (_first<SavedContentConfirmation>().widget as SavedContentConfirmation)
+          .content;
+  final folderLoader = folderWidget is SvgPicture
+      ? folderWidget.bytesLoader
+      : null;
   final padding = rowWidget.padding!.resolve(Directionality.of(rowElement));
   return {
     'row': _rectJson(row),
@@ -1886,6 +2223,32 @@ Map<String, Object?> _categoryGeometryMetrics() {
     'name': _rectJson(name),
     'folder': _rectJson(folder),
     'editHint': _rectJson(hint),
+    'headingGroup': _rectJson(group),
+    'isWrap': groupWidget is Wrap,
+    'wrapSpacing': groupWidget is Wrap ? groupWidget.spacing : null,
+    'wrapRunSpacing': groupWidget is Wrap ? groupWidget.runSpacing : null,
+    'wrapCrossAxisAlignment': groupWidget is Wrap
+        ? groupWidget.crossAxisAlignment.name
+        : null,
+    'messageNaturalWidth': messageNaturalWidth,
+    'expectedInline': heading.width + 8 + messageNaturalWidth <= row.width + .1,
+    'actualInline': (message.center.dy - heading.center.dy).abs() < .1,
+    'inlineGap': message.left - heading.right,
+    'inlineCenterDelta': message.center.dy - heading.center.dy,
+    'headingGroupToRowGap': row.top - group.bottom,
+    'folderVisual': {
+      'isSvg': folderWidget is SvgPicture,
+      'asset': folderLoader is SvgAssetLoader ? folderLoader.assetName : null,
+      'colorFilter': folderWidget is SvgPicture
+          ? folderWidget.colorFilter.toString()
+          : null,
+      'expectedCategoryColor': _colorArgb(content.category.color),
+      'matchesActualCategoryColor': folderWidget is SvgPicture
+          ? folderWidget.colorFilter ==
+                ColorFilter.mode(content.category.color, BlendMode.srcIn)
+          : folderWidget is FolderGlyph &&
+                folderWidget.color == content.category.color,
+    },
     'editHintMetrics': _baseTextMetrics(nodes['categoryEditHint']!),
     'previewCardBottom': previewCard.bottom,
     'categoryHeadingTop': heading.top,
@@ -1933,8 +2296,8 @@ List<String> _categoryLayoutFindings() {
     findings.add('Category row must retain 55px height and 16px side padding');
   }
   final folder = _rect(nodes['categoryFolder']!);
-  if (!near(folder.width, 28) ||
-      !near(folder.height, 28) ||
+  if (!near(folder.width, 28.1942) ||
+      !near(folder.height, 23.965) ||
       !near(metrics['folderToNameGap'], 8) ||
       !near(metrics['folderCenterDelta'], 0) ||
       !near(metrics['nameCenterDelta'], 0)) {
@@ -1942,10 +2305,31 @@ List<String> _categoryLayoutFindings() {
       'Category folder/name size, 8px gap or vertical center changed',
     );
   }
-  if (!near(metrics['headingToMessageGap'], 8) ||
-      !near(metrics['messageToRowGap'], 16) ||
+  if (metrics['isWrap'] != true ||
+      !near(metrics['wrapSpacing'], 8) ||
+      !near(metrics['wrapRunSpacing'], 8) ||
+      metrics['wrapCrossAxisAlignment'] != 'center' ||
+      !near(metrics['headingGroupToRowGap'], 16) ||
       !near(metrics['rowToHintGap'], 8)) {
-    findings.add('Category heading/message/row/hint gaps changed');
+    findings.add(
+      'Category group must use natural Wrap spacing8/run8/center, group-to-row16 and row-to-hint8',
+    );
+  }
+  if (metrics['expectedInline'] == true) {
+    if (!near(metrics['inlineGap'], 8) ||
+        !near(metrics['inlineCenterDelta'], 0)) {
+      findings.add(
+        'Short category message must sit inline with 8px gap and vertical center',
+      );
+    }
+  } else if (!near(metrics['headingToMessageGap'], 8) ||
+      !near(
+        (_rect(nodes['categoryMessage']!).left),
+        _rect(nodes['categoryHeading']!).left,
+      )) {
+    findings.add(
+      'Long category message must use the next Wrap run with 8px gap',
+    );
   }
   for (final role in ['categoryFolder', 'categoryName']) {
     if (!_inside(_rect(nodes[role]!), inner)) {
@@ -2050,13 +2434,17 @@ Map<String, Object?> _baseStyleMetrics() {
         'preview': _previewGeometryMetrics(),
       if (_has<SavedContentConfirmation>())
         'category': _categoryGeometryMetrics(),
+      if (_has<SavedContentConfirmation>())
+        'resultSummary': _resultSummaryMetrics(),
+      if (_has<SavedContentConfirmation>())
+        'resultThumbnail': _resultThumbnailMetrics(),
     },
     'ctaEnabled': (button.widget as SaveFlowButton).enabled,
     'ctaLoading': (button.widget as SaveFlowButton).loading,
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, link-validation-to-preview 32px or current-photo-filename-box-to-preview 16px, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, the 32px preview-card-to-category-heading gap, plus the 32px body start gap at scroll zero. Category editing, the different Figma photo-result image block, photo crop and the rest of overall result placement remain outside this judgment.',
+        'Actual effective paragraph styles and bounds, submitted-photo summary89/padding16/inner57/foreground borders/cover-center image, semantic filename, photo-only thumbnail border, natural category Wrap and exact SVG with actual category color. Retained preview constraints, paragraph limits/ellipsis, internal gaps, body32 and footer are included. Before-phase target findings diagnose differences without blocking capture; no photo-processing design or category editing behavior is invented.',
   };
 }
 
@@ -2127,6 +2515,7 @@ List<String> _baseStyleFindings() {
       );
     }
   }
+  findings.addAll(_resultScreenStyleFindings());
   return findings;
 }
 
@@ -2221,6 +2610,7 @@ List<String> _baseLayoutFindings() {
   }
   findings.addAll(_previewLayoutFindings());
   findings.addAll(_categoryLayoutFindings());
+  findings.addAll(_resultSummaryLayoutFindings());
   return findings;
 }
 
@@ -2233,7 +2623,25 @@ void _checkBaseStyle() {
   _checkPhotoFrame();
 }
 
-Future<void> _baseStyleScene(String kind) async {
+Future<void> _baseStyleScene(String kind, {String? categoryState}) async {
+  if (categoryState != null) {
+    _require(_isResult(kind), 'Category states apply only to result screens');
+    _require(
+      const [
+        'classified',
+        'uncategorized',
+        'processing',
+      ].contains(categoryState),
+      'Unsupported category state',
+    );
+    _require(
+      kind != 'photo' || categoryState != 'processing',
+      'Photo-processing has no confirmed design',
+    );
+    _categoryState = categoryState;
+  } else {
+    _categoryState = 'classified';
+  }
   _require(
     const [
       'empty',
@@ -2300,8 +2708,96 @@ Future<void> _baseStyleScene(String kind) async {
   _checkBaseStyle();
 }
 
-Future<void> _baseStyleRun({bool resultsOnly = false}) async {
+Future<void> _resultScreenRun() async {
+  for (final scene in const [
+    ('link', 'classified'),
+    ('link', 'uncategorized'),
+    ('link', 'processing'),
+    ('photo', 'classified'),
+    ('photo', 'uncategorized'),
+  ]) {
+    final (kind, category) = scene;
+    await _baseStyleScene(kind, categoryState: category);
+    final name = _baseStyleSceneName(kind);
+    await _capture(name);
+    final state = _appKey.currentState!;
+    final submitted =
+        _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+    final content = submitted.content;
+    final label = submitted.originalUrl;
+    final bytes = submitted.photoBytes;
+    _require(
+      state.calls == 1 && state.submissions.length == 1,
+      'Screen-state result must submit exactly once',
+    );
+    _require(
+      content.title == _screenResultTitle,
+      'Screen-state fixed two-line title changed',
+    );
+    await _tapText(kind == 'photo' ? '링크 첨부' : '사진 첨부');
+    final pinned =
+        _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
+    _require(
+      _selectedTabFromUnderline() == (kind == 'photo' ? '사진 첨부' : '링크 첨부') &&
+          identical(pinned.content, content) &&
+          pinned.originalUrl == label &&
+          identical(pinned.photoBytes, bytes) &&
+          state.calls == 1 &&
+          state.submissions.length == 1,
+      'Screen-state tab tap changed the result or submitted again',
+    );
+    _checkBaseStyle();
+    _checks.add({
+      'scenario': '${name}_result_tab_pinned',
+      'passed': true,
+      ..._snapshot(),
+    });
+    final hasScrollableBody = _bodyPosition.maxScrollExtent > .1;
+    if (hasScrollableBody) {
+      await _drag(const Offset(0, -180));
+      _require(
+        _bodyPosition.pixels > .1,
+        'Screen-state body did not respond to actual drag',
+      );
+    }
+    await _scrollToMax();
+    _checkFooter(atMaximum: true);
+    _checkBaseStyle();
+    _checks.add({
+      'scenario': '${name}_maximum_scroll',
+      'passed': true,
+      'actualDragChecked': hasScrollableBody,
+      'scrollVerificationScope': hasScrollableBody
+          ? 'Actual pointer drag followed by maximum-scroll visibility check'
+          : 'No scroll extent; last item and footer visibility checked without claiming a successful drag',
+      ..._snapshot(),
+    });
+    await _tapText('닫기');
+    _require(
+      !_has<AddContentSheet>() &&
+          state.calls == 1 &&
+          state.submissions.length == 1,
+      'Screen-state close did not dismiss without another save',
+    );
+    _checks.add({
+      'scenario': '${name}_result_close',
+      'passed': true,
+      ..._snapshot(),
+    });
+  }
+  _checksCompleted = true;
+}
+
+Future<void> _baseStyleRun({
+  bool resultsOnly = false,
+  bool screenStates = false,
+}) async {
   _checksCompleted = false;
+  if (screenStates) {
+    _require(resultsOnly, 'Screen-state runner is result-only');
+    await _resultScreenRun();
+    return;
+  }
   final kinds = resultsOnly
       ? ['link', 'photo']
       : [
@@ -2693,12 +3189,18 @@ Map<String, Object?> _snapshot() {
     'pasteStyleFindings': _pasteStyleFindings(),
     'pasteStylePassed': _pasteStyleFindings().isEmpty,
     'baseStyleKind': _baseStyleMode ? _baseStyleKind : null,
+    'resultScreenMode': _resultScreenMode,
+    'categoryState': _resultScreenMode ? _categoryState : null,
     'baseInputSetupScope': _baseStyleMode ? _baseInputSetupScope : null,
     'baseStyleMetrics': _baseStyleMode ? _baseStyleMetrics() : null,
     'baseStyleFindings': _baseStyleFindings(),
     'baseStylePassed': _baseStyleFindings().isEmpty,
     'baseLayoutFindings': _baseLayoutFindings(),
     'baseLayoutPassed': _baseLayoutFindings().isEmpty,
+    'resultScreenStyleFindings': _resultScreenStyleFindings(),
+    'resultScreenStylePassed': _resultScreenStyleFindings().isEmpty,
+    'resultSummaryLayoutFindings': _resultSummaryLayoutFindings(),
+    'resultSummaryLayoutPassed': _resultSummaryLayoutFindings().isEmpty,
     'photoFrameMetrics': _photoFrameMetrics(),
     'photoFrameFindings': [
       ..._photoFrameStyleFindings(),
@@ -2777,7 +3279,7 @@ Future<void> _report() => File('${_output.path}/report.json').writeAsString(
         !_checks.any((c) => c['targetLayoutPassed'] == false),
     'stylePassed': !_checks.any((c) => c['targetStylePassed'] == false),
     'scope':
-        'Style and geometry judgments remain separate. The result title/source actual paragraph constraints are included in layoutPassed and overall passed; before-phase width findings are diagnostic and do not stop capture. Real dialog; in-memory callbacks and picker; synthetic pointer/text input. Framework layout errors are recorded separately from behavior checks.',
+        'Style and geometry judgments remain separate. Five screen-level result states include photo summary/image/semantic filename, photo-only thumbnail border, natural category Wrap and exact colored SVG; all target findings contribute to style/layout/overall passed. Before-phase target differences are diagnostic and do not stop capture. Legacy seven-state and expanded-scale routes remain. Real dialog, deterministic memory callbacks/picker, synthetic input; API/auth/physical-device verification is not claimed.',
     'checks': _checks,
     'frameworkErrors': _errors,
   }),

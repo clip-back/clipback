@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _url = 'https://example.invalid/save-result';
@@ -24,6 +25,150 @@ const _longSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름
 const _longCategory = '매일 다시 확인하는 아주 긴 카테고리 이름이 끝까지 보존돼요';
 const _processingCategoryMessage = '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
 const _categoryHint = '분류는 상세 화면에서 변경할 수 있어요.';
+
+Finder _resultRole(String role, Finder fallback) {
+  final keyed = find.byKey(ValueKey<String>(role));
+  return keyed.evaluate().isEmpty ? fallback : keyed;
+}
+
+Finder _resultPreviewImage() {
+  final role = _resultRole(
+    'save-result-preview-image',
+    find
+        .descendant(
+          of: find.byType(SavedContentConfirmation),
+          matching: find.byType(Image),
+        )
+        .last,
+  );
+  return role.evaluate().single.widget is Image
+      ? role
+      : find.descendant(of: role, matching: find.byType(Image));
+}
+
+Finder _resultPreviewCard() => _resultRole(
+  'save-result-preview-card',
+  find
+      .ancestor(of: _resultPreviewImage(), matching: find.byType(Container))
+      .first,
+);
+
+Finder _resultPhotoSummary(String filename) => _resultRole(
+  'save-result-photo-summary',
+  find
+      .ancestor(of: find.text(filename), matching: find.byType(Container))
+      .first,
+);
+
+void _resultPhoto(
+  WidgetTester tester,
+  List<String> failures, {
+  required String filename,
+  required Uint8List bytes,
+}) {
+  final summaryFinder = _resultPhotoSummary(filename);
+  final summary = tester.getRect(summaryFinder);
+  final viewport = tester.getRect(find.byType(SingleChildScrollView));
+  _near(failures, 'photo summary width', summary.width, viewport.width - 32);
+  _near(failures, 'photo summary height', summary.height, 89);
+  _same(
+    failures,
+    'photo filename stays out of visual text',
+    find.text(filename).evaluate().length,
+    0,
+  );
+  final widget = tester.widget(summaryFinder);
+  if (widget is! Container) {
+    failures.add('photo summary must expose its painted Container');
+    return;
+  }
+  _same(
+    failures,
+    'photo summary content padding',
+    widget.padding,
+    const EdgeInsets.all(16),
+  );
+  final background = widget.decoration as BoxDecoration?;
+  _same(
+    failures,
+    'photo summary background',
+    background?.color,
+    AppColors.surface,
+  );
+  _same(
+    failures,
+    'photo summary corner',
+    background?.borderRadius,
+    BorderRadius.circular(8),
+  );
+  final foreground = widget.foregroundDecoration as BoxDecoration?;
+  _same(
+    failures,
+    'photo summary foreground border',
+    foreground?.border,
+    Border.all(color: AppColors.subtler),
+  );
+  _same(
+    failures,
+    'photo summary foreground corner',
+    foreground?.borderRadius,
+    BorderRadius.circular(8),
+  );
+  final imageFinder = find.byKey(const ValueKey('save-result-photo-image'));
+  if (imageFinder.evaluate().isEmpty) {
+    failures.add('photo summary submitted image missing');
+    return;
+  }
+  final image = tester.widget<Image>(imageFinder);
+  _same(failures, 'photo summary fit', image.fit, BoxFit.cover);
+  _same(failures, 'photo summary alignment', image.alignment, Alignment.center);
+  _same(
+    failures,
+    'photo filename semantic label',
+    image.semanticLabel?.contains(filename),
+    true,
+  );
+  _same(
+    failures,
+    'photo summary uses submitted memory bytes',
+    image.image is MemoryImage &&
+        identical((image.image as MemoryImage).bytes, bytes),
+    true,
+  );
+  final clipFinder = find
+      .ancestor(of: imageFinder, matching: find.byType(ClipRect))
+      .first;
+  final clip = tester.getRect(clipFinder);
+  _near(failures, 'photo summary inner height', clip.height, 57);
+  _near(failures, 'photo summary inner width', clip.width, summary.width - 32);
+  for (final gap in [
+    clip.left - summary.left,
+    clip.top - summary.top,
+    summary.right - clip.right,
+    summary.bottom - clip.bottom,
+  ]) {
+    _near(failures, 'photo summary explicit inset', gap, 16);
+  }
+  final innerContainer = find
+      .ancestor(of: clipFinder, matching: find.byType(Container))
+      .first;
+  final innerWidget = tester.widget<Container>(innerContainer);
+  final innerBorder =
+      (innerWidget.foregroundDecoration ?? innerWidget.decoration)
+          as BoxDecoration?;
+  _same(
+    failures,
+    'photo summary inner border',
+    innerBorder?.border,
+    Border.all(color: AppColors.subtler),
+  );
+  _same(
+    failures,
+    'photo summary inner square corners',
+    innerBorder?.borderRadius,
+    null,
+  );
+}
 
 enum _Scene {
   empty,
@@ -465,19 +610,26 @@ void _contracts(
     }
   } else if (scene.result) {
     final label = scene.photo ? _filename : _url;
-    final labelContainer = tester.getRect(
-      find
-          .ancestor(of: find.text(label), matching: find.byType(Container))
-          .first,
-    );
-    _near(failures, 'result label height', labelContainer.height, 44);
-    _text(
-      tester,
-      failures,
-      label,
-      const _Style(14, FontWeight.w500, -0.35, AppColors.text),
-      boundary: labelContainer,
-    );
+    if (scene.photo) {
+      _resultPhoto(tester, failures, filename: label, bytes: saved.photo!);
+    } else {
+      final labelContainer = tester.getRect(
+        _resultRole(
+          'save-result-input-summary',
+          find
+              .ancestor(of: find.text(label), matching: find.byType(Container))
+              .first,
+        ),
+      );
+      _near(failures, 'result label height', labelContainer.height, 44);
+      _text(
+        tester,
+        failures,
+        label,
+        const _Style(14, FontWeight.w500, -0.35, AppColors.text),
+        boundary: labelContainer,
+      );
+    }
     _preview(tester, failures, saved: saved, longText: false);
     _category(tester, failures, saved: saved);
   }
@@ -590,11 +742,9 @@ void _preview(
   int? expectedTitleLines,
 }) {
   final result = find.byType(SavedContentConfirmation);
-  final image = find.descendant(of: result, matching: find.byType(Image));
+  final image = _resultPreviewImage();
   expect(image, findsOneWidget);
-  final cardFinder = find
-      .ancestor(of: image, matching: find.byType(Container))
-      .first;
+  final cardFinder = _resultPreviewCard();
   final card = tester.getRect(cardFinder);
   final thumbnail = tester.getRect(image);
   final inner = card.deflate(8);
@@ -620,15 +770,13 @@ void _preview(
       : confirmation.originalUrl;
   final precedingBlock = tester.getRect(
     isPhoto
-        ? find
-              .ancestor(of: find.text(label), matching: find.byType(Container))
-              .first
+        ? _resultPhotoSummary(label)
         : find.descendant(of: result, matching: find.byType(ValidationMessage)),
   );
 
   _near(
     failures,
-    '${isPhoto ? 'photo filename' : 'link validation'} to preview heading gap',
+    '${isPhoto ? 'photo summary' : 'link validation'} to preview heading gap',
     tester.getRect(find.text('미리보기')).top - precedingBlock.bottom,
     isPhoto ? 16 : 32,
   );
@@ -726,6 +874,56 @@ void _preview(
   _inside(failures, 'preview thumbnail', thumbnail, inner);
   _inside(failures, 'preview text block', text, inner);
 
+  final thumbnailContainer = find
+      .ancestor(of: image, matching: find.byType(Container))
+      .first;
+  final thumbnailWidget = tester.widget<Container>(thumbnailContainer);
+  final thumbnailDecoration =
+      thumbnailWidget.foregroundDecoration as BoxDecoration?;
+  if (isPhoto) {
+    _same(
+      failures,
+      'photo thumbnail foreground border',
+      thumbnailDecoration?.border,
+      Border.all(color: AppColors.subtler),
+    );
+    _same(
+      failures,
+      'photo thumbnail border corner',
+      thumbnailDecoration?.borderRadius,
+      BorderRadius.circular(4),
+    );
+    _same(
+      failures,
+      'photo thumbnail submitted bytes',
+      tester.widget<Image>(image).image is MemoryImage &&
+          identical(
+            (tester.widget<Image>(image).image as MemoryImage).bytes,
+            confirmation.photoBytes,
+          ),
+      true,
+    );
+  } else {
+    _same(
+      failures,
+      'link thumbnail has no foreground border',
+      thumbnailDecoration?.border,
+      null,
+    );
+  }
+  _same(
+    failures,
+    'thumbnail fit remains cover',
+    tester.widget<Image>(image).fit,
+    BoxFit.cover,
+  );
+  _same(
+    failures,
+    'thumbnail alignment remains center',
+    tester.widget<Image>(image).alignment,
+    Alignment.center,
+  );
+
   for (final entry in [
     (titleFinder, 2, 'title'),
     (sourceFinder, 1, 'source'),
@@ -782,25 +980,25 @@ void _category(
   expect(heading, findsOneWidget);
   expect(status, findsOneWidget);
   expect(name, findsOneWidget);
-  final rowFinder = find
-      .ancestor(of: name, matching: find.byType(Container))
-      .first;
+  final rowFinder = _resultRole(
+    'save-result-category-row',
+    find.ancestor(of: name, matching: find.byType(Container)).first,
+  );
   final row = tester.getRect(rowFinder);
-  final folderFinder = find.descendant(
-    of: rowFinder,
-    matching: find.byType(FolderGlyph),
+  final folderFinder = _resultRole(
+    'save-result-category-folder',
+    find.descendant(of: rowFinder, matching: find.byType(FolderGlyph)),
   );
   expect(folderFinder, findsOneWidget);
   final folder = tester.getRect(folderFinder);
   final nameBounds = tester.getRect(name);
   final viewport = tester.getRect(find.byType(SingleChildScrollView));
-  final previewImage = find.descendant(
-    of: result,
-    matching: find.byType(Image),
+  final previewCard = tester.getRect(_resultPreviewCard());
+  final headerFinder = _resultRole(
+    'save-result-category-heading',
+    find.ancestor(of: heading, matching: find.byType(Column)).first,
   );
-  final previewCard = tester.getRect(
-    find.ancestor(of: previewImage, matching: find.byType(Container)).first,
-  );
+  final header = tester.getRect(headerFinder);
   _near(
     failures,
     'preview card/category heading gap',
@@ -844,26 +1042,62 @@ void _category(
     tester.getRect(heading).left,
     row.left,
   );
-  _near(
-    failures,
-    'category status left',
-    tester.getRect(status).left,
-    row.left,
-  );
-  _near(
-    failures,
-    'category heading/status gap',
-    tester.getRect(status).top - tester.getRect(heading).bottom,
-    8,
-  );
-  _near(
-    failures,
-    'category status/row gap',
-    row.top - tester.getRect(status).bottom,
-    16,
-  );
-  _near(failures, 'category folder width', folder.width, 28);
-  _near(failures, 'category folder height', folder.height, 28);
+  final headingBounds = tester.getRect(heading);
+  final statusBounds = tester.getRect(status);
+  final statusParagraph = tester.renderObject<RenderParagraph>(status);
+  final naturalStatus = TextPainter(
+    text: statusParagraph.text,
+    textDirection: statusParagraph.textDirection,
+    textScaler: statusParagraph.textScaler,
+  )..layout();
+  final inline =
+      headingBounds.width + 8 + naturalStatus.width <= row.width + 0.1;
+  naturalStatus.dispose();
+  final headerWidget = tester.widget(headerFinder);
+  if (headerWidget is Wrap) {
+    _near(failures, 'category wrap spacing', headerWidget.spacing, 8);
+    _near(failures, 'category wrap run spacing', headerWidget.runSpacing, 8);
+    _same(
+      failures,
+      'category wrap vertical center',
+      headerWidget.crossAxisAlignment,
+      WrapCrossAlignment.center,
+    );
+  } else {
+    failures.add('category header must use a natural Wrap');
+  }
+  if (inline) {
+    _near(
+      failures,
+      'category inline status gap',
+      statusBounds.left - headingBounds.right,
+      8,
+    );
+    _near(
+      failures,
+      'category inline status center',
+      statusBounds.center.dy,
+      headingBounds.center.dy,
+    );
+  } else {
+    _near(
+      failures,
+      'category wrapped status left',
+      statusBounds.left,
+      row.left,
+    );
+    _near(
+      failures,
+      'category wrapped status run gap',
+      statusBounds.top - headingBounds.bottom,
+      8,
+    );
+  }
+  _inside(failures, 'category heading in wrap', headingBounds, header);
+  _inside(failures, 'category status in wrap', statusBounds, header);
+  _near(failures, 'category header/row gap', row.top - header.bottom, 16);
+  _near(failures, 'category folder width', folder.width, 28.194);
+  _near(failures, 'category folder height', folder.height, 23.965);
   _near(failures, 'category left padding', folder.left - row.left, 16);
   _near(
     failures,
@@ -876,8 +1110,32 @@ void _category(
   _near(failures, 'category name center', nameBounds.center.dy, row.center.dy);
   _inside(failures, 'category folder containment', folder, row);
   _inside(failures, 'category name containment', nameBounds, row);
-  final glyph = tester.widget<FolderGlyph>(folderFinder);
-  _same(failures, 'actual category color', glyph.color, saved.category.color);
+  final glyph = tester.widget(folderFinder);
+  if (glyph is SvgPicture) {
+    _same(
+      failures,
+      'actual category color',
+      glyph.colorFilter,
+      ColorFilter.mode(saved.category.color, BlendMode.srcIn),
+    );
+    final loader = glyph.bytesLoader;
+    _same(
+      failures,
+      'exact result folder asset',
+      loader is SvgAssetLoader ? loader.assetName : null,
+      'assets/icons/save-result-folder.svg',
+    );
+  } else {
+    failures.add('category folder must use the exact SVG');
+    if (glyph is FolderGlyph) {
+      _same(
+        failures,
+        'actual category color',
+        glyph.color,
+        saved.category.color,
+      );
+    }
+  }
   final paragraph = tester.renderObject<RenderParagraph>(name);
   _same(failures, 'category name max lines', paragraph.maxLines, 1);
   _same(
@@ -1376,7 +1634,10 @@ void main() {
         for (final variant in [
           (
             label: 'classified',
-            category: catUncategorized.copyWith(name: '알아두기'),
+            category: catUncategorized.copyWith(
+              name: '알아두기',
+              color: Colors.purple,
+            ),
             source: _shortSource,
             summaryStatus: 'not_requested',
             message: '저장된 카테고리',
@@ -1384,7 +1645,10 @@ void main() {
           ),
           (
             label: 'long classified',
-            category: catUncategorized.copyWith(name: _longCategory),
+            category: catUncategorized.copyWith(
+              name: _longCategory,
+              color: Colors.teal,
+            ),
             source: _shortSource,
             summaryStatus: 'not_requested',
             message: '저장된 카테고리',

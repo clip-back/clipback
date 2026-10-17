@@ -128,15 +128,33 @@ void _unchangedFont(
   );
 }
 
-Finder _previewCard() => find.descendant(
-  of: find.byType(SavedContentConfirmation),
-  matching: find.byWidgetPredicate(
-    (widget) =>
-        widget is Container &&
-        widget.padding == const EdgeInsets.all(8) &&
-        widget.child is Row,
+Finder _resultRole(String role, Finder fallback) {
+  final keyed = find.byKey(ValueKey<String>(role));
+  return keyed.evaluate().isEmpty ? fallback : keyed;
+}
+
+Finder _previewCard() => _resultRole(
+  'save-result-preview-card',
+  find.descendant(
+    of: find.byType(SavedContentConfirmation),
+    matching: find.byWidgetPredicate(
+      (widget) =>
+          widget is Container &&
+          widget.padding == const EdgeInsets.all(8) &&
+          widget.child is Row,
+    ),
   ),
 );
+
+Finder _previewImage() {
+  final role = _resultRole(
+    'save-result-preview-image',
+    find.descendant(of: _previewCard(), matching: find.byType(Image)),
+  );
+  return role.evaluate().single.widget is Image
+      ? role
+      : find.descendant(of: role, matching: find.byType(Image));
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -334,12 +352,7 @@ void main() {
                     )
                     .first,
               );
-              final thumbnail = tester.getRect(
-                find.descendant(
-                  of: _previewCard(),
-                  matching: find.byType(Image),
-                ),
-              );
+              final thumbnail = tester.getRect(_previewImage());
               expect(card.width, width - 32);
               expect(card.height, greaterThanOrEqualTo(116));
               if (scale == 1) expect(card.height, 116);
@@ -349,12 +362,15 @@ void main() {
               );
               final precedingBlock = tester.getRect(
                 photo
-                    ? find
-                          .ancestor(
-                            of: find.text('사진 파일 이름이 길어도 기존처럼 한 줄.png'),
-                            matching: find.byType(Container),
-                          )
-                          .first
+                    ? _resultRole(
+                        'save-result-photo-summary',
+                        find
+                            .ancestor(
+                              of: find.text('사진 파일 이름이 길어도 기존처럼 한 줄.png'),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
                     : find.byType(ValidationMessage),
               );
               expect(
@@ -363,6 +379,29 @@ void main() {
                 reason:
                     'The actual preceding result block owns the preview gap',
               );
+              if (photo) {
+                expect(precedingBlock.height, 89);
+                final submitted = find.byKey(
+                  const ValueKey('save-result-photo-image'),
+                );
+                expect(submitted, findsOneWidget);
+                final image = tester.widget<Image>(submitted);
+                expect(image.fit, BoxFit.cover);
+                expect(image.alignment, Alignment.center);
+                expect(
+                  image.semanticLabel,
+                  contains('사진 파일 이름이 길어도 기존처럼 한 줄.png'),
+                );
+                expect((image.image as MemoryImage).bytes, same(photoBytes));
+                final clip = tester.getRect(
+                  find
+                      .ancestor(of: submitted, matching: find.byType(ClipRect))
+                      .first,
+                );
+                expect(clip.height, 57);
+                expect(clip.width, precedingBlock.width - 32);
+                expect(clip.center, precedingBlock.center);
+              }
               final inner = card.deflate(8);
               _contained(
                 title,
@@ -376,6 +415,24 @@ void main() {
               _contained(source, card.deflate(8));
               _contained(thumbnail, card.deflate(8));
               expect(thumbnail.size, const Size(164, 100));
+              final imageWidget = tester.widget<Image>(_previewImage());
+              expect(imageWidget.fit, BoxFit.cover);
+              expect(imageWidget.alignment, Alignment.center);
+              final borderWidget = tester.widget<Container>(
+                find
+                    .ancestor(
+                      of: _previewImage(),
+                      matching: find.byType(Container),
+                    )
+                    .first,
+              );
+              final border =
+                  borderWidget.foregroundDecoration as BoxDecoration?;
+              expect(
+                border?.border,
+                photo ? Border.all(color: AppColors.subtler) : null,
+              );
+              if (photo) expect(border?.borderRadius, BorderRadius.circular(4));
               expect(thumbnail.left - card.left, 8);
               expect(title.left - thumbnail.right, 16);
               final columnMaxWidth = card.width - 8 - 164 - 16 - 8;

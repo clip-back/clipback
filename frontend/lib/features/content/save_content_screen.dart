@@ -644,22 +644,53 @@ class SavedContentConfirmation extends StatelessWidget {
       children: [
         Text(isPhoto ? '저장할 사진' : '저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
-        Container(
-          height: 44,
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(4),
+        if (isPhoto)
+          Container(
+            key: const ValueKey('save-result-photo-summary'),
+            height: 89,
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            foregroundDecoration: BoxDecoration(
+              border: Border.all(color: AppColors.subtler),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Container(
+              foregroundDecoration: BoxDecoration(
+                border: Border.all(color: AppColors.subtler),
+              ),
+              child: ClipRect(
+                child: Image.memory(
+                  photoBytes!,
+                  key: const ValueKey('save-result-photo-image'),
+                  fit: BoxFit.cover,
+                  alignment: Alignment.center,
+                  semanticLabel: linkLabel,
+                ),
+              ),
+            ),
+          )
+        else
+          Container(
+            key: const ValueKey('save-result-input-summary'),
+            height: 44,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              linkLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _SaveTextStyles.input,
+            ),
           ),
-          child: Text(
-            linkLabel,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _SaveTextStyles.input,
-          ),
-        ),
         if (!isPhoto) ...[
           const SizedBox(height: 5),
           const ValidationMessage(valid: true),
@@ -668,6 +699,7 @@ class SavedContentConfirmation extends StatelessWidget {
         const Text('미리보기', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         Container(
+          key: const ValueKey('save-result-preview-card'),
           constraints: const BoxConstraints(minHeight: 116),
           width: double.infinity,
           padding: const EdgeInsets.all(8),
@@ -677,14 +709,29 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
           child: Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: SizedBox(
-                  width: 164,
-                  height: 100,
-                  child: photoBytes == null
-                      ? Image.asset(Assets.saveLinkPreview, fit: BoxFit.cover)
-                      : Image.memory(photoBytes!, fit: BoxFit.cover),
+              Container(
+                width: 164,
+                height: 100,
+                foregroundDecoration: isPhoto
+                    ? BoxDecoration(
+                        border: Border.all(color: AppColors.subtler),
+                        borderRadius: BorderRadius.circular(4),
+                      )
+                    : null,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: isPhoto
+                      ? Image.memory(
+                          photoBytes!,
+                          key: const ValueKey('save-result-preview-image'),
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                        )
+                      : Image.asset(
+                          Assets.saveLinkPreview,
+                          key: const ValueKey('save-result-preview-image'),
+                          fit: BoxFit.cover,
+                        ),
                 ),
               ),
               const SizedBox(width: 16),
@@ -717,16 +764,19 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 32),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        Wrap(
+          key: const ValueKey('save-result-category-heading'),
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             const Text('카테고리', style: _SaveTextStyles.heading),
-            const SizedBox(height: 8),
             Text(categoryMessage, style: _SaveTextStyles.categoryMessage),
           ],
         ),
         const SizedBox(height: 16),
         Container(
+          key: const ValueKey('save-result-category-row'),
           height: 55,
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -736,7 +786,14 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
           child: Row(
             children: [
-              FolderGlyph(color: content.category.color, size: 28),
+              SvgPicture.asset(
+                Assets.saveResultFolder,
+                key: const ValueKey('save-result-category-folder'),
+                colorFilter: ColorFilter.mode(
+                  content.category.color,
+                  BlendMode.srcIn,
+                ),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
