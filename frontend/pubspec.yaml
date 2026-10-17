@@ -28,6 +28,7 @@ flutter:
     - assets/figma/
     - assets/icons/
     - assets/fonts/Pretendard-LICENSE.txt
+    - assets/fonts/RiaSans-LICENSE.pdf
   fonts:
     - family: Pretendard
       fonts:
@@ -41,3 +42,7 @@ flutter:
       fonts:
         - asset: assets/fonts/Pretendard-Bold.otf
           weight: 700
+    - family: RiaSansLogin
+      fonts:
+        - asset: assets/fonts/RiaSans-Regular.otf
+          weight: 400
