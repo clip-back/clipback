@@ -587,6 +587,7 @@ void _preview(
   List<String> failures, {
   required _Saved saved,
   required bool longText,
+  int? expectedTitleLines,
 }) {
   final result = find.byType(SavedContentConfirmation);
   final image = find.descendant(of: result, matching: find.byType(Image));
@@ -654,7 +655,14 @@ void _preview(
     8,
   );
   _near(failures, 'preview source left', source.left, title.left);
-  _near(failures, 'preview title/source gap', source.top - title.bottom, 8);
+  _near(failures, 'preview title/source gap', source.top - title.bottom, 14);
+  _near(
+    failures,
+    'preview text natural height',
+    text.height,
+    title.height + 14 + source.height,
+  );
+  _near(failures, 'preview base card height', card.height, 116);
   _near(failures, 'preview image center', thumbnail.center.dy, card.center.dy);
   _near(failures, 'preview text center', text.center.dy, card.center.dy);
   _near(
@@ -705,7 +713,7 @@ void _preview(
       failures,
       'preview ${entry.$3} visible lines',
       lineTops.length,
-      longText ? entry.$2 : 1,
+      entry.$3 == 'title' ? expectedTitleLines ?? (longText ? entry.$2 : 1) : 1,
     );
   }
 }
@@ -1185,6 +1193,36 @@ void main() {
         });
       }
       for (final scene in [_Scene.linkResult, _Scene.photoResult]) {
+        testWidgets(
+          'preview two lines without ellipsis $platform width $width ${scene.name}',
+          (tester) async {
+            final previous = FilePicker.platform;
+            FilePicker.platform = _Picker(photo);
+            addTearDown(() => FilePicker.platform = previous);
+            final saved = await _open(
+              tester,
+              scene: scene,
+              platform: platform,
+              width: width,
+              title: width == 375
+                  ? "'주술회전(呪術廻戦)' 초반 1~10권 감상회"
+                  : '저장 결과 확인 제목 미리보기',
+              source: scene.photo ? '사진' : 'Youtube',
+            );
+            final failures = <String>[];
+            _preview(
+              tester,
+              failures,
+              saved: saved,
+              longText: false,
+              expectedTitleLines: 2,
+            );
+            expect(tester.takeException(), isNull);
+            expect(failures, isEmpty, reason: failures.join('\n'));
+            await _interaction(tester, scene, saved, photo);
+            expect(tester.takeException(), isNull);
+          },
+        );
         testWidgets('preview long text $platform width $width ${scene.name}', (
           tester,
         ) async {

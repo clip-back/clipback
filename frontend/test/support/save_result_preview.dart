@@ -1668,6 +1668,29 @@ Map<String, Object?> _previewGeometryMetrics() {
   final source = _rect(nodes['previewSource']!);
   final heading = _rect(nodes['previewHeading']!);
   final padding = cardWidget.padding!.resolve(Directionality.of(cardElement));
+  Map<String, Object?> paragraphLines(Element element) {
+    final render = element.findRenderObject()! as RenderParagraph;
+    final boxes = render.getBoxesForSelection(
+      TextSelection(
+        baseOffset: 0,
+        extentOffset: render.text.toPlainText().length,
+      ),
+    );
+    final lineTops = <double>[];
+    for (final box in boxes) {
+      if (lineTops.every((top) => (top - box.top).abs() > 0.1)) {
+        lineTops.add(box.top);
+      }
+    }
+    return {
+      'visibleLineCount': lineTops.length,
+      'maxLines': render.maxLines,
+      'didExceedMaxLines': render.didExceedMaxLines,
+      'lineCountScope':
+          'Distinct visible selection-box rows from the actual RenderParagraph; bidi runs on the same row count once. Selection extents are not glyph ink or clipping bounds.',
+    };
+  }
+
   return {
     'card': _rectJson(card),
     'image': _rectJson(image),
@@ -1682,6 +1705,11 @@ Map<String, Object?> _previewGeometryMetrics() {
     },
     'imageToTextGap': text.left - image.right,
     'textGap': source.top - title.bottom,
+    'expectedTextGap': 14,
+    'titleLines': paragraphLines(nodes['previewTitle']!),
+    'sourceLines': paragraphLines(nodes['previewSource']!),
+    'textHeight': text.height,
+    'paragraphHeightSum': title.height + source.height,
     'imageCenterDelta': image.center.dy - card.center.dy,
     'textCenterDelta': text.center.dy - card.center.dy,
     'headingToCardGap': card.top - heading.bottom,
@@ -1715,9 +1743,25 @@ List<String> _previewLayoutFindings() {
     findings.add('Preview image must remain 164x100px');
   }
   if (!near(metrics['imageToTextGap'], 16) ||
-      !near(metrics['textGap'], 8) ||
+      !near(metrics['textGap'], 14) ||
       !near(metrics['headingToCardGap'], 16)) {
-    findings.add('Preview horizontal/text/heading gaps changed');
+    findings.add(
+      'Preview must retain horizontal/heading gaps 16px and title-to-source gap 14px',
+    );
+  }
+  if (!near(
+    metrics['textHeight'],
+    (metrics['paragraphHeightSum']! as num).toDouble() + 14,
+  )) {
+    findings.add('Preview text block must retain its natural paragraph height');
+  }
+  for (final role in ['title', 'source']) {
+    final lines = metrics['${role}Lines']! as Map<String, Object?>;
+    final count = lines['visibleLineCount']! as int;
+    final maxLines = role == 'title' ? 2 : 1;
+    if (count < 1 || count > maxLines || lines['maxLines'] != maxLines) {
+      findings.add('Preview $role visible lines exceed the retained limit');
+    }
   }
   if (!near(metrics['imageCenterDelta'], 0) ||
       !near(metrics['textCenterDelta'], 0)) {
@@ -1925,7 +1969,7 @@ Map<String, Object?> _baseStyleMetrics() {
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the 14px preview title-to-source gap and visible paragraph lines, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
   };
 }
 

@@ -341,7 +341,11 @@ void main() {
               expect(thumbnail.size, const Size(164, 100));
               expect(thumbnail.left - card.left, 8);
               expect(title.left - thumbnail.right, 16);
-              expect(source.top - title.bottom, closeTo(8, 0.01));
+              expect(source.top - title.bottom, closeTo(14, 0.01));
+              expect(
+                text.height,
+                closeTo(title.height + 14 + source.height, 0.01),
+              );
               expect(thumbnail.center.dy, closeTo(card.center.dy, 0.01));
               expect(text.center.dy, closeTo(card.center.dy, 0.01));
               expect(_paragraph(tester, _title).maxLines, 2);

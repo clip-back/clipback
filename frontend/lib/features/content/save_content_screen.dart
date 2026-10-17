@@ -700,7 +700,7 @@ class SavedContentConfirmation extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: _SaveTextStyles.previewTitle,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 14),
                     Text(
                       content.source,
                       maxLines: 1,
