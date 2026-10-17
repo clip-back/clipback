@@ -392,6 +392,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           bookmarkedIds: _d.home.bookmarkedIds,
           categories: _d.categories.categories,
           onSearch: _openSearch,
+          onOpenCategoryManagement: () =>
+              _openCategoryManagement(AppRoute.bookmark),
+          onOpenArchiveAll: () => _openArchive(tab: 0),
           onOpenContent: _openDetail,
           onToggleBookmark: _d.bookmark.toggleBookmark,
           onChangeContentCategory: _d.bookmark.changeCategory,

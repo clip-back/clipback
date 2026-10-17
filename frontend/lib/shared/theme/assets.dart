@@ -45,6 +45,7 @@ class Assets {
       'assets/icons/archive-all-star-filled.svg';
   static const archiveAllMore = 'assets/icons/archive-all-more.svg';
   static const archiveAllDivider = 'assets/icons/archive-all-divider.svg';
+  static const bookmarkBookOpen = 'assets/icons/bookmark-book-open.svg';
   static const bell = 'assets/icons/bell.svg';
   static const chevronRight = 'assets/icons/chevron-right.svg';
   static const chevronDown = 'assets/icons/chevron-down.svg';

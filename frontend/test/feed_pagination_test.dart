@@ -404,6 +404,28 @@ Future<void> _openBookmark(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+ScrollPosition _bookmarkPosition(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(BookmarkScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    )
+    .position;
+
+_Server _favoriteServer({
+  int count = 45,
+  FutureOr<http.Response?> Function(http.Request, _Server)? respond,
+}) {
+  final server = _Server(count: count, respond: respond);
+  for (final record in server.records) {
+    record['is_favorite'] = true;
+  }
+  return server;
+}
+
 Future<void> _openCategory(WidgetTester tester, int categoryId) async {
   final archive = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
   archive.onOpenCategory(
@@ -703,6 +725,302 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  testWidgets(
+    'I01 bookmark management search detail and root tabs preserve its feed',
+    (tester) async {
+      final server = _favoriteServer();
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        _bookmarkPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final original = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final feed = original.feed!,
+            ids = original.contents.map((c) => c.id).toList();
+        final version = feed.version,
+            cursor = feed.nextCursor,
+            requests = server.feedCalls.length;
+        void preserved() {
+          final current = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          expect(current.feed, same(feed));
+          expect(feed.isFavorite, isTrue);
+          expect(feed.query, isNull);
+          expect(feed.categoryId, isNull);
+          expect(feed.version, version);
+          expect(feed.nextCursor, cursor);
+          expect(current.contents.map((c) => c.id), ids);
+          expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(requests));
+        }
+
+        await tester.tap(find.byKey(const ValueKey('bookmark-settings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        preserved();
+        await tester.tap(find.byKey(const ValueKey('bookmark-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        preserved();
+        original.onOpenContent(original.contents[2]);
+        await tester.pumpAndSettle();
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        preserved();
+        tester
+            .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+            .onTab(AppRoute.home);
+        await tester.pumpAndSettle();
+        await _openBookmark(tester);
+        preserved();
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  for (final failFirst in [false, true]) {
+    testWidgets(
+      'I01 pending unfavorite ${failFirst ? 'rolls back then retries' : 'commits then removes row'} without duplicate writes',
+      (tester) async {
+        final gate = Completer<http.Response?>();
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete(null);
+        });
+        var hold = true;
+        final server = _favoriteServer(
+          respond: (request, _) {
+            if (hold &&
+                request.method == 'PUT' &&
+                request.url.path.endsWith('/favorite')) {
+              return gate.future;
+            }
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _openBookmark(tester);
+          _bookmarkPosition(tester).jumpTo(300);
+          await tester.pumpAndSettle();
+          final before = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          final item = before.contents.first,
+              feed = before.feed!,
+              version = before.feed!.version;
+          before.onToggleBookmark(item);
+          before.onToggleBookmark(item);
+          await tester.pump();
+          final pending = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          final pendingItem = pending.contents.singleWhere(
+            (c) => c.id == item.id,
+          );
+          expect(pendingItem.bookmarked, isFalse);
+          expect(pendingItem.mutationLabel, isNotNull);
+          expect(pending.contents, hasLength(before.contents.length));
+          expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+          expect(feed.version, version);
+          expect(server.requests.where((r) => r.method == 'PUT'), hasLength(1));
+          hold = false;
+          gate.complete(
+            failFirst ? _json({'detail': '즐겨찾기 해제 거절'}, 503) : null,
+          );
+          await tester.pumpAndSettle();
+          var current = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          if (failFirst) {
+            final restored = current.contents.singleWhere(
+              (c) => c.id == item.id,
+            );
+            expect(restored.bookmarked, isTrue);
+            expect(restored.mutationLabel, isNull);
+            expect(current.bookmarkedIds, contains(item.id));
+            expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+            expect(find.text('즐겨찾기 해제 거절'), findsOneWidget);
+            current.onToggleBookmark(restored);
+            await tester.pumpAndSettle();
+            current = tester.widget<BookmarkScreen>(
+              find.byType(BookmarkScreen),
+            );
+          }
+          expect(current.contents.any((c) => c.id == item.id), isFalse);
+          expect(current.bookmarkedIds, isNot(contains(item.id)));
+          expect(_bookmarkPosition(tester).pixels, 0);
+          expect(feed.version, greaterThan(version));
+          expect(server.records, hasLength(45));
+          expect(
+            server.records.singleWhere(
+              (r) => r['id'] == item.apiId,
+            )['is_favorite'],
+            isFalse,
+          );
+          expect(
+            server.requests.where((r) => r.method == 'PUT'),
+            hasLength(failFirst ? 2 : 1),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  testWidgets(
+    'I02 last unfavorite confirms zero while preserving the saved content',
+    (tester) async {
+      final server = _favoriteServer(count: 1);
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        final before = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final id = before.contents.single.id;
+        before.onToggleBookmark(before.contents.single);
+        await tester.pumpAndSettle();
+        final after = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        expect(after.contents, isEmpty);
+        expect(after.feed!.isFavorite, isTrue);
+        expect(after.feed!.initialized, isTrue);
+        expect(after.feed!.loading, isFalse);
+        expect(after.feed!.error, isNull);
+        expect(after.feed!.hasMore, isFalse);
+        expect(after.bookmarkedIds, isNot(contains(id)));
+        expect(server.records, hasLength(1));
+        expect(server.records.single['is_favorite'], isFalse);
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('bookmark-toolbar')), findsNothing);
+        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'I01 committed unfavorite survives refresh failure until existing retry',
+    (tester) async {
+      var committed = false, failRefresh = true;
+      final server = _favoriteServer(
+        count: 2,
+        respond: (request, _) {
+          if (request.method == 'PUT' &&
+              request.url.path.endsWith('/favorite')) {
+            committed = true;
+          }
+          if (committed &&
+              failRefresh &&
+              request.url.path == _feed &&
+              request.url.queryParameters['is_favorite'] == 'true') {
+            return _json({'detail': '즐겨찾기 재조회 실패'}, 503);
+          }
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        final before = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final item = before.contents.first;
+        before.onToggleBookmark(item);
+        await tester.pumpAndSettle();
+        final failed = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final retained = failed.contents.singleWhere((c) => c.id == item.id);
+        expect(retained.bookmarked, isFalse);
+        expect(retained.mutationLabel, isNull);
+        expect(failed.feed!.error, isNotNull);
+        expect(
+          server.records.singleWhere(
+            (r) => r['id'] == item.apiId,
+          )['is_favorite'],
+          isFalse,
+        );
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsNothing,
+        );
+        expect(find.text('다시 시도'), findsOneWidget);
+        final writes = server.requests.where((r) => r.method == 'PUT').length;
+        failRefresh = false;
+        await tester.tap(find.text('다시 시도'));
+        await tester.pumpAndSettle();
+        final retried = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        expect(retried.feed!.error, isNull);
+        expect(retried.contents, hasLength(1));
+        expect(retried.contents.single.id, isNot(item.id));
+        expect(
+          server.requests.where((r) => r.method == 'PUT'),
+          hasLength(writes),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'I02 whole-list CTA clears a remembered archive category and tab',
+    (tester) async {
+      final server = _Server(count: 1);
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        await _openCategory(tester, 101);
+        expect(
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .bookmarkedFirst,
+          isTrue,
+        );
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.bookmark);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('bookmark-empty-cta')));
+        await tester.pumpAndSettle();
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 0);
+        expect(archive.activeCategoryName, isNull);
+        expect(archive.feed!.categoryId, isNull);
+        expect(archive.feed!.query, isNull);
+        expect(archive.feed!.isFavorite, isNull);
+        expect(archive.bookmarkedFirst, isTrue);
+        expect(archive.feed!.bookmarkedFirst, isTrue);
+        expect(archive.contents.single.apiId, 1);
+        expect(
+          server.requests.where(
+            (r) => r.method == 'PUT' || r.method == 'DELETE',
+          ),
+          isEmpty,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
 
   testWidgets('archive scrolling requests the next opaque feed cursor', (
     tester,
@@ -1007,12 +1325,15 @@ void main() {
     }
     await _withApp(tester, server, () async {
       await _openBookmark(tester);
+      expect(find.text('불러온 20개'), findsOneWidget);
+      expect(find.text('999'), findsNothing);
       await _scrollToEnd(tester, BookmarkScreen);
       await _scrollToEnd(tester, BookmarkScreen);
       final items = tester
           .widget<BookmarkScreen>(find.byType(BookmarkScreen))
           .contents;
       expect(items, hasLength(45));
+      expect(find.text('불러온 45개'), findsOneWidget);
       expect(items.every((content) => content.bookmarked), isTrue);
       final favoriteCalls = server.feedCalls.where(
         (request) => request.url.queryParameters['is_favorite'] != null,
@@ -1035,7 +1356,7 @@ void main() {
       final server = _Server(count: 21);
       await _withApp(tester, server, () async {
         await _openBookmark(tester);
-        expect(find.text('즐겨찾기한 콘텐츠가 없어요'), findsOneWidget);
+        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
         expect(
           tester.widget<BookmarkScreen>(find.byType(BookmarkScreen)).contents,
           isEmpty,

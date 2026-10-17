@@ -181,7 +181,18 @@ void main() {
                 inset,
                 64,
               ),
-              ('bookmark', bookmark, () => find.byType(AppTopBar), inset, 64),
+              (
+                'bookmark',
+                bookmark,
+                () {
+                  final aligned = find.byKey(const ValueKey('bookmark-header'));
+                  return aligned.evaluate().isNotEmpty
+                      ? aligned
+                      : find.byType(AppTopBar);
+                },
+                inset,
+                64,
+              ),
               (
                 'search',
                 search,
