@@ -35,6 +35,9 @@ class Assets {
   static const arrowRight = 'assets/icons/arrow-right.svg';
   static const link = 'assets/icons/link-icon.svg';
   static const back = 'assets/icons/back.svg';
+  static const detailBack = 'assets/icons/detail-back.svg';
+  static const detailMore = 'assets/icons/detail-more-vertical.svg';
+  static const detailLink = 'assets/icons/detail-link.svg';
   static const more = 'assets/icons/more-vertical.svg';
   static const moreHorizontal = 'assets/icons/more-horizontal.svg';
   static const folderPlus = 'assets/icons/folder-plus.svg';

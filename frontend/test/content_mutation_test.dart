@@ -1108,11 +1108,15 @@ void main() {
               .toList();
           expect(bookmark.enabled, isFalse);
           expect(
-            icons.singleWhere((button) => button.asset == Assets.more).enabled,
+            icons
+                .singleWhere((button) => button.asset == Assets.detailMore)
+                .enabled,
             isFalse,
           );
           expect(
-            icons.singleWhere((button) => button.asset == Assets.back).enabled,
+            icons
+                .singleWhere((button) => button.asset == Assets.detailBack)
+                .enabled,
             isTrue,
           );
           expect(

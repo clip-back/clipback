@@ -27,6 +27,7 @@ flutter:
   assets:
     - assets/figma/
     - assets/icons/
+    - assets/fonts/Pretendard-LICENSE.txt
   fonts:
     - family: Pretendard
       fonts:
@@ -36,3 +37,7 @@ flutter:
           weight: 500
         - asset: assets/fonts/Pretendard-SemiBold.otf
           weight: 600
+    - family: PretendardDetail
+      fonts:
+        - asset: assets/fonts/Pretendard-Bold.otf
+          weight: 700

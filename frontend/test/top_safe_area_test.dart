@@ -253,7 +253,9 @@ void main() {
           final controls = find.byWidgetPredicate(
             (w) =>
                 w is SvgIconButton &&
-                (w.asset == Assets.back || w.asset == Assets.search),
+                (w.asset == Assets.back ||
+                    w.asset == Assets.detailBack ||
+                    w.asset == Assets.search),
           );
           for (final element in controls.evaluate()) {
             final finder = find.byElementPredicate(

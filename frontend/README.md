@@ -21,7 +21,9 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 앞선 `63800e6` 기준 작업은 **미리보기 콘텐츠 제목 최대 폭만 컬럼보다8px 작게** 맞추고 `fec6b66`에 저장했습니다. 본문375px에서 제목139px·출처147px이며 출처 폭·간격14px·자연 높이·중앙 정렬은 유지합니다. 한 줄 전용 세로 배치·출처 폭 원본 기준은 후속 확인 항목이며 저장 화면 전체 맞춤 완료가 아닙니다.
 앞선 `fec6b66` 기준 작업은 **미리보기 카드와 카테고리 제목 사이 시작 간격만30→32px**로 맞추고 `b61a47d`에 저장했습니다. 스크롤0에서 카테고리 전체가2px 내려가며 제목139px·출처147px·간격14px·글자와 하단 정책은 유지합니다. 안내의 제목 옆/아래 배치·편집과 저장 화면 전체 맞춤 완료를 뜻하지 않습니다.
 앞선 `b61a47d` 기준 작업은 **링크 검증 문구→미리보기 간격28→32px·사진 파일명 박스→미리보기 간격28→16px**으로 맞추고 `c33a45d`에 저장했습니다. 스크롤0에서 이후 본문이 링크+4px/사진−12px 이동하며 앞 블록·제목139px/출처147px·내부 간격·글자·하단 정책은 유지합니다. 당시44px 파일명 구조와 Figma89px 이미지 구조는 달라 사진 전체 좌표 일치나 전체 맞춤 완료를 뜻하지 않습니다.
-현재 `c33a45d` 기준 작업은 **저장 결과의 사진 요약89px·원본 cover/중앙·사진 썸네일 테두리와 카테고리 자연 Wrap·정확한 SVG**를 적용·검증했습니다. 기존 문구·실제 분류/색상·입력/저장·완료 탭·하단 안전 영역은 유지합니다. 집중143/관련337/전체971건과 iOS·Android 각5상태/25기록·새10쌍 비교/영상을 확인했습니다. 완료는 결과 표현5상태·1배율이며 D07 표시·API 썸네일·편집과 저장 화면 전체 맞춤은 후속입니다.
+앞선 `c33a45d` 기준 작업은 **저장 결과의 사진 요약89px·원본 cover/중앙·사진 썸네일 테두리와 카테고리 자연 Wrap·정확한 SVG**를 적용·검증했습니다. 기존 문구·실제 분류/색상·입력/저장·완료 탭·하단 안전 영역은 유지합니다. 집중143/관련337/전체971건과 iOS·Android 각5상태/25기록·새10쌍 비교/영상을 확인했습니다. 완료는 결과 표현5상태·1배율이며 D07 표시·API 썸네일·편집과 저장 화면 전체 맞춤은 후속입니다.
+
+현재 `bff0a7c` 기준 작업은 **콘텐츠 상세의1배율 배경·상단·글자·태그·카테고리/연관 카드**를 맞춥니다. 제목/요약은 전체 표시하고 실제 복수 소속을 모두 보이며, 연관 카드는 복수 소속일 때 배지 위/제목 아래로 배치합니다. 선정·순서는 기존 불러온 목록 기준을 유지하고 빈 문구를 ‘불러온 목록에 연관 콘텐츠가 없어요.’로 한정합니다. 원문/미디어·외부 링크 실행·추천 API·상세 하단 간격은 후속이며 기존 사진 원본/저장/페이지 이동·공통 OS 안전 영역은 유지합니다. 상세 전체 기능 완료를 뜻하지 않으며 실제 검사·기기 비교는 아래 독립 기록을 따릅니다.
 
 이전 파일 `b2lmAo9VtbL6Qi0mzX5IMu`의 **WireFrame & UI(`3:5961`) > [261008(`912:13961`)](https://www.figma.com/design/b2lmAo9VtbL6Qi0mzX5IMu/?node-id=912-13961)**은 당시 구현·조회·비교 기록의 기준으로 보존합니다. 해당 파일의 M 보완안은 이전 제안이며 새 Page 1의 확정 디자인으로 채택하지 않습니다.
 아래 네 화면의 조회 기록은 이 이전 `261008` 파일에 해당합니다.
@@ -1843,3 +1845,53 @@ flutter build ios --simulator --debug --no-pub
 Android의 Keystore·수신 Activity·HTTP 테스트와 API 33·36 재현 명령은
 [Android 공유 검증 안내](android/SHARE_TESTING.md)에 있습니다.
 실행 환경과 실제 결과는 [프론트 진행 기록](../docs/fe-merge-fixes.md)에 기록합니다.
+
+## 콘텐츠 상세 화면의 1배율 표현 맞춤 — 2026-10-17
+
+`bff0a7c` 기준으로 Page 1 > `261007`의 F02 기본(`111:3842`)·F03 전문 펼침(`111:3771`)·F04 연관 없음(`111:3909`)을 대조했다. 완료 범위는 상세의 흰 배경·상단·기본 글자·태그·카테고리와 연관 카드이며 실제 원문/미디어·추천 API 연결이나 상세 전체 기능 완료를 뜻하지 않는다.
+
+사용자 확정으로 제목·요약의 3줄 제한/요약72px 고정을 제거해 전체 내용을 표시한다. 상단에는 실제 소속을 모두 Wrap8/8로 표시하고 연관 카드는 소속1개면 한 행, 2개 이상이면 배지 위/제목 아래8px으로 높이를 늘린다. ‘함께 보면 좋은 콘텐츠’와 범위를 명시한 ‘불러온 목록에 연관 콘텐츠가 없어요.’를 적용하고 미연결 추천을 약속하는 보조 문구는 추가하지 않는다.
+
+- [Figma 조회 원본과 시각](/private/tmp/clipback-detail-alignment-20261017/figma/reference-manifest.json): 2026-10-17 **07:18:07~07:18:13 UTC / 16:18:07~16:18:13 KST**, 컨텍스트에 원본을 포함해3회 성공했다. 별도 스크린샷/메타데이터 재호출·보관본 fallback·누락은0이다.
+- 실제 Pretendard·iOS/Android 테마 × 폭320/375px ×1배율의 새 검사16건은 수정 전4통과/12목표 실패를 재현한 뒤 **16통과**했다. [자동 검사](/private/tmp/clipback-detail-alignment-20261017/automatic-checks.json): 관련 **355건**(24.38초)·전체 **987건**(49.71초) 통과, 건너뜀0, `flutter analyze --no-pub` 문제0건(5.25초)이다. 기존 확대/저장 자동 검사를 삭제하거나 건너뛰지 않았다.
+- [수정 전 게이트](/private/tmp/clipback-detail-alignment-20261017/before-gate.json) 통과 뒤 제품을 수정했다. 최종 fixture `dafe10b8c3dfd7e0c9f91e31ab07335f7cf293e6813603c5b915b5aa984699a2`와 새 검사 `910d87eb066c9bb083c86b8dc4ed1ebf36b3484bd32f2749a5604ad92632cada`는 전후 동일하다. 초기 무한 폭 JSON 진단·기대색/커버리지 보완 이전의 시도는 `.attempts/`에 보존하고 최종 비교에서 제외했다.
+- 양 플랫폼에서 ios 28기록 / android-gesture 28기록, 프레임워크 오류0건이며 `stylePassed`·`layoutPassed`·`behaviorPassed`·`coveragePassed`·`checksCompleted`·전체 `passed: true`다. 각 상태의 스크롤0/고정 위치/최대 스크롤 기록을 합쳐 실제 역할·복수 소속·연관 카드2개와 실제 세로 순서의 누락도 검사했다.
+- 펼침/접기·원문 시트/URL/닫기·북마크 상태·분류 변경·연관 제목 스크롤/카드 이동·이전/다음·저장 진입 후 추가 저장 없는 닫기·네 탭·뒤로가기를 합성 포인터로 실제 위젯에서 확인했다. 사진 inline/시트의 원본 bytes·contain·로컬 콜백1회와 캐시 재사용은 **로컬 `onReadAsset` 콜백** 검증이며 실제 HTTP 다운로드나 운영 서버·OAuth·실기기 증거가 아니다.
+
+
+- 검증 종료 시 [정리 기록](/private/tmp/clipback-detail-alignment-20261017/cleanup-verification.json)으로 양쪽 앱·기기 종료, Android 포워딩 제거·기존 제스처 설정 일치/설정 변경0을 확인했다. 이번 비교 서버는 시작하지 않았다.
+- [HTML 정적 검사](/private/tmp/clipback-detail-alignment-20261017/comparison-html-verification.json)의 로컬 참조54개와 JavaScript 문법은 통과했다. 브라우저 자동화는 `kernel assets` 파일 누락으로 초기화에 실패하여 HTML의 브라우저 렌더는 미검증이다. 실제 기기 원본·3열 PNG·네이티브 동작 결과와 구분한다.
+
+- 기존 전역 Pretendard400/500/600 등록은 유지하고 공식1.3.9의 실제 Bold700을 상세 제목 전용 `PretendardDetail` 별칭으로 등록했다. [글꼴 출처/메타데이터](/private/tmp/clipback-detail-alignment-20261017/font-provenance.json)·[원본 에셋/양 플랫폼 번들/슬롯 검사](/private/tmp/clipback-detail-alignment-20261017/static-assets-verification.json)에 원본 back/more/link3개와 재사용 star/chevron의 검증을 기록했다. 라이선스도 번들에 포함했다. 최종 공백 검사에서 공식 라이선스22행의 행 끝 공백1개만 제거했으며, 촬영 번들과의 차이는 이 비표시 공백뿐이고 라이선스 본문·제품 렌더는 동일하다.
+- [보존 검사](/private/tmp/clipback-detail-alignment-20261017/preservation-audit.json)에서 공개 생성자6개·사진 원본 controller/view/시트·선정 필터·mapper·공통 테마/배지/태그의 보존을 확인했다. 기존 회귀 검사는 상세 전용 아이콘 selector만 새 에셋에 연결하고 요청/인증/실패 복원·콜백 기대는 유지했다.
+
+[새 비교 8쌍](/private/tmp/clipback-detail-alignment-20261017/comparison-document.html) · [비교/조건 QA](/private/tmp/clipback-detail-alignment-20261017/pair-verification.json) · [영상 전체 디코딩 검사](/private/tmp/clipback-detail-alignment-20261017/media-verification.json) · [환경 정리](/private/tmp/clipback-detail-alignment-20261017/cleanup-verification.json)
+
+| 상태·위치 | iPhone 16 / iOS 18.6 | Android 13 / API 33 제스처 |
+| --- | --- | --- |
+| 기본·스크롤0 | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/ios-detail_basic_scale_1_top.png) | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/android-gesture-detail_basic_scale_1_top.png) |
+| 전문 펼침·스크롤0 | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/ios-detail_expanded_scale_1_top.png) | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/android-gesture-detail_expanded_scale_1_top.png) |
+| 연관 없음·스크롤0 | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/ios-detail_empty_scale_1_top.png) | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/android-gesture-detail_empty_scale_1_top.png) |
+| 전문 펼침·고정 위치 | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/ios-detail_expanded_scale_1_lower.png) | [3열 비교](/private/tmp/clipback-detail-alignment-20261017/comparisons/android-gesture-detail_expanded_scale_1_lower.png) |
+
+[iOS 동작 영상](/private/tmp/clipback-detail-alignment-20261017/ios/after/interaction.mp4) · [Android 동작 영상](/private/tmp/clipback-detail-alignment-20261017/android-gesture/after/interaction.mp4)
+
+
+상세 전용 프리뷰 재실행(`frontend/`, 기기별 순차 실행):
+
+```bash
+flutter run --no-pub -d <device-id> -t test/support/detail_preview.dart \
+  --dart-define=DETAIL_PREVIEW_PHASE=after
+
+# Android Emulator에서만 호스트 포워딩
+adb -s <emulator-id> forward tcp:8768 tcp:8767
+```
+
+기기 내부 loopback은8767, iOS 호스트 조회는8767, Android 포워딩 조회는8768이다. `/scene?kind=basic|expanded|empty&scroll=0`은 정적 상태, `/scroll?offset=max`는 최하단, `/state`는 실제 스타일·경계, `/run?expandedOffset=<BEFORE에서 고정한 px>`는 동작·커버리지 전체 검사다. 전후 비교에는 새 BEFORE를 확보하고 동일한 수치 offset을 재사용한다. `DETAIL_PREVIEW_PHASE`는 보고서 단계만 구분하며 이전 제품 코드를 복구하지 않는다. 종료 후 해당 포워딩을 제거하고 기기를 종료한다.
+
+남은 범위와 비교 해석:
+
+- 현재 연관 선정/순서는 불러온 목록의 같은 첫 카테고리 이름 기준이고, 페이지 표시는 ‘현재 위치 / 불러온 N개’ 의미를 유지한다. 실제 원문은 mapper에서 요약을 재사용하며 원본 링크 콜백은 열람 기록/시트다. F03 미디어 이미지를 구현에 삽입하지 않았다.
+- 기존 좌우24px·실제 가용 폭을 사용한다. Figma 제목343px/부모327px의 초과 폭, F02/F04 하단 간격16px과 F03의8px 차이, 실제 원문/미디어/외부 실행·추천 계약과 새 확대 대응은 ‘디자인 확인 필요’로 유지했다. 기존 원본 이미지 컨트롤러/시트·저장 정책·공통 탭/OS 안전 영역은 보존했다.
+- 실제 OS 원본을 자르거나 보정하지 않았다. iOS 창393×852/DPR3·상단59/하단34px, Android 창392.7×783.3/DPR2.75·상단24/하단0px이며 본문375px과 실제 viewport559/559.27px를 구분한다. 긴 대역 요약/원문은 Figma 예제와 내용·길이가 다르므로 전체 절대 좌표 일치를 뜻하지 않는다.
+- 전문의 고정 위치는 BEFORE 스크롤0에서 보고된 초기 `maxScrollExtent`(sliver 추정값)/2로 정한 **iOS1415.0384615384617px / Android1414.902097902098px**를 전후 그대로 사용한다. 실제 전체 범위의 정확한 중간점이라고 보고하지 않으며 안정화한 최대 스크롤은 runner에서 별도로 기록한다.

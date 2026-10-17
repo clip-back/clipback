@@ -269,7 +269,7 @@ Future<void> _openOriginalSheet(
   final button = find.descendant(
     of: find.byType(DetailScreen),
     matching: find.byWidgetPredicate(
-      (widget) => widget is SvgIconButton && widget.asset == Assets.link,
+      (widget) => widget is SvgIconButton && widget.asset == Assets.detailLink,
     ),
   );
   await tester.ensureVisible(button);
@@ -971,7 +971,8 @@ void main() {
               of: find.byType(DetailScreen),
               matching: find.byWidgetPredicate(
                 (widget) =>
-                    widget is SvgIconButton && widget.asset == Assets.link,
+                    widget is SvgIconButton &&
+                    widget.asset == Assets.detailLink,
               ),
             ),
           );

@@ -327,7 +327,7 @@ Future<void> _checkOriginalSheet() async {
   }
   (_first<SvgIconButton>(
             within: _first<DetailScreen>(),
-            where: (button) => button.asset == Assets.link,
+            where: (button) => button.asset == Assets.detailLink,
           ).widget
           as SvgIconButton)
       .onPressed();
