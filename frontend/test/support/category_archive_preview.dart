@@ -1158,7 +1158,9 @@ Future<void> _run() async {
     _find<CategoryManagementScreen>(_root) != null,
     'Management screen missing',
   );
-  final back = _find<SvgIconButton>(_find<CategoryManagementScreen>(_root)!)!;
+  final management = _find<CategoryManagementScreen>(_root)!;
+  final back =
+      _key(management, 'management-back') ?? _find<SvgIconButton>(management)!;
   await _tap(back);
   _require(
     _host.currentState!.activeTab == 1 &&

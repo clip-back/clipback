@@ -252,10 +252,11 @@ void main() {
           expect(rect.height, entry.$5, reason: entry.$1);
           final controls = find.byWidgetPredicate(
             (w) =>
-                w is SvgIconButton &&
-                (w.asset == Assets.back ||
-                    w.asset == Assets.detailBack ||
-                    w.asset == Assets.search),
+                w.key == const ValueKey('management-back') ||
+                (w is SvgIconButton &&
+                    (w.asset == Assets.back ||
+                        w.asset == Assets.detailBack ||
+                        w.asset == Assets.search)),
           );
           for (final element in controls.evaluate()) {
             final finder = find.byElementPredicate(
@@ -269,9 +270,12 @@ void main() {
             expect(events, hasLength(1), reason: '${entry.$1} header callback');
           }
           if (entry.$1 == 'categories') {
-            final add = find.byWidgetPredicate(
-              (w) => w is SvgIconButton && w.asset == Assets.folderPlus,
-            );
+            final keyedAdd = find.byKey(const ValueKey('management-add'));
+            final add = keyedAdd.evaluate().isNotEmpty
+                ? keyedAdd
+                : find.byWidgetPredicate(
+                    (w) => w is SvgIconButton && w.asset == Assets.folderPlus,
+                  );
             expect(tester.getRect(add).top, greaterThanOrEqualTo(inset));
             await tester.tap(add);
             await tester.pumpAndSettle();

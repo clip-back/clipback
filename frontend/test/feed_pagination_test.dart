@@ -298,12 +298,18 @@ ScrollPosition _categoryListPosition(WidgetTester tester) {
 }
 
 Future<void> _backFromCategoryManagement(WidgetTester tester) async {
-  final back = find.descendant(
+  final keyedBack = find.descendant(
     of: find.byType(CategoryManagementScreen),
-    matching: find.byWidgetPredicate(
-      (widget) => widget is SvgIconButton && widget.asset == Assets.back,
-    ),
+    matching: find.byKey(const ValueKey('management-back')),
   );
+  final back = keyedBack.evaluate().isNotEmpty
+      ? keyedBack
+      : find.descendant(
+          of: find.byType(CategoryManagementScreen),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is SvgIconButton && widget.asset == Assets.back,
+          ),
+        );
   expect(back, findsOneWidget);
   await tester.tap(back);
   await tester.pumpAndSettle();

@@ -239,14 +239,19 @@ void main() {
     await tester.tap(settings);
     await tester.pumpAndSettle();
     expect(find.byType(CategoryManagementScreen), findsOneWidget);
-    await tester.tap(
-      find
-          .descendant(
-            of: find.byType(CategoryManagementScreen),
-            matching: find.byType(SvgIconButton),
-          )
-          .first,
+    final keyedBack = find.descendant(
+      of: find.byType(CategoryManagementScreen),
+      matching: find.byKey(const ValueKey('management-back')),
     );
+    final back = keyedBack.evaluate().isNotEmpty
+        ? keyedBack
+        : find
+              .descendant(
+                of: find.byType(CategoryManagementScreen),
+                matching: find.byType(SvgIconButton),
+              )
+              .first;
+    await tester.tap(back);
     await tester.pumpAndSettle();
     expect(key.currentState!.activeTab, 1);
     expect(categoryArchivePosition(_root(tester)).pixels, closeTo(saved, .1));
