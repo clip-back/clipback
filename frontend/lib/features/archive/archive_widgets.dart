@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
+
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
@@ -83,37 +85,63 @@ class ContentListView extends StatelessWidget {
       });
     }
     final isUnclassified = activeCategoryName == catUncategorized.name;
+    final unclassifiedCategory = categories
+        .where((category) => category.name == catUncategorized.name)
+        .firstOrNull;
+    final page = feed;
+    final confirmedUnclassifiedEmpty =
+        isUnclassified &&
+        unclassifiedCategory != null &&
+        unclassifiedCategory.id != null &&
+        page != null &&
+        page.categoryId == unclassifiedCategory.id &&
+        page.query == null &&
+        page.isFavorite == null &&
+        page.initialized &&
+        !page.loading &&
+        page.error == null &&
+        !page.hasMore &&
+        page.items.isEmpty &&
+        visibleContents.isEmpty;
 
     return Column(
       children: [
-        ArchiveToolbar(
-          archiveAllStyle: archiveAllStyle,
-          countLabel: feed == null
-              ? '총 ${visibleContents.length}개'
-              : '불러온 ${visibleContents.length}개',
-          sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
-          onSortChanged: onSortChanged,
-        ),
+        if (!isUnclassified)
+          ArchiveToolbar(
+            archiveAllStyle: archiveAllStyle,
+            countLabel: feed == null
+                ? '총 ${visibleContents.length}개'
+                : '불러온 ${visibleContents.length}개',
+            sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
+            onSortChanged: onSortChanged,
+          ),
+        if (isUnclassified && visibleContents.isNotEmpty)
+          const SizedBox(height: 12),
         Expanded(
           child: PagedContentList(
             feed: feed,
             contents: visibleContents,
             onLoadMore: onLoadMore,
             onRetry: onRetry,
-            empty: EmptyStatePanel(
-              title: activeCategoryName == null
-                  ? '저장한 콘텐츠가 없어요'
-                  : isUnclassified
-                  ? '분류가 필요한 콘텐츠가 없어요'
-                  : '$activeCategoryName 콘텐츠가 없어요',
-              body: activeCategoryName == null
-                  ? '홈의 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
-                  : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
-              actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
-              onAction: activeCategoryName == null ? onGoHome : onClearCategory,
-            ),
+            empty: confirmedUnclassifiedEmpty
+                ? const UnclassifiedEmptyState()
+                : EmptyStatePanel(
+                    title: activeCategoryName == null
+                        ? '저장한 콘텐츠가 없어요'
+                        : isUnclassified
+                        ? '분류가 필요한 콘텐츠가 없어요'
+                        : '$activeCategoryName 콘텐츠가 없어요',
+                    body: activeCategoryName == null
+                        ? '홈의 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
+                        : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
+                    actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
+                    onAction: activeCategoryName == null
+                        ? onGoHome
+                        : onClearCategory,
+                  ),
             itemBuilder: (content) => ContentListCard(
               archiveAllStyle: archiveAllStyle,
+              unclassifiedStyle: isUnclassified,
               content: content,
               bookmarked: bookmarkedIds.contains(content.id),
               onToggleBookmark: () => onToggleBookmark(content),

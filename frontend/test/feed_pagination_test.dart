@@ -51,6 +51,46 @@ const _uncategorized = {
 };
 const _allCategories = [_category, _otherCategory, _uncategorized];
 
+// E06 uses the server ID rather than the display-only uncategorized sentinel.
+const _unclassifiedActual = {
+  'id': 99,
+  'name': '미분류',
+  'color': '#B5BDC3',
+  'is_default': true,
+};
+
+_Server _unclassifiedServer({
+  int count = 45,
+  FutureOr<http.Response?> Function(http.Request, _Server)? respond,
+}) {
+  final server = _Server(
+    count: count,
+    respond: (request, server) async {
+      final overridden = await respond?.call(request, server);
+      if (overridden != null) return overridden;
+      if (request.url.path == '/api/v1/categories') {
+        return _json([
+          ..._navigationCategories().where((c) => c['id'] != 303),
+          {
+            ..._unclassifiedActual,
+            'content_count': server.records.where((record) {
+              return (record['categories'] as List).any(
+                (category) => (category as Map)['id'] == 99,
+              );
+            }).length,
+          },
+        ]);
+      }
+      return null;
+    },
+  );
+  for (var index = 0; index < server.records.length; index++) {
+    server.records[index]['categories'] = [_unclassifiedActual];
+    server.records[index]['is_favorite'] = index.isEven;
+  }
+  return server;
+}
+
 List<Map<String, Object?>> _navigationCategories() => [
   ..._allCategories,
   for (var index = 0; index < 24; index++)
@@ -405,6 +445,263 @@ void main() {
       fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
     }
     await fonts.load();
+    await (FontLoader(
+      'PretendardDetail',
+    )..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'))).load();
+  });
+
+  testWidgets('E06 actual ID pagination retains the selected server sort', (
+    tester,
+  ) async {
+    final server = _unclassifiedServer();
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .onSortChanged(true);
+      await tester.pumpAndSettle();
+      await _openCategory(tester, 99);
+      final feed = tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .feed!;
+      expect(feed.categoryId, 99);
+      expect(feed.bookmarkedFirst, isTrue);
+      expect(find.byType(ArchiveToolbar), findsNothing);
+      expect(find.byType(RandomReviewButton), findsNothing);
+      for (var attempt = 0; attempt < 8 && feed.hasMore; attempt++) {
+        await _scrollArchiveToEnd(tester);
+      }
+      expect(feed.items, hasLength(45));
+      expect(feed.items.map((item) => item.apiId).toSet(), hasLength(45));
+      final filtered = server.feedCalls
+          .where(
+            (request) => request.url.queryParameters['category_id'] == '99',
+          )
+          .toList();
+      expect(filtered, isNotEmpty);
+      expect(filtered.first.url.queryParameters['cursor'], isNull);
+      expect(
+        filtered.any((r) => r.url.queryParameters['cursor'] != null),
+        isTrue,
+      );
+      expect(
+        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'true'),
+        isTrue,
+      );
+      expect(
+        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'false'),
+        isTrue,
+      );
+      final firstNonFavorite = feed.items.indexWhere(
+        (item) => !item.bookmarked,
+      );
+      expect(firstNonFavorite, 23);
+      expect(
+        feed.items.take(firstNonFavorite).every((item) => item.bookmarked),
+        isTrue,
+      );
+      expect(
+        feed.items.skip(firstNonFavorite).every((item) => !item.bookmarked),
+        isTrue,
+      );
+      expect(feed.hasMore, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets(
+    'E06 management search detail and back preserve their source positions',
+    (tester) async {
+      final server = _unclassifiedServer();
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final categoriesPosition = _categoryListPosition(tester);
+        categoriesPosition.jumpTo(120);
+        await tester.pumpAndSettle();
+        final categoryOffset = categoriesPosition.pixels;
+        await _openCategory(tester, 99);
+        _allContentPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final before = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+        final feed = before.feed!;
+        final ids = before.contents.map((item) => item.id).toList();
+        final version = feed.version;
+        final cursor = feed.nextCursor;
+        final requests = server.feedCalls.length;
+        void checkPreserved() {
+          final current = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          expect(current.activeTab, 0);
+          expect(current.activeCategoryName, catUncategorized.name);
+          expect(current.feed, same(feed));
+          expect(feed.categoryId, 99);
+          expect(feed.version, version);
+          expect(feed.nextCursor, cursor);
+          expect(current.contents.map((item) => item.id), ids);
+          expect(_allContentPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(requests));
+        }
+
+        await tester.tap(find.byKey(const ValueKey('unclassified-settings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        checkPreserved();
+        await tester.tap(find.byKey(const ValueKey('unclassified-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+        final current = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        current.onOpenContent(current.contents[2]);
+        await tester.pumpAndSettle();
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        checkPreserved();
+        await tester.tap(find.byKey(const ValueKey('unclassified-back')));
+        await tester.pumpAndSettle();
+        final root = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+        expect(root.activeTab, 1);
+        expect(root.activeCategoryName, isNull);
+        expect(root.feed!.categoryId, isNull);
+        expect(
+          _categoryListPosition(tester).pixels,
+          closeTo(categoryOffset, .01),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  for (final failFirst in [false, true]) {
+    testWidgets(
+      'E06 last item classification ${failFirst ? 'failure then retry' : 'success'} returns to confirmed empty',
+      (tester) async {
+        var attempts = 0;
+        final server = _unclassifiedServer(
+          count: 1,
+          respond: (request, _) {
+            if (request.method == 'PUT' &&
+                request.url.path.endsWith('/categories')) {
+              attempts++;
+              if (failFirst && attempts == 1) {
+                return _json({'detail': '분류 변경 거절'}, 503);
+              }
+            }
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _openArchive(tester);
+          await _openCategory(tester, 99);
+          final initial = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          final originalId = initial.contents.single.id;
+          initial.onOpenContent(initial.contents.single);
+          await tester.pumpAndSettle();
+          var detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          final target = detail.categories.singleWhere(
+            (category) => category.id == 101,
+          );
+          detail.onChangeCategory(detail.content, target);
+          // Captured callbacks remain guarded while the first write is pending.
+          detail.onChangeCategory(detail.content, target);
+          await tester.pumpAndSettle();
+          expect(attempts, 1);
+          detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          if (failFirst) {
+            expect(detail.content.category.id, 99);
+            expect(detail.feed!.items.single.id, originalId);
+            expect(
+              detail.categories.singleWhere((c) => c.id == 99).contentCount,
+              1,
+            );
+            expect(find.text('분류 변경 거절'), findsOneWidget);
+            detail.onChangeCategory(detail.content, target);
+            await tester.pumpAndSettle();
+            expect(attempts, 2);
+            detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          }
+          expect(detail.content.id, originalId);
+          expect(detail.content.category.id, 101);
+          expect(detail.feed!.items, isEmpty);
+          expect(detail.feed!.categoryId, 99);
+          expect(detail.feed!.initialized, isTrue);
+          expect(detail.feed!.loading, isFalse);
+          expect(detail.feed!.error, isNull);
+          expect(detail.feed!.hasMore, isFalse);
+          expect(
+            detail.categories.singleWhere((c) => c.id == 99).contentCount,
+            0,
+          );
+          expect(server.records, hasLength(1));
+          expect(
+            (server.records.single['categories'] as List).single,
+            _category,
+          );
+          detail.onBack();
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('unclassified-empty-group')),
+            findsOneWidget,
+          );
+          expect(find.text('전체보기'), findsNothing);
+          expect(find.byType(RandomReviewButton), findsNothing);
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  testWidgets('E06 waits for the actual filtered request before showing zero', (
+    tester,
+  ) async {
+    final gate = Completer<http.Response>();
+    addTearDown(() => _release(gate));
+    final server = _unclassifiedServer(
+      count: 0,
+      respond: (request, _) {
+        if (request.url.path == _feed &&
+            request.url.queryParameters['category_id'] == '99') {
+          return gate.future;
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      final screen = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+      screen.onOpenCategory(
+        screen.categories.singleWhere((category) => category.id == 99),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      final loading = tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .feed!;
+      expect(loading.categoryId, 99);
+      expect(loading.loading, isTrue);
+      expect(
+        find.byKey(const ValueKey('unclassified-empty-group')),
+        findsNothing,
+      );
+      gate.complete(_json({'items': [], 'next_cursor': null}));
+      await tester.pumpAndSettle();
+      expect(loading.initialized, isTrue);
+      expect(loading.hasMore, isFalse);
+      expect(loading.loading, isFalse);
+      expect(
+        find.byKey(const ValueKey('unclassified-empty-group')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('archive scrolling requests the next opaque feed cursor', (

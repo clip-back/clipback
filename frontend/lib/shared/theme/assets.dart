@@ -21,6 +21,8 @@ class Assets {
   static const homeCharacter = 'assets/figma/home-character.png';
   static const homeHeroIllustration = 'assets/figma/home-hero.png';
   static const homeEmptyIllustration = 'assets/figma/home-empty.png';
+  static const unclassifiedEmptyIllustration =
+      'assets/figma/unclassified-empty.png';
 
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';

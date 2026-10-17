@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
+import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -81,6 +82,7 @@ class ArchiveScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final rootArchive = activeCategoryName == null;
     final allRoot = rootArchive && activeTab == 0;
+    final unclassified = activeCategoryName == catUncategorized.name;
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -112,6 +114,12 @@ class ArchiveScreen extends StatelessWidget {
             children: [
               if (rootArchive)
                 CategoryArchiveTopBar(
+                  onSearch: onSearch,
+                  onOpenCategoryManagement: onOpenCategoryManagement,
+                )
+              else if (unclassified)
+                UnclassifiedTopBar(
+                  onBack: onClearCategory,
                   onSearch: onSearch,
                   onOpenCategoryManagement: onOpenCategoryManagement,
                 )
@@ -150,11 +158,8 @@ class ArchiveScreen extends StatelessWidget {
                     ),
                   ),
                 )
-              else ...[
+              else if (!unclassified)
                 const SizedBox(height: 8),
-                if (activeCategoryName == null)
-                  ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
-              ],
               Expanded(
                 child: activeTab == 0
                     ? Stack(
@@ -179,7 +184,9 @@ class ArchiveScreen extends StatelessWidget {
                               onGoHome: () => onTab(AppRoute.home),
                             ),
                           ),
-                          if (activeCategoryName != null && contents.isNotEmpty)
+                          if (activeCategoryName != null &&
+                              !unclassified &&
+                              contents.isNotEmpty)
                             Positioned(
                               right: 16,
                               bottom: 24,

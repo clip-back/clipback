@@ -20,6 +20,7 @@ class ContentListCard extends StatelessWidget {
     required this.onDelete,
     this.bookmarked = false,
     this.archiveAllStyle = false,
+    this.unclassifiedStyle = false,
     super.key,
   });
 
@@ -32,10 +33,12 @@ class ContentListCard extends StatelessWidget {
   final bool bookmarked;
   // E01 opts in; other lists retain their existing presentation.
   final bool archiveAllStyle;
+  // E06 shares the aligned body; only the system badge has a display alias.
+  final bool unclassifiedStyle;
 
   @override
   Widget build(BuildContext context) {
-    if (archiveAllStyle) {
+    if (archiveAllStyle || unclassifiedStyle) {
       return _ArchiveAllContentListCard(this);
     }
     return Material(
@@ -232,28 +235,13 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                           runSpacing: 8,
                           children: [
                             for (final category in content.categories)
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: constraints.maxWidth - 84,
-                                ),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: category.tint,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    category.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: _ArchiveAllText.badge.copyWith(
-                                      color: category.deep,
-                                    ),
-                                  ),
-                                ),
+                              _AlignedCategoryBadge(
+                                category: category,
+                                maxWidth: constraints.maxWidth - 84,
+                                unclassified:
+                                    card.unclassifiedStyle &&
+                                    category.name == catUncategorized.name,
+                                contentId: content.id,
                               ),
                           ],
                         ),
@@ -403,6 +391,43 @@ class _ArchiveAllContentListCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AlignedCategoryBadge extends StatelessWidget {
+  const _AlignedCategoryBadge({
+    required this.category,
+    required this.maxWidth,
+    required this.unclassified,
+    required this.contentId,
+  });
+
+  final CategoryItem category;
+  final double maxWidth;
+  final bool unclassified;
+  final String contentId;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: BoxConstraints(maxWidth: maxWidth),
+    child: Container(
+      key: unclassified ? ValueKey('unclassified-badge-$contentId') : null,
+      width: unclassified ? 57 : null,
+      alignment: unclassified ? Alignment.center : null,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: unclassified ? AppColors.subtler : category.tint,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        unclassified ? '미분류' : category.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _ArchiveAllText.badge.copyWith(
+          color: unclassified ? AppColors.subtle : category.deep,
+        ),
+      ),
+    ),
+  );
 }
 
 class _ArchiveAllAssetButton extends StatelessWidget {
