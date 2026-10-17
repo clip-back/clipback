@@ -343,14 +343,17 @@ class CardPagerProgress extends StatelessWidget {
   const CardPagerProgress({
     required this.activeIndex,
     required this.count,
+    this.reviewStyle = false,
     super.key,
   });
 
   final int activeIndex;
   final int count;
+  final bool reviewStyle;
 
   @override
   Widget build(BuildContext context) {
+    if (reviewStyle) return _buildReviewProgress();
     return SizedBox(
       height: 24,
       child: Stack(
@@ -382,6 +385,51 @@ class CardPagerProgress extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildReviewProgress() => SizedBox(
+    height: 16,
+    child: Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          key: const ValueKey('review-progress-track'),
+          height: 8,
+          decoration: BoxDecoration(
+            color: AppColors.faint,
+            borderRadius: BorderRadius.circular(100),
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(count, (index) {
+            final active = index == activeIndex;
+            final imageSize = active ? 20.0 : 8.0;
+            return AnimatedContainer(
+              key: ValueKey('review-progress-dot-$index'),
+              duration: const Duration(milliseconds: 180),
+              width: active ? 16 : 8,
+              height: active ? 16 : 8,
+              child: OverflowBox(
+                minWidth: imageSize,
+                maxWidth: imageSize,
+                minHeight: imageSize,
+                maxHeight: imageSize,
+                child: SvgPicture.asset(
+                  active
+                      ? 'assets/icons/review-progress-active.svg'
+                      : 'assets/icons/review-progress-inactive.svg',
+                  key: ValueKey('review-progress-image-$index'),
+                  width: imageSize,
+                  height: imageSize,
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    ),
+  );
 }
 
 class RandomReviewButton extends StatelessWidget {
