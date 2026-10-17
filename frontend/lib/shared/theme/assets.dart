@@ -63,4 +63,12 @@ class Assets {
   static const categoryCardStarSmall =
       'assets/icons/category-card-star-small.svg';
   static const instagram = 'assets/icons/instagram.svg';
+  static const categorySheetEdit = 'assets/icons/category-sheet-edit.svg';
+  static const categorySheetTrash = 'assets/icons/category-sheet-trash.svg';
+  static const categorySheetWarning = 'assets/icons/category-sheet-warning.svg';
+  static const categorySheetSelectedSwatch =
+      'assets/icons/category-sheet-selected-swatch.svg';
+  static const categorySheetUnderline =
+      'assets/icons/category-sheet-underline.svg';
+  static const categorySheetCustom = 'assets/icons/category-sheet-custom.png';
 }
