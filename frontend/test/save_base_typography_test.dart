@@ -775,6 +775,19 @@ void _category(
   final folder = tester.getRect(folderFinder);
   final nameBounds = tester.getRect(name);
   final viewport = tester.getRect(find.byType(SingleChildScrollView));
+  final previewImage = find.descendant(
+    of: result,
+    matching: find.byType(Image),
+  );
+  final previewCard = tester.getRect(
+    find.ancestor(of: previewImage, matching: find.byType(Container)).first,
+  );
+  _near(
+    failures,
+    'preview card/category heading gap',
+    tester.getRect(heading).top - previewCard.bottom,
+    32,
+  );
 
   // These roles may be below the viewport at scroll zero. Their actual
   // parent/row bounds own clipping; the maximum-scroll check owns visibility.

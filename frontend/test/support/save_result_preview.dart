@@ -1837,6 +1837,7 @@ Map<String, Object?> _categoryGeometryMetrics() {
   final rowElement = nodes['categoryRow']!;
   final rowWidget = rowElement.widget as Container;
   final row = _rect(rowElement);
+  final previewCard = _rect(nodes['previewCard']!);
   final heading = _rect(nodes['categoryHeading']!);
   final message = _rect(nodes['categoryMessage']!);
   final name = _rect(nodes['categoryName']!);
@@ -1852,6 +1853,10 @@ Map<String, Object?> _categoryGeometryMetrics() {
     'folder': _rectJson(folder),
     'editHint': _rectJson(hint),
     'editHintMetrics': _baseTextMetrics(nodes['categoryEditHint']!),
+    'previewCardBottom': previewCard.bottom,
+    'categoryHeadingTop': heading.top,
+    'previewToHeadingGap': heading.top - previewCard.bottom,
+    'expectedPreviewToHeadingGap': 32,
     'rowPadding': {
       'left': padding.left,
       'top': padding.top,
@@ -1883,6 +1888,9 @@ List<String> _categoryLayoutFindings() {
   final viewport = _rect(nodes['bodyViewport']!);
   bool near(Object? value, double target) =>
       value is num && (value - target).abs() < 0.1;
+  if (!near(metrics['previewToHeadingGap'], 32)) {
+    findings.add('Preview card to category heading gap must be 32px');
+  }
   if (!near(row.height, 55) ||
       !near(padding.left, 16) ||
       !near(padding.right, 16) ||
@@ -2014,7 +2022,7 @@ Map<String, Object?> _baseStyleMetrics() {
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, the 32px preview-card-to-category-heading gap, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
   };
 }
 

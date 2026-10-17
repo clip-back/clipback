@@ -716,7 +716,7 @@ class SavedContentConfirmation extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 30),
+        const SizedBox(height: 32),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

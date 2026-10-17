@@ -343,6 +343,10 @@ void main() {
               expect(card.width, width - 32);
               expect(card.height, greaterThanOrEqualTo(116));
               if (scale == 1) expect(card.height, 116);
+              expect(
+                tester.getRect(find.text('카테고리')).top - card.bottom,
+                closeTo(32, 0.01),
+              );
               final inner = card.deflate(8);
               _contained(
                 title,
