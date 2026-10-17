@@ -600,7 +600,18 @@ Map<String, Element> _layoutNodes() {
   }
   if (_has<SavedContentConfirmation>()) {
     final result = _first<SavedContentConfirmation>();
-    final content = (result.widget as SavedContentConfirmation).content;
+    final confirmation = result.widget as SavedContentConfirmation;
+    final content = confirmation.content;
+    final label = confirmation.originalUrl.isEmpty
+        ? content.originalUrl
+        : confirmation.originalUrl;
+    nodes['resultInputBox'] = _ancestor(
+      _textElement(label, result),
+      (w) => w is Container,
+    );
+    nodes['previewPrecedingBlock'] = confirmation.photoBytes != null
+        ? nodes['resultInputBox']!
+        : _elements(result).firstWhere((e) => e.widget is ValidationMessage);
     final image = _elements(result).firstWhere((e) => e.widget is Image);
     final title = _elements(result).firstWhere(
       (e) => e.widget is Text && (e.widget as Text).data == content.title,
@@ -1667,6 +1678,11 @@ Map<String, Object?> _previewGeometryMetrics() {
   final title = _rect(nodes['previewTitle']!);
   final source = _rect(nodes['previewSource']!);
   final heading = _rect(nodes['previewHeading']!);
+  final preceding = _rect(nodes['previewPrecedingBlock']!);
+  final isPhoto =
+      (_first<SavedContentConfirmation>().widget as SavedContentConfirmation)
+          .photoBytes !=
+      null;
   final padding = cardWidget.padding!.resolve(Directionality.of(cardElement));
   final columnRender = nodes['previewText']!.findRenderObject()! as RenderBox;
   final titleRender =
@@ -1700,6 +1716,17 @@ Map<String, Object?> _previewGeometryMetrics() {
   }
 
   return {
+    'heading': _rectJson(heading),
+    'headingTop': heading.top,
+    'precedingBlock': _rectJson(preceding),
+    'precedingBlockKind': isPhoto
+        ? 'photoFilenameBox'
+        : 'linkValidationMessage',
+    'precedingBlockBottom': preceding.bottom,
+    'precedingToHeadingGap': heading.top - preceding.bottom,
+    'expectedPrecedingToHeadingGap': isPhoto ? 16 : 32,
+    'previewStartGapScope':
+        'Measured from the actual preceding result block: link ValidationMessage or the current 44px photo filename box. The Figma photo image block remains a different deferred structure; this gap does not assert overall photo-result vertical alignment.',
     'card': _rectJson(card),
     'image': _rectJson(image),
     'text': _rectJson(text),
@@ -1749,6 +1776,13 @@ List<String> _previewLayoutFindings() {
   final scale = MediaQuery.textScalerOf(nodes['previewCard']!).scale(1);
   bool near(Object? value, double target) =>
       value is num && (value - target).abs() < 0.1;
+  final expectedStartGap = (metrics['expectedPrecedingToHeadingGap']! as num)
+      .toDouble();
+  if (!near(metrics['precedingToHeadingGap'], expectedStartGap)) {
+    findings.add(
+      '${metrics['precedingBlockKind']} to preview heading gap must be ${expectedStartGap.toInt()}px',
+    );
+  }
   if (!near(metrics['cardMinHeight'], 116) ||
       card.height < 115.9 ||
       (scale == 1 && !near(card.height, 116))) {
@@ -2022,7 +2056,7 @@ Map<String, Object?> _baseStyleMetrics() {
     'selectedTabSource':
         'Actual tab container bottom border width: active=2px, inactive=1px',
     'scope':
-        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, the 32px preview-card-to-category-heading gap, plus the 32px body start gap at scroll zero. Category editing, photo crop and the rest of overall result placement remain outside this judgment.',
+        'Actual effective RenderParagraph/RenderEditable styles and bounds, including the three result preview and three category text roles, link-validation-to-preview 32px or current-photo-filename-box-to-preview 16px, the title-only 8px maximum-width reduction with full-width source, the 14px preview title-to-source gap and visible paragraph lines, the 32px preview-card-to-category-heading gap, plus the 32px body start gap at scroll zero. Category editing, the different Figma photo-result image block, photo crop and the rest of overall result placement remain outside this judgment.',
   };
 }
 

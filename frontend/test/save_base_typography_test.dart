@@ -613,6 +613,25 @@ void _preview(
     find.ancestor(of: titleFinder, matching: find.byType(Column)).first,
   );
   final viewport = tester.getRect(find.byType(SingleChildScrollView));
+  final confirmation = tester.widget<SavedContentConfirmation>(result);
+  final isPhoto = confirmation.photoBytes != null;
+  final label = confirmation.originalUrl.isEmpty
+      ? confirmation.content.originalUrl
+      : confirmation.originalUrl;
+  final precedingBlock = tester.getRect(
+    isPhoto
+        ? find
+              .ancestor(of: find.text(label), matching: find.byType(Container))
+              .first
+        : find.descendant(of: result, matching: find.byType(ValidationMessage)),
+  );
+
+  _near(
+    failures,
+    '${isPhoto ? 'photo filename' : 'link validation'} to preview heading gap',
+    tester.getRect(find.text('미리보기')).top - precedingBlock.bottom,
+    isPhoto ? 16 : 32,
+  );
 
   _text(
     tester,

@@ -664,7 +664,7 @@ class SavedContentConfirmation extends StatelessWidget {
           const SizedBox(height: 5),
           const ValidationMessage(valid: true),
         ],
-        const SizedBox(height: 28),
+        SizedBox(height: isPhoto ? 16 : 32),
         const Text('미리보기', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         Container(

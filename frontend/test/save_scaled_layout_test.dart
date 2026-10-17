@@ -347,6 +347,22 @@ void main() {
                 tester.getRect(find.text('카테고리')).top - card.bottom,
                 closeTo(32, 0.01),
               );
+              final precedingBlock = tester.getRect(
+                photo
+                    ? find
+                          .ancestor(
+                            of: find.text('사진 파일 이름이 길어도 기존처럼 한 줄.png'),
+                            matching: find.byType(Container),
+                          )
+                          .first
+                    : find.byType(ValidationMessage),
+              );
+              expect(
+                tester.getRect(find.text('미리보기')).top - precedingBlock.bottom,
+                closeTo(photo ? 16 : 32, 0.01),
+                reason:
+                    'The actual preceding result block owns the preview gap',
+              );
               final inner = card.deflate(8);
               _contained(
                 title,
