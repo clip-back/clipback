@@ -5,6 +5,8 @@ Flutter mobile frontend for the Clipback MVP.
 FE 병합 전 수정 순서와 PR별 검증 결과는
 [FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
 
+이번 `56721f9` 기준 작업은 **K01 공지사항 목록의 승인된1배율 표현과 마이 왕복**입니다. 기존 mock 제목3개와 순서를 읽기 전용으로 보존하고 최소79px 행·자연 줄바꿈·별도64px 헤더를 적용합니다. My 스크롤은 공지 왕복에서만 유지하며 다른 경로와 계정/보안 경계에서는 초기화합니다. **재동결 집중20/전체1387·분석0·양 플랫폼 각30기록/전체true·오류0·새2쌍/영상2개·번들263/263·환경 정리를 확인했습니다.** 실제 결과는 아래 독립 기록을 따릅니다. 날짜/핀/화살표/상세·새 API와 운영 공지 기능은 후속입니다.
+
 현재 디자인 기준은 [허투루 Page 1의 261007](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-3379)입니다.
 파일 키 `svNWsTFh8Ws1Mpt8XQIcrN`의 **[Page 1(`0:1`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=0-1) > 261007(`111:3379`)**을 사용합니다.
 `1036398` 기준의 문서 전용 기준 전환은 `4d46dfa`에 저장했습니다. 당시 **2026-10-16 17:29:14~17:29:17 UTC(2026-10-17 02:29:14~02:29:17 KST)**에 Page 1 메타데이터를 한 번 조회해 화면 이름과 노드 대응을 확인했습니다.
@@ -2576,3 +2578,25 @@ flutter run --no-pub -t test/support/home_base_alignment_preview.dart --dart-def
 새 프리뷰는 실제 ClipbackApp·메모리 API/세션을 사용하고 첫 실행부터 공유를 격리합니다. `/scene?kind=normal|empty`는1배율 정적 상태, `/max-scroll`은 최대 스크롤, `/run`은 동작 검사이며 실제 스타일/기하/에셋/동작을 전체 판정에 연결합니다. 기존 `figma_home_preview.dart` 기본/확대 실행과 자동 검사는 유지합니다. 운영 계정/서버로 실행하는 도구가 아닙니다. 정책/실측·시도 기록은 [계획](../docs/figma-ui-alignment-plan.md)의 이번 홈 기록을 따릅니다.
 
 [최종 검증 요약](/private/tmp/clipback-home-base-alignment-20261018/tests/validation-summary.json)·[증거/소스 명세](/private/tmp/clipback-home-base-alignment-20261018/evidence-summary.json)는 빌드된269개 소스 SHA와 동결된 프리뷰/fixture2개 일치·비교4쌍/영상2개를 기록합니다. [환경 정리](/private/tmp/clipback-home-base-alignment-20261018/cleanup-verification.json)는 소유 시뮬레이터/에뮬레이터·포워딩·ADB를 종료하고5037/8767/8768 포트 닫힘·제스처2 유지·설정/사용자 데이터 변경0을 확인했습니다. 호스트 임시 비교 HTTP 서버는 실행하지 않았으며 증거·빌드·AGENTS.md는 커밋에서 제외하고 푸시/PR은 하지 않습니다.
+
+## 공지사항 목록의 1배율 맞춤 — 2026-10-18 작업
+
+`56721f9` 기준 K01의 승인된1배율 **읽기 전용 공지 목록과 마이 왕복**을 적용했습니다. 기존 mock 제목3개와 순서, 최소79px/내부16px/행 간격8px/본문끝24px·긴 제목의 전체 자연 줄바꿈을 사용합니다. 헤더64px·뒤로24px/터치48px·중앙+0.5px과 실제 SafeArea 한 번을 적용합니다. 게시일/핀/화살표·상세·새 API는 추가하지 않습니다.
+
+- [K01 `111:4592`](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-4592)의 계획 조회17:10:48~17:10:54 KST와 구현 **2026-10-18 17:18:42~17:18:47 KST**를 구분합니다. 구현1회로375×812px 원본/컨텍스트를 확보하고 기존 뒤로SVG를 정확한 원본과 대조·재사용했습니다([출처](/private/tmp/clipback-notice-alignment-20261018/figma/reference-manifest.json), [대조](/private/tmp/clipback-notice-alignment-20261018/figma/back-reuse-audit.json)).
+- [NoticeListScreen](lib/features/account/notice_list_screen.dart)·`AppRoute.noticeList`와 My의 선택적 `onOpenNotices`를 연결합니다. 실제 루트는4시트+별도 공지, callback 미주입 My는 기존5시트 fallback입니다. My 위치는 공지 왕복에서만 보존하고 다른 경로/계정·authEpoch·복구/오류·세션 clear 경계에서 초기화합니다. 오래된 callback은 캡처 generation/epoch·현재route/세션/처리 상태를 다시 검사합니다. API/모델·기존 인증/세션·공유 보안 정책은 유지합니다.
+- **재현/자동 검사:** 최초 제품 수정 전17:32경의 양 플랫폼 시트 원본은 보존합니다. 도구 보완 후 기준 제품diff0으로 재현한 새 BEFORE는 iOS17:49:07·Android17:52:00~01 KST, 각29동작true/오류0·prompt 차단 없음입니다([게이트](/private/tmp/clipback-notice-alignment-20261018/product-edit-gate.json)). 제품4파일은17:52:20 KST에 기존 최종본과 같은bytes로 복원했습니다([일치](/private/tmp/clipback-notice-alignment-20261018/corrected-tool-final-restore.json)). 재동결 기준 제품10건은4통과/K01 부재6목표 실패, AFTER는 스타일/긴 문구/독립back12+이동/보안5+대역 계약3=**20/20통과**입니다([최종 집중](/private/tmp/clipback-notice-alignment-20261018/tests/after-target-refrozen-contract.log)). [최종 검증 요약](/private/tmp/clipback-notice-alignment-20261018/tests/validation-summary.json)의 최종 전체는 **1387/1387건·실패/건너뜀0·1분27초/exit0**, 분석은 **문제0·3.5초/exit0**입니다([전체](/private/tmp/clipback-notice-alignment-20261018/tests/flutter-test-final.log), [분석](/private/tmp/clipback-notice-alignment-20261018/tests/flutter-analyze-final.log)).
+- **기기:** iPhone16/iOS18.6·Android13/API33 제스처의 AFTER 각30기록은 스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0·공유 배너/팝업 없음입니다([iOS](/private/tmp/clipback-notice-alignment-20261018/ios/after/report.json), [Android](/private/tmp/clipback-notice-alignment-20261018/android/after/report.json)). 실제 창393×852/safe59·34와392.727×783.273/safe24·0에서 각79px 행3개·21px 문단·8px 간격·64px 헤더/48px hit를 확인했습니다. 기본 공지 최대 스크롤0·My 위치0→0이고, 비0 복원과 낮은 화면의 마지막24px은 위젯 검사입니다. Android 실제 keyevent4도 요청 증가 없이 복귀했으며 iOS는 프레임워크 Pop입니다.
+- **증거/정리:** [기존 시트→새 목록→Figma2쌍](/private/tmp/clipback-notice-alignment-20261018/comparison-document.html)·[iOS](/private/tmp/clipback-notice-alignment-20261018/comparisons/ios-notice.png)·[Android](/private/tmp/clipback-notice-alignment-20261018/comparisons/android-notice.png)은 새 원본/동일 데이터·1배율/키보드 숨김/스크롤0이며 직접 대응하는 기존 K01 화면은 없음을 명시합니다. AFTER [iOS35.646667초](/private/tmp/clipback-notice-alignment-20261018/ios/after/actions.mp4)·[Android51.900044초](/private/tmp/clipback-notice-alignment-20261018/android/after/actions.mp4)의 [전체 디코딩/녹화](/private/tmp/clipback-notice-alignment-20261018/media-verification.json), [번들263/263](/private/tmp/clipback-notice-alignment-20261018/bundleverification.json), [환경 정리](/private/tmp/clipback-notice-alignment-20261018/cleanup-verification.json)를 확인했습니다. 소유 기기/ADB·포트 종료·제스처2 유지·설정/사용자 데이터 변경0이며 증거/빌드/AGENTS.md는 Git에서 제외합니다. [증거 요약](/private/tmp/clipback-notice-alignment-20261018/evidence-summary.json)은 현재 빌드 소스272개 SHA·가져온 도구31개의 BEFORE/AFTER 일치·HTML 로컬30/30링크를 기록합니다. [영상 프레임 검사](/private/tmp/clipback-notice-alignment-20261018/video-frame-review.json)도 통과했으며 영상의 반복 A01은 독립 대역 앱 생성 구간입니다.
+- **시도/한계:** 첫17/1384·분석0은 [당시 기록](/private/tmp/clipback-notice-alignment-20261018/.attempts/initial-tools-automated-checks/manifest.json)입니다. 게스트 사용자/공유 자격 소유자 대역 불일치→기존 오류 배너의 헤더 가림은 대역/프리뷰를 수정해 양 플랫폼을 재촬영했고 제품의 공유 보안을 우회하지 않았습니다. Android 첫 OS 응답 없음과 대역/하네스 실패는 보존합니다. 기존 소개3장의320×480px 아래297px 넘침은 수정하지 않고 인증/소개만812px·My/공지480px으로 분리해 검사했습니다. 실제 공지/상세·운영 문안·새 확대·OAuth/운영 서버/실기기/CI는 후속/미검증입니다. 상세 실측·시도는 [계획](../docs/figma-ui-alignment-plan.md)의 K01 기록을 따릅니다.
+
+### 공지사항 재현 명령
+
+```sh
+flutter test --no-pub test/notice_list_figma_test.dart test/notice_list_content_test.dart test/notice_navigation_test.dart test/notice_fixture_contract_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+flutter run --no-pub -t test/support/notice_alignment_preview.dart --dart-define=NOTICE_PHASE=after -d <device-id>
+```
+
+프리뷰는 실제 ClipbackApp·메모리 API/세션과 최초 실행부터의 공유 격리를 사용합니다. `/scene?kind=member`는 정적 목록/기준 시트, `/max-scroll`은 본문 끝, `/run`은 회원·게스트/기존4시트/계정·관리/탭·저장 닫기/세션 무효화 검사입니다. 같은 동결 도구를 기준 제품과 수정 제품에 각각 빌드하며 phase 이름만 바꿔 BEFORE를 대신하지 않습니다. 공유 준비 종료·오류/초안 없음과 실제 스타일/경계/에셋/동작을 전체 판정에 연결합니다. 운영 서버/계정으로 실행하는 도구가 아닙니다.

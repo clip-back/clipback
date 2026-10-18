@@ -728,6 +728,7 @@ String _route() {
   if (_find<AddContentSheet>(_root) != null) return 'save';
   if (_find<AccountManagementScreen>(_root) != null) return 'account';
   if (_find<CategoryManagementScreen>(_root) != null) return 'management';
+  if (_runtime('NoticeListScreen') != null) return 'noticeList';
   if (_find<MyScreen>(_root) != null) return 'my';
   if (_find<ArchiveScreen>(_root) != null) return 'archive';
   if (_find<BookmarkScreen>(_root) != null) return 'bookmark';
@@ -920,6 +921,30 @@ Future<void> _showTile(String title, String type) async {
   await _visible(tile);
   final before = _position(_my)!.pixels;
   await _tap(tile);
+  if (type == 'NoticeSheet') {
+    // K01's root route replaces only this sheet. Keep the frozen helper runnable
+    // on the baseline, which still opens the legacy modal.
+    await _wait(
+      () => _runtime('NoticeListScreen') != null || _runtime(type) != null,
+      'Notice entry did not open',
+    );
+    final notices = _runtime('NoticeListScreen');
+    if (notices != null) {
+      _record('notice_list_opened', {'offsetBefore': before});
+      await _tap(_key(notices, 'notice-back-hit')!);
+      await _wait(() => _route() == 'my', 'Notices did not return to My');
+      _require(
+        (_position(_my)!.pixels - before).abs() < .18,
+        'Notice round trip changed My scroll',
+      );
+      _record('notice_list_closed', {
+        'offsetBefore': before,
+        'offsetAfter': _position(_my)!.pixels,
+        'noScroll': _position(_my)!.maxScrollExtent == 0,
+      });
+      return;
+    }
+  }
   final sheet = await _modal(type), r = _box(sheet);
   _record('sheet_${type}_opened', {
     'modalType': type,

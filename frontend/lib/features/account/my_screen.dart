@@ -89,6 +89,7 @@ class MyScreen extends StatelessWidget {
     required this.onOpenAccount,
     required this.onOpenCategoryManagement,
     required this.onTab,
+    this.onOpenNotices,
     super.key,
   });
 
@@ -97,6 +98,7 @@ class MyScreen extends StatelessWidget {
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenCategoryManagement;
+  final VoidCallback? onOpenNotices;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -118,6 +120,7 @@ class MyScreen extends StatelessWidget {
               MyPageTopBar(onMore: onOpenAccount),
               Expanded(
                 child: ListView(
+                  key: const PageStorageKey('my-scroll'),
                   padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
                   children: [
                     MyProfileRow(user: user, onTap: onOpenAccount),
@@ -157,12 +160,14 @@ class MyScreen extends StatelessWidget {
                       children: [
                         MyListTile(
                           title: '공지사항',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const NoticeSheet(),
-                          ),
+                          onTap:
+                              onOpenNotices ??
+                              () => showModalBottomSheet<void>(
+                                context: context,
+                                useSafeArea: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => const NoticeSheet(),
+                              ),
                         ),
                         MyListTile(
                           title: '문의하기',

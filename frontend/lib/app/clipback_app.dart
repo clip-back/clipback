@@ -6,6 +6,8 @@ import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
+import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
@@ -49,6 +51,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   bool _persistenceBannerUpdateScheduled = false;
   PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
   int _archiveStorageAccountGeneration = 0;
+  PageStorageBucket _myNoticePageStorageBucket = PageStorageBucket();
+  AppRoute _myNoticeStorageRoute = AppRoute.splash;
+  int _myNoticeStorageAccountGeneration = 0;
+  int _myNoticeStorageAuthEpoch = 0;
+  bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
 
   @override
@@ -92,6 +99,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    _syncMyNoticeStorage();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
       _archiveStorageAccountGeneration = _d.app.accountGeneration;
       _archivePageStorageBucket = PageStorageBucket();
@@ -99,6 +107,49 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
     setState(() {});
     _flushUiEffects();
+  }
+
+  // Only the My -> notices -> My pair restores My's scroll position. Other
+  // routes and security/restore boundaries discard the old bucket entirely.
+  void _syncMyNoticeStorage() {
+    final route = _d.app.route;
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    final blocked =
+        _d.app.isRestoringSession ||
+        _d.app.apiConnectionError != null ||
+        _d.session.pendingSessionClear ||
+        !_d.session.hasSession;
+    final noticePair =
+        (_myNoticeStorageRoute == AppRoute.my &&
+            route == AppRoute.noticeList) ||
+        (_myNoticeStorageRoute == AppRoute.noticeList && route == AppRoute.my);
+    if (generation != _myNoticeStorageAccountGeneration ||
+        epoch != _myNoticeStorageAuthEpoch ||
+        blocked != _myNoticeStorageBlocked ||
+        (route != _myNoticeStorageRoute && !noticePair)) {
+      _myNoticePageStorageBucket = PageStorageBucket();
+    }
+    _myNoticeStorageRoute = route;
+    _myNoticeStorageAccountGeneration = generation;
+    _myNoticeStorageAuthEpoch = epoch;
+    _myNoticeStorageBlocked = blocked;
+  }
+
+  VoidCallback _noticeNavigation(AppRoute from, AppRoute to) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_canUseAccountActions ||
+          !_d.session.hasSession ||
+          _d.session.pendingSessionClear ||
+          _d.app.accountGeneration != generation ||
+          _d.app.authEpoch != epoch ||
+          _d.app.route != from) {
+        return;
+      }
+      _go(to);
+    };
   }
 
   void _finishLaunchSplash() {
@@ -496,13 +547,23 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onAddScreenshot: _d.save.addScreenshot,
           onTab: _selectRootTab,
         ),
-        AppRoute.my => MyScreen(
-          user: _d.account.user,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onOpenAccount: () => _go(AppRoute.account),
-          onOpenCategoryManagement: () => _openCategoryManagement(AppRoute.my),
-          onTab: _selectRootTab,
+        AppRoute.my => PageStorage(
+          key: ObjectKey(_myNoticePageStorageBucket),
+          bucket: _myNoticePageStorageBucket,
+          child: MyScreen(
+            user: _d.account.user,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onOpenAccount: () => _go(AppRoute.account),
+            onOpenCategoryManagement: () =>
+                _openCategoryManagement(AppRoute.my),
+            onOpenNotices: _noticeNavigation(AppRoute.my, AppRoute.noticeList),
+            onTab: _selectRootTab,
+          ),
+        ),
+        AppRoute.noticeList => NoticeListScreen(
+          titles: mockNotices,
+          onBack: _noticeNavigation(AppRoute.noticeList, AppRoute.my),
         ),
         AppRoute.account => AccountManagementScreen(
           user: _d.account.user,
