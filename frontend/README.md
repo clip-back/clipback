@@ -31,7 +31,9 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 
 앞선 `886cdea` 기준 작업은 **E08~E12 카테고리 관리 시트·삭제 팝업 본체의1배율 맞춤**입니다. 기존 색상/콘텐츠 보존/두 진입·모달 동선을 유지하며 배경 효과·자유 색상 선택기는 후속입니다. 실제 새 검사·비교10쌍·영상은 아래 시트 독립 기록을 따릅니다.
 
-이번 `c06e990` 기준 작업은 **J03 로그아웃 확인의 승인된1배율 표현과 기존 로그아웃 연결**입니다. 계정 관리에서 확인 화면 진입·취소 시 로그아웃 요청0회이며 확인에서만 기존 로그아웃을 요청합니다. 대기 중 확인/취소/헤더·OS 뒤로를 잠그고 일반 실패는 확인 화면에서 기존 오류 안내·수동 재시도, 기기 세션 삭제 실패는 기존 복구 화면을 우선합니다. **집중12/전체1349·분석0·양 플랫폼 각19기록/전체true·오류0·새 비교2쌍/영상2개**를 확인했습니다. 비교 왼쪽은 새로 촬영한 기존 계정 관리이며 대응하는 J03 BEFORE가 없음을 명시합니다. 기존 계정/인증·공유 정책과 새 확대 보류는 유지합니다.
+이번 `af13e37` 기준 작업은 **C01·확인된 C02의 승인된1배율 홈 표현 마무리**입니다. 홈 전용 로고·검정 검색/알림·헤더 중앙+0.5px, 추천 카드 여백/테두리·기존 예제의 빨간 강조, 최근 카드 내부/원본 미선택 별과 엄격한 빈 상태 판정을 맞췄습니다. **집중53/전체1367·최종 분석0·양 플랫폼 각23기록/전체true·프레임워크 오류0·새 비교4쌍/영상2개·환경 정리**를 확인했습니다. C02 안내/공지 대신 최근 카테고리·기존 단일 본문을 유지하며 실제 추천/공지 API·범위 밖 북마크 대기 중 부모 카드 탭 전파·새 확대는 후속입니다.
+
+직전 `c06e990` 기준 작업은 **J03 로그아웃 확인의 승인된1배율 표현과 기존 로그아웃 연결**입니다. 계정 관리에서 확인 화면 진입·취소 시 로그아웃 요청0회이며 확인에서만 기존 로그아웃을 요청합니다. 대기 중 확인/취소/헤더·OS 뒤로를 잠그고 일반 실패는 확인 화면에서 기존 오류 안내·수동 재시도, 기기 세션 삭제 실패는 기존 복구 화면을 우선합니다. **집중12/전체1349·분석0·양 플랫폼 각19기록/전체true·오류0·새 비교2쌍/영상2개**를 확인했습니다. 비교 왼쪽은 새로 촬영한 기존 계정 관리이며 대응하는 J03 BEFORE가 없음을 명시합니다. 기존 계정/인증·공유 정책과 새 확대 보류는 유지합니다.
 
 직전 `2a3c912` 기준 작업은 **B02·B03·B04 관심사 선택의1배율 표현과 승인된 화면 안 선택 동작 맞춤**입니다. 초기0개·1~3개 다음 활성·네 번째 거절/3초 인라인 안내를 적용·검증했습니다. 새 BEFORE/재현11건(1통과/10실패)을 확보했으며 AFTER 집중20/전체1337·분석0을 통과했으며 양 플랫폼 각16기록·전체true/오류0을 확인했으며 새 비교6쌍·영상2개/전체 디코딩·환경 정리를 확인했습니다. 선택값 저장·기본 공간 생성·권한·소개3장·새 확대와 시스템 뒤로가기 정책은 바꾸지 않습니다.
 
@@ -2548,3 +2550,29 @@ flutter run --no-pub -t test/support/logout_alignment_preview.dart --dart-define
 ```
 
 프리뷰는 실제 ClipbackApp·메모리 API/세션을 사용하고 첫 실행부터 네이티브 공유를 격리합니다. `/scene?kind=member` 또는 `/scene?kind=guest`는 정적 상태, `/run`은 AFTER 동작, `/baseline-run`은 BEFORE 동작용입니다. BEFORE는 기준 커밋의 제품 소스와 동결 프리뷰를 함께 빌드하며 현재 제품의 phase 이름만 바꿔 대체하지 않습니다. 각 실행에서 실제 스타일/레이아웃/에셋/동작 판정을 전체 결과에 연결합니다. 보고서 서버8767은 검증 종료 후 정리하며 운영 계정으로 실행하지 않습니다.
+
+
+## 홈 C01·C02의 1배율 표현 마무리 — 2026-10-18 작업
+
+이번 `af13e37` 기준 작업은 **C01·확인된 C02의 승인된1배율 홈 표현 마무리**입니다. 홈 전용 로고·검정 검색/알림·헤더 중앙+0.5px, 추천 카드 여백/테두리·기존 예제의 빨간 강조, 최근 카드 내부/원본 미선택 별과 엄격한 빈 상태 판정을 맞췄습니다. **집중53/전체1367·최종 분석0·양 플랫폼 각23기록/전체true·프레임워크 오류0·새 비교4쌍/영상2개·환경 정리**를 확인했습니다. C02 안내/공지 대신 최근 카테고리·기존 단일 본문을 유지하며 실제 추천/공지 API·범위 밖 북마크 대기 중 부모 카드 탭 전파·새 확대는 후속입니다.
+
+- 현재 원본은 Page 1 >261007의 C01 `111:3584`·C02 `111:3681`, 모두 **375×910px**입니다. 구현 직전 **2026-10-18 16:05:27.872/16:05:28.064 KST**에 컨텍스트/원본을 각1회 확보했습니다([출처](/private/tmp/clipback-home-base-alignment-20261018/figma/reference-manifest.json)). 새 로고/미선택 별 원본SVG2개와 기존 PNG크롭/공용 SVG를 대조했으며 raw 원본과 렌더 PNG·실제 번들 일치를 구분합니다([에셋 근거](/private/tmp/clipback-home-base-alignment-20261018/figma/asset-source-audit.json)).
+- [홈](lib/features/home/home_screen.dart)에 전용 표현을 적용하고 [북마크 버튼](lib/shared/content/bookmark_button.dart)의 선택적 `inactiveAsset` 기본값은 기존 에셋으로 유지합니다. 실제 콘텐츠/카테고리·최대4개·첫 배지·저장/목적지·공통 하단/OS 안전 영역·기존 확대를 보존합니다. 같은 피드 버전의 북마크 상태만 바뀌면 rail위치를 유지하고 성공 후 재조회·필터/버전/ID 순서 변경은 기존대로0으로 초기화합니다.
+- C02는 query/isFavorite/category 필터 없음·조회 완료·항목0·로딩/오류/추가 페이지/커서 없음이 확인될 때만 적용합니다. 안내/공지 미정으로 기존 최근 카테고리2개/날짜/이동·단일 본문 자연 줄바꿈을 유지합니다. 원본의 두 문단/안내 카드/알림 점까지 동일하다고 보고하지 않습니다. 추천은 기존 예제 ‘일본 여행’·‘다이어트’ 빨간 강조이며 실제 추천 API는 아닙니다.
+- 자동 검사는 BEFORE18건=8통과/목표 실패10·기준 회귀143통과, AFTER 집중53·상단 안전 영역11·전체 **1367/1367(86.91초)**·[최종 분석0/3.7초](/private/tmp/clipback-home-base-alignment-20261018/tests/final-restored-analyze.json)입니다([전체](/private/tmp/clipback-home-base-alignment-20261018/tests/final-checks.json)·[검사 제품 SHA/재촬영 복귀 일치](/private/tmp/clipback-home-base-alignment-20261018/tests/unit-verification-source-proof.json)). 옛 헤더Row 기대치의 첫 전체10실패와 점180ms 전환 중간 폭의 첫 네이티브false를 시도 기록에 보존하고 최종 재검증과 분리합니다. 후자는 제품 변경 없이 프리뷰 대기만 보완해 양 플랫폼 BEFORE/AFTER를 다시 촬영했습니다.
+- [변경 전→후→Figma4쌍](/private/tmp/clipback-home-base-alignment-20261018/comparison-document.html)·[iOS 개요](/private/tmp/clipback-home-base-alignment-20261018/comparisons/ios-overview.png)·[Android 개요](/private/tmp/clipback-home-base-alignment-20261018/comparisons/android-overview.png)는 같은 데이터/1배율/키보드 숨김/scroll0의 새 원본입니다. 최대 스크롤도 별도 기록하며 실제 OS 창/안전 여백과375×910px 원본을 보정하지 않습니다. [iOS](/private/tmp/clipback-home-base-alignment-20261018/ios/after/report.json)·[Android](/private/tmp/clipback-home-base-alignment-20261018/android/after/report.json) 각23기록의 스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0을 확인했습니다.
+- AFTER 영상 [iOS23.01초](/private/tmp/clipback-home-base-alignment-20261018/ios/after/actions.mp4)·[Android36.430122초](/private/tmp/clipback-home-base-alignment-20261018/android/after/actions.mp4)의 [전체 디코딩/녹화 완료](/private/tmp/clipback-home-base-alignment-20261018/media-verification.json)와 [실제 iOS/APK 번들294/294](/private/tmp/clipback-home-base-alignment-20261018/bundleverification.json)를 확인했습니다. 기존 프리뷰의 확대 반복 실행 결과를 이번1배율 증거로 재사용하지 않습니다.
+- **범위 밖 기능 발견:** 비활성 별 재탭의 부모 카드 상세 이동은 PUT1회 중복 차단과 별개입니다([관찰](/private/tmp/clipback-home-base-alignment-20261018/known-bookmark-disabled-tap-observation.json)). 새 이동 잠금을 구현하지 않았고 전체true가 이를 차단했다는 뜻은 아닙니다. 보고서 `writeRequests`는 허용 밖 쓰기이므로 ‘모든 쓰기0’이 아니며 실제 즐겨찾기 PUT·열람 POST를 별도 검사합니다. 추가 콘텐츠 저장/카테고리 변경은 없습니다. 실제 OAuth·운영 서버/추천·영속 데이터·실기기/CI·새 확대는 미검증입니다.
+
+### 홈 1배율 재현 명령
+
+```sh
+flutter test --no-pub test/home_base_alignment_test.dart test/home_alignment_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+flutter run --no-pub -t test/support/home_base_alignment_preview.dart --dart-define=HOME_BASE_PHASE=after -d <device-id>
+```
+
+새 프리뷰는 실제 ClipbackApp·메모리 API/세션을 사용하고 첫 실행부터 공유를 격리합니다. `/scene?kind=normal|empty`는1배율 정적 상태, `/max-scroll`은 최대 스크롤, `/run`은 동작 검사이며 실제 스타일/기하/에셋/동작을 전체 판정에 연결합니다. 기존 `figma_home_preview.dart` 기본/확대 실행과 자동 검사는 유지합니다. 운영 계정/서버로 실행하는 도구가 아닙니다. 정책/실측·시도 기록은 [계획](../docs/figma-ui-alignment-plan.md)의 이번 홈 기록을 따릅니다.
+
+[최종 검증 요약](/private/tmp/clipback-home-base-alignment-20261018/tests/validation-summary.json)·[증거/소스 명세](/private/tmp/clipback-home-base-alignment-20261018/evidence-summary.json)는 빌드된269개 소스 SHA와 동결된 프리뷰/fixture2개 일치·비교4쌍/영상2개를 기록합니다. [환경 정리](/private/tmp/clipback-home-base-alignment-20261018/cleanup-verification.json)는 소유 시뮬레이터/에뮬레이터·포워딩·ADB를 종료하고5037/8767/8768 포트 닫힘·제스처2 유지·설정/사용자 데이터 변경0을 확인했습니다. 호스트 임시 비교 HTTP 서버는 실행하지 않았으며 증거·빌드·AGENTS.md는 커밋에서 제외하고 푸시/PR은 하지 않습니다.

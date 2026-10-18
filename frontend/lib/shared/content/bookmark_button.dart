@@ -10,6 +10,7 @@ class BookmarkActionButton extends StatefulWidget {
     this.enabled = true,
     this.size = 28,
     this.hitSize = 44,
+    this.inactiveAsset = Assets.star,
     super.key,
   });
 
@@ -18,6 +19,7 @@ class BookmarkActionButton extends StatefulWidget {
   final bool enabled;
   final double size;
   final double hitSize;
+  final String inactiveAsset;
 
   @override
   State<BookmarkActionButton> createState() => _BookmarkActionButtonState();
@@ -43,7 +45,7 @@ class _BookmarkActionButtonState extends State<BookmarkActionButton> {
   @override
   Widget build(BuildContext context) {
     return SvgIconButton(
-      asset: _active ? Assets.starFilled : Assets.star,
+      asset: _active ? Assets.starFilled : widget.inactiveAsset,
       enabled: widget.enabled,
       onPressed: () {
         if (!widget.enabled) return;

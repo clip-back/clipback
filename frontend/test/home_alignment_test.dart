@@ -380,7 +380,7 @@ void main() {
         } else {
           expect(heroRect.height, 204);
         }
-        expect(headerRect.top - heroRect.top, 8);
+        expect(headerRect.top - heroRect.top, 8.5);
         expect(headerRect.height, 56);
         final headline = find.text(
           hasContent ? '나중에 보려던 것들,' : '아직 저장한 콘텐츠가 없어요.',

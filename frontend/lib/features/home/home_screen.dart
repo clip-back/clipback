@@ -152,6 +152,10 @@ class HomeScreen extends StatelessWidget {
         activeCategoryId == null &&
         feed != null &&
         feed!.categoryId == null &&
+        feed!.query == null &&
+        feed!.isFavorite == null &&
+        !feed!.hasMore &&
+        feed!.nextCursor == null &&
         feed!.initialized &&
         !feed!.loading &&
         feed!.error == null &&
@@ -231,28 +235,30 @@ class HomeHero extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: SizedBox(
+            key: const ValueKey('home-header'),
             height: 56,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  SvgPicture.asset(
-                    Assets.entryLogo,
-                    width: 71.41,
-                    height: 24,
-                    fit: BoxFit.fill,
-                  ),
-                  const Spacer(),
-                  SvgIconButton(
-                    asset: Assets.search,
-                    onPressed: onSearch,
-                    size: 24,
-                    hitSize: 24,
-                  ),
-                  const SizedBox(width: 16),
-                  Transform.translate(
-                    offset: const Offset(0, 1),
-                    child: SvgIconButton(
+              child: Transform.translate(
+                offset: const Offset(0, 0.5),
+                child: Row(
+                  children: [
+                    SvgPicture.asset(
+                      Assets.homeLogo,
+                      width: 71.41,
+                      height: 24,
+                      fit: BoxFit.fill,
+                    ),
+                    const Spacer(),
+                    SvgIconButton(
+                      asset: Assets.search,
+                      onPressed: onSearch,
+                      size: 24,
+                      hitSize: 24,
+                      color: Colors.black,
+                    ),
+                    const SizedBox(width: 16),
+                    SvgIconButton(
                       asset: Assets.bell,
                       onPressed: () => showModalBottomSheet<void>(
                         context: context,
@@ -262,9 +268,10 @@ class HomeHero extends StatelessWidget {
                       ),
                       size: 24,
                       hitSize: 24,
+                      color: Colors.black,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -764,9 +771,9 @@ class WeeklyPickRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final picks = [
-      ('많이 저장한', '일본 여행을\n준비 중이라면?', false),
-      ('자주 본', '평생의 숙제\n다이어트', false),
-      ('공지사항', '허투루\n100% 활용법', true),
+      ('많이 저장한', '일본 여행을\n준비 중이라면?', false, '일본 여행'),
+      ('자주 본', '평생의 숙제\n다이어트', false, '다이어트'),
+      ('공지사항', '허투루\n100% 활용법', true, ''),
     ];
     final labelHeight = _textHeight(context, '한', _pickLabel, maxLines: 1);
     final titleHeight = _textHeight(context, '한\n한', _cardTitle, maxLines: 2);
@@ -790,9 +797,12 @@ class WeeklyPickRail extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 width: 133,
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 16, 21, 16),
                 decoration: BoxDecoration(
                   color: pick.$3 ? AppColors.main : AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                foregroundDecoration: BoxDecoration(
                   border: pick.$3 ? null : Border.all(color: AppColors.faint),
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -806,8 +816,8 @@ class WeeklyPickRail extends StatelessWidget {
                       style: _pickLabel,
                     ),
                     const Spacer(),
-                    Text(
-                      pick.$2,
+                    Text.rich(
+                      _pickTitleSpan(pick.$2, pick.$4),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: _cardTitle,
@@ -821,6 +831,21 @@ class WeeklyPickRail extends StatelessWidget {
       ),
     );
   }
+}
+
+TextSpan _pickTitleSpan(String title, String highlighted) {
+  if (highlighted.isEmpty) return TextSpan(text: title);
+  final start = title.indexOf(highlighted);
+  return TextSpan(
+    children: [
+      TextSpan(text: title.substring(0, start)),
+      TextSpan(
+        text: highlighted,
+        style: const TextStyle(color: Color(0xFFFF0000)),
+      ),
+      TextSpan(text: title.substring(start + highlighted.length)),
+    ],
+  );
 }
 
 class HomeContentCard extends StatelessWidget {
@@ -869,7 +894,7 @@ class HomeContentCard extends StatelessWidget {
         child: Stack(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16.5, 16, 15.5, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -931,11 +956,12 @@ class HomeContentCard extends StatelessWidget {
               ),
             ),
             Positioned(
-              right: 4,
+              right: 3.5,
               top: 4,
               child: BookmarkActionButton(
                 key: ValueKey('home-bookmark-${content.title}'),
                 initialActive: bookmarked,
+                inactiveAsset: Assets.homeBookmarkOutline,
                 onToggle: onToggleBookmark,
                 enabled: content.mutationLabel == null,
               ),

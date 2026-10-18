@@ -211,12 +211,7 @@ void main() {
               (
                 'home',
                 home,
-                () => find
-                    .descendant(
-                      of: find.byType(HomeHero),
-                      matching: find.byType(Row),
-                    )
-                    .first,
+                () => find.byKey(const ValueKey('home-header')),
                 inset + 8,
                 56,
               ),

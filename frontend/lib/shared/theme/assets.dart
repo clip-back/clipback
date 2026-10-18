@@ -18,6 +18,8 @@ class Assets {
   static const onboarding3Png = 'assets/figma/onboarding-3.png';
   static const character1Png = 'assets/figma/hutureu-character-1.png';
   static const character2Png = 'assets/figma/hutureu-character-2.png';
+  static const homeLogo = 'assets/figma/home-logo.svg';
+  static const homeBookmarkOutline = 'assets/figma/home-bookmark-outline.svg';
   static const homeCharacter = 'assets/figma/home-character.png';
   static const homeHeroIllustration = 'assets/figma/home-hero.png';
   static const homeEmptyIllustration = 'assets/figma/home-empty.png';
