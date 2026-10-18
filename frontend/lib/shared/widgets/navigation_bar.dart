@@ -186,7 +186,11 @@ class NavAddButton extends StatelessWidget {
           border: Border.all(color: AppColors.surface, width: 4),
         ),
         child: Center(
-          child: SvgIcon(asset: Assets.plus, size: 38.5, color: AppColors.text),
+          child: SvgIcon(
+            asset: Assets.navAddPlus,
+            size: 38.5,
+            color: AppColors.text,
+          ),
         ),
       ),
     );

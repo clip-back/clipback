@@ -24,6 +24,7 @@ const navigationActiveAssets = [
 const navigationArchiveBookmarkAsset =
     'assets/icons/nav-bookmark-outline-archive.svg';
 const navigationMyInnerAsset = 'assets/icons/nav-account-outline-inner.svg';
+const navigationAddAsset = 'assets/icons/nav-add-plus.svg';
 
 List<Element> navigationElements(Element root) {
   final result = <Element>[root];
@@ -133,14 +134,31 @@ Map<String, Object?> navigationMeasure(Element root) {
       'maxLines': paragraph.maxLines,
     });
   }
+  final addButton = navigationFind<NavAddButton>(bar)!;
+  final addSvgs = navigationElements(addButton)
+      .where((e) => e.widget is SvgPicture)
+      .map((e) {
+        final svg = e.widget as SvgPicture;
+        return {
+          'asset': svg.bytesLoader is SvgAssetLoader
+              ? (svg.bytesLoader as SvgAssetLoader).assetName
+              : null,
+          'bounds': navigationRect(navigationBox(e)),
+          'expectedTint': '0xFF1A1A1A',
+          'tintMatches':
+              svg.colorFilter ==
+              const ColorFilter.mode(Color(0xFF1A1A1A), BlendMode.srcIn),
+          'filter': svg.colorFilter?.toString(),
+        };
+      })
+      .toList();
   return {
     'active': true,
     'activeIndex': active,
     'bounds': navigationRect(navigationBox(bar)),
     'slots': slots,
-    'addButton': navigationRect(
-      navigationBox(navigationFind<NavAddButton>(bar)!),
-    ),
+    'addButton': navigationRect(navigationBox(addButton)),
+    'addIconSvgs': addSvgs,
     'bottomViewPadding': media.viewPadding.bottom,
     'keyboardInset': media.viewInsets.bottom,
     'textScale': media.textScaler.scale(12) / 12,
@@ -175,6 +193,27 @@ Map<String, Object?> navigationJudgment(Map<String, Object?> measure) {
   number(add['height'], 72, 'add height');
   number(add['top'], (bar['top'] as num) - 22, 'add protrusion');
   number(add['centerX'], bar['centerX'] as num, 'add centered');
+  final addSvgs = measure['addIconSvgs'] as List;
+  if (addSvgs.length != 1) {
+    asset.add('add icon SVG count ${addSvgs.length} != 1');
+  }
+  for (final entry in addSvgs) {
+    final svg = entry as Map;
+    if (svg['asset'] != navigationAddAsset || svg['tintMatches'] != true) {
+      asset.add('add icon source/tint mismatch ${svg['asset']}');
+    }
+    final bounds = svg['bounds'] as Map;
+    number(bounds['width'], 38.5, 'add icon width');
+    number(bounds['height'], 38.5, 'add icon height');
+    number(bounds['centerX'], add['centerX'] as num, 'add icon centerX');
+    number(bounds['centerY'], add['centerY'] as num, 'add icon centerY');
+    if ((bounds['left'] as num) < (add['left'] as num) - .18 ||
+        (bounds['right'] as num) > (add['right'] as num) + .18 ||
+        (bounds['top'] as num) < (add['top'] as num) - .18 ||
+        (bounds['bottom'] as num) > (add['bottom'] as num) + .18) {
+      layout.add('add icon outside existing button bounds');
+    }
+  }
   num? firstIconTop;
   for (final entry in measure['slots'] as List) {
     final s = entry as Map, index = s['index'] as int;

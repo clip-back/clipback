@@ -47,6 +47,7 @@ class Assets {
   static const navAccountFilled = 'assets/icons/nav-account-filled.svg';
   static const navAccountOutlineInner =
       'assets/icons/nav-account-outline-inner.svg';
+  static const navAddPlus = 'assets/icons/nav-add-plus.svg';
   static const plus = 'assets/icons/plus.svg';
   static const search = 'assets/icons/search.svg';
   static const archiveSearch = 'assets/icons/archive-search.svg';
