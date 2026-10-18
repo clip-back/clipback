@@ -10,5 +10,6 @@ enum AppRoute {
   detail,
   my,
   account,
+  logoutConfirmation,
   categoryManagement,
 }

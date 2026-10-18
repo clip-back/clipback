@@ -6,7 +6,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
@@ -343,11 +342,7 @@ Future<void> _newAccount(
   await tester.pumpAndSettle();
   tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
   await tester.pumpAndSettle();
-  unawaited(
-    tester
-        .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
-        .onLogout(),
-  );
+  await startLogoutFromAccount(tester);
   await tester.pumpAndSettle();
   server.records.clear();
   await startGuestAndFinishOnboarding(tester);

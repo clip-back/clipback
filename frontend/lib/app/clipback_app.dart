@@ -4,6 +4,7 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
@@ -244,6 +245,31 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _go(AppRoute.categoryManagement);
   }
 
+  bool get _canUseAccountActions =>
+      mounted &&
+      !_d.app.authBusy &&
+      !_d.app.isRestoringSession &&
+      _d.app.apiConnectionError == null;
+
+  Future<void> _openLogoutConfirmation() async {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.account) return;
+    _go(AppRoute.logoutConfirmation);
+  }
+
+  Future<void> _confirmLogout() async {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
+      return;
+    }
+    await _d.app.logout();
+  }
+
+  void _cancelLogout() {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
+      return;
+    }
+    _go(AppRoute.account);
+  }
+
   void _selectRootTab(AppRoute route) {
     _d.detail.close();
     if (route == AppRoute.archive && _d.app.route != AppRoute.archive) {
@@ -481,9 +507,14 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         AppRoute.account => AccountManagementScreen(
           user: _d.account.user,
           onBack: () => _go(AppRoute.my),
-          onLogout: _d.app.logout,
+          onLogout: _openLogoutConfirmation,
           isGuest: _d.app.authenticatedUser?.isGuest,
           onConnect: _d.app.openAccountLogin,
+          busy: _d.app.authBusy,
+        ),
+        AppRoute.logoutConfirmation => LogoutConfirmationScreen(
+          onConfirm: _confirmLogout,
+          onCancel: _cancelLogout,
           busy: _d.app.authBusy,
         ),
         AppRoute.categoryManagement => PopScope<void>(

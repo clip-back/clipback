@@ -1,3 +1,4 @@
+import 'auth_navigation.dart';
 import 'support/app_startup.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -568,11 +569,7 @@ void main() {
           await tester.pumpAndSettle();
           tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
           await tester.pumpAndSettle();
-          await tester
-              .widget<AccountManagementScreen>(
-                find.byType(AccountManagementScreen),
-              )
-              .onLogout();
+          await logoutFromAccount(tester);
           await tester.pumpAndSettle();
           expect(find.byType(HomeScreen), findsNothing);
           expect(find.text('다시 시도'), findsOneWidget);

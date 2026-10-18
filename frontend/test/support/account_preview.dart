@@ -687,7 +687,17 @@ Future<void> _tapPoint(Offset p) async {
 }
 
 Future<void> _tap(Element e) => _tapPoint(_box(e).center);
+Element? get _logoutConfirmation {
+  for (final element in _elements(_root)) {
+    if (element.widget.runtimeType.toString() == 'LogoutConfirmationScreen') {
+      return element;
+    }
+  }
+  return null;
+}
+
 String _route() {
+  if (_logoutConfirmation != null) return 'logoutConfirmation';
   if (_find<AccountManagementScreen>(_root) != null) return 'account';
   if (_find<LoginScreen>(_root) != null) return 'login';
   if (_find<MyScreen>(_root) != null) return 'my';
@@ -968,29 +978,50 @@ Future<void> _run() async {
   _server.logoutGate = Completer<http.Response>();
   await _visible(_text(_account, '로그아웃')!);
   await _tap(_text(_account, '로그아웃')!);
+  if (_logoutConfirmation != null) {
+    _require(_server.logoutCalls == 0, 'Opening confirmation issued logout');
+    _record('logout_confirmation_open');
+    await _tap(_key(_logoutConfirmation!, 'logout-confirm')!);
+  }
   await _wait(
     () =>
         _server.logoutCalls == 1 &&
-        (_account.widget as AccountManagementScreen).busy,
+        (_logoutConfirmation != null
+            ? (_logoutConfirmation!.widget as dynamic).busy == true
+            : (_account.widget as AccountManagementScreen).busy),
     'Logout did not enter pending state',
   );
   _record('logout_pending_busy');
-  await _tap(_text(_account, '로그아웃')!);
-  await _tap(_text(_account, '계정 연결하기')!);
+  if (_logoutConfirmation != null) {
+    await _tap(_key(_logoutConfirmation!, 'logout-confirm')!);
+    await _tap(_key(_logoutConfirmation!, 'logout-cancel')!);
+  } else {
+    await _tap(_text(_account, '로그아웃')!);
+    await _tap(_text(_account, '계정 연결하기')!);
+  }
   _require(
-    _server.logoutCalls == 1 && _route() == 'account',
-    'Busy duplicate/connect was not blocked',
+    _server.logoutCalls == 1 &&
+        (_route() == 'account' || _route() == 'logoutConfirmation'),
+    'Busy duplicate or route change was not blocked',
   );
   _record('logout_duplicate_and_connect_blocked');
   _server.logoutGate!.complete(
     _server.json({'detail': '계정 관리 대역 로그아웃 실패'}, 503),
   );
   await _wait(
-    () =>
-        _route() == 'account' &&
-        !(_account.widget as AccountManagementScreen).busy,
-    'Failed logout did not restore current account',
+    () => (_logoutConfirmation != null
+        ? (_logoutConfirmation!.widget as dynamic).busy == false
+        : _route() == 'account' &&
+              !(_account.widget as AccountManagementScreen).busy),
+    'Failed logout did not release request lock',
   );
+  if (_logoutConfirmation != null) {
+    _record('logout_failure_confirmation_preserved');
+    ScaffoldMessenger.of(_logoutConfirmation!).hideCurrentSnackBar();
+    await _settle(6);
+    await _tap(_key(_logoutConfirmation!, 'logout-cancel')!);
+    await _wait(() => _route() == 'account', 'Failure cancel lost account');
+  }
   _require(
     (_account.widget as AccountManagementScreen).user.providerLabel ==
         initial.providerLabel,
@@ -1001,6 +1032,9 @@ Future<void> _run() async {
   await _settle(6);
   _server.logoutGate = null;
   await _tap(_text(_account, '로그아웃')!);
+  if (_logoutConfirmation != null) {
+    await _tap(_key(_logoutConfirmation!, 'logout-confirm')!);
+  }
   await _wait(() => _route() == 'login', 'Retry logout did not open Login');
   _require(
     _server.logoutCalls == 2 &&

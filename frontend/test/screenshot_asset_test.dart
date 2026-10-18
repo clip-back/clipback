@@ -6,7 +6,6 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -897,13 +896,7 @@ void main() {
         await tester.pumpAndSettle();
         tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
         await tester.pumpAndSettle();
-        unawaited(
-          tester
-              .widget<AccountManagementScreen>(
-                find.byType(AccountManagementScreen),
-              )
-              .onLogout(),
-        );
+        await startLogoutFromAccount(tester);
         await tester.pumpAndSettle();
         server.contents[0] = _content(id: 8, assetId: 10);
         await startGuestAndFinishOnboarding(tester);

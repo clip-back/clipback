@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
@@ -30,4 +31,37 @@ Future<void> completeInterestSelection(WidgetTester tester) async {
   await tester.ensureVisible(next);
   await tester.tap(next);
   await tester.pumpAndSettle();
+}
+
+/// Keeps the in-flight request available to tests that control its HTTP/storage
+/// gates. The helper itself only mounts and confirms the screen; it never waits
+/// for the request to finish.
+class LogoutAttempt {
+  const LogoutAttempt(this.completion);
+
+  final Future<void> completion;
+}
+
+Future<LogoutAttempt> startLogoutFromAccount(WidgetTester tester) async {
+  final navigationOrRequest = tester
+      .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
+      .onLogout();
+  await tester.pump();
+  // Runtime lookup keeps the frozen harness executable against the BEFORE
+  // source, where the account callback starts logout immediately.
+  final confirmation = find.byWidgetPredicate(
+    (widget) => widget.runtimeType.toString() == 'LogoutConfirmationScreen',
+  );
+  if (confirmation.evaluate().isEmpty) {
+    return LogoutAttempt(navigationOrRequest);
+  }
+  final dynamic screen = tester.widget(confirmation);
+  final completion = (screen.onConfirm as Future<void> Function())();
+  await tester.pump();
+  return LogoutAttempt(completion);
+}
+
+Future<void> logoutFromAccount(WidgetTester tester) async {
+  final attempt = await startLogoutFromAccount(tester);
+  await attempt.completion;
 }

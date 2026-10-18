@@ -1239,6 +1239,16 @@ Future<void> _run() async {
   final logout = _text(_find<AccountManagementScreen>(_root)!, '로그아웃')!;
   await _visible(logout);
   await _tap(logout);
+  // A baseline without J03 logs out immediately; the aligned route requires an
+  // explicit confirmation. Runtime lookup keeps this evidence harness portable.
+  final confirmation = _elements(_root).where(
+    (element) =>
+        element.widget.runtimeType.toString() == 'LogoutConfirmationScreen',
+  );
+  if (confirmation.isNotEmpty) {
+    _require(_server.logouts == 0, 'Confirmation entry issued logout');
+    await _tap(_key(confirmation.first, 'logout-confirm')!);
+  }
   await _wait(
     () => _route() == 'login' && !(_login.widget as LoginScreen).linkingGuest,
     'Logout did not restore ordinary Login',

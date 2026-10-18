@@ -31,7 +31,9 @@ FE 병합 전 수정 순서와 PR별 검증 결과는
 
 앞선 `886cdea` 기준 작업은 **E08~E12 카테고리 관리 시트·삭제 팝업 본체의1배율 맞춤**입니다. 기존 색상/콘텐츠 보존/두 진입·모달 동선을 유지하며 배경 효과·자유 색상 선택기는 후속입니다. 실제 새 검사·비교10쌍·영상은 아래 시트 독립 기록을 따릅니다.
 
-이번 `2a3c912` 기준 작업은 **B02·B03·B04 관심사 선택의1배율 표현과 승인된 화면 안 선택 동작 맞춤**입니다. 초기0개·1~3개 다음 활성·네 번째 거절/3초 인라인 안내를 적용·검증했습니다. 새 BEFORE/재현11건(1통과/10실패)을 확보했으며 AFTER 집중20/전체1337·분석0을 통과했으며 양 플랫폼 각16기록·전체true/오류0을 확인했으며 새 비교6쌍·영상2개/전체 디코딩·환경 정리를 확인했습니다. 선택값 저장·기본 공간 생성·권한·소개3장·새 확대와 시스템 뒤로가기 정책은 바꾸지 않습니다.
+이번 `c06e990` 기준 작업은 **J03 로그아웃 확인의 승인된1배율 표현과 기존 로그아웃 연결**입니다. 계정 관리에서 확인 화면 진입·취소 시 로그아웃 요청0회이며 확인에서만 기존 로그아웃을 요청합니다. 대기 중 확인/취소/헤더·OS 뒤로를 잠그고 일반 실패는 확인 화면에서 기존 오류 안내·수동 재시도, 기기 세션 삭제 실패는 기존 복구 화면을 우선합니다. **집중12/전체1349·분석0·양 플랫폼 각19기록/전체true·오류0·새 비교2쌍/영상2개**를 확인했습니다. 비교 왼쪽은 새로 촬영한 기존 계정 관리이며 대응하는 J03 BEFORE가 없음을 명시합니다. 기존 계정/인증·공유 정책과 새 확대 보류는 유지합니다.
+
+직전 `2a3c912` 기준 작업은 **B02·B03·B04 관심사 선택의1배율 표현과 승인된 화면 안 선택 동작 맞춤**입니다. 초기0개·1~3개 다음 활성·네 번째 거절/3초 인라인 안내를 적용·검증했습니다. 새 BEFORE/재현11건(1통과/10실패)을 확보했으며 AFTER 집중20/전체1337·분석0을 통과했으며 양 플랫폼 각16기록·전체true/오류0을 확인했으며 새 비교6쌍·영상2개/전체 디코딩·환경 정리를 확인했습니다. 선택값 저장·기본 공간 생성·권한·소개3장·새 확대와 시스템 뒤로가기 정책은 바꾸지 않습니다.
 
 앞선 `af93402` 기준 작업은 **A01 스플래시의1배율 표현·900ms 실제 시작 흐름과 네이티브 시작 리소스 맞춤**입니다. 신규24/전체1326·분석0, 양 플랫폼 Flutter/루트 각11시나리오·전체true/오류0을 확인했습니다. iOS 네이티브의 완전 불투명 로고/정적 색상은 미검증·부분 비교이며 아래 A01 기록에서 구분합니다. 소개3장·기존 인증/콘텐츠 보존 정책과1배율 우선 기준은 유지합니다.
 
@@ -2523,3 +2525,26 @@ flutter analyze --no-pub
 ```
 
 전용 검사 [interest_alignment_test.dart](test/interest_alignment_test.dart)는 실제 폰트·공개 위젯·실제 탭을 사용합니다. 하단37px을 유지하는 숨김 안내는 Text가 마운트됐는지 대신 `Visibility`의 실제 표시 상태로 판정합니다. [기존 루트 helper](test/auth_navigation.dart)와 [로그인 프리뷰](test/support/login_alignment_preview.dart)는 유효한 관심사를 실제로 선택하고 다음을 탭하며, BEFORE의 ‘완료’ fallback은 같은 촬영 소스의 기준 커밋 호환 용도입니다. 운영 관심사 저장이나 카테고리 생성 API는 호출하지 않습니다.
+
+
+## 로그아웃 확인 화면의 1배율 맞춤 — 2026-10-18 작업
+
+이번 `c06e990` 기준 작업은 **J03 로그아웃 확인의 승인된1배율 표현과 기존 로그아웃 연결**입니다. 계정 관리에서 확인 화면 진입·취소 시 로그아웃 요청0회이며 확인에서만 기존 로그아웃을 요청합니다. 대기 중 확인/취소/헤더·OS 뒤로를 잠그고 일반 실패는 확인 화면에서 기존 오류 안내·수동 재시도, 기기 세션 삭제 실패는 기존 복구 화면을 우선합니다. **집중12/전체1349·분석0·양 플랫폼 각19기록/전체true·오류0·새 비교2쌍/영상2개**를 확인했습니다. 비교 왼쪽은 새로 촬영한 기존 계정 관리이며 대응하는 J03 BEFORE가 없음을 명시합니다. 기존 계정/인증·공유 정책과 새 확대 보류는 유지합니다.
+
+- Page 1 > 261007의 [J03 `111:5767`](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-5767)을 구현 직전 **2026-10-18 14:22:47~14:22:53 KST**에 컨텍스트/원본1회로 조회했습니다. 계획 조회14:19 KST와 구분하며 실패/추가 MCP 호출·대체 원본은 없습니다.
+- [확인 화면](lib/features/account/logout_confirmation_screen.dart)은 내부 `AppRoute.logoutConfirmation`과 확인/취소/busy를 사용합니다. 기존 계정 화면 생성자/콜백·API/모델은 유지합니다. 제목은 기존 실제 Bold OTF 등록을 사용하고 헤더64px·일러스트224px·각 버튼48px·하단32px+OS 여백을 적용합니다. 낮은 화면은 본문만 스크롤합니다.
+- [최종 자동 요약](/private/tmp/clipback-logout-alignment-20261018/tests/validation-summary.json): BEFORE 전용11건(1통과/미존재 차이10실패)·호환 회귀259통과 후 제품을 적용했습니다. AFTER 전용12·전체1349/1349(실패/건너뜀0·106초)·분석0/exit0입니다. 12번째 J03 Apple 무효화 검사는 AFTER에 추가했으며 기존 확대 회귀를 유지합니다. 컴파일 parent-data/단위검사 플랫폼 보정의 첫 실패 로그는 같은 tests 디렉터리에 보존합니다.
+- [새 비교2쌍](/private/tmp/clipback-logout-alignment-20261018/comparison-document.html)·[iOS](/private/tmp/clipback-logout-alignment-20261018/comparisons/ios-logout.png)·[Android](/private/tmp/clipback-logout-alignment-20261018/comparisons/android-logout.png)은 **기존 J02 → 새 J03 → Figma**입니다. 직접 대응하는 J03 BEFORE는 없었으며 OS 창/안전 영역·데이터/1배율/scroll0을 그대로 기록합니다. 양 플랫폼 각19기록·스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0입니다([iOS 보고서](/private/tmp/clipback-logout-alignment-20261018/ios/after/report.json)·[Android 보고서](/private/tmp/clipback-logout-alignment-20261018/android/after/report.json)). 기본 최대 스크롤0이며 낮은 viewport의 드래그/끝24px 접근은 위젯 검사입니다.
+- AFTER 영상 [iOS15.85초](/private/tmp/clipback-logout-alignment-20261018/ios/after/actions.mp4)·[Android28.157278초](/private/tmp/clipback-logout-alignment-20261018/android/after/actions.mp4)과 [전체 디코딩/녹화 검사](/private/tmp/clipback-logout-alignment-20261018/media-verification.json)를 제공합니다. `/run`의 독립 회원/게스트 검사를 위한 앱 재생성으로 영상에 A01/반복 시작 구간이 있으며 제품 로그아웃 왕복의 스플래시 재실행을 뜻하지 않습니다. Android 실제 Back keyevent4는 [별도 기록](/private/tmp/clipback-logout-alignment-20261018/android/after/native-back.json), iOS는 프레임워크 Pop 전달입니다. 기존 SnackBar를 보존하며 새 오류 UI는 없습니다.
+- [번들254항목](/private/tmp/clipback-logout-alignment-20261018/bundleverification.json)은 원본/로컬/iOS/APK 이미지·실제 Bold 폰트·보호 소스 범위를 확인합니다. [환경 정리](/private/tmp/clipback-logout-alignment-20261018/cleanup-verification.json)는 소유 iOS/Android·드라이버/포트·ADB 종료를 확인했고 설정 변경/사용자 데이터 삭제/별도 호스트 HTTP 서버 실행은 없습니다. 상세 정책/실측은 [계획](../docs/figma-ui-alignment-plan.md)의 이번 J03 기록을 따릅니다. 실제 OAuth·운영 서버·영속 데이터·실기기/CI와 구분하며 탈퇴·별도 오류 디자인·J02 시스템 복귀·새 확대는 후속입니다.
+
+### 로그아웃 확인 재현 명령
+
+```sh
+flutter test --no-pub test/logout_alignment_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+flutter run --no-pub -t test/support/logout_alignment_preview.dart --dart-define=LOGOUT_ALIGNMENT_PHASE=after -d <device-id>
+```
+
+프리뷰는 실제 ClipbackApp·메모리 API/세션을 사용하고 첫 실행부터 네이티브 공유를 격리합니다. `/scene?kind=member` 또는 `/scene?kind=guest`는 정적 상태, `/run`은 AFTER 동작, `/baseline-run`은 BEFORE 동작용입니다. BEFORE는 기준 커밋의 제품 소스와 동결 프리뷰를 함께 빌드하며 현재 제품의 phase 이름만 바꿔 대체하지 않습니다. 각 실행에서 실제 스타일/레이아웃/에셋/동작 판정을 전체 결과에 연결합니다. 보고서 서버8767은 검증 종료 후 정리하며 운영 계정으로 실행하지 않습니다.

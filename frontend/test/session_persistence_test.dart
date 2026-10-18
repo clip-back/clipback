@@ -6,7 +6,6 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
@@ -736,11 +735,7 @@ void main() {
         await tester.pump();
         tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
         await tester.pump();
-        final logout = tester
-            .widget<AccountManagementScreen>(
-              find.byType(AccountManagementScreen),
-            )
-            .onLogout();
+        final logout = await startLogoutFromAccount(tester);
         await tester.pump();
         expect(server.calls('/api/v1/auth/logout'), isEmpty);
         expect(
@@ -750,7 +745,7 @@ void main() {
         );
         release.complete(true);
         await tester.pumpAndSettle();
-        await logout;
+        await logout.completion;
         expect(server.calls('/api/v1/auth/logout'), hasLength(1));
         expect(await _readFromDisk(), isNull);
         expect(
@@ -826,11 +821,7 @@ void main() {
         await tester.pump();
         tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
         await tester.pump();
-        final logout = tester
-            .widget<AccountManagementScreen>(
-              find.byType(AccountManagementScreen),
-            )
-            .onLogout();
+        final logout = await startLogoutFromAccount(tester);
         await tester.pump();
         expect(server.calls('/api/v1/auth/logout'), hasLength(1));
         expect(backing.removedKeys, isEmpty);
@@ -839,7 +830,7 @@ void main() {
         expect(server.calls('/api/v1/auth/guest'), isEmpty);
         oldWrite.complete(true);
         await tester.pumpAndSettle();
-        await logout;
+        await logout.completion;
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(backing.removedKeys, contains(_sessionKey));
         final guest = tester
