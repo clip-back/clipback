@@ -1068,7 +1068,15 @@ Future<void> _onboardingToHome() async {
     () => _route() == 'interests',
     'Guest onboarding did not reach interests',
   );
-  await _tap(_text(_find<InterestSelectionScreen>(_root)!, '완료')!);
+  final interests = _find<InterestSelectionScreen>(_root)!;
+  final tiles = _elements(
+    interests,
+  ).where((e) => e.widget is InterestOptionTile).toList();
+  if (!tiles.any((e) => (e.widget as InterestOptionTile).selected)) {
+    await _tap(tiles.first);
+    await _settle();
+  }
+  await _tap(_text(interests, '다음') ?? _text(interests, '완료')!);
   await _wait(() => _route() == 'home', 'Guest interests did not reach Home');
 }
 

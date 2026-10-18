@@ -96,7 +96,7 @@ void main() {
     });
 
     testWidgets(
-      'interests keeps its back and done buttons safe at inset $inset',
+      'interests keeps its no-back and guarded next button safe at inset $inset',
       (tester) async {
         var backCalls = 0;
         var doneCalls = 0;
@@ -109,21 +109,26 @@ void main() {
           inset,
         );
 
-        final backFinder = find.byWidgetPredicate(
-          (widget) => widget is SvgIconButton && widget.asset == Assets.back,
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget is SvgIconButton && widget.asset == Assets.back,
+          ),
+          findsNothing,
         );
-        final back = tester.getRect(backFinder);
         final title = tester.getRect(find.text('주로 어떤 정보를\n저장하고 싶으신가요?'));
-        expect(back.top, inset + 8);
-        expect(title.top, inset + 80);
-        expect(back.bottom, lessThanOrEqualTo(title.top));
-        final done = tester.getRect(find.widgetWithText(PrimaryButton, '완료'));
-        expect(done.bottom, 812 - 16);
-
-        await tester.tap(backFinder);
-        await tester.tap(find.text('완료'));
+        expect(title.top, closeTo(inset + 80, .2));
+        final next = find.widgetWithText(FilledButton, '다음');
+        expect(tester.getRect(next).bottom, 812 - 32);
+        expect(tester.widget<FilledButton>(next).onPressed, isNull);
+        await tester.tap(next);
+        await tester.pump();
+        expect(doneCalls, 0);
+        await tester.tap(find.byType(InterestOptionTile).first);
+        await tester.pump();
+        expect(tester.widget<FilledButton>(next).onPressed, isNotNull);
+        await tester.tap(next);
         await tester.pumpAndSettle();
-        expect(backCalls, 1);
+        expect(backCalls, 0);
         expect(doneCalls, 1);
         expect(tester.takeException(), isNull);
       },
