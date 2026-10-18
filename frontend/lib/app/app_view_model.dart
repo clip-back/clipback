@@ -10,6 +10,20 @@ import '../shared/contracts/ui_effect.dart';
 import '../social_auth.dart';
 import 'actions/account_initialization_action.dart';
 
+class OrdinaryLoginFailure {
+  const OrdinaryLoginFailure._({
+    required this.provider,
+    required this.authEpoch,
+    required this.accountGeneration,
+    this.statusCode,
+  });
+
+  final SocialLoginProvider provider;
+  final int authEpoch;
+  final int accountGeneration;
+  final int? statusCode;
+}
+
 class AppViewModel extends ChangeNotifier {
   AppViewModel({
     required SessionRepository session,
@@ -37,6 +51,7 @@ class AppViewModel extends ChangeNotifier {
   late final StreamSubscription<SessionInvalidation> _invalidations;
   late final StreamSubscription<void> _appleRevocations;
   final List<UiEffect> _effects = [];
+  OrdinaryLoginFailure? _ordinaryLoginFailure;
   Object? _initialization;
   int? _initializationGeneration;
   int? _initializationEpoch;
@@ -79,6 +94,31 @@ class AppViewModel extends ChangeNotifier {
   int get accountGeneration => _accountGeneration;
   List<SocialLoginProvider> get supportedProviders =>
       _session.supportedProviders;
+
+  OrdinaryLoginFailure? get ordinaryLoginFailure {
+    final failure = _ordinaryLoginFailure;
+    if (_disposed ||
+        failure == null ||
+        _authBusy ||
+        _isRestoringSession ||
+        _linkingGuest ||
+        _route != AppRoute.login ||
+        _apiConnectionError != null ||
+        _session.hasSession ||
+        _session.pendingSessionClear ||
+        failure.authEpoch != _authEpoch ||
+        failure.accountGeneration != _accountGeneration) {
+      return null;
+    }
+    return failure;
+  }
+
+  bool dismissOrdinaryLoginFailure(OrdinaryLoginFailure expected) {
+    if (!identical(ordinaryLoginFailure, expected)) return false;
+    _ordinaryLoginFailure = null;
+    _notify();
+    return true;
+  }
 
   List<UiEffect> drainEffects() {
     final pending = List<UiEffect>.of(_effects);
@@ -137,6 +177,7 @@ class AppViewModel extends ChangeNotifier {
 
   void _resetAccount() {
     _accountGeneration++;
+    _ordinaryLoginFailure = null;
     _firstAccountInitializationComplete = false;
     _clearInitialHomeLoading();
     _initializeAccount.reset(_accountGeneration);
@@ -148,6 +189,7 @@ class AppViewModel extends ChangeNotifier {
     switch (event) {
       case SessionInvalidation.started:
         _authEpoch++;
+        _ordinaryLoginFailure = null;
         _clearInitialHomeLoading();
         _setAuthBusy(false);
       case SessionInvalidation.completed:
@@ -173,6 +215,7 @@ class AppViewModel extends ChangeNotifier {
   Future<void> restoreSession() async {
     if (_disposed || _isRestoringSession || _authBusy) return;
     _isRestoringSession = true;
+    _ordinaryLoginFailure = null;
     Object? initialHomeLoading;
     _apiConnectionError = null;
     _notify();
@@ -280,6 +323,7 @@ class AppViewModel extends ChangeNotifier {
   Future<void> continueAsGuest() async {
     if (_disposed || _authBusy || _isRestoringSession) return;
     final epoch = ++_authEpoch;
+    _ordinaryLoginFailure = null;
     _setAuthBusy(true);
     try {
       if (!_session.hasSession) {
@@ -341,21 +385,56 @@ class AppViewModel extends ChangeNotifier {
     }
     final upgrade = _linkingGuest && !switchAccount;
     if (upgrade && _authenticatedUser?.isGuest != true) return;
+    final ordinaryAttempt =
+        !_linkingGuest &&
+        !switchAccount &&
+        _route == AppRoute.login &&
+        !_session.hasSession &&
+        !_session.pendingSessionClear &&
+        _apiConnectionError == null;
     final epoch = ++_authEpoch;
+    _ordinaryLoginFailure = null;
     final generation = _accountGeneration;
     bool current() =>
         !_disposed && epoch == _authEpoch && generation == _accountGeneration;
     _setAuthBusy(true);
     bool conflict = false;
+    bool authenticationStarted = false;
+    bool issuedSession = false;
+    bool captureOrdinaryFailure({int? statusCode}) {
+      if (!ordinaryAttempt ||
+          !authenticationStarted ||
+          issuedSession ||
+          !current() ||
+          _route != AppRoute.login ||
+          _linkingGuest ||
+          _isRestoringSession ||
+          _apiConnectionError != null ||
+          _session.hasSession ||
+          _session.pendingSessionClear) {
+        return false;
+      }
+      _ordinaryLoginFailure = OrdinaryLoginFailure._(
+        provider: provider,
+        authEpoch: epoch,
+        accountGeneration: generation,
+        statusCode: statusCode,
+      );
+      _notify();
+      return true;
+    }
+
     try {
       await _beforeSessionChange?.call();
       if (!current()) return;
+      authenticationStarted = true;
       final result = await _session.authenticateSocial(
         provider,
         upgrade: upgrade,
         isCurrent: current,
       );
       if (!current() || result == null) return;
+      issuedSession = true;
       _resetAccount();
       _postAuthRoute = result.session.isNewUser
           ? AppRoute.onboarding
@@ -372,7 +451,9 @@ class AppViewModel extends ChangeNotifier {
       if (_disposed || epoch != _authEpoch) return;
       await _reloadAfterAuthentication();
     } on SocialAuthException catch (error) {
-      if (!_disposed && epoch == _authEpoch) _showError(error.message);
+      if (!_disposed && epoch == _authEpoch && !captureOrdinaryFailure()) {
+        _showError(error.message);
+      }
     } on ClipbackApiException catch (error) {
       if (!_disposed && epoch == _authEpoch) {
         if (upgrade && error.statusCode == 401) {
@@ -392,10 +473,13 @@ class AppViewModel extends ChangeNotifier {
           if (_disposed || epoch != _authEpoch) return;
         }
         conflict = upgrade && error.statusCode == 409;
-        if (!conflict) _showError(error.message);
+        if (!conflict &&
+            !captureOrdinaryFailure(statusCode: error.statusCode)) {
+          _showError(error.message);
+        }
       }
     } catch (_) {
-      if (!_disposed && epoch == _authEpoch) {
+      if (!_disposed && epoch == _authEpoch && !captureOrdinaryFailure()) {
         _showError('로그인하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
@@ -431,6 +515,7 @@ class AppViewModel extends ChangeNotifier {
       }
     }
     if (_authenticatedUser?.isGuest != true) return;
+    _ordinaryLoginFailure = null;
     _linkingGuest = true;
     _route = AppRoute.login;
     _notify();
@@ -439,6 +524,7 @@ class AppViewModel extends ChangeNotifier {
   Future<void> logout() async {
     if (_disposed || _authBusy) return;
     final epoch = ++_authEpoch;
+    _ordinaryLoginFailure = null;
     final providers = _authenticatedUser?.linkedProviders ?? const <String>[];
     final provider = SocialLoginProvider.values
         .where((value) => providers.contains(value.name))
@@ -506,6 +592,7 @@ class AppViewModel extends ChangeNotifier {
 
   void go(AppRoute route) {
     if (_disposed) return;
+    if (route != AppRoute.login) _ordinaryLoginFailure = null;
     _route = route;
     if (route == AppRoute.home ||
         route == AppRoute.archive ||
@@ -520,6 +607,7 @@ class AppViewModel extends ChangeNotifier {
 
   void openSearch() {
     if (_disposed) return;
+    _ordinaryLoginFailure = null;
     _searchReturnRoute = _route;
     _route = AppRoute.search;
     _notify();
@@ -529,6 +617,7 @@ class AppViewModel extends ChangeNotifier {
 
   void openDetail() {
     if (_disposed) return;
+    _ordinaryLoginFailure = null;
     if (_route != AppRoute.detail) _previousRoute = _route;
     _route = AppRoute.detail;
     _notify();
@@ -536,6 +625,7 @@ class AppViewModel extends ChangeNotifier {
 
   void backFromDetail() {
     if (_disposed) return;
+    _ordinaryLoginFailure = null;
     _route = _previousRoute;
     _notify();
   }
@@ -543,6 +633,7 @@ class AppViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _ordinaryLoginFailure = null;
     _clearInitialHomeLoading();
     _authEpoch++;
     _effects.clear();

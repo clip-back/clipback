@@ -12,6 +12,7 @@ import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
@@ -31,6 +32,7 @@ import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
+import 'app_view_model.dart';
 import '../features/share/pending_share_prompt.dart';
 
 class ClipbackApp extends StatefulWidget {
@@ -53,6 +55,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
   bool _notificationSettingsOpen = false;
+  bool _loginFailureContactOpen = false;
   bool _permissionGuideAcknowledged = false;
   bool _permissionGuideVisitActive = false;
   int _permissionGuideVisitGeneration = -1;
@@ -269,6 +272,24 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     final guided = !_d.app.linkingGuest && providers.isNotEmpty;
     final generation = _d.app.accountGeneration;
     final epoch = _d.app.authEpoch;
+    final failure = _d.app.ordinaryLoginFailure;
+    if (failure != null) {
+      return LoginFailureScreen(
+        statusCode: failure.statusCode,
+        onChooseMethods: () => _dismissLoginFailure(failure),
+        onContinueAsGuest: () {
+          if (!_dismissLoginFailure(failure)) return;
+          unawaited(
+            _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            ),
+          );
+        },
+        onContact: () => unawaited(_showLoginFailureContact(failure)),
+      );
+    }
     return LoginScreen(
       onContinue: guided
           ? () => _withPermissionGuide(
@@ -290,6 +311,36 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       linkingGuest: _d.app.linkingGuest,
       onBack: _d.app.linkingGuest ? () => _go(AppRoute.account) : null,
     );
+  }
+
+  bool _canUseLoginFailure(OrdinaryLoginFailure expected) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      !_d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      identical(_d.app.ordinaryLoginFailure, expected);
+
+  bool _dismissLoginFailure(OrdinaryLoginFailure expected) =>
+      !_loginFailureContactOpen &&
+      _canUseLoginFailure(expected) &&
+      _d.app.dismissOrdinaryLoginFailure(expected);
+
+  Future<void> _showLoginFailureContact(OrdinaryLoginFailure expected) async {
+    if (_loginFailureContactOpen || !_canUseLoginFailure(expected)) return;
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    _loginFailureContactOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const ContactSheet(),
+      );
+    } finally {
+      _loginFailureContactOpen = false;
+    }
   }
 
   Future<void> _withPermissionGuide(

@@ -913,6 +913,18 @@ Future<void> loginConfirmPermissionGuide(
   await _settle(8);
 }
 
+/// A05 is optional on a frozen BEFORE build. Return using the real methods
+/// button only when that screen exists, preserving the old A02 retry harness.
+Future<void> loginReturnFromFailureIfPresent(
+  Element root, {
+  required Future<void> Function(Element) tap,
+}) async {
+  final methods = _key(root, 'login-failure-methods');
+  if (methods == null) return;
+  await tap(methods);
+  await _settle(4);
+}
+
 Future<void> _providerTap(SocialLoginProvider p) async {
   final e = _providerElement(p);
   await _visible(e);
@@ -1174,16 +1186,25 @@ Future<void> _run() async {
   await _providerTap(retryProvider);
   await _wait(
     () =>
-        _route() == 'login' &&
-        !(_login.widget as LoginScreen).busy &&
+        (_key(_root, 'login-failure-screen') != null ||
+            (_route() == 'login' && !(_login.widget as LoginScreen).busy)) &&
         _server.socialIssuances == 1,
-    'Failed issuance did not stay on Login',
+    'Failed issuance did not reach the existing or A05 failure state',
   );
   _require(
     _storage.value == null && _storage.writes == 0,
     'Failed issuance persisted session',
   );
-  _record('social_api_failure_no_session');
+  final failureUsedA05 = _key(_root, 'login-failure-screen') != null;
+  await loginReturnFromFailureIfPresent(_root, tap: _tap);
+  _require(
+    _route() == 'login',
+    'Methods return did not restore ordinary Login',
+  );
+  _record('social_api_failure_no_session', {
+    'failureUsedA05': failureUsedA05,
+    'returnedByActualMethodsButton': failureUsedA05,
+  });
   ScaffoldMessenger.of(_login).hideCurrentSnackBar();
   await _settle(6);
   await _providerTap(retryProvider);

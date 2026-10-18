@@ -396,6 +396,12 @@ void main() {
               .onSocialLogin(SocialLoginProvider.google),
         );
         await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('login-failure-screen')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('login-failure-methods')));
+        await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(storage.value, isNull);
         expect(server.socialIssuances, 1);

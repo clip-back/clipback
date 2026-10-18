@@ -301,6 +301,12 @@ void main() {
         await _approve(tester);
         await first();
         await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('login-failure-screen')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('login-failure-methods')));
+        await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(server.socialIssuances, 1);
         expect(storage.value, isNull);
