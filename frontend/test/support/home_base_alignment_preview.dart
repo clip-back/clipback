@@ -44,7 +44,14 @@ Element get _home => f.homeBaseFind<HomeScreen>(_root)!;
 String _route() {
   if (_capture.currentContext == null) return 'mounting';
   if (f.homeBaseFind<SaveContentTopBar>(_root) != null) return 'save';
-  if (f.homeBaseFind<NotificationSheet>(_root) != null) return 'notifications';
+  if (f.homeBaseFind<NotificationSheet>(_root) != null ||
+      f
+          .homeBaseElements(_root)
+          .any(
+            (e) => e.widget.runtimeType.toString() == 'NotificationListScreen',
+          )) {
+    return 'notifications';
+  }
   if (f.homeBaseFind<SearchScreen>(_root) != null) return 'search';
   if (f.homeBaseFind<DetailScreen>(_root) != null) return 'detail';
   if (f.homeBaseFind<ArchiveScreen>(_root) != null) return 'archive';
@@ -433,8 +440,8 @@ Future<void> _run() async {
       .where((e) => e.widget is SvgIconButton)
       .toList();
   await _tap(icons.last);
-  await _wait(() => _route() == 'notifications', 'Notification sheet missing');
-  _record('existing_notification_sheet');
+  await _wait(() => _route() == 'notifications', 'Notification entry missing');
+  _record('notification_entry_and_existing_home_behavior');
   await WidgetsBinding.instance.handlePopRoute();
   await _settle(6);
   _require(_route() == 'home', 'Notification close missing');

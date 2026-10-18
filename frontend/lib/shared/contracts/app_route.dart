@@ -4,6 +4,7 @@ enum AppRoute {
   onboarding,
   interests,
   home,
+  notificationList,
   archive,
   bookmark,
   search,

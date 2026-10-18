@@ -5,7 +5,7 @@ Flutter mobile frontend for the Clipback MVP.
 FE 병합 전 수정 순서와 PR별 검증 결과는
 [FE 병합 전 수정 진행 현황](../docs/fe-merge-fixes.md)에 기록합니다.
 
-이번 `56721f9` 기준 작업은 **K01 공지사항 목록의 승인된1배율 표현과 마이 왕복**입니다. 기존 mock 제목3개와 순서를 읽기 전용으로 보존하고 최소79px 행·자연 줄바꿈·별도64px 헤더를 적용합니다. My 스크롤은 공지 왕복에서만 유지하며 다른 경로와 계정/보안 경계에서는 초기화합니다. **재동결 집중20/전체1387·분석0·양 플랫폼 각30기록/전체true·오류0·새2쌍/영상2개·번들263/263·환경 정리를 확인했습니다.** 실제 결과는 아래 독립 기록을 따릅니다. 날짜/핀/화살표/상세·새 API와 운영 공지 기능은 후속입니다.
+이번 `220f313` 기준 작업은 **C03 알림 목록의 승인된1배율 표현·홈 왕복과 명시적 빈 위젯**입니다. 기존 제목/시간3개·순서를 읽기 전용으로 보존하고 설정은 기존 ReminderSheet로 연결합니다. 홈 세로·최근 카드/점은 알림 왕복에서만 유지합니다. **BEFORE16건=1통과/화면 부재15목표 실패·양 플랫폼 각18기록을 확인했습니다. 최종 AFTER 집중25/전체1412·분석0·각28기록/전체true·오류0·목록2쌍+신규 빈2건·영상2개·번들270/270·환경 정리를 확인했습니다.** 빈 위젯은 명시적 items=[] 장면이며 실제 루트의 알림0 조회 결과가 아닙니다. 운영 알림/읽음/삭제/API·설정은 후속입니다. 앞선 K01 기록은 당시 결과로 보존합니다.
 
 현재 디자인 기준은 [허투루 Page 1의 261007](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-3379)입니다.
 파일 키 `svNWsTFh8Ws1Mpt8XQIcrN`의 **[Page 1(`0:1`)](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=0-1) > 261007(`111:3379`)**을 사용합니다.
@@ -2600,3 +2600,27 @@ flutter run --no-pub -t test/support/notice_alignment_preview.dart --dart-define
 ```
 
 프리뷰는 실제 ClipbackApp·메모리 API/세션과 최초 실행부터의 공유 격리를 사용합니다. `/scene?kind=member`는 정적 목록/기준 시트, `/max-scroll`은 본문 끝, `/run`은 회원·게스트/기존4시트/계정·관리/탭·저장 닫기/세션 무효화 검사입니다. 같은 동결 도구를 기준 제품과 수정 제품에 각각 빌드하며 phase 이름만 바꿔 BEFORE를 대신하지 않습니다. 공유 준비 종료·오류/초안 없음과 실제 스타일/경계/에셋/동작을 전체 판정에 연결합니다. 운영 서버/계정으로 실행하는 도구가 아닙니다.
+
+## 홈 알림 화면의 1배율 맞춤 — 2026-10-18 작업
+
+`220f313` 기준 **C03-2 목록·홈 왕복과 C03-1의 명시적 빈 위젯**을 적용합니다. 기존 제목/시간3개·순서를 읽기 전용으로 보존하며 실제 알림/읽음/삭제/API는 추가하지 않습니다. 헤더64px·최소76px 행·좌우/상16·하24px·행 간격8px·원본 표시/설정/빈 일러스트를 사용합니다. 제목/시간은 글자 축소·말줄임 없이 자연 줄바꿈합니다.
+
+- 계획 조회18:08:14~19 KST와 구현 **2026-10-18 18:18:19~25 KST**를 구분하고 C03-1 `125:4173`·C03-2 `111:5410` 컨텍스트/375×812px 원본을 각1회 확보했습니다([출처](/private/tmp/clipback-notification-alignment-20261018/figma/reference-manifest.json)). 기존 뒤로 SVG는 정확한 bytes를 재사용하고 표시/설정/빈 원본3개를 로컬 등록합니다([대조](/private/tmp/clipback-notification-alignment-20261018/figma/asset-source-audit.json)). 두375×812px 원본의 공통 헤더·실제 OS 표시를 원본 그대로 비교합니다.
+- [NotificationListScreen](lib/features/home/notification_list_screen.dart)은 필수 record 목록 `items`와 `onBack`/`onOpenSettings`를 받습니다. HomeScreen/HomeHero의 선택적 `onOpenNotifications` 미주입은 기존 시트 fallback입니다. 실제 루트는 고정2슬롯에서 홈 State·세로/최근 카드/활성 점을 알림 왕복에 한해 보존하고 다른 경로/계정·인증/세션 복구 경계에서는 기존 초기화를 유지합니다. 숨은 홈의 입력/접근성/포커스·애니메이션 ticker와 비활성 알림 PopScope를 차단합니다. 설정은 기존 ReminderSheet이며 모달 중 중복/복귀 콜백을 차단합니다.
+- 빈 장면은 **명시적 items=[] 독립 위젯**입니다. 루트는 예제3개를 계속 표시하므로 홈 콘텐츠0·목록 없음·API 로딩을 알림0으로 추정하지 않습니다. 기존 실제 Bold 별칭·86×100px 원본 크롭/알파 그림자·자연 높이를 사용하며 낮은 화면에서도 본문 끝24px까지 스크롤합니다. API/Repository/모델·인증/세션/공유 보안 정책은 유지합니다.
+- **현재 검증:** [동결](/private/tmp/clipback-notification-alignment-20261018/tool-source-freeze.json) 기준 BEFORE16건=폰트1통과/C03 부재15목표 실패·양 플랫폼 각18기록/오류0·홈16px/최근320px/점1 왕복을 확인했습니다. 새 시트 원본은 iOS18:32:36~37·Android18:33:51~52 KST이며 [18:34:11 게이트](/private/tmp/clipback-notification-alignment-20261018/product-edit-gate.json) 뒤 제품을 적용했습니다. AFTER [최종 집중25/25](/private/tmp/clipback-notification-alignment-20261018/tests/after-target-final.log)(스타일7+콘텐츠/빈9+이동/보안9·약5초/exit0)는 통과했고 [iOS](/private/tmp/clipback-notification-alignment-20261018/ios/after/report.json)·[Android](/private/tmp/clipback-notification-alignment-20261018/android/after/report.json)의 각28기록은 스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0입니다. 최종 [전체1412/1412](/private/tmp/clipback-notification-alignment-20261018/tests/flutter-test-final.log)는1분24초·실패/건너뜀0·exit0, [분석](/private/tmp/clipback-notification-alignment-20261018/tests/flutter-analyze-final.log)은문제0·3.5초·exit0입니다. 최초 전체1412 통과 뒤 발견한 블록 중괄호 lint2건을 보완해 전체/분석을 다시 실행했습니다. 첫21/25의 단위 입력/대역/정리4실패는 별도 원본으로 보존하고 제품·촬영 fixture를 바꾸지 않고 단위 검사만 교정했습니다([입력](/private/tmp/clipback-notification-alignment-20261018/content-unit-input-correction.json), [대역/정리](/private/tmp/clipback-notification-alignment-20261018/navigation-unit-harness-correction.json)).
+- 목록은 기존 시트→새 목록→Figma2쌍, 빈은 BEFORE가 없는 신규2건으로 구분합니다. [비교 문서](/private/tmp/clipback-notification-alignment-20261018/comparison-document.html)는 실제 OS 여백·예제 데이터 차이를 표시하고 두 원본의 공통 헤더를 기준으로 사용합니다. AFTER 영상 [iOS31.323333초](/private/tmp/clipback-notification-alignment-20261018/ios/after/actions-preview.mp4)·[Android52.813544초](/private/tmp/clipback-notification-alignment-20261018/android/after/actions-preview.mp4)의 원본/표시본 전체 디코딩0·정확한 시작/끝/2초 간격 시각 검사, [실제 번들270/270](/private/tmp/clipback-notification-alignment-20261018/bundleverification.json)·[환경 정리](/private/tmp/clipback-notification-alignment-20261018/cleanup-verification.json)를 확인했습니다. 영상은 목록으로 시작/종료하며 중간 A01은 독립 대역 앱 초기화입니다. 실제 알림/푸시/읽음/삭제·운영 설정·원본 없는 상태·새 확대와 운영 서버/OAuth/실기기는 후속입니다. 기존 소개의 낮은 viewport 오류는 수정하지 않고 소개812px/홈·알림480px 검사를 구분합니다.
+
+- [증거 요약](/private/tmp/clipback-notification-alignment-20261018/evidence-summary.json)은 촬영 전후 native import34개와 현재 제품9파일의 동일성을 확인합니다. 보호 소스279개 중 공유 프리뷰1개는 촬영 뒤 중괄호만 달라 전체 현재 SHA가 모두 같다고 보고하지 않습니다. [형식 교정 기록](/private/tmp/clipback-notification-alignment-20261018/post-capture-lint-only-correction.json)에 원본 역재구성·현재 SHA와 native 재실행 없이 최종 자동 검사한 범위를 남겼습니다.
+
+### 알림 화면 재현 명령
+
+```sh
+flutter test --no-pub test/notification_list_figma_test.dart test/notification_list_content_test.dart test/notification_navigation_test.dart
+flutter test --no-pub
+flutter analyze --no-pub
+flutter run --no-pub -t test/support/notification_alignment_preview.dart --dart-define=NOTIFICATION_PHASE=before -d <device-id>
+flutter run --no-pub -t test/support/notification_after_preview.dart --dart-define=NOTIFICATION_PHASE=after -d <device-id>
+```
+
+core 프리뷰는 실제 ClipbackApp·메모리 API/세션·첫 실행부터의 공유 격리를 사용합니다. BEFORE는 실제 `220f313` 제품, AFTER는 수정 제품에서 빌드하며 phase 값만 바꾸어 이전 화면을 대신하지 않습니다. `/scene?kind=list&session=member`는 목록, AFTER 전용 `/empty-scene`은 명시적 빈 위젯, `/max-scroll`은 본문 끝, `/run`은 회원/게스트·홈 위치/점·설정·복귀·기존 목적지와 무효화를 검사합니다. AFTER adapter만 새 빈 위젯을 import하며 baseline에 존재하지 않는 장면을 BEFORE로 생성하지 않습니다. 실제 스타일·경계·에셋·동작 및 공유 prompt 차단 여부를 전체 판정에 연결합니다. 운영 서버/계정으로 실행하는 도구가 아닙니다.

@@ -23,6 +23,10 @@ class Assets {
   static const homeCharacter = 'assets/figma/home-character.png';
   static const homeHeroIllustration = 'assets/figma/home-hero.png';
   static const homeEmptyIllustration = 'assets/figma/home-empty.png';
+  static const notificationMarker = 'assets/figma/notification-marker.svg';
+  static const notificationSettings = 'assets/figma/notification-settings.svg';
+  static const notificationEmptyIllustration =
+      'assets/figma/notification-empty-original.png';
   static const unclassifiedEmptyIllustration =
       'assets/figma/unclassified-empty.png';
 

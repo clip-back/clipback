@@ -112,6 +112,7 @@ class HomeScreen extends StatelessWidget {
     this.onRetry,
     this.activeCategoryId,
     this.onCategorySelected,
+    this.onOpenNotifications,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
@@ -134,6 +135,7 @@ class HomeScreen extends StatelessWidget {
   final ValueChanged<CategoryItem?>? onCategorySelected;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
+  final VoidCallback? onOpenNotifications;
   final VoidCallback onSearch;
   final VoidCallback onOpenArchive;
   final VoidCallback onOpenCategories;
@@ -173,6 +175,7 @@ class HomeScreen extends StatelessWidget {
         body: SafeArea(
           bottom: false,
           child: SingleChildScrollView(
+            key: const ValueKey('home-scroll'),
             padding: const EdgeInsets.only(bottom: 16),
             child: Column(
               children: [
@@ -180,6 +183,7 @@ class HomeScreen extends StatelessWidget {
                   hasSavedContent: hasSavedContent,
                   confirmedEmpty: confirmedEmpty,
                   onSearch: onSearch,
+                  onOpenNotifications: onOpenNotifications,
                   onOpenToday: hasSavedContent
                       ? onOpenToday
                       : showAddContentSheet,
@@ -217,6 +221,7 @@ class HomeHero extends StatelessWidget {
   const HomeHero({
     required this.hasSavedContent,
     this.confirmedEmpty = false,
+    this.onOpenNotifications,
     required this.onSearch,
     required this.onOpenToday,
     super.key,
@@ -224,6 +229,7 @@ class HomeHero extends StatelessWidget {
 
   final bool hasSavedContent;
   final bool confirmedEmpty;
+  final VoidCallback? onOpenNotifications;
   final VoidCallback onSearch;
   final VoidCallback onOpenToday;
 
@@ -260,12 +266,14 @@ class HomeHero extends StatelessWidget {
                     const SizedBox(width: 16),
                     SvgIconButton(
                       asset: Assets.bell,
-                      onPressed: () => showModalBottomSheet<void>(
-                        context: context,
-                        useSafeArea: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => const NotificationSheet(),
-                      ),
+                      onPressed:
+                          onOpenNotifications ??
+                          () => showModalBottomSheet<void>(
+                            context: context,
+                            useSafeArea: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const NotificationSheet(),
+                          ),
                       size: 24,
                       hitSize: 24,
                       color: Colors.black,

@@ -18,6 +18,7 @@ import 'package:clipback_frontend/features/auth/session_restore_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
@@ -25,6 +26,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
+import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
 import '../features/share/pending_share_prompt.dart';
@@ -48,6 +50,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
+  bool _notificationSettingsOpen = false;
   bool _persistenceBannerUpdateScheduled = false;
   PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
   int _archiveStorageAccountGeneration = 0;
@@ -150,6 +153,51 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       }
       _go(to);
     };
+  }
+
+  bool _canUseNotifications(AppRoute from, int generation, int epoch) =>
+      _canUseAccountActions &&
+      _d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == generation &&
+      _d.app.authEpoch == epoch &&
+      _d.app.route == from;
+
+  VoidCallback _notificationNavigation(AppRoute from, AppRoute to) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_notificationSettingsOpen &&
+          _canUseNotifications(from, generation, epoch)) {
+        _go(to);
+      }
+    };
+  }
+
+  VoidCallback _notificationSettings() {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () => unawaited(_showNotificationSettings(generation, epoch));
+  }
+
+  Future<void> _showNotificationSettings(int generation, int epoch) async {
+    if (_notificationSettingsOpen ||
+        !_canUseNotifications(AppRoute.notificationList, generation, epoch)) {
+      return;
+    }
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    _notificationSettingsOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const ReminderSheet(),
+      );
+    } finally {
+      _notificationSettingsOpen = false;
+    }
   }
 
   void _finishLaunchSplash() {
@@ -425,30 +473,53 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onBack: () => _go(AppRoute.onboarding),
           onDone: () => _go(AppRoute.home),
         ),
-        AppRoute.home => HomeScreen(
-          contents: _d.home.page.items,
-          feed: _d.home.page,
-          onRetry: _d.home.retry,
-          activeCategoryId: _d.home.page.categoryId,
-          onCategorySelected: _d.home.selectCategory,
-          categories: _d.categories.categories,
-          bookmarkedIds: _d.home.bookmarkedIds,
-          onSearch: _openSearch,
-          onOpenArchive: () => _openArchive(
-            categoryName: _d.home.categories
-                .where((item) => item.id == _d.home.page.categoryId)
-                .firstOrNull
-                ?.name,
+        AppRoute.home || AppRoute.notificationList => _HomeNotificationFlow(
+          key: ValueKey((
+            _d.app.accountGeneration,
+            _d.app.authEpoch,
+            _d.session.pendingSessionClear,
+            _d.session.hasSession,
+          )),
+          showingNotifications: _d.app.route == AppRoute.notificationList,
+          home: HomeScreen(
+            contents: _d.home.page.items,
+            feed: _d.home.page,
+            onRetry: _d.home.retry,
+            activeCategoryId: _d.home.page.categoryId,
+            onCategorySelected: _d.home.selectCategory,
+            categories: _d.categories.categories,
+            bookmarkedIds: _d.home.bookmarkedIds,
+            onSearch: _openSearch,
+            onOpenNotifications: _notificationNavigation(
+              AppRoute.home,
+              AppRoute.notificationList,
+            ),
+            onOpenArchive: () => _openArchive(
+              categoryName: _d.home.categories
+                  .where((item) => item.id == _d.home.page.categoryId)
+                  .firstOrNull
+                  ?.name,
+            ),
+            onOpenCategories: () => _openArchive(tab: 1),
+            onOpenToday: _d.home.page.items.isEmpty
+                ? () {}
+                : () => _openDetail(_d.home.page.items.first),
+            onOpenContent: _openDetail,
+            onToggleBookmark: _d.home.toggleBookmark,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onTab: _selectRootTab,
           ),
-          onOpenCategories: () => _openArchive(tab: 1),
-          onOpenToday: _d.home.page.items.isEmpty
-              ? () {}
-              : () => _openDetail(_d.home.page.items.first),
-          onOpenContent: _openDetail,
-          onToggleBookmark: _d.home.toggleBookmark,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onTab: _selectRootTab,
+          notification: _d.app.route == AppRoute.notificationList
+              ? NotificationListScreen(
+                  items: mockNotifications,
+                  onBack: _notificationNavigation(
+                    AppRoute.notificationList,
+                    AppRoute.home,
+                  ),
+                  onOpenSettings: _notificationSettings(),
+                )
+              : const SizedBox.shrink(),
         ),
         AppRoute.archive => PageStorage(
           key: ValueKey(_archiveStorageAccountGeneration),
@@ -599,4 +670,34 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   Widget _withLaunchSplash(Widget route) => _launchPhase == _LaunchPhase.showing
       ? SplashScreen(onDone: _finishLaunchSplash)
       : route;
+}
+
+// Preserve the existing modal round-trip semantics only for home/notifications.
+// Other logical routes remove this subtree, as they did before this flow existed.
+class _HomeNotificationFlow extends StatelessWidget {
+  const _HomeNotificationFlow({
+    required this.showingNotifications,
+    required this.home,
+    required this.notification,
+    super.key,
+  });
+  final bool showingNotifications;
+  final Widget home;
+  final Widget notification;
+
+  @override
+  Widget build(BuildContext context) => IndexedStack(
+    index: showingNotifications ? 1 : 0,
+    children: [
+      TickerMode(
+        enabled: !showingNotifications,
+        child: ExcludeFocus(
+          excluding: showingNotifications,
+          child: ExcludeSemantics(excluding: showingNotifications, child: home),
+        ),
+      ),
+      // An inactive PopScope must not register against the home route.
+      notification,
+    ],
+  );
 }
