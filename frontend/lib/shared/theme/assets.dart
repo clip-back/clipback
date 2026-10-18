@@ -35,6 +35,18 @@ class Assets {
   static const star = 'assets/icons/star.svg';
   static const starFilled = 'assets/icons/star-filled.svg';
   static const account = 'assets/icons/account.svg';
+  static const navHomeOutline = 'assets/icons/nav-home-outline.svg';
+  static const navHomeFilled = 'assets/icons/nav-home-filled.svg';
+  static const navArchiveOutline = 'assets/icons/nav-archive-outline.svg';
+  static const navArchiveFilled = 'assets/icons/nav-archive-filled.svg';
+  static const navBookmarkOutline = 'assets/icons/nav-bookmark-outline.svg';
+  static const navBookmarkOutlineArchive =
+      'assets/icons/nav-bookmark-outline-archive.svg';
+  static const navBookmarkFilled = 'assets/icons/nav-bookmark-filled.svg';
+  static const navAccountOutline = 'assets/icons/nav-account-outline.svg';
+  static const navAccountFilled = 'assets/icons/nav-account-filled.svg';
+  static const navAccountOutlineInner =
+      'assets/icons/nav-account-outline-inner.svg';
   static const plus = 'assets/icons/plus.svg';
   static const search = 'assets/icons/search.svg';
   static const archiveSearch = 'assets/icons/archive-search.svg';

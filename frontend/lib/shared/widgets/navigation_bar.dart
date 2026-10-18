@@ -50,10 +50,36 @@ class ClipbackNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      NavSpec(Assets.home, '홈', AppRoute.home, 0),
-      NavSpec(Assets.archive, '아카이브', AppRoute.archive, 1),
-      NavSpec(Assets.star, '즐겨찾기', AppRoute.bookmark, 2),
-      NavSpec(Assets.account, '마이', AppRoute.my, 3),
+      NavSpec(
+        Assets.navHomeOutline,
+        '홈',
+        AppRoute.home,
+        0,
+        activeAsset: Assets.navHomeFilled,
+      ),
+      NavSpec(
+        Assets.navArchiveOutline,
+        '아카이브',
+        AppRoute.archive,
+        1,
+        activeAsset: Assets.navArchiveFilled,
+      ),
+      NavSpec(
+        activeIndex == 1
+            ? Assets.navBookmarkOutlineArchive
+            : Assets.navBookmarkOutline,
+        '즐겨찾기',
+        AppRoute.bookmark,
+        2,
+        activeAsset: Assets.navBookmarkFilled,
+      ),
+      NavSpec(
+        Assets.navAccountOutline,
+        '마이',
+        AppRoute.my,
+        3,
+        activeAsset: Assets.navAccountFilled,
+      ),
     ];
     final labelHeight = _maxLabelHeight(
       context,
@@ -192,11 +218,7 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            SvgIcon(
-              asset: spec.asset,
-              size: 28,
-              color: active ? AppColors.text : AppColors.subtler,
-            ),
+            _NavigationIcon(spec: spec, active: active),
             const SizedBox(height: 3),
             SizedBox(
               width: 56,
@@ -221,10 +243,49 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+class _NavigationIcon extends StatelessWidget {
+  const _NavigationIcon({required this.spec, required this.active});
+
+  final NavSpec spec;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.text : AppColors.subtler;
+    final asset = active ? spec.activeAsset ?? spec.asset : spec.asset;
+    return SizedBox(
+      key: ValueKey('navigation-icon-${spec.activeIndex}'),
+      width: 28,
+      height: 28,
+      child: !active && spec.route == AppRoute.my
+          ? Stack(
+              children: [
+                SvgIcon(asset: asset, size: 28, color: color),
+                Center(
+                  child: SvgIcon(
+                    asset: Assets.navAccountOutlineInner,
+                    size: 23.3333,
+                    color: color,
+                  ),
+                ),
+              ],
+            )
+          : SvgIcon(asset: asset, size: 28, color: color),
+    );
+  }
+}
+
 class NavSpec {
-  const NavSpec(this.asset, this.label, this.route, this.activeIndex);
+  const NavSpec(
+    this.asset,
+    this.label,
+    this.route,
+    this.activeIndex, {
+    this.activeAsset,
+  });
 
   final String asset;
+  final String? activeAsset;
   final String label;
   final AppRoute route;
   final int activeIndex;

@@ -9,7 +9,6 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
-import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -113,12 +112,17 @@ double _maxRenderedLabelHeight(WidgetTester tester) => _labels
     .map((label) => tester.getSize(_label(label)).height)
     .reduce(math.max);
 
-Finder _icon(String asset) => find.descendant(
-  of: find.byType(ClipbackNavigationBar),
-  matching: find.byWidgetPredicate(
-    (widget) => widget is SvgIcon && widget.asset == asset,
-  ),
-);
+// Follow the labelled touch slot, not a shared SVG path: active assets may
+// differ and the inactive My source contains two SVG layers.
+Finder _icon(String asset) {
+  final label = _labels[_icons.indexOf(asset)];
+  final column = find.descendant(
+    of: _slot(label),
+    matching: find.byType(Column),
+  );
+  final firstChild = (column.evaluate().single.widget as Column).children.first;
+  return find.byWidget(firstChild);
+}
 
 Finder _slot(String label) =>
     find.ancestor(of: _label(label), matching: find.byType(InkWell)).first;

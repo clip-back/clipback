@@ -24,7 +24,6 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
-import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -392,7 +391,12 @@ void _measureNavigation() {
     });
     final hit = _rect(ink!);
     final label = _rect(text);
-    final icon = _rect(_first<SvgIcon>(ink!));
+    final column = _first<Column>(ink!);
+    final firstWidget = (column.widget as Column).children.first;
+    final iconElement = _all(
+      column,
+    ).firstWhere((element) => identical(element.widget, firstWidget));
+    final icon = _rect(iconElement);
     _require(hit.width >= 55.5 && hit.height >= 55.5, '$title hit area shrank');
     _require(
       label.left >= hit.left - .5 &&

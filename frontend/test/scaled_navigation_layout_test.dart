@@ -138,12 +138,17 @@ Finder _navigationText(String label) => find.descendant(
   matching: find.text(label),
 );
 
-Finder _navigationIcon(String asset) => find.descendant(
-  of: find.byType(ClipbackNavigationBar),
-  matching: find.byWidgetPredicate(
-    (widget) => widget is SvgIcon && widget.asset == asset,
-  ),
-);
+// Follow the labelled touch slot, not a shared SVG path: active assets may
+// differ and the inactive My source contains two SVG layers.
+Finder _navigationIcon(String asset) {
+  final label = _labels[_icons.indexOf(asset)];
+  final column = find.descendant(
+    of: _slot(label),
+    matching: find.byType(Column),
+  );
+  final firstChild = (column.evaluate().single.widget as Column).children.first;
+  return find.byWidget(firstChild);
+}
 
 Finder _slot(String label) => find
     .ancestor(of: _navigationText(label), matching: find.byType(InkWell))
@@ -391,10 +396,13 @@ void main() {
                   tester.getSize(find.byType(ClipbackNavigationBar)).height,
                   bar.height,
                 );
-                final activeIcon = tester.widget<SvgIcon>(
-                  _navigationIcon(_icons[index]),
+                final activeLabel = tester.renderObject<RenderParagraph>(
+                  _navigationText(_labels[index]),
                 );
-                expect(activeIcon.color, AppColors.text);
+                expect(
+                  (activeLabel.text as TextSpan).style!.color,
+                  AppColors.text,
+                );
                 for (var icon = 0; icon < _icons.length; icon++) {
                   expect(
                     tester.getRect(_navigationIcon(_icons[icon])).center.dx,
