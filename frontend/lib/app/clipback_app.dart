@@ -13,6 +13,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:clipback_frontend/features/auth/session_restore_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
@@ -51,6 +52,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
   bool _notificationSettingsOpen = false;
+  bool _permissionGuideAcknowledged = false;
+  bool _permissionGuideVisitActive = false;
+  int _permissionGuideVisitGeneration = -1;
+  _PermissionGuideAttempt? _permissionGuideAttempt;
+  PermissionGuideRoute? _permissionGuideRoute;
   bool _persistenceBannerUpdateScheduled = false;
   PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
   int _archiveStorageAccountGeneration = 0;
@@ -81,6 +87,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _cancelPermissionGuide();
     WidgetsBinding.instance.removeObserver(this);
     _d.app.removeListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {
@@ -102,6 +109,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
       _archiveStorageAccountGeneration = _d.app.accountGeneration;
@@ -200,6 +208,157 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
   }
 
+  // An acknowledgement belongs to this ordinary-login visit, not to an auth
+  // attempt: the SDK increments authEpoch even when it cancels or fails.
+  void _syncPermissionGuideVisit() {
+    final active =
+        _d.app.route == AppRoute.login &&
+        !_d.app.linkingGuest &&
+        _d.app.supportedProviders.isNotEmpty &&
+        !_d.app.isRestoringSession &&
+        _d.app.apiConnectionError == null &&
+        !_d.session.pendingSessionClear;
+    final generation = _d.app.accountGeneration;
+    if (!active ||
+        !_permissionGuideVisitActive ||
+        generation != _permissionGuideVisitGeneration) {
+      _permissionGuideAcknowledged = false;
+    }
+    _permissionGuideVisitActive = active;
+    _permissionGuideVisitGeneration = generation;
+    final attempt = _permissionGuideAttempt;
+    if (_permissionGuideRoute != null &&
+        attempt != null &&
+        !_canStartGuidedAuthentication(attempt)) {
+      _cancelPermissionGuide();
+    }
+  }
+
+  bool _canStartGuidedAuthentication(_PermissionGuideAttempt attempt) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      _d.app.route == AppRoute.login &&
+      !_d.app.linkingGuest &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == attempt.generation &&
+      _d.app.authEpoch == attempt.epoch &&
+      _d.app.supportedProviders.isNotEmpty &&
+      (attempt.provider == null ||
+          _d.app.supportedProviders.contains(attempt.provider));
+
+  void _cancelPermissionGuide() {
+    final attempt = _permissionGuideAttempt;
+    final route = _permissionGuideRoute;
+    if (attempt == null || route == null) return;
+    attempt.cancel();
+    final navigator = _navigatorKey.currentState;
+    // Listeners may fire while Navigator is building. Retain the exact route,
+    // so a subsequent security sheet is never dismissed by an unrelated pop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator != null && navigator.mounted && route.isActive) {
+        navigator.removeRoute<bool>(route);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Widget _buildLogin() {
+    final providers = _d.app.supportedProviders;
+    final guided = !_d.app.linkingGuest && providers.isNotEmpty;
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return LoginScreen(
+      onContinue: guided
+          ? () => _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            )
+          : _d.app.continueAsGuest,
+      onSocialLogin: guided
+          ? (provider) => _withPermissionGuide(
+              () => _d.app.authenticateSocial(provider),
+              generation: generation,
+              epoch: epoch,
+              provider: provider,
+            )
+          : _d.app.authenticateSocial,
+      providers: providers,
+      busy: _d.app.authBusy,
+      linkingGuest: _d.app.linkingGuest,
+      onBack: _d.app.linkingGuest ? () => _go(AppRoute.account) : null,
+    );
+  }
+
+  Future<void> _withPermissionGuide(
+    Future<void> Function() selectedAction, {
+    required int generation,
+    required int epoch,
+    SocialLoginProvider? provider,
+  }) async {
+    if (!mounted) return;
+    _syncPermissionGuideVisit();
+    final attempt = _PermissionGuideAttempt(generation, epoch, provider);
+    if (_permissionGuideAttempt != null ||
+        !_canStartGuidedAuthentication(attempt)) {
+      return;
+    }
+    _permissionGuideAttempt = attempt;
+    PermissionGuideRoute? ownedRoute;
+    try {
+      if (!_permissionGuideAcknowledged) {
+        final navigator = _navigatorKey.currentState;
+        final context = _navigatorKey.currentContext;
+        if (navigator == null || context == null || !context.mounted) return;
+        late final PermissionGuideRoute route;
+        route = PermissionGuideRoute(
+          context: context,
+          builder: (context) => PermissionGuideSheet(
+            onContinue: () {
+              if (attempt.confirmed ||
+                  attempt.cancelled ||
+                  !identical(_permissionGuideAttempt, attempt) ||
+                  !identical(_permissionGuideRoute, route) ||
+                  !route.isCurrent ||
+                  !_canStartGuidedAuthentication(attempt)) {
+                return;
+              }
+              attempt.confirmed = true;
+              navigator.pop<bool>(true);
+            },
+          ),
+        );
+        ownedRoute = route;
+        _permissionGuideRoute = route;
+        final accepted = await Future.any<bool?>([
+          navigator.push<bool>(route),
+          attempt.cancellation.future,
+        ]);
+        if (!mounted) return;
+        // SDK UI must not overlap the bottom sheet's reverse transition.
+        await route.completed;
+        if (identical(_permissionGuideRoute, route)) {
+          _permissionGuideRoute = null;
+        }
+        if (accepted != true ||
+            attempt.cancelled ||
+            !_canStartGuidedAuthentication(attempt)) {
+          return;
+        }
+        _permissionGuideAcknowledged = true;
+      }
+      if (_canStartGuidedAuthentication(attempt)) await selectedAction();
+    } finally {
+      if (identical(_permissionGuideRoute, ownedRoute)) {
+        _permissionGuideRoute = null;
+      }
+      if (identical(_permissionGuideAttempt, attempt)) {
+        _permissionGuideAttempt = null;
+      }
+    }
+  }
+
   void _finishLaunchSplash() {
     if (!mounted || _launchPhase != _LaunchPhase.showing) return;
     setState(() => _launchPhase = _LaunchPhase.mounting);
@@ -291,6 +450,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onSessionChanged() {
     if (!mounted) return;
+    _syncPermissionGuideVisit();
     _isSessionStorageBusy.value = _d.session.storageBusy;
     _schedulePersistenceBannerUpdate();
   }
@@ -458,14 +618,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onRetry: _d.app.restoreSession,
           ),
         AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
-        AppRoute.login => LoginScreen(
-          onContinue: _d.app.continueAsGuest,
-          onSocialLogin: _d.app.authenticateSocial,
-          providers: _d.app.supportedProviders,
-          busy: _d.app.authBusy,
-          linkingGuest: _d.app.linkingGuest,
-          onBack: _d.app.linkingGuest ? () => _go(AppRoute.account) : null,
-        ),
+        AppRoute.login => _buildLogin(),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),
         ),
@@ -700,4 +853,19 @@ class _HomeNotificationFlow extends StatelessWidget {
       notification,
     ],
   );
+}
+
+class _PermissionGuideAttempt {
+  _PermissionGuideAttempt(this.generation, this.epoch, this.provider);
+
+  final int generation;
+  final int epoch;
+  final SocialLoginProvider? provider;
+  final cancellation = Completer<bool?>();
+  bool confirmed = false;
+  bool get cancelled => cancellation.isCompleted;
+
+  void cancel() {
+    if (!cancelled) cancellation.complete(null);
+  }
 }

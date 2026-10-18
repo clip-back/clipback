@@ -194,9 +194,12 @@ void main() {
       await _app(tester, server, social, () async {
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(server.calls, isEmpty);
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(server.calls, isEmpty);
         expect(await ApiSessionStorage().read(), isNull);
@@ -211,9 +214,12 @@ void main() {
       (tester) async {
         final server = _Server()..newUser = isNew;
         await _app(tester, server, _Social(), () async {
-          await tester
-              .widget<LoginScreen>(find.byType(LoginScreen))
-              .onSocialLogin(SocialLoginProvider.google);
+          await performLoginChoice(
+            tester,
+            () => tester
+                .widget<LoginScreen>(find.byType(LoginScreen))
+                .onSocialLogin(SocialLoginProvider.google),
+          );
           await tester.pumpAndSettle();
           expect(server.at('/auth/social/google'), hasLength(1));
           expect(jsonDecode(server.at('/auth/social/google').single.body), {
@@ -344,9 +350,12 @@ void main() {
       final server = _Server();
       final storage = _Storage()..failWrite = true;
       await _app(tester, server, _Social(), () async {
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(server.at('/auth/social/google'), hasLength(1));
@@ -371,9 +380,12 @@ void main() {
         ? _json({'detail': 'unavailable'}, 503)
         : null;
     await _app(tester, server, _Social(), () async {
-      await tester
-          .widget<LoginScreen>(find.byType(LoginScreen))
-          .onSocialLogin(SocialLoginProvider.google);
+      await performLoginChoice(
+        tester,
+        () => tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onSocialLogin(SocialLoginProvider.google),
+      );
       await tester.pumpAndSettle();
       expect(find.text('다시 시도'), findsOneWidget);
       fail = false;

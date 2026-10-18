@@ -890,10 +890,34 @@ Element _providerElement(SocialLoginProvider p) =>
     _key(_login, 'login-provider-${p.name}') ??
     _text(_login, loginLabel(p)) ??
     _text(_login, loginLabel(p, legacy: true))!;
+
+/// The ordinary login gate is optional on the frozen BEFORE source. This
+/// helper is used only after an explicit choice that intends to authenticate;
+/// B01 cancellation/pending/duplicate scenarios must not call it.
+Future<void> loginConfirmPermissionGuide(
+  Element root, {
+  required Future<void> Function(Element) tap,
+}) async {
+  await _settle(2);
+  final guide = _elements(root)
+      .where(
+        (element) =>
+            element.widget.runtimeType.toString() == 'PermissionGuideSheet',
+      )
+      .firstOrNull;
+  if (guide == null) return;
+  final button = _key(guide, 'permission-guide-continue-hit');
+  _require(button != null, 'B01 continuation button missing');
+  await Scrollable.ensureVisible(button!);
+  await tap(button);
+  await _settle(8);
+}
+
 Future<void> _providerTap(SocialLoginProvider p) async {
   final e = _providerElement(p);
   await _visible(e);
   await _tap(e);
+  await loginConfirmPermissionGuide(_root, tap: _tap);
 }
 
 Map<String, Object?> _sessionSummary() => {
@@ -1194,6 +1218,7 @@ Future<void> _run() async {
       _key(_login, 'login-guest-hit') ?? _text(_login, '게스트로 시작하기')!;
   await _visible(guestChoice);
   await _tap(guestChoice);
+  await loginConfirmPermissionGuide(_root, tap: _tap);
   await _wait(() => _route() == 'onboarding', 'Guest did not reach Onboarding');
   _require(
     _server.guestIssuances == 1 && _server.socialIssuances == 0,

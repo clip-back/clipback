@@ -836,6 +836,7 @@ void main() {
         final guest = tester
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onContinue();
+        await confirmPermissionGuideIfPresent(tester);
         await tester.pump();
         await guestWriteStarted.future;
         expect(server.calls('/api/v1/auth/guest'), hasLength(1));

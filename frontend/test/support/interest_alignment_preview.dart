@@ -356,6 +356,7 @@ Future<void> _rootFlow({required bool social}) async {
       : f.interestKey(screen, 'login-guest-hit')!;
   await _visible(target);
   await _tap(target);
+  await login.loginConfirmPermissionGuide(_root, tap: _tap);
   await _wait(
     () => _route() == 'onboarding',
     'Actual authentication did not reach intro',

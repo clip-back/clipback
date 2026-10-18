@@ -1,3 +1,4 @@
+import 'auth_navigation.dart';
 import 'support/app_startup.dart';
 import 'dart:async';
 import 'package:clipback_frontend/app/clipback_app.dart';
@@ -358,9 +359,12 @@ void main() {
         expect(server.requests, isEmpty);
         expect(storage.value, isNull);
         for (final p in social.supportedProviders) {
-          await tester
-              .widget<LoginScreen>(find.byType(LoginScreen))
-              .onSocialLogin(p);
+          await performLoginChoice(
+            tester,
+            () => tester
+                .widget<LoginScreen>(find.byType(LoginScreen))
+                .onSocialLogin(p),
+          );
           await tester.pumpAndSettle();
           expect(storage.value, isNull);
           expect(server.socialIssuances, 0);
@@ -385,16 +389,22 @@ void main() {
         social.gate = null;
         social.cancel = false;
         server.failIssuance = true;
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(storage.value, isNull);
         expect(server.socialIssuances, 1);
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(server.socialIssuances, 2);
@@ -418,9 +428,12 @@ void main() {
           ),
         );
         await completeAppStartup(tester);
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(OnboardingScreen), findsOneWidget);
         expect(next.socialIssuances, 1);

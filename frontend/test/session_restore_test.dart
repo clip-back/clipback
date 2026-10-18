@@ -517,9 +517,12 @@ void main() {
           );
           await _runApp(tester, server, (_) async {
             expect(find.byType(LoginScreen), findsOneWidget);
-            await tester
-                .widget<LoginScreen>(find.byType(LoginScreen))
-                .onContinue();
+            await performLoginChoice(
+              tester,
+              () => tester
+                  .widget<LoginScreen>(find.byType(LoginScreen))
+                  .onContinue(),
+            );
             await tester.pumpAndSettle();
             if (failure == '401') {
               expect(find.byType(LoginScreen), findsOneWidget);
@@ -573,7 +576,11 @@ void main() {
       );
       await _runApp(tester, server, (storage) async {
         expect(server.requests, isEmpty);
-        await tester.widget<LoginScreen>(find.byType(LoginScreen)).onContinue();
+        await performLoginChoice(
+          tester,
+          () =>
+              tester.widget<LoginScreen>(find.byType(LoginScreen)).onContinue(),
+        );
         await tester.pumpAndSettle();
         _expectError();
         expect(server.calls(_guest), hasLength(1));

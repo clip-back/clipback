@@ -2152,6 +2152,7 @@ void main() {
         final guest = tester
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onContinue();
+        await confirmPermissionGuideIfPresent(tester);
         await tester.pumpAndSettle();
         await guest;
         gate.complete(oldResponse!);
@@ -2398,6 +2399,7 @@ void main() {
         final guest = tester
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onContinue();
+        await confirmPermissionGuideIfPresent(tester);
         await tester.pumpAndSettle();
         await guest;
         tester.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
