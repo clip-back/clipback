@@ -13,6 +13,7 @@
 // the five screen-level states; photo-processing has no design and is rejected.
 // /base-style-run?resultsOnly=1&screenStates=1 runs those five result states.
 // /photo-frame-run inspects D07 geometry and photo save behavior at text scale 1.
+// D07 routes accept photoCase=default|landscape|tall; default static data is unchanged.
 // Clipboard setup runs only through the mobile app plugin. No host clipboard API.
 // Android host access: adb forward tcp:8768 tcp:8767.
 import 'dart:async';
@@ -55,6 +56,8 @@ var _baseStyleKind = '';
 var _baseInputSetupScope = '';
 var _resultScreenMode = false;
 var _categoryState = 'classified';
+var _photoCase = 'default';
+late Map<String, Uint8List> _photoCases;
 const _screenResultTitle = '기억하고 싶은 하루의 작은 순간들';
 const _baseStaticInputScope =
     'Fixed real TextField input/onChanged and deterministic in-memory picker/save callbacks; static base scenes do not use clipboard';
@@ -64,7 +67,12 @@ Future<void> main() async {
   _require(_phase == 'before' || _phase == 'after', 'Unknown phase');
   final photo = await rootBundle.load(Assets.savedPhotoPreview);
   final alternate = await rootBundle.load(Assets.saveLinkPreview);
-  _picker = _Picker(photo.buffer.asUint8List(), alternate.buffer.asUint8List());
+  _photoCases = {
+    'default': photo.buffer.asUint8List(),
+    'landscape': await _markerPhoto(800, 400),
+    'tall': await _markerPhoto(240, 1600),
+  };
+  _picker = _Picker(_photoCases['default']!, alternate.buffer.asUint8List());
   FilePicker.platform = _picker;
   _output = await Directory.systemTemp.createTemp('clipback-save-result-');
   final previous = FlutterError.onError;
@@ -139,8 +147,12 @@ Future<void> main() async {
           await _baseStyleScene(
             kind,
             categoryState: request.uri.queryParameters['categoryState'],
+            photoCase: request.uri.queryParameters['photoCase'] ?? 'default',
           );
-          await _capture(_baseStyleSceneName(kind));
+          await _capture(
+            _baseStyleSceneName(kind) +
+                (_photoCase == 'default' ? '' : '_$_photoCase'),
+          );
         case '/base-style-run':
           await _baseStyleRun(
             resultsOnly: request.uri.queryParameters['resultsOnly'] == '1',
@@ -296,11 +308,55 @@ ContentItem _content(String kind) => ContentItem(
       : 'not_requested',
 );
 
+Future<Uint8List> _markerPhoto(int width, int height) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final size = Size(width.toDouble(), height.toDouble());
+  canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF557799));
+  final corner = size.shortestSide * .18;
+  final markers = <(Rect, Color)>[
+    (Rect.fromLTWH(0, 0, corner, corner), const Color(0xFFFF0000)),
+    (
+      Rect.fromLTWH(size.width - corner, 0, corner, corner),
+      const Color(0xFF00FF00),
+    ),
+    (
+      Rect.fromLTWH(0, size.height - corner, corner, corner),
+      const Color(0xFF0000FF),
+    ),
+    (
+      Rect.fromLTWH(size.width - corner, size.height - corner, corner, corner),
+      const Color(0xFFFFFF00),
+    ),
+  ];
+  for (final (rect, color) in markers) {
+    canvas.drawRect(rect, Paint()..color = color);
+  }
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(width, height);
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  picture.dispose();
+  return png!.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
+}
+
 class _Picker extends FilePicker {
-  _Picker(this.photo, this.alternate);
-  final Uint8List photo;
-  final Uint8List alternate;
+  _Picker(this.photo, this.alternate)
+    : originalPhoto = photo,
+      originalAlternate = alternate;
+  Uint8List photo;
+  Uint8List alternate;
+  final Uint8List originalPhoto;
+  final Uint8List originalAlternate;
+  void useCase(String value) {
+    _require(_photoCases.containsKey(value), 'Unsupported photoCase');
+    _photoCase = value;
+    photo = _photoCases[value]!;
+    alternate = value == 'landscape' ? _photoCases['tall']! : originalAlternate;
+  }
+
   int calls = 0;
+  bool cancelNext = false;
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -316,6 +372,10 @@ class _Picker extends FilePicker {
     bool lockParentWindow = false,
     bool readSequential = false,
   }) async {
+    if (cancelNext) {
+      cancelNext = false;
+      return null;
+    }
     final next = calls++ == 0 ? photo : alternate;
     return FilePickerResult([
       PlatformFile(
@@ -676,8 +736,6 @@ Map<String, Element> _layoutNodes() {
     ).firstWhere((e) => identical(e.widget, innerWidget));
     for (final entry in <String, bool Function(Widget)>{
       'photoFrameClip': (w) => w is ClipRect,
-      'photoFrameLayout': (w) => w is LayoutBuilder,
-      'photoFrameStack': (w) => w is Stack,
       'photoFrameImage': (w) => w is Image,
     }.entries) {
       nodes[entry.key] = _elements(
@@ -1618,8 +1676,36 @@ Map<String, Object?> _photoFrameMetrics() {
   final clip = _rect(nodes['photoFrameClip']!);
   final image = _rect(nodes['photoFrameImage']!);
   final imageWidget = nodes['photoFrameImage']!.widget as Image;
-  final layout = _rect(nodes['photoFrameLayout']!);
-  final stack = nodes['photoFrameStack']!.widget as Stack;
+  final render = _elements(
+    nodes['photoFrameImage']!,
+  ).map((e) => e.findRenderObject()).whereType<RenderImage>().first;
+  final raw = render.image;
+  final imageBox = render.localToGlobal(Offset.zero) & render.size;
+  final original = raw == null
+      ? Size.zero
+      : Size(raw.width.toDouble(), raw.height.toDouble());
+  final fitted = original.isEmpty
+      ? null
+      : applyBoxFit(
+          render.fit ?? BoxFit.scaleDown,
+          original / render.scale,
+          render.size,
+        );
+  final alignment = imageWidget.alignment.resolve(
+    Directionality.of(outerElement),
+  );
+  final source = fitted == null
+      ? Rect.zero
+      : alignment.inscribe(
+          fitted.source * render.scale,
+          Offset.zero & original,
+        );
+  final destination = fitted == null
+      ? Rect.zero
+      : alignment.inscribe(fitted.destination, imageBox);
+  final visible = destination.intersect(clip);
+  final scaleX = source.width == 0 ? 0.0 : destination.width / source.width;
+  final scaleY = source.height == 0 ? 0.0 : destination.height / source.height;
   final clipWidget = nodes['photoFrameClip']!.widget as ClipRect;
   final selected =
       _first<SelectedPhotoPreview>().widget as SelectedPhotoPreview;
@@ -1641,8 +1727,24 @@ Map<String, Object?> _photoFrameMetrics() {
     'outer': _rectJson(outer),
     'inner': _rectJson(inner),
     'clip': _rectJson(clip),
-    'layoutBuilder': _rectJson(layout),
-    'stack': _rectJson(_rect(nodes['photoFrameStack']!)),
+    'photoCase': _photoCase,
+    'decodedOriginal': {'width': original.width, 'height': original.height},
+    'renderImageBox': _rectJson(imageBox),
+    'paintedSource': _rectJson(source),
+    'paintedDestination': _rectJson(destination),
+    'visiblePaintedDestination': _rectJson(visible),
+    'uniformScale': {'x': scaleX, 'y': scaleY},
+    'letterbox': {
+      'left': destination.left - inner.left,
+      'top': destination.top - inner.top,
+      'right': inner.right - destination.right,
+      'bottom': inner.bottom - destination.bottom,
+    },
+    'wholeSource':
+        original.width > 0 &&
+        (source.width - original.width).abs() < .01 &&
+        (source.height - original.height).abs() < .01 &&
+        destination.intersect(clip) == destination,
     'image': _rectJson(image),
     'sideInsets': {
       'left': inner.left - outer.left,
@@ -1674,12 +1776,11 @@ Map<String, Object?> _photoFrameMetrics() {
         ? null
         : _same(selected.photoBytes!, _picker.alternate),
     'imageFit': imageWidget.fit?.name,
-    'imageTopCoefficient': (image.top - layout.top) / layout.height,
-    'imageHeightCoefficient': image.height / layout.height,
+    'imageAlignment': alignment.toString(),
     'clipBehavior': clipWidget.clipBehavior.name,
-    'stackClipBehavior': stack.clipBehavior.name,
+
     'boundaryScope':
-        'Actual logical frame/clip/image render bounds. The full image intentionally exceeds the clip under the unchanged crop coefficients; viewport scrolling is not frame clipping. Native width follows the actual outer width, never a forced 375px Figma frame.',
+        'Actual RenderImage decoded dimensions, paintImage applyBoxFit source/destination and clip visibility, independently of removed Stack/LayoutBuilder. Uniform scaling and all source pixels visible are required; viewport scrolling is diagnosed separately from image clipping. Actual native outer width is retained.',
   };
 }
 
@@ -1730,17 +1831,13 @@ List<String> _photoFrameLayoutFindings() {
   if (padding.values.any((value) => !near(value, 16))) {
     findings.add('Photo frame explicit padding must remain 16px per side');
   }
-  for (final role in [
-    'photoFrameClip',
-    'photoFrameLayout',
-    'photoFrameStack',
-  ]) {
-    final rect = _rect(nodes[role]!);
+  final clip = _rect(nodes['photoFrameClip']!);
+  for (final rect in [clip, image]) {
     if (!near(rect.left, inner.left) ||
         !near(rect.top, inner.top) ||
         !near(rect.width, inner.width) ||
         !near(rect.height, inner.height)) {
-      findings.add('$role must match the actual inner frame');
+      findings.add('Photo clip/image box must match the actual inner frame');
     }
   }
   final innerBorder =
@@ -1749,14 +1846,23 @@ List<String> _photoFrameLayoutFindings() {
           .border;
   if (innerBorder != Border.all(color: AppColors.subtler) ||
       metrics['clipBehavior'] != 'hardEdge' ||
-      metrics['stackClipBehavior'] != 'hardEdge' ||
-      metrics['imageFit'] != 'fill' ||
-      ((metrics['imageTopCoefficient']! as num) + 0.4067).abs() > 0.000001 ||
-      ((metrics['imageHeightCoefficient']! as num) - 1.6607).abs() > 0.000001 ||
-      !near(image.left, inner.left) ||
-      !near(image.width, inner.width)) {
+      metrics['imageFit'] != 'contain' ||
+      metrics['imageAlignment'] != Alignment.center.toString()) {
     findings.add(
-      'Photo inner border/clip/image fit or crop coefficients changed',
+      'Photo must retain inner border/hard clip and use centered contain',
+    );
+  }
+  final original = metrics['decodedOriginal']! as Map<String, double>;
+  final scaling = metrics['uniformScale']! as Map<String, double>;
+  final letterbox = metrics['letterbox']! as Map<String, double>;
+  if (original.values.any((v) => v <= 0) ||
+      metrics['wholeSource'] != true ||
+      (scaling['x']! - scaling['y']!).abs() > .000001 ||
+      letterbox.values.any((v) => v < -.01) ||
+      (letterbox['left']! - letterbox['right']!).abs() > .1 ||
+      (letterbox['top']! - letterbox['bottom']!).abs() > .1) {
+    findings.add(
+      'Decoded original must be fully visible with equal scale and centered nonnegative letterbox',
     );
   }
   return findings;
@@ -2623,7 +2729,12 @@ void _checkBaseStyle() {
   _checkPhotoFrame();
 }
 
-Future<void> _baseStyleScene(String kind, {String? categoryState}) async {
+Future<void> _baseStyleScene(
+  String kind, {
+  String? categoryState,
+  String photoCase = 'default',
+}) async {
+  _picker.useCase(photoCase);
   if (categoryState != null) {
     _require(_isResult(kind), 'Category states apply only to result screens');
     _require(
@@ -3028,7 +3139,7 @@ Future<void> _baseStyleRun({
 
 Future<void> _photoFrameRun() async {
   _checksCompleted = false;
-  await _baseStyleScene('photo-selected');
+  await _baseStyleScene('photo-selected', photoCase: 'landscape');
   _require(_picker.calls == 1, 'Photo-frame initial selection missing');
   _require(
     _photoFrameMetrics()['photoMatchesOriginal'] == true &&
@@ -3036,6 +3147,17 @@ Future<void> _photoFrameRun() async {
     'Photo-frame initial bytes/tab changed',
   );
   await _capture('photo_frame_selected_scale_1');
+  _picker.cancelNext = true;
+  await _selectPhoto();
+  _require(
+    _picker.calls == 1 && _photoFrameMetrics()['photoMatchesOriginal'] == true,
+    'Photo selection cancel changed existing bytes',
+  );
+  _checks.add({
+    'scenario': 'photo_frame_selection_cancel_preserves_bytes',
+    'passed': true,
+    ..._snapshot(),
+  });
 
   await _tapText('링크 첨부');
   await _type(_url);
@@ -3059,6 +3181,7 @@ Future<void> _photoFrameRun() async {
     _picker.calls == 2 && _photoFrameMetrics()['photoMatchesAlternate'] == true,
     'Photo-frame reselection did not replace bytes',
   );
+  await _capture('photo_frame_reselected_tall_scale_1');
   await _tapText('링크 첨부');
   _require(
     identical(
@@ -3094,21 +3217,38 @@ Future<void> _photoFrameRun() async {
   });
   _bodyPosition.jumpTo(0);
   await _settle();
-  await _save();
   final state = _appKey.currentState!;
+  state.mode = 'fail';
+  await _save();
+  _require(
+    _has<SaveErrorToast>() &&
+        !_has<SavedContentConfirmation>() &&
+        _photoFrameMetrics()['photoMatchesAlternate'] == true,
+    'Failed photo save did not preserve selected bytes',
+  );
+  _checks.add({
+    'scenario': 'photo_frame_save_failure_preserves_tall_bytes',
+    'passed': true,
+    ..._snapshot(),
+  });
+  state.mode = 'success';
+  await _save();
   final result =
       _first<SavedContentConfirmation>().widget as SavedContentConfirmation;
   _require(
-    state.calls == 1 &&
-        state.submissions.length == 1 &&
-        state.submissions.single['kind'] == 'photo' &&
-        state.submissions.single['filename'] == 'other-photo.png' &&
-        state.submissions.single['byteLength'] == _picker.alternate.length &&
-        state.submissions.single['matchesAlternatePhoto'] == true &&
+    state.calls == 2 &&
+        state.submissions.length == 2 &&
+        state.submissions.every(
+          (s) =>
+              s['kind'] == 'photo' &&
+              s['filename'] == 'other-photo.png' &&
+              s['byteLength'] == _picker.alternate.length &&
+              s['matchesAlternatePhoto'] == true,
+        ) &&
         result.originalUrl == 'other-photo.png' &&
         result.photoBytes != null &&
         _same(result.photoBytes!, _picker.alternate),
-    'Photo-frame reselected file/bytes were not submitted exactly once',
+    'Photo-frame failed/retry attempts must use exact same original selected bytes and filename',
   );
   _checkBaseStyle();
   _checks.add({
@@ -3124,7 +3264,7 @@ Future<void> _photoFrameRun() async {
     _selectedTabFromUnderline() == '사진 첨부' &&
         pinned.originalUrl == result.originalUrl &&
         identical(pinned.photoBytes, result.photoBytes) &&
-        state.calls == 1,
+        state.calls == 2,
     'Photo-frame completion tab/result changed or resubmitted',
   );
   await _scrollToMax();
@@ -3137,7 +3277,7 @@ Future<void> _photoFrameRun() async {
   });
   await _tapText('닫기');
   _require(
-    !_has<AddContentSheet>() && state.calls == 1,
+    !_has<AddContentSheet>() && state.calls == 2,
     'Photo-frame close failed or submitted again',
   );
   _checks.add({'scenario': 'photo_frame_close', 'passed': true});
@@ -3155,6 +3295,7 @@ Map<String, Object?> _snapshot() {
   final selectedTab = _selectedTabFromUnderline();
   return {
     'scene': _scene,
+    'photoCase': _photoCase,
     'selectedTab': selectedTab,
     'confirmation': confirmation != null,
     'label': confirmation?.originalUrl,
@@ -3259,6 +3400,20 @@ Map<String, Object?> _status() => {
   'busy': _busy,
   'platform': Platform.operatingSystem,
   'output': _output.path,
+  'frameworkErrors': _errors,
+  'checksCompleted': _checksCompleted,
+  'checks': _checks,
+  'behaviorPassed':
+      _checksCompleted && !_checks.any((c) => c['passed'] == false),
+  'stylePassed': !_checks.any((c) => c['targetStylePassed'] == false),
+  'layoutPassed':
+      _errors.isEmpty && !_checks.any((c) => c['targetLayoutPassed'] == false),
+  'passed':
+      _checksCompleted &&
+      !_checks.any((c) => c['passed'] == false) &&
+      _errors.isEmpty &&
+      !_checks.any((c) => c['targetLayoutPassed'] == false) &&
+      !_checks.any((c) => c['targetStylePassed'] == false),
   ..._snapshot(),
 };
 

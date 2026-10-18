@@ -976,26 +976,18 @@ class SelectedPhotoPreview extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(border: Border.all(color: AppColors.subtler)),
         child: ClipRect(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: -constraints.maxHeight * 0.4067,
-                    height: constraints.maxHeight * 1.6607,
-                    child: photoBytes == null
-                        ? Image.asset(
-                            Assets.savedPhotoPreview,
-                            fit: BoxFit.fill,
-                          )
-                        : Image.memory(photoBytes!, fit: BoxFit.fill),
+          child: SizedBox.expand(
+            child: photoBytes == null
+                ? Image.asset(
+                    Assets.savedPhotoPreview,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.center,
+                  )
+                : Image.memory(
+                    photoBytes!,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.center,
                   ),
-                ],
-              );
-            },
           ),
         ),
       ),

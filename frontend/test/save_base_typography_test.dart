@@ -1306,14 +1306,9 @@ void _photoFrame(WidgetTester tester, List<String> failures) {
   final inner = find
       .ancestor(of: clip, matching: find.byType(DecoratedBox))
       .first;
-  final builder = find.descendant(
-    of: clip,
-    matching: find.byType(LayoutBuilder),
-  );
   final image = find.descendant(of: clip, matching: find.byType(Image));
   expect(container, findsOneWidget);
   expect(clip, findsOneWidget);
-  expect(builder, findsOneWidget);
   expect(image, findsOneWidget);
   final outerBounds = tester.getRect(container);
   final innerBounds = tester.getRect(inner);
@@ -1348,7 +1343,6 @@ void _photoFrame(WidgetTester tester, List<String> failures) {
     16,
   );
   _same(failures, 'photo clip bounds', clipBounds, innerBounds);
-  _same(failures, 'photo layout bounds', tester.getRect(builder), innerBounds);
   _inside(failures, 'photo inner frame containment', innerBounds, outerBounds);
   _same(
     failures,
@@ -1356,11 +1350,6 @@ void _photoFrame(WidgetTester tester, List<String> failures) {
     tester.widget<ClipRect>(clip).clipBehavior,
     Clip.hardEdge,
   );
-  final stack = tester.widget<Stack>(
-    find.descendant(of: builder, matching: find.byType(Stack)),
-  );
-  _same(failures, 'photo stack clip', stack.clipBehavior, Clip.hardEdge);
-
   final outer = tester.widget<Container>(container);
   final background = outer.decoration! as BoxDecoration;
   final outline = outer.foregroundDecoration as BoxDecoration? ?? background;
@@ -1389,33 +1378,193 @@ void _photoFrame(WidgetTester tester, List<String> failures) {
     );
   }
 
-  // The existing enlarged image intentionally extends beyond the clip. Keep
-  // its relative crop; containment applies to the clip, not the image itself.
-  _near(failures, 'photo image left', imageBounds.left, clipBounds.left);
-  _near(failures, 'photo image right', imageBounds.right, clipBounds.right);
-  _near(
-    failures,
-    'photo crop top',
-    imageBounds.top - clipBounds.top,
-    -clipBounds.height * 0.4067,
-  );
-  _near(
-    failures,
-    'photo crop height',
-    imageBounds.height,
-    clipBounds.height * 1.6607,
-  );
+  _same(failures, 'photo image box fills inner frame', imageBounds, clipBounds);
   _same(
     failures,
     'photo image fit',
     tester.widget<Image>(image).fit,
-    BoxFit.fill,
+    BoxFit.contain,
   );
+  _same(
+    failures,
+    'photo image alignment',
+    tester.widget<Image>(image).alignment,
+    Alignment.center,
+  );
+
+  // Match paintImage's source/destination calculation using the decoded image,
+  // rather than treating the Image widget's layout box as the painted photo.
+  final raw = find.descendant(of: image, matching: find.byType(RawImage));
+  final render = tester.renderObject<RenderImage>(raw);
+  final decoded = render.image;
+  if (decoded == null) {
+    failures.add('photo must be decoded before measuring painted bounds');
+    return;
+  }
+  final sourceSize = Size(decoded.width.toDouble(), decoded.height.toDouble());
+  final fitted = applyBoxFit(
+    render.fit ?? BoxFit.scaleDown,
+    sourceSize / render.scale,
+    render.size,
+  );
+  final alignment = render.alignment.resolve(render.textDirection);
+  final source = alignment.inscribe(
+    fitted.source * render.scale,
+    Offset.zero & sourceSize,
+  );
+  final painted = alignment.inscribe(fitted.destination, tester.getRect(raw));
+  final expected = _containedPhotoRect(sourceSize, clipBounds);
+  _same(
+    failures,
+    'photo entire decoded source',
+    source,
+    Offset.zero & sourceSize,
+  );
+  _near(
+    failures,
+    'photo uniform horizontal/vertical scaling',
+    painted.width / source.width,
+    painted.height / source.height,
+  );
+  for (final edge in [
+    ('left', painted.left, expected.left),
+    ('top', painted.top, expected.top),
+    ('right', painted.right, expected.right),
+    ('bottom', painted.bottom, expected.bottom),
+  ]) {
+    _near(failures, 'photo painted ${edge.$1}', edge.$2, edge.$3);
+  }
+  _near(
+    failures,
+    'photo painted center x',
+    painted.center.dx,
+    clipBounds.center.dx,
+  );
+  _near(
+    failures,
+    'photo painted center y',
+    painted.center.dy,
+    clipBounds.center.dy,
+  );
+  _inside(failures, 'photo painted containment', painted, clipBounds);
+}
+
+const _photoBoundaryKey = ValueKey('photo-pixel-boundary');
+
+Rect _containedPhotoRect(Size source, Rect frame) {
+  final scale = math.min(
+    frame.width / source.width,
+    frame.height / source.height,
+  );
+  return Rect.fromCenter(
+    center: frame.center,
+    width: source.width * scale,
+    height: source.height * scale,
+  );
+}
+
+const _cornerColors = [
+  Color(0xFFFF0000),
+  Color(0xFF00FF00),
+  Color(0xFF0000FF),
+  Color(0xFFFF00FF),
+];
+const _photoCases = <String, Size>{
+  'portrait': Size(240, 400),
+  'landscape': Size(400, 240),
+  'square': Size(320, 320),
+  'extreme-tall': Size(64, 1280),
+  'extreme-wide': Size(1280, 64),
+};
+
+Future<Uint8List> _markedPhoto(Size size) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF888888));
+  final marker = Size(size.width * 0.2, size.height * 0.2);
+  final positions = [
+    Offset.zero,
+    Offset(size.width - marker.width, 0),
+    Offset(0, size.height - marker.height),
+    Offset(size.width - marker.width, size.height - marker.height),
+  ];
+  for (var index = 0; index < positions.length; index++) {
+    canvas.drawRect(
+      positions[index] & marker,
+      Paint()..color = _cornerColors[index],
+    );
+  }
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(size.width.toInt(), size.height.toInt());
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  picture.dispose();
+  return png!.buffer.asUint8List();
+}
+
+Future<void> _photoPixels(
+  WidgetTester tester,
+  List<String> failures,
+  Size sourceSize,
+) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(_photoBoundaryKey),
+  );
+  final clip = tester.getRect(
+    find.descendant(
+      of: find.byType(SelectedPhotoPreview),
+      matching: find.byType(ClipRect),
+    ),
+  );
+  final expected = _containedPhotoRect(sourceSize, clip);
+  final bitmap = await tester.runAsync(() => boundary.toImage(pixelRatio: 2));
+  final bytes = await tester.runAsync(
+    () => bitmap!.toByteData(format: ui.ImageByteFormat.rawRgba),
+  );
+  final origin = boundary.localToGlobal(Offset.zero);
+  Color pixel(Offset point) {
+    final local = (point - origin) * 2;
+    final x = local.dx.floor().clamp(0, bitmap!.width - 1);
+    final y = local.dy.floor().clamp(0, bitmap.height - 1);
+    final offset = (y * bitmap.width + x) * 4;
+    return Color.fromARGB(
+      bytes!.getUint8(offset + 3),
+      bytes.getUint8(offset),
+      bytes.getUint8(offset + 1),
+      bytes.getUint8(offset + 2),
+    );
+  }
+
+  final samples = [
+    const Offset(0.1, 0.1),
+    const Offset(0.9, 0.1),
+    const Offset(0.1, 0.9),
+    const Offset(0.9, 0.9),
+  ];
+  for (var index = 0; index < samples.length; index++) {
+    final point = Offset(
+      expected.left + samples[index].dx * expected.width,
+      expected.top + samples[index].dy * expected.height,
+    );
+    _same(
+      failures,
+      'photo visible corner $index',
+      pixel(point),
+      _cornerColors[index],
+    );
+  }
+  // Sample halfway through the letterbox, away from the retained 1px outline.
+  final letterbox = expected.left - clip.left > 2
+      ? Offset((clip.left + expected.left) / 2, clip.center.dy)
+      : Offset(clip.center.dx, (clip.top + expected.top) / 2);
+  _same(failures, 'photo white letterbox', pixel(letterbox), AppColors.surface);
+  bitmap!.dispose();
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Uint8List photo;
+  final markedPhotos = <String, Uint8List>{};
   setUpAll(() async {
     FilePickerIO.registerWith();
     final fonts = FontLoader('Pretendard');
@@ -1426,62 +1575,82 @@ void main() {
     photo = (await rootBundle.load(
       'assets/figma/saved-photo-preview.png',
     )).buffer.asUint8List();
+    for (final entry in _photoCases.entries) {
+      markedPhotos[entry.key] = await _markedPhoto(entry.value);
+    }
   });
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
-      for (final memoryPhoto in [true, false]) {
-        testWidgets(
-          'photo frame geometry $platform width $width ${memoryPhoto ? 'memory' : 'asset fallback'}',
-          (tester) async {
-            tester.view.devicePixelRatio = 1;
-            tester.view.physicalSize = Size(width, 812);
-            addTearDown(tester.view.reset);
-            await tester.pumpWidget(
-              MaterialApp(
-                theme: ThemeData(
-                  useMaterial3: true,
-                  platform: platform,
-                  fontFamily: 'Pretendard',
-                ),
-                builder: (context, child) => MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(1)),
-                  child: child!,
-                ),
-                home: Scaffold(
-                  body: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+      for (final photoCase in [..._photoCases.keys, 'asset fallback']) {
+        final memoryPhoto = photoCase != 'asset fallback';
+        testWidgets('photo frame geometry $platform width $width $photoCase', (
+          tester,
+        ) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(width, 812);
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(
+                useMaterial3: true,
+                platform: platform,
+                fontFamily: 'Pretendard',
+              ),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(1)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RepaintBoundary(
+                    key: _photoBoundaryKey,
                     child: SelectedPhotoPreview(
-                      photoBytes: memoryPhoto ? photo : null,
+                      photoBytes: markedPhotos[photoCase],
                     ),
                   ),
                 ),
               ),
+            ),
+          );
+          final imageFinder = find.descendant(
+            of: find.byType(SelectedPhotoPreview),
+            matching: find.byType(Image),
+          );
+          await tester.runAsync(
+            () => precacheImage(
+              tester.widget<Image>(imageFinder).image,
+              tester.element(imageFinder),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final failures = <String>[];
+          _photoFrame(tester, failures);
+          final image = tester.widget<Image>(
+            find.descendant(
+              of: find.byType(SelectedPhotoPreview),
+              matching: find.byType(Image),
+            ),
+          );
+          if (memoryPhoto) {
+            expect(image.image, isA<MemoryImage>());
+            expect(
+              (image.image as MemoryImage).bytes,
+              same(markedPhotos[photoCase]),
             );
-            await tester.pumpAndSettle();
-            final failures = <String>[];
-            _photoFrame(tester, failures);
-            final image = tester.widget<Image>(
-              find.descendant(
-                of: find.byType(SelectedPhotoPreview),
-                matching: find.byType(Image),
-              ),
+            await _photoPixels(tester, failures, _photoCases[photoCase]!);
+          } else {
+            expect(image.image, isA<AssetImage>());
+            expect(
+              (image.image as AssetImage).assetName,
+              'assets/figma/saved-photo-preview.png',
             );
-            if (memoryPhoto) {
-              expect(image.image, isA<MemoryImage>());
-              expect((image.image as MemoryImage).bytes, orderedEquals(photo));
-            } else {
-              expect(image.image, isA<AssetImage>());
-              expect(
-                (image.image as AssetImage).assetName,
-                'assets/figma/saved-photo-preview.png',
-              );
-            }
-            expect(tester.takeException(), isNull);
-            expect(failures, isEmpty, reason: failures.join('\n'));
-          },
-        );
+          }
+          expect(tester.takeException(), isNull);
+          expect(failures, isEmpty, reason: failures.join('\n'));
+        });
       }
       for (final scene in _Scene.values) {
         testWidgets('base typography $platform width $width ${scene.name}', (
