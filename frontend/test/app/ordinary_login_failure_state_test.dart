@@ -458,9 +458,10 @@ void main() {
         expect(f.session.hasSession, isTrue);
         final effects = f.model.drainEffects();
         if (status == 409) {
-          expect(effects.whereType<ConfirmAccountSwitchEffect>(), hasLength(1));
-          expect(effects.whereType<MessageEffect>(), isEmpty);
+          expect(f.model.accountLinkConflict, isNotNull);
+          expect(effects, isEmpty);
         } else {
+          expect(f.model.accountLinkConflict, isNull);
           expect(effects.whereType<MessageEffect>(), hasLength(1));
         }
         if (status == 401) {

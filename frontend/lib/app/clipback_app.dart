@@ -11,6 +11,7 @@ import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
+import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
@@ -272,6 +273,26 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     final guided = !_d.app.linkingGuest && providers.isNotEmpty;
     final generation = _d.app.accountGeneration;
     final epoch = _d.app.authEpoch;
+    final conflict = _d.app.accountLinkConflict;
+    if (conflict != null) {
+      return AccountLinkConflictScreen(
+        onKeepGuest: () {
+          if (_canUseAccountLinkConflict(conflict)) {
+            _d.app.cancelAccountLinkConflict(conflict);
+          }
+        },
+        onConfirm: () {
+          if (_canUseAccountLinkConflict(conflict)) {
+            unawaited(
+              _d.app.confirmAccountSwitch(
+                conflict.authEpoch,
+                conflict.provider,
+              ),
+            );
+          }
+        },
+      );
+    }
     final failure = _d.app.ordinaryLoginFailure;
     if (failure != null) {
       return LoginFailureScreen(
@@ -297,6 +318,12 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               generation: generation,
               epoch: epoch,
             )
+          : _d.app.linkingGuest
+          ? () async {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                await _d.app.continueAsGuest();
+              }
+            }
           : _d.app.continueAsGuest,
       onSocialLogin: guided
           ? (provider) => _withPermissionGuide(
@@ -305,13 +332,44 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               epoch: epoch,
               provider: provider,
             )
+          : _d.app.linkingGuest
+          ? (provider) async {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                await _d.app.authenticateSocial(provider);
+              }
+            }
           : _d.app.authenticateSocial,
       providers: providers,
       busy: _d.app.authBusy,
       linkingGuest: _d.app.linkingGuest,
-      onBack: _d.app.linkingGuest ? () => _go(AppRoute.account) : null,
+      onBack: _d.app.linkingGuest
+          ? () {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                _go(AppRoute.account);
+              }
+            }
+          : null,
     );
   }
+
+  bool _canUseLinkingLogin(int generation, int epoch) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      _d.app.route == AppRoute.login &&
+      _d.app.linkingGuest &&
+      _d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == generation &&
+      _d.app.authEpoch == epoch &&
+      _d.app.accountLinkConflict == null;
+
+  bool _canUseAccountLinkConflict(AccountLinkConflict expected) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      !_d.session.pendingSessionClear &&
+      identical(_d.app.accountLinkConflict, expected);
 
   bool _canUseLoginFailure(OrdinaryLoginFailure expected) =>
       mounted &&
@@ -453,7 +511,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       case CloseTransientRoutesEffect():
         _navigatorKey.currentState?.popUntil((route) => route.isFirst);
       case ConfirmAccountSwitchEffect():
-        unawaited(_confirmAccountSwitch(effect));
+        // Kept for effect compatibility; the owned login state renders A05-1.
+        break;
       case DetailDeletedEffect():
         if (_d.app.route == AppRoute.detail) _d.app.backFromDetail();
       case SavedContentEffect():
@@ -470,33 +529,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         if (!opened) return;
         _d.app.go(AppRoute.home);
         _d.app.openDetail();
-    }
-  }
-
-  Future<void> _confirmAccountSwitch(ConfirmAccountSwitchEffect effect) async {
-    final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('이미 연결된 계정이에요'),
-        content: const Text(
-          '기존 계정으로 전환하면 현재 게스트의 저장 데이터는 합쳐지지 않으며, 이 기기에서 다시 접근하지 못할 수 있어요. 기존 계정으로 로그인할까요?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('게스트 유지'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('기존 계정으로 전환'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      await _d.app.confirmAccountSwitch(effect.epoch, effect.provider);
     }
   }
 

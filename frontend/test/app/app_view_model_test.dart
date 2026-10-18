@@ -201,7 +201,7 @@ void main() {
   );
 
   test(
-    'a conflict dialog from an older authentication cannot switch accounts',
+    'a conflict owner from an older authentication cannot switch accounts',
     () async {
       respond = (request) async {
         if (request.url.path.endsWith('/upgrade')) {
@@ -228,13 +228,11 @@ void main() {
       await model.openAccountLogin();
       model.drainEffects();
       await model.authenticateSocial(SocialLoginProvider.google);
-      final conflict = model
-          .drainEffects()
-          .whereType<ConfirmAccountSwitchEffect>()
-          .single;
+      final conflict = model.accountLinkConflict!;
+      expect(model.drainEffects(), isEmpty);
       expect(social.authenticationCount, 1);
       await model.logout();
-      await model.confirmAccountSwitch(conflict.epoch, conflict.provider);
+      await model.confirmAccountSwitch(conflict.authEpoch, conflict.provider);
       expect(social.authenticationCount, 1);
       expect(model.route, AppRoute.login);
       expect(session.hasSession, isFalse);

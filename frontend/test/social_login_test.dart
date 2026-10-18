@@ -252,9 +252,14 @@ void main() {
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onSocialLogin(SocialLoginProvider.google);
         await tester.pumpAndSettle();
-        expect(find.text('이미 연결된 계정이에요'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('account-link-conflict-screen')),
+          findsOneWidget,
+        );
         expect((await ApiSessionStorage().read())?.accessToken, 'guest-access');
-        await tester.tap(find.text('게스트 유지'));
+        await tester.tap(
+          find.byKey(const ValueKey('account-link-conflict-keep')),
+        );
         await tester.pumpAndSettle();
         await attempt;
         expect(server.at('/auth/social/google'), isEmpty);
@@ -288,7 +293,9 @@ void main() {
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onSocialLogin(SocialLoginProvider.apple);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('기존 계정으로 전환'));
+        await tester.tap(
+          find.byKey(const ValueKey('account-link-conflict-confirm')),
+        );
         await tester.pumpAndSettle();
         await attempt;
         expect(social.nonces, ['nonce-1', 'nonce-2']);
