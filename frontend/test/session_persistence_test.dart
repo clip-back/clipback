@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -215,7 +216,7 @@ Future<void> _withApp(
   await http.runWithClient(() async {
     try {
       await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -547,7 +548,7 @@ void main() {
         await tester.pumpAndSettle();
         SharedPreferences.resetStatic();
         await tester.pumpWidget(_app());
-        await tester.pumpAndSettle();
+        await completeAppStartup(tester);
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(
           server.calls('/api/v1/categories').last.headers['Authorization'],

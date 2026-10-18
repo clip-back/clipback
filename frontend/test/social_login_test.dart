@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -162,7 +163,7 @@ Future<void> _app(
       await tester.pumpWidget(
         ClipbackApp(sessionStorage: storage, socialAuth: social),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

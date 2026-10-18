@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -184,11 +185,7 @@ Future<void> _runApp(
           child: ClipbackApp(sessionStorage: sessionStorage),
         ),
       );
-      if (settle) {
-        await tester.pumpAndSettle();
-      } else {
-        await tester.pump();
-      }
+      await completeAppStartup(tester, settle: settle);
       await check(sessionStorage);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

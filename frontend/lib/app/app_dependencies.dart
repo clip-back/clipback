@@ -25,6 +25,7 @@ class AppDependencies {
     ApiSessionStorage? storage,
     SocialAuth? socialAuth,
     NativeShareService? nativeShare,
+    bool Function()? canPrepareSharing,
   }) {
     final api = ClipbackApi(
       onSessionChanged: (_) async {
@@ -61,7 +62,10 @@ class AppDependencies {
       session: session,
       users: users,
       contentActions: contentActions,
-      canPrepare: () => !app.authBusy && !app.isRestoringSession,
+      canPrepare: () =>
+          (canPrepareSharing?.call() ?? true) &&
+          !app.authBusy &&
+          !app.isRestoringSession,
     );
     app.addListener(sharing.sessionSettled);
     session.addListener(sharing.sessionSettled);

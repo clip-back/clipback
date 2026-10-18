@@ -36,8 +36,11 @@ class ClipbackApp extends StatefulWidget {
   State<ClipbackApp> createState() => _ClipbackAppState();
 }
 
+enum _LaunchPhase { showing, mounting, ready }
+
 class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final AppDependencies _d;
+  _LaunchPhase _launchPhase = _LaunchPhase.showing;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
@@ -54,6 +57,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _d = AppDependencies(
       storage: widget.sessionStorage,
       socialAuth: widget.socialAuth,
+      canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
     );
     _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
@@ -93,6 +97,25 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       _categoryManagementReturnRoute = AppRoute.my;
     }
     setState(() {});
+    _flushUiEffects();
+  }
+
+  void _finishLaunchSplash() {
+    if (!mounted || _launchPhase != _LaunchPhase.showing) return;
+    setState(() => _launchPhase = _LaunchPhase.mounting);
+    // Route selection is still owned by session restoration. Wait for that
+    // route's first frame before presenting queued UI or preparing sharing.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _launchPhase != _LaunchPhase.mounting) return;
+      setState(() => _launchPhase = _LaunchPhase.ready);
+      _d.sharing.sessionSettled();
+      _flushUiEffects();
+      _schedulePersistenceBannerUpdate();
+    });
+  }
+
+  void _flushUiEffects() {
+    if (!mounted || _launchPhase != _LaunchPhase.ready) return;
     final effects = [
       ..._d.app.drainEffects(),
       for (final viewModel in _d.featureViewModels) ...viewModel.drainEffects(),
@@ -173,11 +196,15 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   }
 
   void _schedulePersistenceBannerUpdate() {
-    if (!mounted || _persistenceBannerUpdateScheduled) return;
+    if (!mounted ||
+        _launchPhase != _LaunchPhase.ready ||
+        _persistenceBannerUpdateScheduled) {
+      return;
+    }
     _persistenceBannerUpdateScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _persistenceBannerUpdateScheduled = false;
-      if (!mounted) return;
+      if (!mounted || _launchPhase != _LaunchPhase.ready) return;
       final messenger = _messengerKey.currentState;
       if (messenger == null) return;
       final showBanner = _d.session.needsPersistence;
@@ -271,16 +298,18 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
-      builder: (context, child) => PendingSharePrompt(
-        navigatorKey: _navigatorKey,
-        promptVersion: _d.sharing.promptVersion,
-        drafts: _d.sharing.drafts,
-        error: _d.sharing.error,
-        busy: _d.sharing.busy,
-        onRetry: () => unawaited(_d.sharing.retry()),
-        onOpen: (draft) => unawaited(_d.sharing.present(draft)),
-        child: child!,
-      ),
+      builder: (context, child) => _launchPhase != _LaunchPhase.ready
+          ? child!
+          : PendingSharePrompt(
+              navigatorKey: _navigatorKey,
+              promptVersion: _d.sharing.promptVersion,
+              drafts: _d.sharing.drafts,
+              error: _d.sharing.error,
+              busy: _d.sharing.busy,
+              onRetry: () => unawaited(_d.sharing.retry()),
+              onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+              child: child!,
+            ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
@@ -297,7 +326,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           displayColor: AppColors.text,
         ),
       ),
-      home: switch (_d.app.route) {
+      home: _withLaunchSplash(switch (_d.app.route) {
         _ when _d.app.isRestoringSession || _d.app.apiConnectionError != null =>
           SessionRestoreScreen(
             errorMessage: _d.app.apiConnectionError,
@@ -471,7 +500,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onDeleteCategory: _d.categories.delete,
           ),
         ),
-      },
+      }),
     );
   }
+
+  Widget _withLaunchSplash(Widget route) => _launchPhase == _LaunchPhase.showing
+      ? SplashScreen(onDone: _finishLaunchSplash)
+      : route;
 }

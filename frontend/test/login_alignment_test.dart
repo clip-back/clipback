@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'dart:async';
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/auth/entry_widgets.dart';
@@ -352,7 +353,7 @@ void main() {
             socialAuth: social,
           ),
         );
-        await tester.pumpAndSettle();
+        await completeAppStartup(tester);
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(server.requests, isEmpty);
         expect(storage.value, isNull);
@@ -416,7 +417,7 @@ void main() {
             socialAuth: auth,
           ),
         );
-        await tester.pumpAndSettle();
+        await completeAppStartup(tester);
         await tester
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onSocialLogin(SocialLoginProvider.google);

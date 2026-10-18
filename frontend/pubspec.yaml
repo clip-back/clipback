@@ -46,3 +46,7 @@ flutter:
       fonts:
         - asset: assets/fonts/RiaSans-Regular.otf
           weight: 400
+    - family: RiaSansSplash
+      fonts:
+        - asset: assets/fonts/RiaSans-Regular.otf
+          weight: 400

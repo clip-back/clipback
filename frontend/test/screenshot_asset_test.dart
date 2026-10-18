@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -236,7 +237,7 @@ Future<void> _withApp(
           child: ClipbackApp(sessionStorage: storage),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -333,7 +334,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
       child: const ClipbackApp(),
     ),
   );
-  await tester.pumpAndSettle();
+  await completeAppStartup(tester);
 }
 
 void main() {

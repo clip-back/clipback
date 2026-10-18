@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -211,7 +212,7 @@ Future<void> _withApp(
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -681,7 +682,7 @@ void main() {
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       final contents = tester
           .widget<HomeScreen>(find.byType(HomeScreen))
           .contents;

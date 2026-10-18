@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'auth_navigation.dart';
 
@@ -248,7 +249,7 @@ Future<void> _withApp(
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
