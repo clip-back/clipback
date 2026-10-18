@@ -295,7 +295,7 @@ void main() {
   );
 
   testWidgets(
-    'slow restore uses existing loading after 900ms then home without replay',
+    'slow initial home restore uses home loader after 900ms without replay',
     (tester) async {
       final storage = _Storage(_stored), server = _Server();
       final gate = Completer<http.Response>();
@@ -306,8 +306,12 @@ void main() {
         await tester.pump(const Duration(milliseconds: 900));
         await _flush(tester);
         expect(find.byType(SplashScreen), findsNothing);
-        expect(find.byType(SessionRestoreScreen), findsOneWidget);
-        expect(find.text('저장한 콘텐츠를 불러오는 중이에요.'), findsOneWidget);
+        expect(find.byType(SessionRestoreScreen), findsNothing);
+        expect(
+          find.byKey(const ValueKey('home-initial-loading-screen')),
+          findsOneWidget,
+        );
+        expect(find.text('홈을 불러오는 중'), findsOneWidget);
         server.categoriesGate = null;
         gate.complete(server.json(<Object>[]));
         await tester.pumpAndSettle();

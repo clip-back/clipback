@@ -18,6 +18,7 @@ import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:clipback_frontend/features/auth/session_restore_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
+import 'package:clipback_frontend/features/home/home_initial_loading_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
@@ -612,11 +613,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         ),
       ),
       home: _withLaunchSplash(switch (_d.app.route) {
-        _ when _d.app.isRestoringSession || _d.app.apiConnectionError != null =>
-          SessionRestoreScreen(
-            errorMessage: _d.app.apiConnectionError,
-            onRetry: _d.app.restoreSession,
-          ),
+        _ when _d.app.apiConnectionError != null => SessionRestoreScreen(
+          errorMessage: _d.app.apiConnectionError,
+          onRetry: _d.app.restoreSession,
+        ),
+        _ when _d.app.showInitialHomeLoading =>
+          const HomeInitialLoadingScreen(),
+        _ when _d.app.isRestoringSession => SessionRestoreScreen(
+          errorMessage: null,
+          onRetry: _d.app.restoreSession,
+        ),
         AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
         AppRoute.login => _buildLogin(),
         AppRoute.onboarding => OnboardingScreen(

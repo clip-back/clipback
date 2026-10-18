@@ -629,7 +629,10 @@ void main() {
         if (!retry.isCompleted) retry.complete(_json([_category]));
       });
       await _runApp(tester, server, (storage) async {
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('home-initial-loading-screen')),
+          findsOneWidget,
+        );
         expect(find.byType(HomeScreen), findsNothing);
         expect(find.byType(AddContentSheet), findsNothing);
         first.complete(_failure('503'));
@@ -644,7 +647,10 @@ void main() {
         retryButton.onPressed();
         retryButton.onPressed();
         await tester.pump();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('home-initial-loading-screen')),
+          findsOneWidget,
+        );
         expect(find.byType(HomeScreen), findsNothing);
         expect(categoryCalls, 2);
         retry.complete(_json([_category]));

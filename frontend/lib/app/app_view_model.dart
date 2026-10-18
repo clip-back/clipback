@@ -39,6 +39,11 @@ class AppViewModel extends ChangeNotifier {
   final List<UiEffect> _effects = [];
   Object? _initialization;
   int? _initializationGeneration;
+  int? _initializationEpoch;
+  Object? _initialHomeLoading;
+  int? _initialHomeLoadingEpoch;
+  int? _initialHomeLoadingGeneration;
+  bool _firstAccountInitializationComplete = false;
   ApiUser? _authenticatedUser;
   bool _authBusy = false;
   bool _linkingGuest = false;
@@ -60,6 +65,14 @@ class AppViewModel extends ChangeNotifier {
   bool get authBusy => _authBusy;
   bool get linkingGuest => _linkingGuest;
   bool get isRestoringSession => _isRestoringSession;
+  bool get showInitialHomeLoading =>
+      !_disposed &&
+      _initialHomeLoading != null &&
+      _initialHomeLoadingEpoch == _authEpoch &&
+      _initialHomeLoadingGeneration == _accountGeneration &&
+      _session.hasSession &&
+      !_session.pendingSessionClear &&
+      _apiConnectionError == null;
   String? get apiConnectionError => _apiConnectionError;
   ApiUser? get authenticatedUser => _authenticatedUser;
   int get authEpoch => _authEpoch;
@@ -97,8 +110,35 @@ class AppViewModel extends ChangeNotifier {
     unawaited(restoreSession());
   }
 
+  Object? _beginInitialHomeLoading() {
+    if (_firstAccountInitializationComplete ||
+        _linkingGuest ||
+        (_postAuthRoute ?? AppRoute.home) != AppRoute.home) {
+      return null;
+    }
+    final owner = Object();
+    _initialHomeLoading = owner;
+    _initialHomeLoadingEpoch = _authEpoch;
+    _initialHomeLoadingGeneration = _accountGeneration;
+    _notify();
+    return owner;
+  }
+
+  void _clearInitialHomeLoading() {
+    _initialHomeLoading = null;
+    _initialHomeLoadingEpoch = null;
+    _initialHomeLoadingGeneration = null;
+  }
+
+  void _endInitialHomeLoading(Object? owner) {
+    if (owner == null || !identical(_initialHomeLoading, owner)) return;
+    _clearInitialHomeLoading();
+  }
+
   void _resetAccount() {
     _accountGeneration++;
+    _firstAccountInitializationComplete = false;
+    _clearInitialHomeLoading();
     _initializeAccount.reset(_accountGeneration);
     _authenticatedUser = null;
   }
@@ -108,6 +148,7 @@ class AppViewModel extends ChangeNotifier {
     switch (event) {
       case SessionInvalidation.started:
         _authEpoch++;
+        _clearInitialHomeLoading();
         _setAuthBusy(false);
       case SessionInvalidation.completed:
         _showLoginChoice();
@@ -132,6 +173,7 @@ class AppViewModel extends ChangeNotifier {
   Future<void> restoreSession() async {
     if (_disposed || _isRestoringSession || _authBusy) return;
     _isRestoringSession = true;
+    Object? initialHomeLoading;
     _apiConnectionError = null;
     _notify();
     try {
@@ -155,6 +197,7 @@ class AppViewModel extends ChangeNotifier {
       try {
         final epoch = _authEpoch;
         final generation = _accountGeneration;
+        initialHomeLoading = _beginInitialHomeLoading();
         await _loadRemoteData();
         if (_disposed ||
             epoch != _authEpoch ||
@@ -165,6 +208,13 @@ class AppViewModel extends ChangeNotifier {
         _route = _postAuthRoute ?? AppRoute.home;
         _postAuthRoute = null;
         await checkAppleCredential();
+        if (!_disposed &&
+            epoch == _authEpoch &&
+            generation == _accountGeneration &&
+            _session.hasSession &&
+            !_session.pendingSessionClear) {
+          _firstAccountInitializationComplete = true;
+        }
       } on ClipbackApiException catch (error) {
         if (error.statusCode != 401 || _session.pendingSessionClear) rethrow;
         if (_session.hasSession) await _session.invalidate();
@@ -178,6 +228,7 @@ class AppViewModel extends ChangeNotifier {
         _notify();
       }
     } finally {
+      _endInitialHomeLoading(initialHomeLoading);
       if (!_disposed) {
         _isRestoringSession = false;
         _notify();
@@ -186,13 +237,19 @@ class AppViewModel extends ChangeNotifier {
   }
 
   Future<void> _loadRemoteData() async {
+    final epoch = _authEpoch;
     final generation = _accountGeneration;
     final initialization = Object();
     _initialization = initialization;
     _initializationGeneration = generation;
+    _initializationEpoch = epoch;
     try {
       await _initializeAccount.load();
-      if (_disposed || generation != _accountGeneration) return;
+      if (_disposed ||
+          epoch != _authEpoch ||
+          generation != _accountGeneration) {
+        return;
+      }
       _authenticatedUser = _users.user;
       _apiConnectionError = null;
       _notify();
@@ -200,6 +257,7 @@ class AppViewModel extends ChangeNotifier {
       if (identical(_initialization, initialization)) {
         _initialization = null;
         _initializationGeneration = null;
+        _initializationEpoch = null;
       }
     }
   }
@@ -207,6 +265,7 @@ class AppViewModel extends ChangeNotifier {
   void _onUserChanged() {
     if (_disposed ||
         _initialization == null ||
+        _initializationEpoch != _authEpoch ||
         _initializationGeneration != _accountGeneration ||
         _users.accountVersion != _accountGeneration ||
         _users.user == null) {
@@ -250,9 +309,11 @@ class AppViewModel extends ChangeNotifier {
     final generation = _accountGeneration;
     bool current() =>
         !_disposed && epoch == _authEpoch && generation == _accountGeneration;
+    final initialHomeLoading = _beginInitialHomeLoading();
     try {
       await _loadRemoteData();
       if (!current() || !_session.hasSession) return;
+      _firstAccountInitializationComplete = true;
       _route = _postAuthRoute ?? AppRoute.home;
       _postAuthRoute = null;
       _linkingGuest = false;
@@ -263,6 +324,8 @@ class AppViewModel extends ChangeNotifier {
         _apiConnectionError = '저장한 콘텐츠를 불러오지 못했어요.';
         _notify();
       }
+    } finally {
+      _endInitialHomeLoading(initialHomeLoading);
     }
   }
 
@@ -480,6 +543,7 @@ class AppViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _clearInitialHomeLoading();
     _authEpoch++;
     _effects.clear();
     _users.removeListener(_onUserChanged);
