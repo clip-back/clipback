@@ -68,6 +68,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
   var _isSaving = false;
+  String? _pendingLinkUrl;
   String? _saveError;
   ({ContentItem content, _SaveSubmission submission})? _savedResult;
 
@@ -147,7 +148,10 @@ class _AddContentSheetState extends State<AddContentSheet> {
       submission = _SaveSubmission.photo(filename, bytes);
     }
 
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+      _pendingLinkUrl = submission.isLink ? submission.label : null;
+    });
     try {
       late final ContentItem savedContent;
       if (submission.isLink) {
@@ -163,6 +167,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
         _saveErrorTimer?.cancel();
         setState(() {
           _isSaving = false;
+          _pendingLinkUrl = null;
           _savedResult = (content: savedContent, submission: submission);
           _activeTab = submission.tab;
           _saveError = null;
@@ -175,12 +180,18 @@ class _AddContentSheetState extends State<AddContentSheet> {
       }
     } on ClipbackApiException catch (error) {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _isSaving = false;
+          _pendingLinkUrl = null;
+        });
         _showSaveErrorToast(error.message);
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _isSaving = false;
+          _pendingLinkUrl = null;
+        });
         _showSaveErrorToast();
       }
     }
@@ -222,6 +233,16 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
         savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
+    // D04 describes the submitted link. Retain the existing presentation when
+    // the user switches inputs/tabs or an earlier error is still visible.
+    final pendingLink =
+        _isSaving &&
+        savedResult == null &&
+        _activeTab == 0 &&
+        stage == SaveFlowStage.valid &&
+        _saveError == null &&
+        _pendingLinkUrl != null &&
+        _urlController.text.trim() == _pendingLinkUrl;
     final bottomObstruction = math.max(
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
@@ -269,12 +290,21 @@ class _AddContentSheetState extends State<AddContentSheet> {
                                 photoBytes: savedResult.submission.photoBytes,
                               )
                             : _activeTab == 0
-                            ? LinkSaveBody(
-                                controller: _urlController,
-                                stage: _linkStage,
-                                onChanged: _validateLink,
-                                onClear: _clearLink,
-                                onPaste: _paste,
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  LinkSaveBody(
+                                    controller: _urlController,
+                                    stage: _linkStage,
+                                    onChanged: _validateLink,
+                                    onClear: _clearLink,
+                                    onPaste: _paste,
+                                  ),
+                                  if (pendingLink) ...[
+                                    const SizedBox(height: 32),
+                                    const _LinkPendingSkeleton(),
+                                  ],
+                                ],
                               )
                             : PhotoSaveBody(
                                 stage: _photoStage,
@@ -293,14 +323,26 @@ class _AddContentSheetState extends State<AddContentSheet> {
                               padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
                               child: SaveErrorToast(message: message),
                             ),
+                          if (pendingLink) ...[
+                            const Center(
+                              child: Text(
+                                '허투루가 정보를 추출 중입니다...',
+                                key: ValueKey('link-pending-status'),
+                                style: _SaveTextStyles.categoryMessage,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: SizedBox(
                               height: 56,
                               child: SaveFlowButton(
-                                label: savedResult == null ? '허투루에 저장하기' : '닫기',
+                                label: savedResult != null || pendingLink
+                                    ? '닫기'
+                                    : '허투루에 저장하기',
                                 enabled: enabled,
-                                loading: _isSaving,
+                                loading: _isSaving && !pendingLink,
                                 onPressed: savedResult == null
                                     ? _submit
                                     : () => Navigator.of(
@@ -612,6 +654,98 @@ class LinkSaveBody extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Static placeholder geometry from D04. It is not extracted content, a
+/// classification result, or an additional API operation.
+class _LinkPendingSkeleton extends StatelessWidget {
+  const _LinkPendingSkeleton();
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const ValueKey('link-pending-skeleton'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        '미리보기',
+        key: ValueKey('link-pending-preview-heading'),
+        style: _SaveTextStyles.heading,
+      ),
+      const SizedBox(height: 16),
+      Container(
+        key: const ValueKey('link-pending-preview'),
+        height: 116,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: ExcludeSemantics(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _bar('thumbnail', 164, 100),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _bar('bar-1', 139, 15),
+                    const SizedBox(height: 4),
+                    _bar('bar-2', 91, 15),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _bar('bar-3', 91, 15),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 32),
+      const Row(
+        key: ValueKey('link-pending-category-row'),
+        children: [
+          Text(
+            '카테고리',
+            key: ValueKey('link-pending-category-heading'),
+            style: _SaveTextStyles.heading,
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '허투루가 분류하고 있어요.',
+              key: ValueKey('link-pending-category-status'),
+              style: _SaveTextStyles.categoryMessage,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      Container(
+        key: const ValueKey('link-pending-category'),
+        height: 55,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: ExcludeSemantics(child: _bar('category-bar', 164, 24)),
+      ),
+    ],
+  );
+  static Widget _bar(String name, double width, double height) => Container(
+    key: ValueKey('link-pending-$name'),
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: AppColors.faint,
+      borderRadius: BorderRadius.circular(4),
+    ),
+  );
 }
 
 class SavedContentConfirmation extends StatelessWidget {

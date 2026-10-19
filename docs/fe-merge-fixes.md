@@ -2885,3 +2885,12 @@ flutter build web --no-pub
 - 실제 OAuth·운영 서버·실기기/원격 CI는 미검증이며, 후기 Android 런타임 로그는 정리 뒤여서 확보하지 못했다. 전역 비동기 오류0이나 인증 전체 완료로 보고하지 않는다. 상세 원문 시트 SVG 등 기존 보류 기록도 유지한다.
 
 [3열 비교4쌍](/private/tmp/clipback-auth-status-alignment-20261019/comparison-document.html) · [실제 결과](/private/tmp/clipback-auth-status-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-auth-status-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-auth-status-alignment-20261019/android-gesture/after/interaction.mp4)
+
+## 2026-10-19 — D04 링크 저장 처리 중
+
+- `75b04b3` 기준 `111:5006` 원본을 적용했다. 현재 입력이 제출한 링크와 일치하는 저장 콜백 대기만 스켈레톤·원본 문구·비활성 닫기로 표시한다. 콜백은 기존 저장 후 조회도 포함하며 새 API나 처리 단계 계약을 만들지 않았다. 입력/탭 변경·오류·사진·저장/완료/재시도·늦은 응답 정책은 보존했다.
+- BEFORE 목표4실패 재현, AFTER 실제 폰트/양 테마×320/375×1배율×812/520px의 경계·도형·스크롤을 확인했다. 집중226/전체1625 통과·skip0·분석0이며 기존 확대/저장/공유 검사는 유지했다.
+- iPhone16/iOS18.6·Android13/API33 제스처 각11동작/전체true·프레임워크 오류0, 새 BEFORE2/AFTER2·3열2쌍·영상2개/원본 PTS·전체 디코딩·번들111건과 기기/포트/ADB/탐색 설정 정리를 확인했다. Android 최초 설치180초 초과는 실패로 보관하고 동일 소스/APK·재설치6.224초/exit0 후 실행을 통과했다.
+- 완료는 해당 D04 표현이며 실제 운영 서버·OAuth·실기기/CI와 저장 전체 디자인 완료를 뜻하지 않는다. 기존 보류 목록과 과거 검증 기록은 유지한다.
+
+[비교2쌍](/private/tmp/clipback-save-loading-alignment-20261019/comparison-document.html) · [실제 결과](/private/tmp/clipback-save-loading-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-save-loading-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-save-loading-alignment-20261019/android-gesture/after/interaction.mp4)

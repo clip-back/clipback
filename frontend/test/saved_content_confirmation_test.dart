@@ -616,7 +616,12 @@ void main() {
           find.byType(SaveFlowButton),
         );
         expect(button.enabled, isFalse);
-        expect(button.loading, isTrue);
+        expect(button.loading, isFalse);
+        expect(button.label, '닫기');
+        expect(
+          find.byKey(const ValueKey('link-pending-skeleton')),
+          findsOneWidget,
+        );
         tester
             .widget<SaveContentTopBar>(find.byType(SaveContentTopBar))
             .onClose();

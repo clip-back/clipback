@@ -1,5 +1,7 @@
 # Clipback Frontend
 
+최근 `75b04b3` 기준 **D04 링크 저장 처리 중**의1배율 스켈레톤·비활성 닫기를 적용했습니다. 집중226/전체1625·분석0, 양 플랫폼 각11동작·전체true·프레임워크 오류0·새 비교2쌍/영상2개를 확인했습니다. 기존 입력/탭·저장 정책과 실제 서버 검증의 경계를 유지합니다.
+
 최근 `43b1ee9` 기준 **A03 일반 로그인 진행·A04 실제 SDK 취소**의1배율 표현을 맞췄습니다. 집중 실제 테스트103/전체1617·분석0, 양 플랫폼 각10동작/전체true·프레임워크 오류0, 새 비교4쌍·영상2개를 확인했습니다. 실제 OAuth·운영 서버·실기기 검증과 구분합니다.
 
 Flutter mobile frontend for the Clipback MVP.
@@ -2890,3 +2892,16 @@ flutter run --no-pub -t test/support/login_status_preview.dart --dart-define=LOG
 - 기기·포워딩·임시 포트·ADB 정리를 확인했습니다. 상세 원문 시트의 기존 SVG 문제와 기존 보류 정책은 별도입니다.
 
 [비교4쌍](/private/tmp/clipback-auth-status-alignment-20261019/comparison-document.html) · [실제 검사](/private/tmp/clipback-auth-status-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-auth-status-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-auth-status-alignment-20261019/android-gesture/after/interaction.mp4)
+
+## D04 링크 처리 중 프리뷰 — 2026-10-19
+
+```bash
+flutter run --no-pub -t test/support/link_pending_preview.dart --dart-define=LINK_PENDING_PHASE=after
+```
+
+- 실제 ClipbackApp·메모리 회원 세션/API·최초 실행부터 공유 격리를 사용합니다. `/scene`은 실제 하단 저장 진입·링크 입력/검증·POST 대기를 구성하고, `/complete`는 같은 요청을 완료합니다. `/run`은 입력/탭 변경·중복 차단·완료 탭·실패/재시도·종료 후 응답 등11동작을 검사합니다. `/status`와 임시 `report.json`에 실제 스타일/도형/경계를 기록합니다.
+- 원본에 있는 입력과 일치하는 링크 대기에만 D04를 적용합니다. 기존 콜백의 저장 후 조회도 포함하며 별도 추출 단계/진행률 API를 추가한 것이 아닙니다. 다른 입력/탭·오류·사진과 기존 저장 시점/완료 정책은 유지합니다.
+- iOS/Android 테마·320/375px·1배율·812/520px, 집중226/전체1625·분석0과 실제 iPhone16/iOS18.6·Android13/API33 제스처의 각11동작·전체true/프레임워크 오류0을 확인했습니다. 새 비교2쌍·영상2개/실제 PTS·전체 디코딩과 번들111건·소유 기기/포워딩/ADB 정리를 확인했습니다.
+- 첫 Android 설치180초 초과는 실패 시도로 보관하고 동일 APK 재설치 후 검증했습니다. 실제 운영/OAuth/실기기/CI 성공으로 확장해 보고하지 않습니다.
+
+[비교2쌍](/private/tmp/clipback-save-loading-alignment-20261019/comparison-document.html) · [검사 결과](/private/tmp/clipback-save-loading-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-save-loading-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-save-loading-alignment-20261019/android-gesture/after/interaction.mp4)
