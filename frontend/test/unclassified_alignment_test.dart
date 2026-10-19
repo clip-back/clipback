@@ -461,7 +461,7 @@ void main() {
     });
   }
 
-  testWidgets('E06 scope leaves ordinary category toolbar and random entry', (
+  testWidgets('E06 remains separate from aligned F01 toolbar/card/random', (
     tester,
   ) async {
     final page = _page(items: [_item.copyWith(category: _other)])
@@ -471,7 +471,9 @@ void main() {
     expect(find.byType(RandomReviewButton), findsOneWidget);
     expect(_key('unclassified-header'), findsNothing);
     expect(_key('unclassified-empty-group'), findsNothing);
-    expect(_key('archive-all-card-${_item.id}'), findsNothing);
+    expect(_key('category-content-header'), findsOneWidget);
+    expect(tester.getSize(find.byType(ArchiveToolbar)).height, 52);
+    expect(_key('archive-all-card-${_item.id}'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

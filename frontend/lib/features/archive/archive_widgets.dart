@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:clipback_frontend/features/archive/category_content_widgets.dart';
+
 import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
 
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -433,12 +435,21 @@ class CardPagerProgress extends StatelessWidget {
 }
 
 class RandomReviewButton extends StatelessWidget {
-  const RandomReviewButton({required this.onPressed, super.key});
+  const RandomReviewButton({
+    required this.onPressed,
+    this.categoryContentStyle = false,
+    super.key,
+  });
+
+  final bool categoryContentStyle;
 
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
+    if (categoryContentStyle) {
+      return CategoryContentRandomButton(onPressed: onPressed);
+    }
     return Material(
       color: AppColors.main,
       borderRadius: BorderRadius.circular(24),

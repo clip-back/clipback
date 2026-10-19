@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
+import 'package:clipback_frontend/features/archive/category_content_widgets.dart';
 import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
@@ -83,6 +84,14 @@ class ArchiveScreen extends StatelessWidget {
     final rootArchive = activeCategoryName == null;
     final allRoot = rootArchive && activeTab == 0;
     final unclassified = activeCategoryName == catUncategorized.name;
+    final categoryContent = !rootArchive && !unclassified && activeTab == 0;
+    final selectedCategory = categories
+        .where(
+          (category) => feed?.categoryId != null
+              ? category.id == feed!.categoryId
+              : category.name == activeCategoryName,
+        )
+        .firstOrNull;
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -124,19 +133,12 @@ class ArchiveScreen extends StatelessWidget {
                   onOpenCategoryManagement: onOpenCategoryManagement,
                 )
               else
-                CategoryTopBar(
+                CategoryContentTopBar(
                   title: activeCategoryName!,
+                  category: selectedCategory,
                   onBack: onClearCategory,
                   onSearch: onSearch,
-                  onMore: () => showModalBottomSheet<void>(
-                    context: context,
-                    useSafeArea: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => SortSheet(
-                      activeBookmarkedFirst: bookmarkedFirst,
-                      onSelect: onSortChanged,
-                    ),
-                  ),
+                  onOpenCategoryManagement: onOpenCategoryManagement,
                 ),
               if (rootArchive)
                 SizedBox(
@@ -157,16 +159,14 @@ class ArchiveScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                )
-              else if (!unclassified)
-                const SizedBox(height: 8),
+                ),
               Expanded(
                 child: activeTab == 0
-                    ? Stack(
+                    ? Column(
                         children: [
-                          Positioned.fill(
+                          Expanded(
                             child: ContentListView(
-                              archiveAllStyle: allRoot,
+                              archiveAllStyle: allRoot || categoryContent,
                               feed: feed,
                               onLoadMore: onLoadMore,
                               onRetry: onRetry,
@@ -184,14 +184,17 @@ class ArchiveScreen extends StatelessWidget {
                               onGoHome: () => onTab(AppRoute.home),
                             ),
                           ),
-                          if (activeCategoryName != null &&
-                              !unclassified &&
-                              contents.isNotEmpty)
-                            Positioned(
-                              right: 16,
-                              bottom: 24,
-                              child: RandomReviewButton(
-                                onPressed: onOpenRandomView,
+                          if (categoryContent && contents.isNotEmpty)
+                            // The footer takes its natural height. The list ends
+                            // above it, so even the final card remains reachable.
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: RandomReviewButton(
+                                  categoryContentStyle: true,
+                                  onPressed: onOpenRandomView,
+                                ),
                               ),
                             ),
                         ],

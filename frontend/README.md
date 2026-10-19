@@ -2851,3 +2851,16 @@ flutter analyze --no-pub
 - [실제 iOS/APK 번들571/571](/private/tmp/clipback-account-conflict-alignment-20261019/bundle-verification.json)은 실행 소스·동결 의존 소스·기존 SVG 원본 bytes/표시 경로·실제 등록 폰트와 범위 밖 제품 소스 불변을 검사했다. 별도 [소스 범위 대조270개](/private/tmp/clipback-account-conflict-alignment-20261019/root-source-bundle-audit.json)는 제품3개 파일만 바뀌고 프리뷰5개·API/Repository/모델/네이티브/공용 테마가 유지됨을 확인한다. [환경 정리6/6](/private/tmp/clipback-account-conflict-alignment-20261019/cleanup-verification.json)는 소유 앱/기기·임시 대역 경로·8767/8768 포트·포워딩/녹화·태스크 ADB를 정리하고 Android 탐색 모드2·다른 기기/사용자 데이터를 보존했다. Android의 [최초 준비 대기 초과](/private/tmp/clipback-account-conflict-alignment-20261019/attempt-android-startup-timeout/receipt.json)는 도구의50초 대기보다 늦은86.766초 부팅으로 분리하고, 같은 APK·소스에서 준비/프레임워크 오류0을 확인한 뒤 공식 AFTER를 촬영했다. 이 시도를 제품 실패나 공식 캡처 성공으로 합치지 않았다.
 - 완료는 **승인된 게스트 계정 연결 시도409의1배율 경고 표현**에 한정한다. 원본 계정 식별/단일 버튼의 전체 구현이나 실제 연결 대상 정보 조회·데이터 병합/이전·서버 원인별 안정적 오류 계약·새 인증 정책·새 확대 완료가 아니다. 서버 게스트 정책, 일반 A05와 A06/A07/A08·계정/권한·운영 문의/약관 등 이전 보류와 과거 검증을 유지한다. 실제 루트 앱·제어 가능한 메모리 API/저장소/인증·첫 실행부터 공유 격리의 로컬 결과이며 실제 OAuth·운영 서버·실기기·원격CI 성공을 뜻하지 않는다. 새 배율별·3버튼 기기 촬영은 추가하지 않았고 화면 증거·빌드·`AGENTS.md`는 커밋에서 제외한다. 같은 브랜치에서 한 커밋으로 정리하며 푸시/PR은 하지 않는다.
 - 전용 프리뷰는 `frontend`에서 `flutter run --no-pub -t test/support/account_conflict_preview.dart --dart-define=ACCOUNT_CONFLICT_PHASE=after`로 실행한다. `/scene`는 실제 루트의 고정 게스트·Google 연결 시도409를 만들고 `/run`은 취소/새 인증/실패·재시도와 iOS Apple 대역 검사를 실행한다. `/status`·`/export`는 읽기 전용 결과다. 내부 포트8767과 태스크 포워딩은 검증 후 닫았으며 `before`는 기준 제품에서 촬영한 조건이지 현재 제품을 과거 확인창으로 바꾸는 옵션이 아니다.
+
+## F01 카테고리별 콘텐츠 목록1배율
+
+현재 Page 1 >261007의 [F01](https://www.figma.com/design/svNWsTFh8Ws1Mpt8XQIcrN/?node-id=111-3968)을 일반 카테고리 선택 목록에 적용했다. 상단의 실제 색상 폴더/설정·52px 행·E01 카드·원본 랜덤 버튼을 사용하며, 목록과 버튼 영역을 분리해 마지막 행에 접근한다. 설정은 기존 관리로 복귀하고 정렬/불러온 개수·복수 소속·추가 페이지·실제 OS 여백을 유지한다. 미분류/전체보기의 기본 표현과 API/모델·새 확대는 변경하지 않는다.
+
+```bash
+flutter test --no-pub test/category_content_alignment_test.dart test/category_content_geometry_test.dart test/category_content_fixture_contract_test.dart
+flutter run -t test/support/category_content_preview.dart --dart-define=CATEGORY_CONTENT_PHASE=after
+```
+
+프리뷰는 실제 루트 앱·메모리 API/세션과 첫 실행부터 공유 채널 격리를 사용한다. 기기 내부 loopback8767의 `/scene`은 고정 첫 페이지/스크롤0, `/run`은 실제 정렬·왕복·변경/복구18동작, `/status`는 실제 스타일·경계·에셋·API 대상과 전체 판정을 반환한다. 개발 대역이며 실제 OAuth/운영 서버/실기기나 영속 저장 검증이 아니다. 데이터/측정 고정과 `is_favorite=false` 대역 보완은 [명세](/private/tmp/clipback-category-content-alignment-20261019/harness-amendment.json)를 따른다.
+
+이번 최종 전체1601건·분석0, 양 플랫폼 각각18동작/전체true·오류0·새2쌍/영상2개와 실제 빌드 번들349항목을 확인했다. [실제 검사](/private/tmp/clipback-category-content-alignment-20261019/tests/final-summary.json)·[비교/영상](/private/tmp/clipback-category-content-alignment-20261019/comparison-document.html)·[실측](/private/tmp/clipback-category-content-alignment-20261019/comparison-manifest.json)·[환경 정리](/private/tmp/clipback-category-content-alignment-20261019/cleanup-verification.json). 같은 데이터·1배율·키보드 숨김·스크롤0을 사용하며 Figma375×1396의 긴 원본과 실제 OS 창 높이는 다르다. 초기 도구/설치/OS 응답대기 시도는 최종 성공과 구분한다. 상세는 [계획 문서](../docs/figma-ui-alignment-plan.md)의 F01 독립 기록을 따른다.

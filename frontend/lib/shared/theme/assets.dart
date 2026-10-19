@@ -56,6 +56,10 @@ class Assets {
   static const search = 'assets/icons/search.svg';
   static const archiveSearch = 'assets/icons/archive-search.svg';
   static const archiveSettings = 'assets/icons/archive-settings.svg';
+  static const categoryContentFolder =
+      'assets/icons/category-content-folder.svg';
+  static const categoryContentRandom =
+      'assets/icons/category-content-random.svg';
   static const archiveFolderPlus = 'assets/icons/archive-folder-plus.svg';
   static const archiveCategoryFolder =
       'assets/icons/archive-category-folder.svg';

@@ -5,7 +5,6 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
@@ -14,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/category_content_widgets.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -177,7 +177,7 @@ void main() {
               (
                 'category archive',
                 () => archive(categoryName: '분류'),
-                () => find.byType(CategoryTopBar),
+                () => find.byType(CategoryContentTopBar),
                 inset,
                 64,
               ),
