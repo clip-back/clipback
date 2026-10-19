@@ -509,6 +509,7 @@ class _DetailScreenState extends State<DetailScreen> {
             if (widget.feed?.error != null || widget.moving)
               FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
             DetailPager(
+              expanded: _showFullText,
               currentIndex: currentIndex,
               totalCount: widget.contents.length,
               onPrevious: !widget.moving && currentIndex > 0
@@ -521,6 +522,10 @@ class _DetailScreenState extends State<DetailScreen> {
                           (widget.feed?.hasMore ?? false))
                   ? () => widget.onOpenAdjacent(1)
                   : null,
+            ),
+            SizedBox(
+              key: const ValueKey('detail-pager-navigation-gap'),
+              height: _showFullText ? 8 : 16,
             ),
             ClipbackNavigationBar(
               activeIndex: 1,
@@ -834,6 +839,7 @@ class DetailPager extends StatelessWidget {
     required this.totalCount,
     required this.onPrevious,
     required this.onNext,
+    this.expanded = false,
     super.key,
   });
 
@@ -841,6 +847,7 @@ class DetailPager extends StatelessWidget {
   final int totalCount;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -850,17 +857,18 @@ class DetailPager extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           RoundIconButton(
-            asset: Assets.arrowRight,
+            asset: Assets.detailPrevious,
+            backgroundOpacity: expanded ? .4 : .1,
             rotate: true,
             onPressed: onPrevious,
           ),
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               height: 35,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.45),
+                color: Colors.white.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(28),
               ),
               child: Text(
@@ -873,7 +881,12 @@ class DetailPager extends StatelessWidget {
               ),
             ),
           ),
-          RoundIconButton(asset: Assets.arrowRight, onPressed: onNext),
+          RoundIconButton(
+            asset: Assets.detailNext,
+            iconSize: 32,
+            backgroundOpacity: expanded ? .4 : .1,
+            onPressed: onNext,
+          ),
         ],
       ),
     );

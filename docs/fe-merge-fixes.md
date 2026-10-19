@@ -2868,3 +2868,10 @@ flutter build web --no-pub
 - 최종 전체1601통과·분석0, 실제 Pretendard/폭320·375의 F01 스타일/기하/콜백24건·대역 계약2건과 기존 확대/목록/안전 영역/변경 처리를 포함한다. 최종 iOS/Android 각각18동작·전체true/오류0·새2쌍/영상2개·번들349항목을 확인했다. 초기 미사용 import/기하 프로브와 E06의 기존 카드 유지 기대 실패를 수정했으며 검사를 삭제하거나 건너뛰지 않았다.
 - [검사 요약](/private/tmp/clipback-category-content-alignment-20261019/tests/final-summary.json)·[비교2쌍/영상2개](/private/tmp/clipback-category-content-alignment-20261019/comparison-document.html)·[실측](/private/tmp/clipback-category-content-alignment-20261019/comparison-manifest.json)·[대역 보완](/private/tmp/clipback-category-content-alignment-20261019/harness-amendment.json)·[번들](/private/tmp/clipback-category-content-alignment-20261019/bundle-verification.json)·[환경 정리](/private/tmp/clipback-category-content-alignment-20261019/cleanup-verification.json). 원본 OS/예제 데이터 차이와 초기 플랫폼 이름/설치/OS 응답대기 시도를 구분한다. 메모리 대역의 결과이며 실제 OAuth·운영 서버·실기기·CI 완료가 아니다.
 - 완료는 F01 정상 목록의 승인된1배율 범위다. 원본 없는 빈/로딩/오류·새 정렬 메뉴·전체 집계·새 확대·다시보기 순서/진행은 후속이다. 화면 증거/빌드/`AGENTS.md` 제외, 소유 기기/포워딩/ADB/임시 파일 정리, 푸시/PR 없음.
+
+## 2026-10-19 상세 하단 페이지 이동1배율 맞춤
+
+- `8e58c4b` 기준 F02/F03/F04의 간격0→기본16/펼침8px·화살표28/32px·카운트 여백을 맞췄다. 실제 이동/비활성·불러온 개수·공통 탭/OS 여백과 데이터 계약은 유지한다.
+- 수정 전12실패/4통과·새 양 플랫폼 원본8장, 수정 후 집중113/전체1601·분석0을 확인했다. 최종 양 플랫폼의 실제 위젯/메모리 동작·최종 명세의 기록/프레임워크 오류0·새 비교8쌍·영상2개를 검증했다. 전체 제품 검사는 그대로이며 사진 펼침 판정 도구만 보완해 최종 기기 실행으로 다시 확인했다. 기존 원문 시트의 비동기 SVG 오류는 분리 진단했으며 앱 전체 런타임 오류0을 뜻하지 않는다.
+- [비교/영상](/private/tmp/clipback-detail-footer-alignment-20261019/comparison-document.html)·[검사/실측](/private/tmp/clipback-detail-footer-alignment-20261019/verification-summary.json)·[도구 보완](/private/tmp/clipback-detail-footer-alignment-20261019/photo-probe-amendment.json). Android System UI 대기창·집중 검사 경로 오류·도구 수정 전 iOS 시도는 최종 성공과 구분한다. 운영 서버/OAuth/실기기/CI 완료가 아니다.
+- 사용자 새 지시로 확인된 화면은 추가 승인 질문 없이 계속 구현한다. 없는 디자인/미정 계약은 별도 기록하며 전체 작업 종료 후 정리한다. 기존 콘텐츠 보존·사진 전체 보기·OS 안전 영역·1배율 우선과 푸시/PR 별도 원칙을 유지한다.

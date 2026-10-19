@@ -85,6 +85,8 @@ class Assets {
   static const arrowRight = 'assets/icons/arrow-right.svg';
   static const link = 'assets/icons/link-icon.svg';
   static const back = 'assets/icons/back.svg';
+  static const detailPrevious = 'assets/icons/detail-previous.svg';
+  static const detailNext = 'assets/icons/detail-next.svg';
   static const detailBack = 'assets/icons/detail-back.svg';
   static const detailMore = 'assets/icons/detail-more-vertical.svg';
   static const detailLink = 'assets/icons/detail-link.svg';

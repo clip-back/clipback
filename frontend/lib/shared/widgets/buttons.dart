@@ -78,18 +78,22 @@ class RoundIconButton extends StatelessWidget {
     required this.asset,
     required this.onPressed,
     this.rotate = false,
+    this.iconSize = 28,
+    this.backgroundOpacity = 0.45,
     super.key,
   });
 
   final String asset;
   final VoidCallback? onPressed;
   final bool rotate;
+  final double iconSize;
+  final double backgroundOpacity;
 
   @override
   Widget build(BuildContext context) {
     final icon = SvgIcon(
       asset: asset,
-      size: 28,
+      size: iconSize,
       color: onPressed == null ? AppColors.subSubtle : AppColors.text,
     );
     return InkWell(
@@ -99,7 +103,7 @@ class RoundIconButton extends StatelessWidget {
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.45),
+          color: Colors.white.withValues(alpha: backgroundOpacity),
           shape: BoxShape.circle,
         ),
         child: Center(

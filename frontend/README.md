@@ -2864,3 +2864,11 @@ flutter run -t test/support/category_content_preview.dart --dart-define=CATEGORY
 프리뷰는 실제 루트 앱·메모리 API/세션과 첫 실행부터 공유 채널 격리를 사용한다. 기기 내부 loopback8767의 `/scene`은 고정 첫 페이지/스크롤0, `/run`은 실제 정렬·왕복·변경/복구18동작, `/status`는 실제 스타일·경계·에셋·API 대상과 전체 판정을 반환한다. 개발 대역이며 실제 OAuth/운영 서버/실기기나 영속 저장 검증이 아니다. 데이터/측정 고정과 `is_favorite=false` 대역 보완은 [명세](/private/tmp/clipback-category-content-alignment-20261019/harness-amendment.json)를 따른다.
 
 이번 최종 전체1601건·분석0, 양 플랫폼 각각18동작/전체true·오류0·새2쌍/영상2개와 실제 빌드 번들349항목을 확인했다. [실제 검사](/private/tmp/clipback-category-content-alignment-20261019/tests/final-summary.json)·[비교/영상](/private/tmp/clipback-category-content-alignment-20261019/comparison-document.html)·[실측](/private/tmp/clipback-category-content-alignment-20261019/comparison-manifest.json)·[환경 정리](/private/tmp/clipback-category-content-alignment-20261019/cleanup-verification.json). 같은 데이터·1배율·키보드 숨김·스크롤0을 사용하며 Figma375×1396의 긴 원본과 실제 OS 창 높이는 다르다. 초기 도구/설치/OS 응답대기 시도는 최종 성공과 구분한다. 상세는 [계획 문서](../docs/figma-ui-alignment-plan.md)의 F01 독립 기록을 따른다.
+
+### 상세 페이지 이동의1배율 Figma 맞춤 (2026-10-19)
+
+- F02/F04 하단 탭 앞16px·전문/사진 원본 펼침8px과 원본 이전28/다음32px을 적용했다.56px 터치 영역·실제 불러온 개수·경계/비동기 이동 잠금·공통 하단 바/OS 안전 영역은 유지한다. RoundIconButton의 새 선택적 설정은 상세에서만 사용하고 기본값은 기존과 같다.
+- 검사: `flutter test --no-pub test/detail_alignment_test.dart test/scaled_navigation_layout_test.dart test/feed_pagination_test.dart`, 전체 `flutter test --no-pub --concurrency=2`, `flutter analyze --no-pub`. 집중113/전체1601·분석0이며 기존 확대 자동 검사를 유지했다.
+- 전용 실행은 기존 `flutter run --no-pub -t test/support/detail_preview.dart --dart-define=DETAIL_PREVIEW_PHASE=after`와8767의 `/scene?kind=basic|expanded|empty&scroll=0`, `/run`을 사용한다. 실제 위젯·메모리 콘텐츠/콜백만 사용하며 API 원문/미디어·운영 서버 검증과 구분한다.
+- [새 비교8쌍·영상2개](/private/tmp/clipback-detail-footer-alignment-20261019/comparison-document.html)·[실측/검사](/private/tmp/clipback-detail-footer-alignment-20261019/verification-summary.json). iPhone16/iOS18.6·Android13/API33 제스처에서 전후 같은 조건으로 새 촬영했다. 동시 실행 Android OS 대기창과 사진 펼침 검사 도구 교정은 별도 시도로 보존했다.
+- 이후 확인된 디자인은 사용자 지시에 따라 반복 승인 없이 진행한다. Figma에 없는 표현·미확정 계약은 임의로 추가하지 않고 전체 작업 종료 시 별도 정리한다. 기존 콘텐츠/저장 정책·1배율 우선·검증/화면 증거·푸시/PR 별도 원칙은 유지한다.

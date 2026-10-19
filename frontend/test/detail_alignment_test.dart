@@ -8,6 +8,7 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
+import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -603,6 +604,47 @@ Future<void> _checkScreen(
     for (final related in scene.related) {
       await _checkCard(tester, failures, related);
     }
+  }
+  final footer = find.byType(DetailPager);
+  final nav = find.byType(ClipbackNavigationBar);
+  _near(
+    failures,
+    'pager/navigation state gap',
+    tester.getTopLeft(nav).dy - tester.getBottomLeft(footer).dy,
+    scene.expanded ? 8 : 16,
+  );
+  final actions = find.descendant(
+    of: footer,
+    matching: find.byType(RoundIconButton),
+  );
+  final icons = find.descendant(of: footer, matching: find.byType(SvgIcon));
+  for (var i = 0; i < 2; i++) {
+    _near(
+      failures,
+      'pager hit width $i',
+      tester.getSize(actions.at(i)).width,
+      56,
+    );
+    _near(
+      failures,
+      'pager hit height $i',
+      tester.getSize(actions.at(i)).height,
+      56,
+    );
+    _near(
+      failures,
+      'pager original icon $i',
+      tester.getSize(icons.at(i)).width,
+      i == 0 ? 28 : 32,
+    );
+    _same(
+      failures,
+      'pager asset $i',
+      tester.widget<SvgIcon>(icons.at(i)).asset,
+      i == 0
+          ? 'assets/icons/detail-previous.svg'
+          : 'assets/icons/detail-next.svg',
+    );
   }
   final pager = find.descendant(
     of: find.byType(DetailPager),

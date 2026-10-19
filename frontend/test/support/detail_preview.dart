@@ -391,7 +391,7 @@ Future<void> _settle([int frames = 6]) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     WidgetsBinding.instance.ensureVisualUpdate();
     await WidgetsBinding.instance.endOfFrame.timeout(
-      const Duration(seconds: 15),
+      const Duration(seconds: 60),
     );
   }
 }
@@ -734,6 +734,18 @@ Map<String, Object?> _metrics() {
       'topBar': _box(_rect(top)),
       'pager': _box(_rect(pager)),
       'navigation': _box(_rect(nav)),
+      'pagerNavigationGap': _rect(nav).top - _rect(pager).bottom,
+      'pagerActions': _elements(pager)
+          .where((e) => e.widget is RoundIconButton)
+          .map(
+            (e) => {
+              'hit': _box(_rect(e)),
+              'icon': _box(_rect(_find<SvgIcon>(e)!)),
+              'asset': (_find<SvgIcon>(e)!.widget as SvgIcon).asset,
+              'enabled': (e.widget as RoundIconButton).onPressed != null,
+            },
+          )
+          .toList(),
       'background': _color(
         scaffoldWidget.backgroundColor ??
             Theme.of(scaffold).scaffoldBackgroundColor,
@@ -902,6 +914,25 @@ List<String> _layoutFindings(Map<String, Object?> metrics) {
   final layout = metrics['layout']! as Map<String, Object?>;
   final viewport = layout['viewport']! as Map<String, double>;
   final pager = layout['pager']! as Map<String, double>;
+  final expanded = _expanded;
+  if (!_near(layout['pagerNavigationGap'], expanded ? 8 : 16)) {
+    findings.add('Pager/navigation gap must be 8 expanded / 16 collapsed');
+  }
+  final actions = layout['pagerActions']! as List;
+  for (var i = 0; i < actions.length; i++) {
+    final action = actions[i] as Map;
+    final hit = action['hit'] as Map;
+    final icon = action['icon'] as Map;
+    final expectedAsset = i == 0
+        ? 'assets/icons/detail-previous.svg'
+        : 'assets/icons/detail-next.svg';
+    if (action['asset'] != expectedAsset ||
+        !_near(icon['width'], i == 0 ? 28 : 32) ||
+        !_near(hit['width'], 56) ||
+        !_near(hit['height'], 56)) {
+      findings.add('Pager original asset/geometry $i differs');
+    }
+  }
   if (layout['background'] != '0xFFFFFFFF') {
     findings.add('Detail background must be white');
   }
