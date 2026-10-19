@@ -37,7 +37,13 @@ int _epoch = 0, _pointer = 78000;
 Element get _root => _capture.currentContext! as Element;
 Element get _login => f.permissionFind<LoginScreen>(_root)!;
 Element? get _sheet => f.permissionSheet(_root);
-String _route() => _sheet != null
+String _route() => f.permissionKey(_root, 'login-progress-screen') != null
+    ? 'progress'
+    : f.permissionKey(_root, 'login-cancelled-screen') != null
+    ? 'cancelled'
+    : f.permissionKey(_root, 'login-failure-screen') != null
+    ? 'failure'
+    : _sheet != null
     ? 'permissionGuide'
     : f.permissionFind<LoginScreen>(_root) != null
     ? 'login'
@@ -437,6 +443,7 @@ Future<void> _run() async {
   _require(_social.calls.isEmpty, 'Drag cancellation authenticated');
   _record('drag_cancel_no_auth');
   _social.gate = Completer<SocialCredential?>();
+  final screen = _login.widget as LoginScreen;
   await _select(SocialLoginProvider.kakao);
   await _wait(() => _sheet != null, 'Guide missing before approval');
   await _approve();
@@ -445,11 +452,12 @@ Future<void> _run() async {
     'Approved action must call captured provider once',
   );
   _require(
-    _social.calls.single == 'kakao' && (_login.widget as LoginScreen).busy,
+    _social.calls.single == 'kakao' &&
+        (_route() == 'progress' ||
+            (_route() == 'login' && (_login.widget as LoginScreen).busy)),
     'Wrong selected provider or missing auth busy',
   );
   _record('approve_removes_route_then_selected_sdk_once');
-  final screen = _login.widget as LoginScreen;
   unawaited(screen.onContinue());
   unawaited(screen.onSocialLogin(SocialLoginProvider.google));
   await _settle(5);
@@ -461,9 +469,12 @@ Future<void> _run() async {
   _social.gate!.complete(null);
   _social.gate = null;
   await _wait(
-    () => !(_login.widget as LoginScreen).busy,
+    () =>
+        _route() == 'cancelled' ||
+        (_route() == 'login' && !(_login.widget as LoginScreen).busy),
     'SDK cancel should unlock login',
   );
+  await login.loginReturnFromFailureIfPresent(_root, tap: _tap);
   _require(_storage.value == null, 'Cancelled SDK issued session');
   _record('sdk_cancel_preserves_empty_session');
   await _select(SocialLoginProvider.google);
@@ -476,13 +487,23 @@ Future<void> _run() async {
     'Same login re-prompted after approved cancel',
   );
   _record('same_login_other_provider_skips_guide');
+  await _wait(
+    () =>
+        _route() == 'cancelled' ||
+        (_route() == 'login' && !(_login.widget as LoginScreen).busy),
+    'Second SDK cancellation missing',
+  );
+  await login.loginReturnFromFailureIfPresent(_root, tap: _tap);
   _social.fail = true;
   await _select(SocialLoginProvider.kakao);
   await _wait(() => _social.calls.length == 3, 'SDK failure missing');
   await _wait(
-    () => !(_login.widget as LoginScreen).busy,
+    () =>
+        _route() == 'failure' ||
+        (_route() == 'login' && !(_login.widget as LoginScreen).busy),
     'Failed SDK did not unlock',
   );
+  await login.loginReturnFromFailureIfPresent(_root, tap: _tap);
   _require(
     _sheet == null && _storage.value == null,
     'Failed SDK should not re-prompt or issue session',

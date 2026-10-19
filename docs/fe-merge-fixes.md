@@ -2875,3 +2875,13 @@ flutter build web --no-pub
 - 수정 전12실패/4통과·새 양 플랫폼 원본8장, 수정 후 집중113/전체1601·분석0을 확인했다. 최종 양 플랫폼의 실제 위젯/메모리 동작·최종 명세의 기록/프레임워크 오류0·새 비교8쌍·영상2개를 검증했다. 전체 제품 검사는 그대로이며 사진 펼침 판정 도구만 보완해 최종 기기 실행으로 다시 확인했다. 기존 원문 시트의 비동기 SVG 오류는 분리 진단했으며 앱 전체 런타임 오류0을 뜻하지 않는다.
 - [비교/영상](/private/tmp/clipback-detail-footer-alignment-20261019/comparison-document.html)·[검사/실측](/private/tmp/clipback-detail-footer-alignment-20261019/verification-summary.json)·[도구 보완](/private/tmp/clipback-detail-footer-alignment-20261019/photo-probe-amendment.json). Android System UI 대기창·집중 검사 경로 오류·도구 수정 전 iOS 시도는 최종 성공과 구분한다. 운영 서버/OAuth/실기기/CI 완료가 아니다.
 - 사용자 새 지시로 확인된 화면은 추가 승인 질문 없이 계속 구현한다. 없는 디자인/미정 계약은 별도 기록하며 전체 작업 종료 후 정리한다. 기존 콘텐츠 보존·사진 전체 보기·OS 안전 영역·1배율 우선과 푸시/PR 별도 원칙을 유지한다.
+
+## 2026-10-19 — A03 로그인 진행·A04 SDK 취소
+
+- `43b1ee9` 기준 Page 1 >261007의 원본 A03/A04를 적용했다. 새 진행 상태는 공유 사전 보안 성공 뒤 일반 인증의 세션 발급 전까지만 표시한다. 취소는 실제 SDK `null`에 한정하고, SDK/HTTP 오류 A05·연결/전환·발급 후 복구와 기존 인증/세션 정책을 유지한다.
+- 요청/계정 세대 소유권으로 현재 취소만 소비한다. 진행 중 busy와 헤더/OS 잠금, 같은 방문 B01 확인·게스트/방법 선택과 오래된 콜백 차단을 유지했다. 기존 A02/B01 테스트·프리뷰는 실제 A04 복귀로 갱신했으며 검사를 우회하지 않았다.
+- 새 BEFORE16목표 중2통과/14실패를 재현했다. AFTER 집중 실제103·전체1617 통과/skip0·분석0을 확인했다. 앞선 단계의 오래된 A02/B01 예상3건은 새 전환을 검사하도록 교정하고 전체를 다시 통과시켰다. 첫 촬영 도구의 첫 프레임 전 조회 실패는 제품 수정 없이 교정하고 양 플랫폼 BEFORE를 재동결했다.
+- iPhone16/iOS18.6·Android13/API33 제스처에서 새 BEFORE4/AFTER4·3열4쌍과 각10동작/전체true·프레임워크 오류0, 영상2개와 실제 PTS/전체 디코딩을 확인했다. 영상은 상태별 새 메모리 루트이며 전체10동작은 녹화 전 별도 검사했다. 원본5건/번들128건·실제 Bold와 소유 기기/포트/ADB 정리를 확인했다.
+- 실제 OAuth·운영 서버·실기기/원격 CI는 미검증이며, 후기 Android 런타임 로그는 정리 뒤여서 확보하지 못했다. 전역 비동기 오류0이나 인증 전체 완료로 보고하지 않는다. 상세 원문 시트 SVG 등 기존 보류 기록도 유지한다.
+
+[3열 비교4쌍](/private/tmp/clipback-auth-status-alignment-20261019/comparison-document.html) · [실제 결과](/private/tmp/clipback-auth-status-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-auth-status-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-auth-status-alignment-20261019/android-gesture/after/interaction.mp4)

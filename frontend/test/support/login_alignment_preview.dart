@@ -852,7 +852,11 @@ Future<void> _wait(bool Function() p, String why) async {
   throw StateError(why);
 }
 
-String _route() => _find<LoginScreen>(_root) != null
+String _route() => _key(_root, 'login-progress-screen') != null
+    ? 'progress'
+    : _key(_root, 'login-cancelled-screen') != null
+    ? 'cancelled'
+    : _find<LoginScreen>(_root) != null
     ? 'login'
     : _find<AccountManagementScreen>(_root) != null
     ? 'account'
@@ -913,13 +917,15 @@ Future<void> loginConfirmPermissionGuide(
   await _settle(8);
 }
 
-/// A05 is optional on a frozen BEFORE build. Return using the real methods
-/// button only when that screen exists, preserving the old A02 retry harness.
+/// Return through the real A05/A04 methods action when present. A frozen
+/// BEFORE build may still return straight to A02.
 Future<void> loginReturnFromFailureIfPresent(
   Element root, {
   required Future<void> Function(Element) tap,
 }) async {
-  final methods = _key(root, 'login-failure-methods');
+  final methods =
+      _key(root, 'login-failure-methods') ??
+      _key(root, 'login-cancelled-primary');
   if (methods == null) return;
   await tap(methods);
   await _settle(4);
@@ -1128,9 +1134,12 @@ Future<void> _run() async {
     await _fresh();
     await _providerTap(p);
     await _wait(
-      () => !(_login.widget as LoginScreen).busy,
+      () =>
+          _route() == 'cancelled' ||
+          (_route() == 'login' && !(_login.widget as LoginScreen).busy),
       'Cancellation did not release busy',
     );
+    await loginReturnFromFailureIfPresent(_root, tap: _tap);
     _require(
       _route() == 'login' &&
           _social.calls.length == 1 &&
@@ -1153,18 +1162,20 @@ Future<void> _run() async {
   await _fresh();
   final pendingProvider = _social.supportedProviders.first;
   _social.gate = Completer<SocialCredential?>();
+  final retainedLogin = _login.widget as LoginScreen;
   await _providerTap(pendingProvider);
   await _wait(
-    () => _social.calls.length == 1 && (_login.widget as LoginScreen).busy,
+    () =>
+        _social.calls.length == 1 &&
+        (_route() == 'progress' ||
+            (_route() == 'login' && (_login.widget as LoginScreen).busy)),
     'Pending authentication not busy',
   );
   _record('social_pending_busy');
   for (final p in _social.supportedProviders) {
-    await _providerTap(p);
+    await retainedLogin.onSocialLogin(p);
   }
-  final guest = _key(_login, 'login-guest-hit') ?? _text(_login, '게스트로 시작하기')!;
-  await _visible(guest);
-  await _tap(guest);
+  await retainedLogin.onContinue();
   _require(
     _social.calls.length == 1 &&
         _server.socialIssuances == 0 &&
@@ -1175,9 +1186,12 @@ Future<void> _run() async {
   _record('busy_social_guest_duplicates_blocked');
   _social.gate!.complete(null);
   await _wait(
-    () => !(_login.widget as LoginScreen).busy,
+    () =>
+        _route() == 'cancelled' ||
+        (_route() == 'login' && !(_login.widget as LoginScreen).busy),
     'Pending cancel did not return',
   );
+  await loginReturnFromFailureIfPresent(_root, tap: _tap);
   _record('pending_cancel_restored');
   await _fresh();
   _social.cancel = false;

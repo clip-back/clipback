@@ -278,6 +278,12 @@ void main() {
         await _approve(tester);
         await first();
         await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('login-cancelled-screen')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('login-cancelled-primary')));
+        await tester.pumpAndSettle();
         await _login(tester).onSocialLogin(SocialLoginProvider.kakao);
         await tester.pumpAndSettle();
         expect(_guide, findsNothing);
@@ -338,7 +344,10 @@ void main() {
       expect(server.requests, isEmpty);
       await _approve(tester);
       expect(social.calls, ['google']);
-      expect(_login(tester).busy, isTrue);
+      expect(
+        find.byKey(const ValueKey('login-progress-screen')),
+        findsOneWidget,
+      );
       await screen.onSocialLogin(SocialLoginProvider.apple);
       await screen.onContinue();
       expect(_guide, findsNothing);
@@ -347,6 +356,12 @@ void main() {
       expect(server.challenges, 0);
       social.gate!.complete(null);
       await first();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('login-cancelled-screen')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('login-cancelled-primary')));
       await tester.pumpAndSettle();
       expect(_login(tester).busy, isFalse);
     });

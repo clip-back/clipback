@@ -14,6 +14,7 @@ import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
+import 'package:clipback_frontend/features/auth/login_status_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
@@ -245,6 +246,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       _canUseAccountActions &&
       _d.app.route == AppRoute.login &&
       !_d.app.linkingGuest &&
+      _d.app.ordinaryLoginStatus == null &&
       !_d.session.pendingSessionClear &&
       _d.app.accountGeneration == attempt.generation &&
       _d.app.authEpoch == attempt.epoch &&
@@ -290,6 +292,25 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               ),
             );
           }
+        },
+      );
+    }
+    final status = _d.app.ordinaryLoginStatus;
+    if (status != null) {
+      if (status.phase == OrdinaryLoginPhase.authenticating) {
+        return const LoginProgressScreen();
+      }
+      return LoginCancelledScreen(
+        onChooseMethods: () => _dismissLoginStatus(status),
+        onContinueAsGuest: () {
+          if (!_dismissLoginStatus(status)) return;
+          unawaited(
+            _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            ),
+          );
         },
       );
     }
@@ -350,6 +371,20 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             }
           : null,
     );
+  }
+
+  bool _dismissLoginStatus(OrdinaryLoginStatus expected) {
+    if (!mounted ||
+        _launchPhase != _LaunchPhase.ready ||
+        !_canUseAccountActions ||
+        _d.app.route != AppRoute.login ||
+        _d.app.linkingGuest ||
+        _d.session.hasSession ||
+        _d.session.pendingSessionClear ||
+        !identical(_d.app.ordinaryLoginStatus, expected)) {
+      return false;
+    }
+    return _d.app.dismissOrdinaryLoginStatus(expected);
   }
 
   bool _canUseLinkingLogin(int generation, int epoch) =>

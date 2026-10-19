@@ -369,22 +369,39 @@ void main() {
           expect(storage.value, isNull);
           expect(server.socialIssuances, 0);
           expect(storage.writes, 0);
+          expect(
+            find.byKey(const ValueKey('login-cancelled-screen')),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('login-cancelled-primary')),
+          );
+          await tester.pumpAndSettle();
         }
         expect(server.challenges, 1);
         social.gate = Completer<SocialCredential?>();
-        final pending = tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        final retainedLogin = tester.widget<LoginScreen>(
+          find.byType(LoginScreen),
+        );
+        final pending = retainedLogin.onSocialLogin(SocialLoginProvider.google);
         await tester.pump();
         final count = social.calls.length;
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.kakao);
-        await tester.widget<LoginScreen>(find.byType(LoginScreen)).onContinue();
+        expect(
+          find.byKey(const ValueKey('login-progress-screen')),
+          findsOneWidget,
+        );
+        await retainedLogin.onSocialLogin(SocialLoginProvider.kakao);
+        await retainedLogin.onContinue();
         expect(social.calls.length, count);
         expect(server.guestIssuances, 0);
         social.gate!.complete(null);
         await pending;
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('login-cancelled-screen')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('login-cancelled-primary')));
         await tester.pumpAndSettle();
         social.gate = null;
         social.cancel = false;

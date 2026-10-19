@@ -8,6 +8,7 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/login_status_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
@@ -203,6 +204,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(server.calls, isEmpty);
         expect(await ApiSessionStorage().read(), isNull);
+        final cancelled = tester.widget<LoginCancelledScreen>(
+          find.byType(LoginCancelledScreen),
+        );
+        cancelled.onChooseMethods();
+        await tester.pumpAndSettle();
+        expect(server.calls, isEmpty);
         expect(find.byType(LoginScreen), findsOneWidget);
       });
     },

@@ -1,5 +1,7 @@
 # Clipback Frontend
 
+최근 `43b1ee9` 기준 **A03 일반 로그인 진행·A04 실제 SDK 취소**의1배율 표현을 맞췄습니다. 집중 실제 테스트103/전체1617·분석0, 양 플랫폼 각10동작/전체true·프레임워크 오류0, 새 비교4쌍·영상2개를 확인했습니다. 실제 OAuth·운영 서버·실기기 검증과 구분합니다.
+
 Flutter mobile frontend for the Clipback MVP.
 
 FE 병합 전 수정 순서와 PR별 검증 결과는
@@ -2872,3 +2874,19 @@ flutter run -t test/support/category_content_preview.dart --dart-define=CATEGORY
 - 전용 실행은 기존 `flutter run --no-pub -t test/support/detail_preview.dart --dart-define=DETAIL_PREVIEW_PHASE=after`와8767의 `/scene?kind=basic|expanded|empty&scroll=0`, `/run`을 사용한다. 실제 위젯·메모리 콘텐츠/콜백만 사용하며 API 원문/미디어·운영 서버 검증과 구분한다.
 - [새 비교8쌍·영상2개](/private/tmp/clipback-detail-footer-alignment-20261019/comparison-document.html)·[실측/검사](/private/tmp/clipback-detail-footer-alignment-20261019/verification-summary.json). iPhone16/iOS18.6·Android13/API33 제스처에서 전후 같은 조건으로 새 촬영했다. 동시 실행 Android OS 대기창과 사진 펼침 검사 도구 교정은 별도 시도로 보존했다.
 - 이후 확인된 디자인은 사용자 지시에 따라 반복 승인 없이 진행한다. Figma에 없는 표현·미확정 계약은 임의로 추가하지 않고 전체 작업 종료 시 별도 정리한다. 기존 콘텐츠/저장 정책·1배율 우선·검증/화면 증거·푸시/PR 별도 원칙은 유지한다.
+
+## A03·A04 프리뷰와 실제 검증 — 2026-10-19
+
+일반 소셜 인증 대기와 SDK 취소만 새 화면을 사용합니다. 인증 진행의 기존 busy 잠금, 오류 A05·계정 연결/전환·보안/세션 복구, B01 확인 유지와 게스트 진입은 보존합니다. 새 확대 맞춤·인증 API·AppRoute·최소 대기는 추가하지 않습니다.
+
+```bash
+flutter run --no-pub -t test/support/login_status_preview.dart --dart-define=LOGIN_STATUS_PHASE=after
+```
+
+- `/scene?kind=progress|cancelled`: 실제 A02/B01·제어 가능한 메모리 SDK로 각 상태를 구성합니다. BEFORE 전용 빌드는 `LOGIN_STATUS_PHASE=before`이며 당시 제품의 A02 스피너/취소 후 A02를 촬영했습니다.
+- `/run`: 같은 SDK 요청의 취소·진행 중 헤더/OS 잠금·중복 방지·방법 선택·동일 방문 확인 유지·헤더/OS 복귀·기존 게스트 온보딩을 검사합니다. `/status`와 임시 `report.json`에 실제 RenderParagraph/경계/도형/에셋 판정을 남깁니다.
+- 기기: iPhone16/iOS18.6과 Android13/API33 제스처. 각10동작·최종 스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0. 비교4쌍을 직접 검토하고 영상2개는 원본 PTS·전체 디코딩을 확인했습니다. 영상의 두 장면은 별도 대역 루트이며, 전체 동작 검사는 별도로 실행했습니다.
+- 실제 테스트103/전체1617 통과·skip0·분석0·번들128건, 원본 에셋5건 바이트 일치와 실제 Bold 등록을 확인했습니다. 114개의 준비 단계 포함 로그 이벤트와 실제103테스트를 구분합니다. 메모리 대역·공유 격리는 실제 공급자나 운영 기능의 성공을 뜻하지 않습니다.
+- 기기·포워딩·임시 포트·ADB 정리를 확인했습니다. 상세 원문 시트의 기존 SVG 문제와 기존 보류 정책은 별도입니다.
+
+[비교4쌍](/private/tmp/clipback-auth-status-alignment-20261019/comparison-document.html) · [실제 검사](/private/tmp/clipback-auth-status-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-auth-status-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-auth-status-alignment-20261019/android-gesture/after/interaction.mp4)
