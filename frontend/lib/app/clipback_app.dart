@@ -4,17 +4,26 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
+import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
+import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
+import 'package:clipback_frontend/features/auth/login_status_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:clipback_frontend/features/auth/session_restore_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
+import 'package:clipback_frontend/features/home/home_initial_loading_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
@@ -22,8 +31,10 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
+import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
+import 'app_view_model.dart';
 import '../features/share/pending_share_prompt.dart';
 
 class ClipbackApp extends StatefulWidget {
@@ -36,13 +47,31 @@ class ClipbackApp extends StatefulWidget {
   State<ClipbackApp> createState() => _ClipbackAppState();
 }
 
+enum _LaunchPhase { showing, mounting, ready }
+
 class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final AppDependencies _d;
+  _LaunchPhase _launchPhase = _LaunchPhase.showing;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
+  bool _notificationSettingsOpen = false;
+  bool _loginFailureContactOpen = false;
+  bool _permissionGuideAcknowledged = false;
+  bool _permissionGuideVisitActive = false;
+  int _permissionGuideVisitGeneration = -1;
+  _PermissionGuideAttempt? _permissionGuideAttempt;
+  PermissionGuideRoute? _permissionGuideRoute;
   bool _persistenceBannerUpdateScheduled = false;
+  PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
+  int _archiveStorageAccountGeneration = 0;
+  PageStorageBucket _myNoticePageStorageBucket = PageStorageBucket();
+  AppRoute _myNoticeStorageRoute = AppRoute.splash;
+  int _myNoticeStorageAccountGeneration = 0;
+  int _myNoticeStorageAuthEpoch = 0;
+  bool _myNoticeStorageBlocked = true;
+  AppRoute _categoryManagementReturnRoute = AppRoute.my;
 
   @override
   void initState() {
@@ -51,7 +80,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _d = AppDependencies(
       storage: widget.sessionStorage,
       socialAuth: widget.socialAuth,
+      canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
     );
+    _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {
       viewModel.addListener(_onChanged);
@@ -62,6 +93,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _cancelPermissionGuide();
     WidgetsBinding.instance.removeObserver(this);
     _d.app.removeListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {
@@ -83,7 +115,411 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    _syncPermissionGuideVisit();
+    _syncMyNoticeStorage();
+    if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
+      _archiveStorageAccountGeneration = _d.app.accountGeneration;
+      _archivePageStorageBucket = PageStorageBucket();
+      _categoryManagementReturnRoute = AppRoute.my;
+    }
     setState(() {});
+    _flushUiEffects();
+  }
+
+  // Only the My -> notices -> My pair restores My's scroll position. Other
+  // routes and security/restore boundaries discard the old bucket entirely.
+  void _syncMyNoticeStorage() {
+    final route = _d.app.route;
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    final blocked =
+        _d.app.isRestoringSession ||
+        _d.app.apiConnectionError != null ||
+        _d.session.pendingSessionClear ||
+        !_d.session.hasSession;
+    final noticePair =
+        (_myNoticeStorageRoute == AppRoute.my &&
+            route == AppRoute.noticeList) ||
+        (_myNoticeStorageRoute == AppRoute.noticeList && route == AppRoute.my);
+    if (generation != _myNoticeStorageAccountGeneration ||
+        epoch != _myNoticeStorageAuthEpoch ||
+        blocked != _myNoticeStorageBlocked ||
+        (route != _myNoticeStorageRoute && !noticePair)) {
+      _myNoticePageStorageBucket = PageStorageBucket();
+    }
+    _myNoticeStorageRoute = route;
+    _myNoticeStorageAccountGeneration = generation;
+    _myNoticeStorageAuthEpoch = epoch;
+    _myNoticeStorageBlocked = blocked;
+  }
+
+  VoidCallback _noticeNavigation(AppRoute from, AppRoute to) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_canUseAccountActions ||
+          !_d.session.hasSession ||
+          _d.session.pendingSessionClear ||
+          _d.app.accountGeneration != generation ||
+          _d.app.authEpoch != epoch ||
+          _d.app.route != from) {
+        return;
+      }
+      _go(to);
+    };
+  }
+
+  bool _canUseNotifications(AppRoute from, int generation, int epoch) =>
+      _canUseAccountActions &&
+      _d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == generation &&
+      _d.app.authEpoch == epoch &&
+      _d.app.route == from;
+
+  VoidCallback _notificationNavigation(AppRoute from, AppRoute to) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_notificationSettingsOpen &&
+          _canUseNotifications(from, generation, epoch)) {
+        _go(to);
+      }
+    };
+  }
+
+  VoidCallback _notificationSettings() {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () => unawaited(_showNotificationSettings(generation, epoch));
+  }
+
+  Future<void> _showNotificationSettings(int generation, int epoch) async {
+    if (_notificationSettingsOpen ||
+        !_canUseNotifications(AppRoute.notificationList, generation, epoch)) {
+      return;
+    }
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    _notificationSettingsOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const ReminderSheet(),
+      );
+    } finally {
+      _notificationSettingsOpen = false;
+    }
+  }
+
+  // An acknowledgement belongs to this ordinary-login visit, not to an auth
+  // attempt: the SDK increments authEpoch even when it cancels or fails.
+  void _syncPermissionGuideVisit() {
+    final active =
+        _d.app.route == AppRoute.login &&
+        !_d.app.linkingGuest &&
+        _d.app.supportedProviders.isNotEmpty &&
+        !_d.app.isRestoringSession &&
+        _d.app.apiConnectionError == null &&
+        !_d.session.pendingSessionClear;
+    final generation = _d.app.accountGeneration;
+    if (!active ||
+        !_permissionGuideVisitActive ||
+        generation != _permissionGuideVisitGeneration) {
+      _permissionGuideAcknowledged = false;
+    }
+    _permissionGuideVisitActive = active;
+    _permissionGuideVisitGeneration = generation;
+    final attempt = _permissionGuideAttempt;
+    if (_permissionGuideRoute != null &&
+        attempt != null &&
+        !_canStartGuidedAuthentication(attempt)) {
+      _cancelPermissionGuide();
+    }
+  }
+
+  bool _canStartGuidedAuthentication(_PermissionGuideAttempt attempt) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      _d.app.route == AppRoute.login &&
+      !_d.app.linkingGuest &&
+      _d.app.ordinaryLoginStatus == null &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == attempt.generation &&
+      _d.app.authEpoch == attempt.epoch &&
+      _d.app.supportedProviders.isNotEmpty &&
+      (attempt.provider == null ||
+          _d.app.supportedProviders.contains(attempt.provider));
+
+  void _cancelPermissionGuide() {
+    final attempt = _permissionGuideAttempt;
+    final route = _permissionGuideRoute;
+    if (attempt == null || route == null) return;
+    attempt.cancel();
+    final navigator = _navigatorKey.currentState;
+    // Listeners may fire while Navigator is building. Retain the exact route,
+    // so a subsequent security sheet is never dismissed by an unrelated pop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator != null && navigator.mounted && route.isActive) {
+        navigator.removeRoute<bool>(route);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Widget _buildLogin() {
+    final providers = _d.app.supportedProviders;
+    final guided = !_d.app.linkingGuest && providers.isNotEmpty;
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    final conflict = _d.app.accountLinkConflict;
+    if (conflict != null) {
+      return AccountLinkConflictScreen(
+        onKeepGuest: () {
+          if (_canUseAccountLinkConflict(conflict)) {
+            _d.app.cancelAccountLinkConflict(conflict);
+          }
+        },
+        onConfirm: () {
+          if (_canUseAccountLinkConflict(conflict)) {
+            unawaited(
+              _d.app.confirmAccountSwitch(
+                conflict.authEpoch,
+                conflict.provider,
+              ),
+            );
+          }
+        },
+      );
+    }
+    final status = _d.app.ordinaryLoginStatus;
+    if (status != null) {
+      if (status.phase == OrdinaryLoginPhase.authenticating) {
+        return const LoginProgressScreen();
+      }
+      return LoginCancelledScreen(
+        onChooseMethods: () => _dismissLoginStatus(status),
+        onContinueAsGuest: () {
+          if (!_dismissLoginStatus(status)) return;
+          unawaited(
+            _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            ),
+          );
+        },
+      );
+    }
+    final failure = _d.app.ordinaryLoginFailure;
+    if (failure != null) {
+      return LoginFailureScreen(
+        statusCode: failure.statusCode,
+        onChooseMethods: () => _dismissLoginFailure(failure),
+        onContinueAsGuest: () {
+          if (!_dismissLoginFailure(failure)) return;
+          unawaited(
+            _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            ),
+          );
+        },
+        onContact: () => unawaited(_showLoginFailureContact(failure)),
+      );
+    }
+    return LoginScreen(
+      onContinue: guided
+          ? () => _withPermissionGuide(
+              () => _d.app.continueAsGuest(),
+              generation: generation,
+              epoch: epoch,
+            )
+          : _d.app.linkingGuest
+          ? () async {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                await _d.app.continueAsGuest();
+              }
+            }
+          : _d.app.continueAsGuest,
+      onSocialLogin: guided
+          ? (provider) => _withPermissionGuide(
+              () => _d.app.authenticateSocial(provider),
+              generation: generation,
+              epoch: epoch,
+              provider: provider,
+            )
+          : _d.app.linkingGuest
+          ? (provider) async {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                await _d.app.authenticateSocial(provider);
+              }
+            }
+          : _d.app.authenticateSocial,
+      providers: providers,
+      busy: _d.app.authBusy,
+      linkingGuest: _d.app.linkingGuest,
+      onBack: _d.app.linkingGuest
+          ? () {
+              if (_canUseLinkingLogin(generation, epoch)) {
+                _go(AppRoute.account);
+              }
+            }
+          : null,
+    );
+  }
+
+  bool _dismissLoginStatus(OrdinaryLoginStatus expected) {
+    if (!mounted ||
+        _launchPhase != _LaunchPhase.ready ||
+        !_canUseAccountActions ||
+        _d.app.route != AppRoute.login ||
+        _d.app.linkingGuest ||
+        _d.session.hasSession ||
+        _d.session.pendingSessionClear ||
+        !identical(_d.app.ordinaryLoginStatus, expected)) {
+      return false;
+    }
+    return _d.app.dismissOrdinaryLoginStatus(expected);
+  }
+
+  bool _canUseLinkingLogin(int generation, int epoch) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      _d.app.route == AppRoute.login &&
+      _d.app.linkingGuest &&
+      _d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      _d.app.accountGeneration == generation &&
+      _d.app.authEpoch == epoch &&
+      _d.app.accountLinkConflict == null;
+
+  bool _canUseAccountLinkConflict(AccountLinkConflict expected) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      !_d.session.pendingSessionClear &&
+      identical(_d.app.accountLinkConflict, expected);
+
+  bool _canUseLoginFailure(OrdinaryLoginFailure expected) =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _canUseAccountActions &&
+      !_d.session.hasSession &&
+      !_d.session.pendingSessionClear &&
+      identical(_d.app.ordinaryLoginFailure, expected);
+
+  bool _dismissLoginFailure(OrdinaryLoginFailure expected) =>
+      !_loginFailureContactOpen &&
+      _canUseLoginFailure(expected) &&
+      _d.app.dismissOrdinaryLoginFailure(expected);
+
+  Future<void> _showLoginFailureContact(OrdinaryLoginFailure expected) async {
+    if (_loginFailureContactOpen || !_canUseLoginFailure(expected)) return;
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    _loginFailureContactOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const ContactSheet(),
+      );
+    } finally {
+      _loginFailureContactOpen = false;
+    }
+  }
+
+  Future<void> _withPermissionGuide(
+    Future<void> Function() selectedAction, {
+    required int generation,
+    required int epoch,
+    SocialLoginProvider? provider,
+  }) async {
+    if (!mounted) return;
+    _syncPermissionGuideVisit();
+    final attempt = _PermissionGuideAttempt(generation, epoch, provider);
+    if (_permissionGuideAttempt != null ||
+        !_canStartGuidedAuthentication(attempt)) {
+      return;
+    }
+    _permissionGuideAttempt = attempt;
+    PermissionGuideRoute? ownedRoute;
+    try {
+      if (!_permissionGuideAcknowledged) {
+        final navigator = _navigatorKey.currentState;
+        final context = _navigatorKey.currentContext;
+        if (navigator == null || context == null || !context.mounted) return;
+        late final PermissionGuideRoute route;
+        route = PermissionGuideRoute(
+          context: context,
+          builder: (context) => PermissionGuideSheet(
+            onContinue: () {
+              if (attempt.confirmed ||
+                  attempt.cancelled ||
+                  !identical(_permissionGuideAttempt, attempt) ||
+                  !identical(_permissionGuideRoute, route) ||
+                  !route.isCurrent ||
+                  !_canStartGuidedAuthentication(attempt)) {
+                return;
+              }
+              attempt.confirmed = true;
+              navigator.pop<bool>(true);
+            },
+          ),
+        );
+        ownedRoute = route;
+        _permissionGuideRoute = route;
+        final accepted = await Future.any<bool?>([
+          navigator.push<bool>(route),
+          attempt.cancellation.future,
+        ]);
+        if (!mounted) return;
+        // SDK UI must not overlap the bottom sheet's reverse transition.
+        await route.completed;
+        if (identical(_permissionGuideRoute, route)) {
+          _permissionGuideRoute = null;
+        }
+        if (accepted != true ||
+            attempt.cancelled ||
+            !_canStartGuidedAuthentication(attempt)) {
+          return;
+        }
+        _permissionGuideAcknowledged = true;
+      }
+      if (_canStartGuidedAuthentication(attempt)) await selectedAction();
+    } finally {
+      if (identical(_permissionGuideRoute, ownedRoute)) {
+        _permissionGuideRoute = null;
+      }
+      if (identical(_permissionGuideAttempt, attempt)) {
+        _permissionGuideAttempt = null;
+      }
+    }
+  }
+
+  void _finishLaunchSplash() {
+    if (!mounted || _launchPhase != _LaunchPhase.showing) return;
+    setState(() => _launchPhase = _LaunchPhase.mounting);
+    // Route selection is still owned by session restoration. Wait for that
+    // route's first frame before presenting queued UI or preparing sharing.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _launchPhase != _LaunchPhase.mounting) return;
+      setState(() => _launchPhase = _LaunchPhase.ready);
+      _d.sharing.sessionSettled();
+      _flushUiEffects();
+      _schedulePersistenceBannerUpdate();
+    });
+  }
+
+  void _flushUiEffects() {
+    if (!mounted || _launchPhase != _LaunchPhase.ready) return;
     final effects = [
       ..._d.app.drainEffects(),
       for (final viewModel in _d.featureViewModels) ...viewModel.drainEffects(),
@@ -110,7 +546,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       case CloseTransientRoutesEffect():
         _navigatorKey.currentState?.popUntil((route) => route.isFirst);
       case ConfirmAccountSwitchEffect():
-        unawaited(_confirmAccountSwitch(effect));
+        // Kept for effect compatibility; the owned login state renders A05-1.
+        break;
       case DetailDeletedEffect():
         if (_d.app.route == AppRoute.detail) _d.app.backFromDetail();
       case SavedContentEffect():
@@ -130,45 +567,23 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _confirmAccountSwitch(ConfirmAccountSwitchEffect effect) async {
-    final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('이미 연결된 계정이에요'),
-        content: const Text(
-          '기존 계정으로 전환하면 현재 게스트의 저장 데이터는 합쳐지지 않으며, 이 기기에서 다시 접근하지 못할 수 있어요. 기존 계정으로 로그인할까요?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('게스트 유지'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('기존 계정으로 전환'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      await _d.app.confirmAccountSwitch(effect.epoch, effect.provider);
-    }
-  }
-
   void _onSessionChanged() {
     if (!mounted) return;
+    _syncPermissionGuideVisit();
     _isSessionStorageBusy.value = _d.session.storageBusy;
     _schedulePersistenceBannerUpdate();
   }
 
   void _schedulePersistenceBannerUpdate() {
-    if (!mounted || _persistenceBannerUpdateScheduled) return;
+    if (!mounted ||
+        _launchPhase != _LaunchPhase.ready ||
+        _persistenceBannerUpdateScheduled) {
+      return;
+    }
     _persistenceBannerUpdateScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _persistenceBannerUpdateScheduled = false;
-      if (!mounted) return;
+      if (!mounted || _launchPhase != _LaunchPhase.ready) return;
       final messenger = _messengerKey.currentState;
       if (messenger == null) return;
       final showBanner = _d.session.needsPersistence;
@@ -201,6 +616,36 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void _go(AppRoute route) {
     if (route != AppRoute.detail) _d.detail.close();
     _d.app.go(route);
+  }
+
+  void _openCategoryManagement(AppRoute returnRoute) {
+    _categoryManagementReturnRoute = returnRoute;
+    _go(AppRoute.categoryManagement);
+  }
+
+  bool get _canUseAccountActions =>
+      mounted &&
+      !_d.app.authBusy &&
+      !_d.app.isRestoringSession &&
+      _d.app.apiConnectionError == null;
+
+  Future<void> _openLogoutConfirmation() async {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.account) return;
+    _go(AppRoute.logoutConfirmation);
+  }
+
+  Future<void> _confirmLogout() async {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
+      return;
+    }
+    await _d.app.logout();
+  }
+
+  void _cancelLogout() {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
+      return;
+    }
+    _go(AppRoute.account);
   }
 
   void _selectRootTab(AppRoute route) {
@@ -257,16 +702,18 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
-      builder: (context, child) => PendingSharePrompt(
-        navigatorKey: _navigatorKey,
-        promptVersion: _d.sharing.promptVersion,
-        drafts: _d.sharing.drafts,
-        error: _d.sharing.error,
-        busy: _d.sharing.busy,
-        onRetry: () => unawaited(_d.sharing.retry()),
-        onOpen: (draft) => unawaited(_d.sharing.present(draft)),
-        child: child!,
-      ),
+      builder: (context, child) => _launchPhase != _LaunchPhase.ready
+          ? child!
+          : PendingSharePrompt(
+              navigatorKey: _navigatorKey,
+              promptVersion: _d.sharing.promptVersion,
+              drafts: _d.sharing.drafts,
+              error: _d.sharing.error,
+              busy: _d.sharing.busy,
+              onRetry: () => unawaited(_d.sharing.retry()),
+              onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+              child: child!,
+            ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
@@ -283,21 +730,19 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           displayColor: AppColors.text,
         ),
       ),
-      home: switch (_d.app.route) {
-        _ when _d.app.isRestoringSession || _d.app.apiConnectionError != null =>
-          SessionRestoreScreen(
-            errorMessage: _d.app.apiConnectionError,
-            onRetry: _d.app.restoreSession,
-          ),
-        AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
-        AppRoute.login => LoginScreen(
-          onContinue: _d.app.continueAsGuest,
-          onSocialLogin: _d.app.authenticateSocial,
-          providers: _d.app.supportedProviders,
-          busy: _d.app.authBusy,
-          linkingGuest: _d.app.linkingGuest,
-          onBack: _d.app.linkingGuest ? () => _go(AppRoute.account) : null,
+      home: _withLaunchSplash(switch (_d.app.route) {
+        _ when _d.app.apiConnectionError != null => SessionRestoreScreen(
+          errorMessage: _d.app.apiConnectionError,
+          onRetry: _d.app.restoreSession,
         ),
+        _ when _d.app.showInitialHomeLoading =>
+          const HomeInitialLoadingScreen(),
+        _ when _d.app.isRestoringSession => SessionRestoreScreen(
+          errorMessage: null,
+          onRetry: _d.app.restoreSession,
+        ),
+        AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
+        AppRoute.login => _buildLogin(),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),
         ),
@@ -305,64 +750,93 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onBack: () => _go(AppRoute.onboarding),
           onDone: () => _go(AppRoute.home),
         ),
-        AppRoute.home => HomeScreen(
-          contents: _d.home.page.items,
-          feed: _d.home.page,
-          onRetry: _d.home.retry,
-          activeCategoryId: _d.home.page.categoryId,
-          onCategorySelected: _d.home.selectCategory,
-          categories: _d.categories.categories,
-          bookmarkedIds: _d.home.bookmarkedIds,
-          onSearch: _openSearch,
-          onOpenArchive: () => _openArchive(
-            categoryName: _d.home.categories
-                .where((item) => item.id == _d.home.page.categoryId)
-                .firstOrNull
-                ?.name,
+        AppRoute.home || AppRoute.notificationList => _HomeNotificationFlow(
+          key: ValueKey((
+            _d.app.accountGeneration,
+            _d.app.authEpoch,
+            _d.session.pendingSessionClear,
+            _d.session.hasSession,
+          )),
+          showingNotifications: _d.app.route == AppRoute.notificationList,
+          home: HomeScreen(
+            contents: _d.home.page.items,
+            feed: _d.home.page,
+            onRetry: _d.home.retry,
+            activeCategoryId: _d.home.page.categoryId,
+            onCategorySelected: _d.home.selectCategory,
+            categories: _d.categories.categories,
+            bookmarkedIds: _d.home.bookmarkedIds,
+            onSearch: _openSearch,
+            onOpenNotifications: _notificationNavigation(
+              AppRoute.home,
+              AppRoute.notificationList,
+            ),
+            onOpenArchive: () => _openArchive(
+              categoryName: _d.home.categories
+                  .where((item) => item.id == _d.home.page.categoryId)
+                  .firstOrNull
+                  ?.name,
+            ),
+            onOpenCategories: () => _openArchive(tab: 1),
+            onOpenToday: _d.home.page.items.isEmpty
+                ? () {}
+                : () => _openDetail(_d.home.page.items.first),
+            onOpenContent: _openDetail,
+            onToggleBookmark: _d.home.toggleBookmark,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onTab: _selectRootTab,
           ),
-          onOpenCategories: () => _openArchive(tab: 1),
-          onOpenToday: _d.home.page.items.isEmpty
-              ? () {}
-              : () => _openDetail(_d.home.page.items.first),
-          onOpenContent: _openDetail,
-          onToggleBookmark: _d.home.toggleBookmark,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onTab: _selectRootTab,
+          notification: _d.app.route == AppRoute.notificationList
+              ? NotificationListScreen(
+                  items: mockNotifications,
+                  onBack: _notificationNavigation(
+                    AppRoute.notificationList,
+                    AppRoute.home,
+                  ),
+                  onOpenSettings: _notificationSettings(),
+                )
+              : const SizedBox.shrink(),
         ),
-        AppRoute.archive => ArchiveScreen(
-          activeTab: _d.archive.activeTab,
-          contents: _d.archive.page.items,
-          feed: _d.archive.page,
-          onLoadMore: _d.archive.loadMore,
-          onRetry: _d.archive.retry,
-          categories: _d.categories.categories,
-          bookmarkedIds: _d.home.bookmarkedIds,
-          bookmarkedFirst: _d.archive.bookmarkedFirst,
-          randomViewing: _d.archive.randomViewing,
-          activeCategoryName: _d.archive.activeCategoryName,
-          onTabChanged: _d.archive.selectTab,
-          onSortChanged: _d.archive.sort,
-          onOpenRandomView: () => _d.archive.setRandomViewing(true),
-          onExitRandomView: () => _d.archive.setRandomViewing(false),
-          onClearCategory: _d.archive.clearCategory,
-          onSearch: _openSearch,
-          onOpenContent: _openDetail,
-          onToggleBookmark: _d.archive.toggleBookmark,
-          onChangeContentCategory: _d.archive.changeCategory,
-          onDeleteContent: _d.archive.deleteContent,
-          onAddCategory: _d.categories.add,
-          onUpdateCategory: _d.categories.update,
-          onDeleteCategory: _d.categories.delete,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onOpenCategory: (category) {
-            unawaited(_d.archive.selectCategory(category));
-            if (category.id != null) {
-              _d.archive.recordCategoryOpen(category.id!);
-            }
-          },
-          onTab: _selectRootTab,
+        AppRoute.archive => PageStorage(
+          key: ValueKey(_archiveStorageAccountGeneration),
+          bucket: _archivePageStorageBucket,
+          child: ArchiveScreen(
+            activeTab: _d.archive.activeTab,
+            contents: _d.archive.page.items,
+            feed: _d.archive.page,
+            onLoadMore: _d.archive.loadMore,
+            onRetry: _d.archive.retry,
+            categories: _d.categories.categories,
+            bookmarkedIds: _d.home.bookmarkedIds,
+            bookmarkedFirst: _d.archive.bookmarkedFirst,
+            randomViewing: _d.archive.randomViewing,
+            activeCategoryName: _d.archive.activeCategoryName,
+            onTabChanged: _d.archive.selectTab,
+            onSortChanged: _d.archive.sort,
+            onOpenRandomView: () => _d.archive.setRandomViewing(true),
+            onExitRandomView: () => _d.archive.setRandomViewing(false),
+            onClearCategory: _d.archive.clearCategory,
+            onSearch: _openSearch,
+            onOpenCategoryManagement: () =>
+                _openCategoryManagement(AppRoute.archive),
+            onOpenContent: _openDetail,
+            onToggleBookmark: _d.archive.toggleBookmark,
+            onChangeContentCategory: _d.archive.changeCategory,
+            onDeleteContent: _d.archive.deleteContent,
+            onAddCategory: _d.categories.add,
+            onUpdateCategory: _d.categories.update,
+            onDeleteCategory: _d.categories.delete,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onOpenCategory: (category) {
+              unawaited(_d.archive.selectCategory(category));
+              if (category.id != null) {
+                _d.archive.recordCategoryOpen(category.id!);
+              }
+            },
+            onTab: _selectRootTab,
+          ),
         ),
         AppRoute.bookmark => BookmarkScreen(
           contents: _d.bookmark.page.items,
@@ -372,6 +846,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           bookmarkedIds: _d.home.bookmarkedIds,
           categories: _d.categories.categories,
           onSearch: _openSearch,
+          onOpenCategoryManagement: () =>
+              _openCategoryManagement(AppRoute.bookmark),
+          onOpenArchiveAll: () => _openArchive(tab: 0),
           onOpenContent: _openDetail,
           onToggleBookmark: _d.bookmark.toggleBookmark,
           onChangeContentCategory: _d.bookmark.changeCategory,
@@ -418,31 +895,101 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onAddScreenshot: _d.save.addScreenshot,
           onTab: _selectRootTab,
         ),
-        AppRoute.my => MyScreen(
-          user: _d.account.user,
-          onAddLink: _d.save.addLink,
-          onAddScreenshot: _d.save.addScreenshot,
-          onOpenAccount: () => _go(AppRoute.account),
-          onOpenCategoryManagement: () => _go(AppRoute.categoryManagement),
-          onTab: _selectRootTab,
+        AppRoute.my => PageStorage(
+          key: ObjectKey(_myNoticePageStorageBucket),
+          bucket: _myNoticePageStorageBucket,
+          child: MyScreen(
+            user: _d.account.user,
+            onAddLink: _d.save.addLink,
+            onAddScreenshot: _d.save.addScreenshot,
+            onOpenAccount: () => _go(AppRoute.account),
+            onOpenCategoryManagement: () =>
+                _openCategoryManagement(AppRoute.my),
+            onOpenNotices: _noticeNavigation(AppRoute.my, AppRoute.noticeList),
+            onTab: _selectRootTab,
+          ),
+        ),
+        AppRoute.noticeList => NoticeListScreen(
+          titles: mockNotices,
+          onBack: _noticeNavigation(AppRoute.noticeList, AppRoute.my),
         ),
         AppRoute.account => AccountManagementScreen(
           user: _d.account.user,
           onBack: () => _go(AppRoute.my),
-          onLogout: _d.app.logout,
+          onLogout: _openLogoutConfirmation,
           isGuest: _d.app.authenticatedUser?.isGuest,
           onConnect: _d.app.openAccountLogin,
           busy: _d.app.authBusy,
         ),
-        AppRoute.categoryManagement => CategoryManagementScreen(
-          categories: _d.categories.categories,
-          contents: _d.home.page.items,
-          onBack: () => _go(AppRoute.my),
-          onAddCategory: _d.categories.add,
-          onUpdateCategory: _d.categories.update,
-          onDeleteCategory: _d.categories.delete,
+        AppRoute.logoutConfirmation => LogoutConfirmationScreen(
+          onConfirm: _confirmLogout,
+          onCancel: _cancelLogout,
+          busy: _d.app.authBusy,
         ),
-      },
+        AppRoute.categoryManagement => PopScope<void>(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _go(_categoryManagementReturnRoute);
+          },
+          child: CategoryManagementScreen(
+            categories: _d.categories.categories,
+            contents: _d.home.page.items,
+            onBack: () => _go(_categoryManagementReturnRoute),
+            onAddCategory: _d.categories.add,
+            onUpdateCategory: _d.categories.update,
+            onDeleteCategory: _d.categories.delete,
+          ),
+        ),
+      }),
     );
+  }
+
+  Widget _withLaunchSplash(Widget route) => _launchPhase == _LaunchPhase.showing
+      ? SplashScreen(onDone: _finishLaunchSplash)
+      : route;
+}
+
+// Preserve the existing modal round-trip semantics only for home/notifications.
+// Other logical routes remove this subtree, as they did before this flow existed.
+class _HomeNotificationFlow extends StatelessWidget {
+  const _HomeNotificationFlow({
+    required this.showingNotifications,
+    required this.home,
+    required this.notification,
+    super.key,
+  });
+  final bool showingNotifications;
+  final Widget home;
+  final Widget notification;
+
+  @override
+  Widget build(BuildContext context) => IndexedStack(
+    index: showingNotifications ? 1 : 0,
+    children: [
+      TickerMode(
+        enabled: !showingNotifications,
+        child: ExcludeFocus(
+          excluding: showingNotifications,
+          child: ExcludeSemantics(excluding: showingNotifications, child: home),
+        ),
+      ),
+      // An inactive PopScope must not register against the home route.
+      notification,
+    ],
+  );
+}
+
+class _PermissionGuideAttempt {
+  _PermissionGuideAttempt(this.generation, this.epoch, this.provider);
+
+  final int generation;
+  final int epoch;
+  final SocialLoginProvider? provider;
+  final cancellation = Completer<bool?>();
+  bool confirmed = false;
+  bool get cancelled => cancellation.isCompleted;
+
+  void cancel() {
+    if (!cancelled) cancellation.complete(null);
   }
 }

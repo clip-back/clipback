@@ -5,7 +5,6 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
@@ -14,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/category_content_widgets.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -160,15 +160,39 @@ void main() {
             .first;
         final cases =
             <(String, Widget Function(), Finder Function(), double, double)>[
-              ('archive', archive, () => find.byType(AppTopBar), inset, 64),
               (
-                'category archive',
-                () => archive(categoryName: '분류'),
-                () => find.byType(CategoryTopBar),
+                'archive',
+                archive,
+                () {
+                  final aligned = find.byKey(
+                    const ValueKey('archive-category-header'),
+                  );
+                  return aligned.evaluate().isNotEmpty
+                      ? aligned
+                      : find.byType(AppTopBar);
+                },
                 inset,
                 64,
               ),
-              ('bookmark', bookmark, () => find.byType(AppTopBar), inset, 64),
+              (
+                'category archive',
+                () => archive(categoryName: '분류'),
+                () => find.byType(CategoryContentTopBar),
+                inset,
+                64,
+              ),
+              (
+                'bookmark',
+                bookmark,
+                () {
+                  final aligned = find.byKey(const ValueKey('bookmark-header'));
+                  return aligned.evaluate().isNotEmpty
+                      ? aligned
+                      : find.byType(AppTopBar);
+                },
+                inset,
+                64,
+              ),
               (
                 'search',
                 search,
@@ -180,21 +204,16 @@ void main() {
                       ),
                     )
                     .first,
-                inset + 10,
+                inset + 16,
                 44,
               ),
               ('detail', detail, () => find.byType(DetailTopBar), inset, 64),
               (
                 'home',
                 home,
-                () => find
-                    .descendant(
-                      of: find.byType(HomeHero),
-                      matching: find.byType(Row),
-                    )
-                    .first,
-                inset,
-                64,
+                () => find.byKey(const ValueKey('home-header')),
+                inset + 8,
+                56,
               ),
               (
                 'my',
@@ -252,8 +271,11 @@ void main() {
           expect(rect.height, entry.$5, reason: entry.$1);
           final controls = find.byWidgetPredicate(
             (w) =>
-                w is SvgIconButton &&
-                (w.asset == Assets.back || w.asset == Assets.search),
+                w.key == const ValueKey('management-back') ||
+                (w is SvgIconButton &&
+                    (w.asset == Assets.back ||
+                        w.asset == Assets.detailBack ||
+                        w.asset == Assets.search)),
           );
           for (final element in controls.evaluate()) {
             final finder = find.byElementPredicate(
@@ -267,9 +289,12 @@ void main() {
             expect(events, hasLength(1), reason: '${entry.$1} header callback');
           }
           if (entry.$1 == 'categories') {
-            final add = find.byWidgetPredicate(
-              (w) => w is SvgIconButton && w.asset == Assets.folderPlus,
-            );
+            final keyedAdd = find.byKey(const ValueKey('management-add'));
+            final add = keyedAdd.evaluate().isNotEmpty
+                ? keyedAdd
+                : find.byWidgetPredicate(
+                    (w) => w is SvgIconButton && w.asset == Assets.folderPlus,
+                  );
             expect(tester.getRect(add).top, greaterThanOrEqualTo(inset));
             await tester.tap(add);
             await tester.pumpAndSettle();

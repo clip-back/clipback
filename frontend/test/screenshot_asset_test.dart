@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -5,7 +6,6 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -236,7 +236,7 @@ Future<void> _withApp(
           child: ClipbackApp(sessionStorage: storage),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -269,7 +269,7 @@ Future<void> _openOriginalSheet(
   final button = find.descendant(
     of: find.byType(DetailScreen),
     matching: find.byWidgetPredicate(
-      (widget) => widget is SvgIconButton && widget.asset == Assets.link,
+      (widget) => widget is SvgIconButton && widget.asset == Assets.detailLink,
     ),
   );
   await tester.ensureVisible(button);
@@ -333,7 +333,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
       child: const ClipbackApp(),
     ),
   );
-  await tester.pumpAndSettle();
+  await completeAppStartup(tester);
 }
 
 void main() {
@@ -896,13 +896,7 @@ void main() {
         await tester.pumpAndSettle();
         tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
         await tester.pumpAndSettle();
-        unawaited(
-          tester
-              .widget<AccountManagementScreen>(
-                find.byType(AccountManagementScreen),
-              )
-              .onLogout(),
-        );
+        await startLogoutFromAccount(tester);
         await tester.pumpAndSettle();
         server.contents[0] = _content(id: 8, assetId: 10);
         await startGuestAndFinishOnboarding(tester);
@@ -971,7 +965,8 @@ void main() {
               of: find.byType(DetailScreen),
               matching: find.byWidgetPredicate(
                 (widget) =>
-                    widget is SvgIconButton && widget.asset == Assets.link,
+                    widget is SvgIconButton &&
+                    widget.asset == Assets.detailLink,
               ),
             ),
           );

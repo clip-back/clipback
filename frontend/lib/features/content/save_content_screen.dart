@@ -47,6 +47,16 @@ class AddContentSheet extends StatefulWidget {
   State<AddContentSheet> createState() => _AddContentSheetState();
 }
 
+class _SaveSubmission {
+  const _SaveSubmission.link(this.label) : photoBytes = null;
+  const _SaveSubmission.photo(this.label, Uint8List bytes) : photoBytes = bytes;
+
+  final String label;
+  final Uint8List? photoBytes;
+  bool get isLink => photoBytes == null;
+  int get tab => isLink ? 0 : 1;
+}
+
 class _AddContentSheetState extends State<AddContentSheet> {
   final _urlController = TextEditingController();
   final _bodyScrollController = ScrollController();
@@ -58,8 +68,9 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
   var _isSaving = false;
+  _SaveSubmission? _pendingSubmission;
   String? _saveError;
-  ContentItem? _savedContent;
+  ({ContentItem content, _SaveSubmission submission})? _savedResult;
 
   @override
   void dispose() {
@@ -71,8 +82,14 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _paste() async {
+    if (_savedResult != null) return;
     final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!mounted || data?.text == null || data!.text!.trim().isEmpty) return;
+    if (!mounted ||
+        _savedResult != null ||
+        data?.text == null ||
+        data!.text!.trim().isEmpty) {
+      return;
+    }
     _urlController.text = data.text!.trim();
     _validateLink(_urlController.text);
   }
@@ -105,49 +122,76 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   void _changeTab(int tab) {
+    if (_savedResult != null) return;
     setState(() => _activeTab = tab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+        _bodyScrollController.jumpTo(0);
+      }
     });
   }
 
   Future<void> _submit() async {
     final isLink = _activeTab == 0;
     final stage = isLink ? _linkStage : _photoStage;
-    if (_isSaving || stage != SaveFlowStage.valid) return;
+    if (_savedResult != null || _isSaving || stage != SaveFlowStage.valid) {
+      return;
+    }
 
-    setState(() => _isSaving = true);
+    final _SaveSubmission submission;
+    if (isLink) {
+      submission = _SaveSubmission.link(_urlController.text.trim());
+    } else {
+      final bytes = _selectedPhotoBytes;
+      final filename = _selectedPhotoFilename;
+      if (bytes == null || filename == null) return;
+      submission = _SaveSubmission.photo(filename, bytes);
+    }
+
+    setState(() {
+      _isSaving = true;
+      _pendingSubmission = submission;
+    });
     try {
       late final ContentItem savedContent;
-      if (isLink) {
-        savedContent = await widget.onAddLink(url: _urlController.text.trim());
+      if (submission.isLink) {
+        savedContent = await widget.onAddLink(url: submission.label);
       } else {
-        final bytes = _selectedPhotoBytes;
-        final filename = _selectedPhotoFilename;
-        if (bytes == null || filename == null) {
-          setState(() => _isSaving = false);
-          return;
-        }
         savedContent = await widget.onAddScreenshot(
-          bytes: bytes,
-          filename: filename,
+          bytes: submission.photoBytes!,
+          filename: submission.label,
         );
       }
       if (mounted) {
+        _validationTimer?.cancel();
+        _saveErrorTimer?.cancel();
         setState(() {
           _isSaving = false;
-          _savedContent = savedContent;
+          _pendingSubmission = null;
+          _savedResult = (content: savedContent, submission: submission);
+          _activeTab = submission.tab;
           _saveError = null;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _bodyScrollController.hasClients) {
+            _bodyScrollController.jumpTo(0);
+          }
         });
       }
     } on ClipbackApiException catch (error) {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _isSaving = false;
+          _pendingSubmission = null;
+        });
         _showSaveErrorToast(error.message);
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _isSaving = false;
+          _pendingSubmission = null;
+        });
         _showSaveErrorToast();
       }
     }
@@ -162,6 +206,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _selectPhoto() async {
+    if (_savedResult != null) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       withData: true,
@@ -169,23 +214,49 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final photo = result != null && result.files.isNotEmpty
         ? result.files.first
         : null;
-    if (!mounted || photo?.bytes == null) return;
+    if (!mounted || _savedResult != null || photo?.bytes == null) return;
     setState(() {
       _selectedPhotoBytes = photo!.bytes;
       _selectedPhotoFilename = photo.name;
       _photoStage = SaveFlowStage.valid;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_bodyScrollController.hasClients) _bodyScrollController.jumpTo(0);
+      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+        _bodyScrollController.jumpTo(0);
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final savedContent = _savedContent;
+    final savedResult = _savedResult;
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
-        savedContent != null || (!_isSaving && stage == SaveFlowStage.valid);
+        savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
+    // Only render a known processing design while it still describes the
+    // current submitted input. Editing/reselection retains the legacy view.
+    final pending = _pendingSubmission;
+    final canShowPending =
+        _isSaving && savedResult == null && _saveError == null;
+    final pendingLink =
+        canShowPending &&
+        pending?.isLink == true &&
+        _activeTab == 0 &&
+        stage == SaveFlowStage.valid &&
+        _urlController.text.trim() == pending!.label;
+    final pendingPhoto =
+        canShowPending &&
+        pending != null &&
+        !pending.isLink &&
+        _activeTab == 1 &&
+        stage == SaveFlowStage.valid &&
+        identical(_selectedPhotoBytes, pending.photoBytes) &&
+        _selectedPhotoFilename == pending.label;
+    final processing = pendingLink || pendingPhoto;
+    final bottomObstruction = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
     return ColoredBox(
       color: AppColors.bg,
@@ -219,73 +290,87 @@ class _AddContentSheetState extends State<AddContentSheet> {
                       ],
                     ),
                     Expanded(
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            bottom: 90,
-                            child: SingleChildScrollView(
-                              controller: _bodyScrollController,
-                              padding: EdgeInsets.fromLTRB(
-                                16,
-                                savedContent == null ? 32 : 80,
-                                16,
-                                24,
+                      child: SingleChildScrollView(
+                        controller: _bodyScrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 32, 16, 24),
+                        child: savedResult != null
+                            ? SavedContentConfirmation(
+                                content: savedResult.content,
+                                originalUrl: savedResult.submission.label,
+                                photoBytes: savedResult.submission.photoBytes,
+                              )
+                            : _activeTab == 0
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  LinkSaveBody(
+                                    controller: _urlController,
+                                    stage: _linkStage,
+                                    onChanged: _validateLink,
+                                    onClear: _clearLink,
+                                    onPaste: _paste,
+                                  ),
+                                  if (pendingLink) ...[
+                                    const SizedBox(height: 32),
+                                    const _PendingContentSkeleton(),
+                                  ],
+                                ],
+                              )
+                            : pendingPhoto
+                            ? _PhotoPendingBody(
+                                photoBytes: pending.photoBytes!,
+                                label: pending.label,
+                                onSelect: _selectPhoto,
+                              )
+                            : PhotoSaveBody(
+                                stage: _photoStage,
+                                onSelect: _selectPhoto,
+                                photoBytes: _selectedPhotoBytes,
                               ),
-                              child: savedContent != null
-                                  ? SavedContentConfirmation(
-                                      content: savedContent,
-                                      originalUrl: _activeTab == 0
-                                          ? _urlController.text.trim()
-                                          : _selectedPhotoFilename ?? '',
-                                      photoBytes: _activeTab == 1
-                                          ? _selectedPhotoBytes
-                                          : null,
-                                    )
-                                  : _activeTab == 0
-                                  ? LinkSaveBody(
-                                      controller: _urlController,
-                                      stage: _linkStage,
-                                      onChanged: _validateLink,
-                                      onClear: _clearLink,
-                                      onPaste: _paste,
-                                    )
-                                  : PhotoSaveBody(
-                                      stage: _photoStage,
-                                      onSelect: _selectPhoto,
-                                      photoBytes: _selectedPhotoBytes,
-                                    ),
-                            ),
-                          ),
-                          Positioned(
-                            left: 16,
-                            right: 16,
-                            bottom: 66,
-                            height: 56,
-                            child: SaveFlowButton(
-                              label: savedContent == null ? '허투루에 저장하기' : '닫기',
-                              enabled: enabled,
-                              loading: _isSaving,
-                              onPressed: savedContent == null
-                                  ? _submit
-                                  : () => Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pop(),
-                            ),
-                          ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 32 + bottomObstruction),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           if (_saveError case final message?)
-                            Positioned(
-                              left: 40,
-                              right: 40,
-                              bottom: 138,
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
                               child: SaveErrorToast(message: message),
                             ),
-                          const Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            height: 34,
-                            child: Center(child: _SaveHomeIndicator()),
+                          if (processing) ...[
+                            Center(
+                              child: Text(
+                                '허투루가 정보를 추출 중입니다...',
+                                key: ValueKey(
+                                  pendingPhoto
+                                      ? 'photo-pending-status'
+                                      : 'link-pending-status',
+                                ),
+                                style: _SaveTextStyles.categoryMessage,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SizedBox(
+                              height: 56,
+                              child: SaveFlowButton(
+                                label: savedResult != null || processing
+                                    ? '닫기'
+                                    : '허투루에 저장하기',
+                                enabled: enabled,
+                                loading: _isSaving && !processing,
+                                onPressed: savedResult == null
+                                    ? _submit
+                                    : () => Navigator.of(
+                                        context,
+                                        rootNavigator: true,
+                                      ).pop(),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -332,9 +417,8 @@ class _SaveTab extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
+          style: _SaveTextStyles.tab.copyWith(
             color: active ? AppColors.text : AppColors.subtler,
-            fontSize: 16,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -344,6 +428,100 @@ class _SaveTab extends StatelessWidget {
 }
 
 enum SaveFlowStage { editing, invalid, valid }
+
+class _SaveTextStyles {
+  static const header = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.45,
+    color: Colors.black,
+  );
+  static const tab = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.4,
+  );
+  static const heading = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.4,
+    color: Colors.black,
+  );
+  static const previewTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.375,
+    height: 1.6,
+    color: Colors.black,
+  );
+  static const previewSource = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.35,
+    height: 1.6,
+    color: AppColors.subtle,
+  );
+  static const categoryMessage = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.subtle,
+  );
+  static const categoryName = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0,
+    height: 22 / 16,
+    color: Colors.black,
+  );
+  static const input = TextStyle(
+    inherit: false,
+    textBaseline: TextBaseline.alphabetic,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.text,
+  );
+  static const photoTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.375,
+    color: AppColors.subtle,
+  );
+  static const helper = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.subSubtle,
+  );
+  static const action = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    height: 22 / 16,
+  );
+}
 
 class SaveContentTopBar extends StatelessWidget {
   const SaveContentTopBar({required this.onClose, super.key});
@@ -365,14 +543,7 @@ class SaveContentTopBar extends StatelessWidget {
               hitSize: 24,
             ),
             const SizedBox(width: 8),
-            const Text(
-              '콘텐츠 저장하기',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.45,
-              ),
-            ),
+            const Text('콘텐츠 저장하기', style: _SaveTextStyles.header),
           ],
         ),
       ),
@@ -401,87 +572,100 @@ class LinkSaveBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 링크',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        const Text('저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 44,
-                child: TextField(
-                  controller: controller,
-                  keyboardType: TextInputType.url,
-                  onChanged: onChanged,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.35,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'https://',
-                    hintStyle: const TextStyle(color: AppColors.subtler),
-                    filled: true,
-                    fillColor: AppColors.surface,
-                    contentPadding: const EdgeInsets.only(left: 8),
-                    suffixIconConstraints: const BoxConstraints(
-                      minWidth: 34,
-                      minHeight: 18,
-                    ),
-                    suffixIcon: controller.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: onClear,
-                            padding: const EdgeInsets.only(right: 8),
-                            constraints: const BoxConstraints(
-                              minWidth: 26,
-                              minHeight: 18,
-                            ),
-                            icon: SvgPicture.asset(
-                              Assets.xCircle,
-                              width: 18,
-                              height: 18,
-                            ),
-                          ),
-                    border: const OutlineInputBorder(
-                      borderSide: BorderSide.none,
-                      borderRadius: BorderRadius.all(Radius.circular(4)),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.url,
+                    textAlignVertical: TextAlignVertical.center,
+                    onChanged: onChanged,
+                    style: _SaveTextStyles.input,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'https://',
+                      hintStyle: _SaveTextStyles.input.copyWith(
+                        color: AppColors.subtler,
+                      ),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      contentPadding: const EdgeInsets.only(left: 8),
+                      suffixIconConstraints: BoxConstraints(
+                        minWidth: controller.text.isEmpty ? 0 : 34,
+                        minHeight: 44,
+                      ),
+                      // Fill the shared row height without making the URL
+                      // multiline or measuring the scaled text ourselves.
+                      suffixIcon: Align(
+                        widthFactor: 1,
+                        child: controller.text.isEmpty
+                            ? const SizedBox(width: 0, height: 44)
+                            : IconButton(
+                                onPressed: onClear,
+                                padding: const EdgeInsets.only(right: 8),
+                                constraints: const BoxConstraints(
+                                  minWidth: 48,
+                                  minHeight: 44,
+                                ),
+                                style: IconButton.styleFrom(
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                icon: SvgPicture.asset(
+                                  Assets.xCircle,
+                                  width: 18,
+                                  height: 18,
+                                ),
+                              ),
+                      ),
+                      border: const OutlineInputBorder(
+                        borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.all(Radius.circular(4)),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 64,
-              height: 44,
-              child: TextButton(
-                onPressed: onPaste,
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  backgroundColor: AppColors.mainSubtle,
-                  foregroundColor: AppColors.mainDeep,
-                  disabledBackgroundColor: AppColors.mainSubtle,
-                  disabledForegroundColor: AppColors.mainDeep,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.35,
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 64,
+                  child: TextButton(
+                    onPressed: onPaste,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(64, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      // Keep scaled glyph bounds clear of the inside border.
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      backgroundColor: AppColors.surface,
+                      foregroundColor: AppColors.subtle,
+                      disabledBackgroundColor: AppColors.surface,
+                      disabledForegroundColor: AppColors.subtle,
+                      side: const BorderSide(color: AppColors.subtler),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      textStyle: const TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.35,
+                      ),
+                    ),
+                    child: const Text(
+                      '붙여넣기',
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
-                child: const Text('붙여넣기'),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
         if (stage == SaveFlowStage.invalid || stage == SaveFlowStage.valid) ...[
           const SizedBox(height: 5),
@@ -490,6 +674,174 @@ class LinkSaveBody extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Shared static placeholder geometry from D04/D08. It is not extracted content, a
+/// classification result, or an additional API operation.
+class _PendingContentSkeleton extends StatelessWidget {
+  const _PendingContentSkeleton({this.prefix = 'link-pending'});
+  final String prefix;
+  @override
+  Widget build(BuildContext context) => Column(
+    key: ValueKey('$prefix-skeleton'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        '미리보기',
+        key: ValueKey('$prefix-preview-heading'),
+        style: _SaveTextStyles.heading,
+      ),
+      const SizedBox(height: 16),
+      Container(
+        key: ValueKey('$prefix-preview'),
+        height: 116,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: ExcludeSemantics(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _bar('thumbnail', 164, 100),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _bar('bar-1', 139, 15),
+                    const SizedBox(height: 4),
+                    _bar('bar-2', 91, 15),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _bar('bar-3', 91, 15),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 32),
+      Row(
+        key: ValueKey('$prefix-category-row'),
+        children: [
+          Text(
+            '카테고리',
+            key: ValueKey('$prefix-category-heading'),
+            style: _SaveTextStyles.heading,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '허투루가 분류하고 있어요.',
+              key: ValueKey('$prefix-category-status'),
+              style: _SaveTextStyles.categoryMessage,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      Container(
+        key: ValueKey('$prefix-category'),
+        height: 55,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: ExcludeSemantics(child: _bar('category-bar', 164, 24)),
+      ),
+    ],
+  );
+  Widget _bar(String name, double width, double height) => Container(
+    key: ValueKey('$prefix-$name'),
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: AppColors.faint,
+      borderRadius: BorderRadius.circular(4),
+    ),
+  );
+}
+
+class _SubmittedPhotoSummary extends StatelessWidget {
+  const _SubmittedPhotoSummary({
+    required this.photoBytes,
+    required this.label,
+    this.keyPrefix = 'save-result-photo',
+  });
+  final Uint8List photoBytes;
+  final String? label;
+  final String keyPrefix;
+  @override
+  Widget build(BuildContext context) => Container(
+    key: ValueKey('$keyPrefix-summary'),
+    height: 89,
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    foregroundDecoration: BoxDecoration(
+      border: Border.all(color: AppColors.subtler),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Container(
+      foregroundDecoration: BoxDecoration(
+        border: Border.all(color: AppColors.subtler),
+      ),
+      child: ClipRect(
+        child: Image.memory(
+          photoBytes,
+          key: ValueKey('$keyPrefix-image'),
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          semanticLabel: label,
+        ),
+      ),
+    ),
+  );
+}
+
+class _PhotoPendingBody extends StatelessWidget {
+  const _PhotoPendingBody({
+    required this.photoBytes,
+    required this.label,
+    required this.onSelect,
+  });
+  final Uint8List photoBytes;
+  final String label;
+  final Future<void> Function() onSelect;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        '저장할 사진',
+        key: ValueKey('photo-pending-input-heading'),
+        style: _SaveTextStyles.heading,
+      ),
+      const SizedBox(height: 16),
+      GestureDetector(
+        key: const ValueKey('photo-pending-reselect'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onSelect,
+        child: _SubmittedPhotoSummary(
+          photoBytes: photoBytes,
+          label: label,
+          keyPrefix: 'photo-pending',
+        ),
+      ),
+      const SizedBox(height: 16),
+      const _PendingContentSkeleton(prefix: 'photo-pending'),
+    ],
+  );
 }
 
 class SavedContentConfirmation extends StatelessWidget {
@@ -507,6 +859,7 @@ class SavedContentConfirmation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
+    final isPhoto = photoBytes != null;
     final processingVideo =
         content.source == sourceLabel('youtube') &&
         (content.summaryStatus == 'queued' ||
@@ -519,49 +872,38 @@ class SavedContentConfirmation extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 링크',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        Text(isPhoto ? '저장할 사진' : '저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
-        Container(
-          height: 44,
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            linkLabel,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.35,
+        if (isPhoto)
+          _SubmittedPhotoSummary(photoBytes: photoBytes!, label: linkLabel)
+        else
+          Container(
+            key: const ValueKey('save-result-input-summary'),
+            height: 44,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              linkLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _SaveTextStyles.input,
             ),
           ),
-        ),
-        const SizedBox(height: 5),
-        const ValidationMessage(valid: true),
-        const SizedBox(height: 28),
-        const Text(
-          '미리보기',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        if (!isPhoto) ...[
+          const SizedBox(height: 5),
+          const ValidationMessage(valid: true),
+        ],
+        SizedBox(height: isPhoto ? 16 : 32),
+        const Text('미리보기', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         Container(
-          height: 116,
+          key: const ValueKey('save-result-preview-card'),
+          constraints: const BoxConstraints(minHeight: 116),
           width: double.infinity,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -570,44 +912,53 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
           child: Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: SizedBox(
-                  width: 164,
-                  height: 100,
-                  child: photoBytes == null
-                      ? Image.asset(Assets.saveLinkPreview, fit: BoxFit.cover)
-                      : Image.memory(photoBytes!, fit: BoxFit.cover),
+              Container(
+                width: 164,
+                height: 100,
+                foregroundDecoration: isPhoto
+                    ? BoxDecoration(
+                        border: Border.all(color: AppColors.subtler),
+                        borderRadius: BorderRadius.circular(4),
+                      )
+                    : null,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: isPhoto
+                      ? Image.memory(
+                          photoBytes!,
+                          key: const ValueKey('save-result-preview-image'),
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                        )
+                      : Image.asset(
+                          Assets.saveLinkPreview,
+                          key: const ValueKey('save-result-preview-image'),
+                          fit: BoxFit.cover,
+                        ),
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      content.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        height: 1.6,
-                        letterSpacing: -0.375,
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        content.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: _SaveTextStyles.previewTitle,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 14),
                     Text(
                       content.source,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.subtle,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: -0.35,
-                      ),
+                      style: _SaveTextStyles.previewSource,
                     ),
                   ],
                 ),
@@ -615,32 +966,20 @@ class SavedContentConfirmation extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 30),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(height: 32),
+        Wrap(
+          key: const ValueKey('save-result-category-heading'),
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            const Text(
-              '카테고리',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              categoryMessage,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.35,
-              ),
-            ),
+            const Text('카테고리', style: _SaveTextStyles.heading),
+            Text(categoryMessage, style: _SaveTextStyles.categoryMessage),
           ],
         ),
         const SizedBox(height: 16),
         Container(
+          key: const ValueKey('save-result-category-row'),
           height: 55,
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -650,17 +989,21 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
           child: Row(
             children: [
-              FolderGlyph(color: content.category.color, size: 28),
+              SvgPicture.asset(
+                Assets.saveResultFolder,
+                key: const ValueKey('save-result-category-folder'),
+                colorFilter: ColorFilter.mode(
+                  content.category.color,
+                  BlendMode.srcIn,
+                ),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   content.category.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: _SaveTextStyles.categoryName,
                 ),
               ),
             ],
@@ -692,12 +1035,7 @@ class ValidationMessage extends StatelessWidget {
         ),
         Text(
           valid ? '유효한 링크예요!' : '유효하지 않은 링크예요.',
-          style: const TextStyle(
-            color: AppColors.subSubtle,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            letterSpacing: -0.35,
-          ),
+          style: _SaveTextStyles.helper,
         ),
       ],
     );
@@ -722,14 +1060,7 @@ class PhotoSaveBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '저장할 사진',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
-          ),
-        ),
+        const Text('저장할 사진', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         InkWell(
           onTap: onSelect,
@@ -753,8 +1084,8 @@ class PhotoEmptyPrompt extends StatelessWidget {
         color: AppColors.subtler,
         radius: 8,
       ),
-      child: SizedBox(
-        height: 89,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 89),
         width: double.infinity,
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
@@ -768,29 +1099,17 @@ class PhotoEmptyPrompt extends StatelessWidget {
               SizedBox(width: 8),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '사진 선택',
-                      style: TextStyle(
-                        color: AppColors.subtle,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.375,
-                      ),
-                    ),
+                    Text('사진 선택', style: _SaveTextStyles.photoTitle),
                     SizedBox(height: 4),
                     Text(
                       '앨범에서 선택하거나 스크린샷을 업로드해 주세요.',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.subSubtle,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.35,
-                      ),
+                      style: _SaveTextStyles.helper,
                     ),
                   ],
                 ),
@@ -851,32 +1170,27 @@ class SelectedPhotoPreview extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      foregroundDecoration: BoxDecoration(
         border: Border.all(color: AppColors.subtler),
         borderRadius: BorderRadius.circular(8),
       ),
       child: DecoratedBox(
         decoration: BoxDecoration(border: Border.all(color: AppColors.subtler)),
         child: ClipRect(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: -constraints.maxHeight * 0.4067,
-                    height: constraints.maxHeight * 1.6607,
-                    child: photoBytes == null
-                        ? Image.asset(
-                            Assets.savedPhotoPreview,
-                            fit: BoxFit.fill,
-                          )
-                        : Image.memory(photoBytes!, fit: BoxFit.fill),
+          child: SizedBox.expand(
+            child: photoBytes == null
+                ? Image.asset(
+                    Assets.savedPhotoPreview,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.center,
+                  )
+                : Image.memory(
+                    photoBytes!,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.center,
                   ),
-                ],
-              );
-            },
           ),
         ),
       ),
@@ -914,11 +1228,8 @@ class SaveFlowButton extends StatelessWidget {
           ),
           child: Center(
             child: DefaultTextStyle(
-              style: const TextStyle(
-                color: AppColors.main,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
+              style: _SaveTextStyles.action.copyWith(
+                color: enabled || loading ? AppColors.main : AppColors.surface,
               ),
               child: loading
                   ? const Row(
@@ -985,22 +1296,6 @@ class SaveErrorToast extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SaveHomeIndicator extends StatelessWidget {
-  const _SaveHomeIndicator();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 144,
-      height: 5,
-      decoration: BoxDecoration(
-        color: AppColors.text,
-        borderRadius: BorderRadius.circular(100),
       ),
     );
   }

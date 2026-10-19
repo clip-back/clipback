@@ -7,10 +7,79 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
-import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+// J01 roles are local so other account screens retain their existing styles.
+abstract final class _MyText {
+  static const header = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.45,
+    color: Colors.black,
+  );
+  static const name = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.4,
+    color: Colors.black,
+  );
+  static const section = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.4,
+    color: AppColors.text,
+  );
+  static const metricLabel = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.mainSubtle,
+  );
+  static const metricValue = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.45,
+    color: AppColors.main,
+  );
+  static const menu = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: Colors.black,
+  );
+  static const version = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.35,
+    color: AppColors.subtle,
+  );
+}
+
+abstract final class _MyAssets {
+  static const settings = Assets.archiveSettings;
+  static const avatarBackground = 'assets/icons/my-avatar-background.svg';
+  static const avatarCharacter = 'assets/figma/my-avatar-character.png';
+  static const profileArrow = Assets.chevronRight;
+  static const statsDivider = 'assets/icons/my-stats-divider.svg';
+  static const menuArrow = 'assets/icons/my-menu-chevron.svg';
+}
 
 class MyScreen extends StatelessWidget {
   const MyScreen({
@@ -20,6 +89,7 @@ class MyScreen extends StatelessWidget {
     required this.onOpenAccount,
     required this.onOpenCategoryManagement,
     required this.onTab,
+    this.onOpenNotices,
     super.key,
   });
 
@@ -28,6 +98,7 @@ class MyScreen extends StatelessWidget {
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenCategoryManagement;
+  final VoidCallback? onOpenNotices;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -49,6 +120,7 @@ class MyScreen extends StatelessWidget {
               MyPageTopBar(onMore: onOpenAccount),
               Expanded(
                 child: ListView(
+                  key: const PageStorageKey('my-scroll'),
                   padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
                   children: [
                     MyProfileRow(user: user, onTap: onOpenAccount),
@@ -72,7 +144,7 @@ class MyScreen extends StatelessWidget {
                           onTap: onOpenCategoryManagement,
                         ),
                         MyListTile(
-                          title: '알림 및 앱 권한',
+                          title: '앱 권한',
                           onTap: () => showModalBottomSheet<void>(
                             context: context,
                             useSafeArea: true,
@@ -88,12 +160,14 @@ class MyScreen extends StatelessWidget {
                       children: [
                         MyListTile(
                           title: '공지사항',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const NoticeSheet(),
-                          ),
+                          onTap:
+                              onOpenNotices ??
+                              () => showModalBottomSheet<void>(
+                                context: context,
+                                useSafeArea: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => const NoticeSheet(),
+                              ),
                         ),
                         MyListTile(
                           title: '문의하기',
@@ -102,15 +176,6 @@ class MyScreen extends StatelessWidget {
                             useSafeArea: true,
                             backgroundColor: Colors.transparent,
                             builder: (context) => const ContactSheet(),
-                          ),
-                        ),
-                        MyListTile(
-                          title: '알림 및 앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
                           ),
                         ),
                         MyListTile(
@@ -150,22 +215,45 @@ class MyPageTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: appHeaderHeight,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            const Text(
-              '마이페이지',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.45,
+      child: Stack(
+        children: [
+          const Positioned.fill(
+            left: 16,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Text('마이페이지', style: _MyText.header),
               ),
             ),
-            const Spacer(),
-            SvgIconButton(asset: Assets.more, onPressed: onMore, size: 24),
-          ],
-        ),
+          ),
+          // The visible 24px asset ends at 16px; the larger hit box extends 10px.
+          Positioned(
+            right: 6,
+            top: 10.5,
+            child: Semantics(
+              button: true,
+              label: '계정 관리',
+              child: InkWell(
+                key: const ValueKey('my-header-settings'),
+                onTap: onMore,
+                borderRadius: BorderRadius.circular(22),
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(
+                    child: SvgPicture.asset(
+                      _MyAssets.settings,
+                      key: const ValueKey('my-header-settings-image'),
+                      width: 24,
+                      height: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -192,17 +280,7 @@ class MyProfileRow extends StatelessWidget {
             padding: const EdgeInsets.only(left: 16, right: 8),
             child: Row(
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: const BoxDecoration(
-                    color: AppColors.main,
-                    shape: BoxShape.circle,
-                  ),
-                  child: ClipOval(
-                    child: Image.asset(Assets.homeCharacter, fit: BoxFit.cover),
-                  ),
-                ),
+                const _MyAvatar(),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -213,11 +291,7 @@ class MyProfileRow extends StatelessWidget {
                         user.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.4,
-                        ),
+                        style: _MyText.name,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -233,15 +307,67 @@ class MyProfileRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const SvgIcon(
-                  asset: Assets.chevronRight,
-                  size: 24,
-                  color: AppColors.subtler,
+                SvgPicture.asset(
+                  _MyAssets.profileArrow,
+                  key: const ValueKey('my-profile-arrow'),
+                  width: 24,
+                  height: 24,
                 ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MyAvatar extends StatelessWidget {
+  const _MyAvatar();
+
+  @override
+  Widget build(BuildContext context) {
+    const clipWidth = 28.927;
+    const clipHeight = 32.141;
+    return SizedBox(
+      key: const ValueKey('my-avatar'),
+      width: 46,
+      height: 46,
+      child: Stack(
+        children: [
+          SvgPicture.asset(
+            _MyAssets.avatarBackground,
+            key: const ValueKey('my-avatar-background'),
+            width: 46,
+            height: 46,
+          ),
+          Positioned(
+            left: 7.96,
+            top: 6.19,
+            width: clipWidth,
+            height: clipHeight,
+            child: ClipRect(
+              key: const ValueKey('my-avatar-character-clip'),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Preserve the crop from J01, rather than filling the circle.
+                  Positioned(
+                    left: -0.2301 * clipWidth,
+                    top: -0.1452 * clipHeight,
+                    width: 1.5323 * clipWidth,
+                    height: 1.3621 * clipHeight,
+                    child: Image.asset(
+                      _MyAssets.avatarCharacter,
+                      key: const ValueKey('my-avatar-character-source'),
+                      fit: BoxFit.fill,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -260,10 +386,7 @@ class MySectionHeader extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
+          child: Text(title, style: _MyText.section),
         ),
       ),
     );
@@ -293,10 +416,19 @@ class MyStatsStrip extends StatelessWidget {
                 value: user.savedContentCount.toString(),
               ),
             ),
-            Container(
+            SizedBox(
+              key: const ValueKey('my-stats-divider'),
               width: 1,
               height: 48,
-              color: Colors.white.withValues(alpha: 0.6),
+              child: RotatedBox(
+                quarterTurns: 1,
+                child: SvgPicture.asset(
+                  _MyAssets.statsDivider,
+                  key: const ValueKey('my-stats-divider-source'),
+                  width: 48,
+                  height: 1,
+                ),
+              ),
             ),
             Expanded(
               child: MyMetric(
@@ -325,25 +457,9 @@ class MyMetric extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.mainSubtle,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          Text(label, textAlign: TextAlign.center, style: _MyText.metricLabel),
           const SizedBox(height: 8),
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.main,
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          Text(value, textAlign: TextAlign.center, style: _MyText.metricValue),
         ],
       ),
     );
@@ -392,29 +508,26 @@ class MyListTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+              Expanded(child: Text(title, style: _MyText.menu)),
               if (trailingText != null)
-                Text(
-                  trailingText!,
-                  style: const TextStyle(
-                    color: AppColors.subtle,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                )
+                Text(trailingText!, style: _MyText.version)
               else
-                const SvgIcon(
-                  asset: Assets.chevronRight,
-                  size: 16,
-                  color: AppColors.subtler,
+                SizedBox(
+                  key: ValueKey('my-menu-arrow-$title'),
+                  width: 5,
+                  height: 10,
+                  child: OverflowBox(
+                    minWidth: 6.66667,
+                    maxWidth: 6.66667,
+                    minHeight: 11.6667,
+                    maxHeight: 11.6667,
+                    child: SvgPicture.asset(
+                      _MyAssets.menuArrow,
+                      key: ValueKey('my-menu-arrow-image-$title'),
+                      width: 6.66667,
+                      height: 11.6667,
+                    ),
+                  ),
                 ),
             ],
           ),

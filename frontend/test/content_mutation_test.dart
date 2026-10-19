@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'auth_navigation.dart';
 
@@ -5,14 +6,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -249,7 +248,7 @@ Future<void> _withApp(
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -895,13 +894,7 @@ void main() {
             await tester.pumpAndSettle();
             tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
             await tester.pumpAndSettle();
-            unawaited(
-              tester
-                  .widget<AccountManagementScreen>(
-                    find.byType(AccountManagementScreen),
-                  )
-                  .onLogout(),
-            );
+            await startLogoutFromAccount(tester);
             await tester.pumpAndSettle();
             server.records.clear();
             await startGuestAndFinishOnboarding(tester);
@@ -1109,11 +1102,15 @@ void main() {
               .toList();
           expect(bookmark.enabled, isFalse);
           expect(
-            icons.singleWhere((button) => button.asset == Assets.more).enabled,
+            icons
+                .singleWhere((button) => button.asset == Assets.detailMore)
+                .enabled,
             isFalse,
           );
           expect(
-            icons.singleWhere((button) => button.asset == Assets.back).enabled,
+            icons
+                .singleWhere((button) => button.asset == Assets.detailBack)
+                .enabled,
             isTrue,
           );
           expect(
@@ -1293,6 +1290,7 @@ void main() {
   testWidgets('pending home card fits a long category without overflow', (
     tester,
   ) async {
+    var bookmarkTaps = 0;
     const content = ContentItem(
       id: 'card',
       apiId: 3,
@@ -1326,7 +1324,7 @@ void main() {
                 content: content,
                 bookmarked: false,
                 onTap: () {},
-                onToggleBookmark: () {},
+                onToggleBookmark: () => bookmarkTaps++,
               ),
             ),
           ),
@@ -1335,16 +1333,17 @@ void main() {
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
-    final categoryText = tester.widget<Text>(
-      find.descendant(
-        of: find.byType(CategoryBadge),
-        matching: find.byType(Text),
-      ),
-    );
+    final categoryText = tester.widget<Text>(find.text(content.category.name));
     expect(categoryText.maxLines, 1);
     expect(categoryText.overflow, TextOverflow.ellipsis);
     expect(find.text('변경 중…'), findsOneWidget);
     expect(tester.getSize(find.byType(HomeContentCard)), const Size(298, 186));
+    final bookmark = find.byType(BookmarkActionButton);
+    expect(tester.widget<BookmarkActionButton>(bookmark).enabled, isFalse);
+    await tester.tap(bookmark);
+    await tester.pumpAndSettle();
+    expect(bookmarkTaps, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

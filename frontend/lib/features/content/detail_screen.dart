@@ -2,12 +2,10 @@ import 'dart:async';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/content/content_actions.dart';
 import 'package:clipback_frontend/shared/content/feed_status.dart';
 import 'package:clipback_frontend/shared/content/mutation_status.dart';
-import 'package:clipback_frontend/shared/content/tag_chip.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -24,6 +22,103 @@ import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
+// Detail-only roles keep the shared theme and other screens unchanged.
+class _DetailText {
+  static const title = TextStyle(
+    inherit: false,
+    fontFamily: 'PretendardDetail',
+    color: AppColors.text,
+    fontSize: 24,
+    fontWeight: FontWeight.w700,
+    height: 1.5,
+    letterSpacing: -0.6,
+  );
+  static const heading = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.text,
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.4,
+  );
+  static const date = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.subSubtle,
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.35,
+  );
+  static const summary = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.text,
+    fontSize: 15,
+    fontWeight: FontWeight.w400,
+    height: 1.6,
+    letterSpacing: -0.375,
+  );
+  static const original = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.text,
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    height: 1.6,
+    letterSpacing: -0.4,
+  );
+  static const badge = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.3,
+  );
+  static const tagLabel = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.subtle,
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    height: 1.6,
+    letterSpacing: -0.4,
+  );
+  static const tag = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.subtle,
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    height: 1.6,
+    letterSpacing: -0.35,
+  );
+  static const relatedTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: Colors.black,
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    height: 1.5,
+    letterSpacing: -0.35,
+  );
+  static const empty = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.middle,
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.375,
+  );
+  static const pager = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    color: AppColors.subtle,
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.4,
+  );
+}
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
@@ -206,6 +301,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return PhoneFrame(
       child: Scaffold(
+        backgroundColor: AppColors.surface,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -226,44 +322,44 @@ class _DetailScreenState extends State<DetailScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: CategoryBadge(category: content.category),
+                      child: Wrap(
+                        key: const ValueKey('detail-category-badges'),
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (var i = 0; i < content.categories.length; i++)
+                            _DetailCategoryBadge(
+                              key: ValueKey('detail-category-header-$i'),
+                              category: content.categories[i],
+                            ),
+                        ],
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                       child: Text(
                         content.title,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w600,
-                          height: 1.5,
-                          letterSpacing: -0.6,
-                        ),
+                        key: const ValueKey('detail-title'),
+                        style: _DetailText.title,
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 8, 16, 0),
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                       child: SizedBox(
                         height: 32,
                         child: Row(
                           children: [
-                            Text(
-                              '${content.savedAtFull} 저장',
-                              style: const TextStyle(
-                                color: AppColors.subtle,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w400,
-                                letterSpacing: -0.35,
+                            Expanded(
+                              child: Text(
+                                content.savedAtFull,
+                                key: const ValueKey('detail-saved-date'),
+                                style: _DetailText.date,
                               ),
                             ),
-                            const Spacer(),
+                            const SizedBox(width: 8),
                             SvgIconButton(
-                              asset: Assets.link,
+                              key: const ValueKey('detail-original-button'),
+                              asset: Assets.detailLink,
                               onPressed: _showOriginalSheet,
                               size: 32,
                               hitSize: 32,
@@ -276,32 +372,15 @@ class _DetailScreenState extends State<DetailScreen> {
                     const SizedBox(height: 16),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        '요약',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          height: 19 / 16,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
+                      child: Text('요약', style: _DetailText.heading),
                     ),
                     const SizedBox(height: 8),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: SizedBox(
-                        height: 72,
-                        child: Text(
-                          content.summary,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.middle,
-                            fontSize: 15,
-                            height: 1.6,
-                            letterSpacing: -0.375,
-                          ),
-                        ),
+                      child: Text(
+                        content.summary,
+                        key: const ValueKey('detail-summary'),
+                        style: _DetailText.summary,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -313,7 +392,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         color: AppColors.faint,
                       ),
                     ),
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 16),
                     InkWell(
                       onTap: _showOriginal,
                       child: SizedBox(
@@ -324,11 +403,7 @@ class _DetailScreenState extends State<DetailScreen> {
                             children: [
                               Text(
                                 content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.4,
-                                ),
+                                style: _DetailText.heading,
                               ),
                               const Spacer(),
                               Transform.rotate(
@@ -363,29 +438,21 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      key: const ValueKey('detail-tags'),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(left: 8),
-                            child: Text(
-                              '태그',
-                              style: TextStyle(
-                                color: AppColors.middle,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                          ),
+                          const Text('태그', style: _DetailText.tagLabel),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: Wrap(
                               alignment: WrapAlignment.end,
-                              spacing: 4,
+                              spacing: 16,
                               runSpacing: 4,
-                              children: content.tags
-                                  .map((tag) => TagChip(label: '#$tag'))
-                                  .toList(),
+                              children: [
+                                for (final tag in content.tags)
+                                  Text('#$tag', style: _DetailText.tag),
+                              ],
                             ),
                           ),
                         ],
@@ -395,24 +462,15 @@ class _DetailScreenState extends State<DetailScreen> {
                     InkWell(
                       key: _relatedKey,
                       onTap: _scrollToRelated,
-                      child: SizedBox(
-                        height: 40,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            children: const [
-                              Text(
-                                '비슷한 태그를 가진 정보',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.4,
-                                ),
-                              ),
-                              Spacer(),
-                              SvgIcon(asset: Assets.chevronRight, size: 24),
-                            ],
-                          ),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          '함께 보면 좋은 콘텐츠',
+                          key: ValueKey('detail-related-heading'),
+                          style: _DetailText.heading,
                         ),
                       ),
                     ),
@@ -421,14 +479,23 @@ class _DetailScreenState extends State<DetailScreen> {
                       for (final related in relatedContents)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                          child: RelatedContentTile(
-                            category: related.category,
+                          child: _DetailRelatedContentCard(
+                            key: ValueKey('detail-related-card-${related.id}'),
+                            categories: related.categories,
                             title: related.title,
                             onTap: () => widget.onOpenContent(related),
                           ),
                         )
                     else
-                      const SizedBox.shrink(),
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(24, 28, 24, 28),
+                        child: Text(
+                          '불러온 목록에 연관 콘텐츠가 없어요.',
+                          key: ValueKey('detail-related-empty'),
+                          textAlign: TextAlign.center,
+                          style: _DetailText.empty,
+                        ),
+                      ),
                     const SizedBox(height: 18),
                   ],
                 ),
@@ -442,6 +509,7 @@ class _DetailScreenState extends State<DetailScreen> {
             if (widget.feed?.error != null || widget.moving)
               FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
             DetailPager(
+              expanded: _showFullText,
               currentIndex: currentIndex,
               totalCount: widget.contents.length,
               onPrevious: !widget.moving && currentIndex > 0
@@ -454,6 +522,10 @@ class _DetailScreenState extends State<DetailScreen> {
                           (widget.feed?.hasMore ?? false))
                   ? () => widget.onOpenAdjacent(1)
                   : null,
+            ),
+            SizedBox(
+              key: const ValueKey('detail-pager-navigation-gap'),
+              height: _showFullText ? 8 : 16,
             ),
             ClipbackNavigationBar(
               activeIndex: 1,
@@ -610,12 +682,8 @@ class FullContentPreview extends StatelessWidget {
       children: [
         Text(
           originalText,
-          style: const TextStyle(
-            color: AppColors.middle,
-            fontSize: 14,
-            height: 1.6,
-            letterSpacing: -0.35,
-          ),
+          key: const ValueKey('detail-original-text'),
+          style: _DetailText.original,
         ),
       ],
     );
@@ -646,11 +714,16 @@ class DetailTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: appHeaderHeight,
-      color: AppColors.bg,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(6, 8, 16, 0),
       child: Row(
         children: [
-          SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
+          SvgIconButton(
+            key: const ValueKey('detail-back'),
+            asset: Assets.detailBack,
+            onPressed: onBack,
+            size: 24,
+          ),
           const Spacer(),
           if (content.mutationLabel != null) ...[
             ContentMutationStatus(label: content.mutationLabel!),
@@ -660,12 +733,13 @@ class DetailTopBar extends StatelessWidget {
             initialActive: bookmarked,
             onToggle: onToggleBookmark,
             enabled: content.mutationLabel == null,
-            size: 24,
-            hitSize: 24,
+            size: 28,
+            hitSize: 28,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           SvgIconButton(
-            asset: Assets.more,
+            key: const ValueKey('detail-more'),
+            asset: Assets.detailMore,
             enabled: content.mutationLabel == null,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
@@ -765,6 +839,7 @@ class DetailPager extends StatelessWidget {
     required this.totalCount,
     required this.onPrevious,
     required this.onNext,
+    this.expanded = false,
     super.key,
   });
 
@@ -772,6 +847,7 @@ class DetailPager extends StatelessWidget {
   final int totalCount;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -781,17 +857,18 @@ class DetailPager extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           RoundIconButton(
-            asset: Assets.arrowRight,
+            asset: Assets.detailPrevious,
+            backgroundOpacity: expanded ? .4 : .1,
             rotate: true,
             onPressed: onPrevious,
           ),
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               height: 35,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.45),
+                color: Colors.white.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(28),
               ),
               child: Text(
@@ -800,16 +877,16 @@ class DetailPager extends StatelessWidget {
                     : '${currentIndex + 1} / 불러온 $totalCount개',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.subtle,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  height: 19 / 14,
-                ),
+                style: _DetailText.pager,
               ),
             ),
           ),
-          RoundIconButton(asset: Assets.arrowRight, onPressed: onNext),
+          RoundIconButton(
+            asset: Assets.detailNext,
+            iconSize: 32,
+            backgroundOpacity: expanded ? .4 : .1,
+            onPressed: onNext,
+          ),
         ],
       ),
     );
@@ -829,32 +906,103 @@ class RelatedContentTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        height: 48,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              CategoryBadge(category: category),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+  Widget build(BuildContext context) => _DetailRelatedContentCard(
+    categories: [category],
+    title: title,
+    onTap: onTap,
+  );
+}
+
+class _DetailCategoryBadge extends StatelessWidget {
+  const _DetailCategoryBadge({required this.category, super.key});
+
+  final CategoryItem category;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: category.tint,
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: Text(
+      category.name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: _DetailText.badge.copyWith(color: category.deep),
+    ),
+  );
+}
+
+class _DetailRelatedContentCard extends StatelessWidget {
+  const _DetailRelatedContentCard({
+    required this.categories,
+    required this.title,
+    this.onTap,
+    super.key,
+  });
+
+  final List<CategoryItem> categories;
+  final String title;
+  final VoidCallback? onTap;
+
+  Widget get _title => Text(
+    title,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: _DetailText.relatedTitle,
+  );
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
       ),
-    );
-  }
+      // Paint the border without adding another pixel to the content padding.
+      foregroundDecoration: BoxDecoration(
+        border: Border.all(color: AppColors.faint),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: categories.length > 1
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final category in categories)
+                      _DetailCategoryBadge(category: category),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _title,
+              ],
+            )
+          : LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  if (categories.isNotEmpty) ...[
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth / 2,
+                      ),
+                      child: _DetailCategoryBadge(category: categories.single),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(child: _title),
+                ],
+              ),
+            ),
+    ),
+  );
 }

@@ -1,5 +1,6 @@
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/app_text.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -31,7 +32,7 @@ class PrimaryButton extends StatelessWidget {
           backgroundColor: color,
           foregroundColor: foreground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          textStyle: AppText.primaryButtonLabel,
         ),
         child: Text(label),
       ),
@@ -77,18 +78,22 @@ class RoundIconButton extends StatelessWidget {
     required this.asset,
     required this.onPressed,
     this.rotate = false,
+    this.iconSize = 28,
+    this.backgroundOpacity = 0.45,
     super.key,
   });
 
   final String asset;
   final VoidCallback? onPressed;
   final bool rotate;
+  final double iconSize;
+  final double backgroundOpacity;
 
   @override
   Widget build(BuildContext context) {
     final icon = SvgIcon(
       asset: asset,
-      size: 28,
+      size: iconSize,
       color: onPressed == null ? AppColors.subSubtle : AppColors.text,
     );
     return InkWell(
@@ -98,7 +103,7 @@ class RoundIconButton extends StatelessWidget {
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.45),
+          color: Colors.white.withValues(alpha: backgroundOpacity),
           shape: BoxShape.circle,
         ),
         child: Center(

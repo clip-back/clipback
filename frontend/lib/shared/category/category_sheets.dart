@@ -11,6 +11,97 @@ import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+// Roles are scoped to the category action, form and confirmation surfaces.
+class _CategorySheetText {
+  static const actionName = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.375,
+    color: AppColors.text,
+  );
+  static const actionCount = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.3,
+    color: AppColors.subSubtle,
+  );
+  static const actionOption = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.4,
+    color: AppColors.text,
+  );
+  static const formHint = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.45,
+    color: AppColors.subtler,
+    textBaseline: TextBaseline.alphabetic,
+  );
+  static const formInput = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.45,
+    color: AppColors.text,
+    textBaseline: TextBaseline.alphabetic,
+  );
+  static const formButton = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.375,
+  );
+  static const deleteTitle = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.45,
+    color: Colors.black,
+  );
+  static const deleteBody = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.35,
+    color: AppColors.subtle,
+    height: 1.6,
+  );
+  static const deleteButton = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    height: 22 / 14,
+  );
+}
+
+class _CategorySheetHandle extends StatelessWidget {
+  const _CategorySheetHandle({super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 50,
+    height: 5,
+    decoration: BoxDecoration(
+      color: AppColors.subtler,
+      borderRadius: BorderRadius.circular(100),
+    ),
+  );
+}
+
 void showCategoryActionSheet({
   required BuildContext context,
   required CategoryItem category,
@@ -78,72 +169,94 @@ class CategoryActionSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      key: const ValueKey('category-actions-sheet'),
       decoration: const BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 50,
-              height: 5,
-              decoration: BoxDecoration(
-                color: AppColors.subtler,
-                borderRadius: BorderRadius.circular(100),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.only(top: 8, bottom: 32 + bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _CategorySheetHandle(
+                key: ValueKey('category-actions-handle'),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                FolderGlyph(color: category.color),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
+              const SizedBox(height: 16),
+              Padding(
+                key: const ValueKey('category-actions-header'),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    SvgPicture.asset(
+                      Assets.archiveCategoryFolder,
+                      key: const ValueKey('category-actions-folder'),
+                      width: 40,
+                      height: 34,
+                      colorFilter: ColorFilter.mode(
+                        category.color,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: SizedBox(
+                        width: 156,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              category.name,
+                              key: const ValueKey('category-actions-name'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: _CategorySheetText.actionName,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '저장된 콘텐츠 $contentCount',
+                              key: const ValueKey('category-actions-count'),
+                              style: _CategorySheetText.actionCount,
+                            ),
+                            if (category.mutationLabel != null)
+                              ContentMutationStatus(
+                                label: category.mutationLabel!,
+                              ),
+                          ],
                         ),
                       ),
-                      Text(
-                        '저장된 콘텐츠 $contentCount',
-                        style: const TextStyle(
-                          color: AppColors.subSubtle,
-                          fontSize: 12,
-                        ),
-                      ),
-                      if (category.mutationLabel != null)
-                        ContentMutationStatus(label: category.mutationLabel!),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(height: 1, color: AppColors.faint),
-            CategoryActionRow(
-              icon: Icons.edit_outlined,
-              title: '카테고리 수정',
-              onTap: onEdit,
-              enabled: category.mutationLabel == null,
-            ),
-            CategoryActionRow(
-              icon: Icons.delete_outline,
-              title: '카테고리 삭제',
-              onTap: onDelete,
-              enabled: category.mutationLabel == null,
-            ),
-          ],
+              ),
+              const SizedBox(height: 16),
+              const SizedBox(
+                key: ValueKey('category-actions-separator'),
+                height: 8,
+                width: double.infinity,
+                child: ColoredBox(color: AppColors.bg),
+              ),
+              const SizedBox(height: 16),
+              CategoryActionRow(
+                key: const ValueKey('category-actions-edit'),
+                icon: Icons.edit_outlined,
+                title: '카테고리 수정',
+                onTap: onEdit,
+                enabled: category.mutationLabel == null,
+              ),
+              CategoryActionRow(
+                key: const ValueKey('category-actions-delete'),
+                icon: Icons.delete_outline,
+                title: '카테고리 삭제',
+                onTap: onDelete,
+                enabled: category.mutationLabel == null,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -165,22 +278,32 @@ class CategoryActionRow extends StatelessWidget {
   final bool enabled;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: enabled ? onTap : null,
-    child: SizedBox(
-      height: 48,
-      child: Row(
-        children: [
-          Icon(icon, size: 24, color: AppColors.text),
-          const SizedBox(width: 12),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+  Widget build(BuildContext context) {
+    final asset = icon == Icons.edit_outlined
+        ? Assets.categorySheetEdit
+        : icon == Icons.delete_outline
+        ? Assets.categorySheetTrash
+        : null;
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      child: SizedBox(
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              if (asset != null)
+                SvgPicture.asset(asset, width: 20, height: 20)
+              else
+                Icon(icon, size: 24, color: AppColors.text),
+              const SizedBox(width: 8),
+              Text(title, style: _CategorySheetText.actionOption),
+            ],
           ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class CategoryDeleteDialog extends StatelessWidget {
@@ -196,82 +319,103 @@ class CategoryDeleteDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
+      backgroundColor: AppColors.surface,
       constraints: const BoxConstraints(maxWidth: phoneWidth - 64),
       insetPadding: const EdgeInsets.symmetric(horizontal: 32),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: const BoxDecoration(
-                color: AppColors.mainSubtle,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: const Text(
-                '!',
-                style: TextStyle(
-                  color: AppColors.mainDeep,
-                  fontWeight: FontWeight.w700,
+      child: SingleChildScrollView(
+        key: const ValueKey('category-delete-viewport'),
+        child: Padding(
+          key: const ValueKey('category-delete-dialog'),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                key: const ValueKey('category-delete-warning'),
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColors.mainSubtle,
+                  shape: BoxShape.circle,
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '삭제하기',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '‘${category.name}’ 카테고리를 삭제할까요?\n'
-              '저장된 콘텐츠는 삭제되지 않아요.\n'
-              '다른 카테고리가 있으면 그대로 유지되고, '
-              '남은 카테고리가 없으면 미분류로 이동해요.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.subtle,
-                fontSize: 14,
-                height: 1.6,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      side: const BorderSide(color: AppColors.faint),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text('취소'),
+                child: Center(
+                  child: SvgPicture.asset(
+                    Assets.categorySheetWarning,
+                    width: 24,
+                    height: 24,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: category.mutationLabel == null ? onDelete : null,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      backgroundColor: const Color(0xFFFFD9DC),
-                      foregroundColor: Colors.red,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '삭제하기',
+                key: ValueKey('category-delete-title'),
+                style: _CategorySheetText.deleteTitle,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '‘${category.name}’ 카테고리를 삭제할까요?\n'
+                '저장된 콘텐츠는 삭제되지 않아요.\n'
+                '다른 카테고리가 있으면 그대로 유지되고, '
+                '남은 카테고리가 없으면 미분류로 이동해요.',
+                key: const ValueKey('category-delete-body'),
+                textAlign: TextAlign.center,
+                style: _CategorySheetText.deleteBody,
+              ),
+              const SizedBox(height: 36),
+              SizedBox(
+                height: 44,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        key: const ValueKey('category-delete-cancel'),
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.standard,
+                          foregroundColor: AppColors.text,
+                          backgroundColor: AppColors.surface,
+                          side: const BorderSide(color: AppColors.subtler),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          textStyle: _CategorySheetText.deleteButton,
+                        ),
+                        child: const Text('취소'),
                       ),
                     ),
-                    child: const Text('삭제'),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        key: const ValueKey('category-delete-confirm'),
+                        onPressed: category.mutationLabel == null
+                            ? onDelete
+                            : null,
+                        style: FilledButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.standard,
+                          backgroundColor: const Color(0xFFFFDDDD),
+                          foregroundColor: const Color(0xFFFF0000),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          textStyle: _CategorySheetText.deleteButton,
+                        ),
+                        child: const Text('삭제'),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -344,6 +488,7 @@ class CategoryFormSheet extends StatefulWidget {
 class _CategoryFormSheetState extends State<CategoryFormSheet> {
   late final TextEditingController _controller;
   late Color _selectedColor;
+  bool _submitted = false;
 
   @override
   void initState() {
@@ -359,126 +504,148 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   }
 
   void _save() {
+    if (_submitted || !mounted) return;
     final name = _controller.text.trim();
     if (name.isEmpty) return;
+    _submitted = true;
     widget.onSave(name, _selectedColor);
-    Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final sheetHeight = math.min(
-      mediaQuery.size.height * 0.87,
-      428 + mediaQuery.viewInsets.bottom,
-    );
-    final canCreate = _controller.text.trim().isNotEmpty;
-
-    return SizedBox(
-      height: sheetHeight,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: 8,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  width: 50,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppColors.subtler,
-                    borderRadius: BorderRadius.circular(100),
+    final media = MediaQuery.of(context);
+    final inset = math.max(media.viewInsets.bottom, media.viewPadding.bottom);
+    final canCreate = !_submitted && _controller.text.trim().isNotEmpty;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : media.size.height - media.padding.top;
+        final sheetHeight = math.min(428 + inset, available);
+        return SizedBox(
+          key: const ValueKey('category-form-sheet'),
+          height: sheetHeight,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(
+                  height: 29,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 8,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: _CategorySheetHandle(
+                            key: ValueKey('category-form-handle'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
-            Positioned(
-              top: 60,
-              left: 24,
-              right: 24,
-              child: Column(
-                children: [
-                  SvgPicture.asset(
-                    Assets.folderCreatePreview,
-                    width: 121,
-                    height: 103,
-                    colorFilter: ColorFilter.mode(
-                      _selectedColor,
-                      BlendMode.srcIn,
+                Expanded(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('category-form-body-scroll'),
+                    clipBehavior: Clip.hardEdge,
+                    padding: const EdgeInsets.fromLTRB(24, 31, 24, 0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SvgPicture.asset(
+                          Assets.folderCreatePreview,
+                          key: const ValueKey('category-form-folder'),
+                          width: 121,
+                          height: 103,
+                          colorFilter: ColorFilter.mode(
+                            _selectedColor,
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        TextField(
+                          key: const ValueKey('category-form-input'),
+                          controller: _controller,
+                          autofocus: true,
+                          textAlign: TextAlign.center,
+                          textInputAction: TextInputAction.done,
+                          maxLines: 1,
+                          onChanged: (_) => setState(() {}),
+                          onSubmitted: (_) {
+                            if (canCreate) _save();
+                          },
+                          style: _CategorySheetText.formInput,
+                          decoration: const InputDecoration(
+                            hintText: '카테고리명을 입력해주세요',
+                            hintStyle: _CategorySheetText.formHint,
+                            isDense: true,
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.zero,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          key: const ValueKey('category-form-underline'),
+                          width: double.infinity,
+                          height: 1,
+                          child: SvgPicture.asset(
+                            Assets.categorySheetUnderline,
+                            width: 327,
+                            height: 1,
+                            fit: BoxFit.fill,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        FolderColorPicker(
+                          key: const ValueKey('category-form-palette'),
+                          selectedColor: _selectedColor,
+                          onChanged: (color) =>
+                              setState(() => _selectedColor = color),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  TextField(
-                    controller: _controller,
-                    autofocus: true,
-                    textAlign: TextAlign.center,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) {
-                      if (canCreate) _save();
-                    },
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.45,
-                    ),
-                    decoration: const InputDecoration(
-                      hintText: '카테고리명을 입력해주세요',
-                      hintStyle: TextStyle(color: AppColors.subtler),
-                      isDense: true,
-                      contentPadding: EdgeInsets.only(bottom: 8),
-                      enabledBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: AppColors.subtler),
-                      ),
-                      focusedBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: AppColors.text),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  FolderColorPicker(
-                    selectedColor: _selectedColor,
-                    onChanged: (color) =>
-                        setState(() => _selectedColor = color),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              top: 348,
-              left: 16,
-              right: 16,
-              height: 48,
-              child: FilledButton(
-                onPressed: canCreate ? _save : null,
-                style: FilledButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  backgroundColor: AppColors.text,
-                  disabledBackgroundColor: AppColors.subtler,
-                  foregroundColor: AppColors.main,
-                  disabledForegroundColor: AppColors.surface,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.375,
                   ),
                 ),
-                child: Text(widget.actionLabel),
-              ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 32 + inset),
+                  child: SizedBox(
+                    key: const ValueKey('category-form-button'),
+                    height: 48,
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: canCreate ? _save : null,
+                      style: FilledButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.standard,
+                        backgroundColor: AppColors.text,
+                        disabledBackgroundColor: AppColors.subtler,
+                        foregroundColor: AppColors.main,
+                        disabledForegroundColor: AppColors.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        textStyle: _CategorySheetText.formButton,
+                      ),
+                      child: Text(widget.actionLabel),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -667,64 +834,95 @@ class FolderColorPicker extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final color in colors)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: () => onChanged(color),
-                      child: SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: Center(
-                          child: Container(
-                            width: color == selectedColor ? 36 : 30,
-                            height: color == selectedColor ? 36 : 30,
-                            padding: color == selectedColor
-                                ? const EdgeInsets.all(3)
-                                : EdgeInsets.zero,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: color == selectedColor
-                                  ? Border.all(color: color, width: 1.5)
-                                  : null,
-                            ),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: color,
-                                shape: BoxShape.circle,
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final color in colors)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: InkWell(
+                    key: ValueKey(
+                      'palette-color-${color.toARGB32().toRadixString(16)}',
+                    ),
+                    customBorder: const CircleBorder(),
+                    onTap: () => onChanged(color),
+                    child: SizedBox(
+                      width: color == selectedColor ? 36 : 30,
+                      height: 36,
+                      child: Center(
+                        child: color == selectedColor
+                            ? SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: color,
+                                            width: 1.431,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Center(
+                                      child: SvgPicture.asset(
+                                        Assets.categorySheetSelectedSwatch,
+                                        width: 30,
+                                        height: 30,
+                                        colorMapper: _CategorySwatchColorMapper(
+                                          color,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                              child: color == selectedColor
-                                  ? const Icon(
-                                      Icons.check_rounded,
-                                      color: Colors.white,
-                                      size: 21,
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ),
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
-        _CustomFolderColorSwatch(
-          onTap: () => onChanged(const Color(0xFFFF6F61)),
-        ),
-      ],
-    );
-  }
+      ),
+      _CustomFolderColorSwatch(onTap: () => onChanged(const Color(0xFFFF6F61))),
+    ],
+  );
+}
+
+class _CategorySwatchColorMapper extends ColorMapper {
+  const _CategorySwatchColorMapper(this.selectedColor);
+  final Color selectedColor;
+
+  @override
+  Color substitute(
+    String? id,
+    String elementName,
+    String attributeName,
+    Color color,
+  ) => color.toARGB32() == 0xFFFF6277 ? selectedColor : color;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CategorySwatchColorMapper &&
+      other.selectedColor == selectedColor;
+  @override
+  int get hashCode => selectedColor.hashCode;
 }
 
 class _CustomFolderColorSwatch extends StatelessWidget {
@@ -733,46 +931,15 @@ class _CustomFolderColorSwatch extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
+  Widget build(BuildContext context) => InkWell(
+    key: const ValueKey('palette-custom'),
+    customBorder: const CircleBorder(),
+    onTap: onTap,
+    child: Image.asset(
+      Assets.categorySheetCustom,
+      scale: 3,
       width: 38,
       height: 32,
-      child: Row(
-        children: [
-          Container(width: 1, height: 32, color: AppColors.subtler),
-          const SizedBox(width: 7),
-          InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: Container(
-              width: 30,
-              height: 30,
-              padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: SweepGradient(
-                  colors: [
-                    Color(0xFFFF0000),
-                    Color(0xFFFFD400),
-                    Color(0xFF37FF00),
-                    Color(0xFF00FFCC),
-                    Color(0xFF0072FF),
-                    Color(0xFF6905FF),
-                    Color(0xFFFF0051),
-                    Color(0xFFFF0000),
-                  ],
-                ),
-              ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF6F61),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
 }

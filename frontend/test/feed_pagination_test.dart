@@ -1,9 +1,10 @@
+import 'auth_navigation.dart';
+import 'support/app_startup.dart';
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
@@ -11,6 +12,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
+import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
@@ -20,6 +22,8 @@ import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
+import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +51,58 @@ const _uncategorized = {
   'is_default': true,
 };
 const _allCategories = [_category, _otherCategory, _uncategorized];
+
+// E06 uses the server ID rather than the display-only uncategorized sentinel.
+const _unclassifiedActual = {
+  'id': 99,
+  'name': '미분류',
+  'color': '#B5BDC3',
+  'is_default': true,
+};
+
+_Server _unclassifiedServer({
+  int count = 45,
+  FutureOr<http.Response?> Function(http.Request, _Server)? respond,
+}) {
+  final server = _Server(
+    count: count,
+    respond: (request, server) async {
+      final overridden = await respond?.call(request, server);
+      if (overridden != null) return overridden;
+      if (request.url.path == '/api/v1/categories') {
+        return _json([
+          ..._navigationCategories().where((c) => c['id'] != 303),
+          {
+            ..._unclassifiedActual,
+            'content_count': server.records.where((record) {
+              return (record['categories'] as List).any(
+                (category) => (category as Map)['id'] == 99,
+              );
+            }).length,
+          },
+        ]);
+      }
+      return null;
+    },
+  );
+  for (var index = 0; index < server.records.length; index++) {
+    server.records[index]['categories'] = [_unclassifiedActual];
+    server.records[index]['is_favorite'] = index.isEven;
+  }
+  return server;
+}
+
+List<Map<String, Object?>> _navigationCategories() => [
+  ..._allCategories,
+  for (var index = 0; index < 24; index++)
+    {
+      ..._category,
+      'id': 1000 + index,
+      'name': '복귀 카테고리 ${index + 1}',
+      'content_count': index + 1,
+      'last_saved_at': '2026-10-07T00:00:00Z',
+    },
+];
 
 http.Response _json(Object body, [int status = 200]) => http.Response(
   jsonEncode(body),
@@ -250,7 +306,7 @@ Future<void> _withApp(
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -261,6 +317,53 @@ Future<void> _withApp(
 
 Future<void> _openArchive(WidgetTester tester) async {
   tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenArchive();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openArchiveCategories(WidgetTester tester) async {
+  tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenCategories();
+  await tester.pumpAndSettle();
+  expect(tester.widget<ArchiveScreen>(find.byType(ArchiveScreen)).activeTab, 1);
+}
+
+ScrollPosition _categoryListPosition(WidgetTester tester) {
+  final list = find.byKey(
+    const PageStorageKey<String>('archive-category-list'),
+  );
+  expect(list, findsOneWidget);
+  final scrollable = find.descendant(
+    of: list,
+    matching: find.byType(Scrollable),
+  );
+  return tester.state<ScrollableState>(scrollable).position;
+}
+
+ScrollPosition _allContentPosition(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(ContentListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    )
+    .position;
+
+Future<void> _backFromCategoryManagement(WidgetTester tester) async {
+  final keyedBack = find.descendant(
+    of: find.byType(CategoryManagementScreen),
+    matching: find.byKey(const ValueKey('management-back')),
+  );
+  final back = keyedBack.evaluate().isNotEmpty
+      ? keyedBack
+      : find.descendant(
+          of: find.byType(CategoryManagementScreen),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is SvgIconButton && widget.asset == Assets.back,
+          ),
+        );
+  expect(back, findsOneWidget);
+  await tester.tap(back);
   await tester.pumpAndSettle();
 }
 
@@ -300,6 +403,28 @@ Finder _cardTitle(String title) => find.descendant(
 Future<void> _openBookmark(WidgetTester tester) async {
   tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.bookmark);
   await tester.pumpAndSettle();
+}
+
+ScrollPosition _bookmarkPosition(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(BookmarkScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    )
+    .position;
+
+_Server _favoriteServer({
+  int count = 45,
+  FutureOr<http.Response?> Function(http.Request, _Server)? respond,
+}) {
+  final server = _Server(count: count, respond: respond);
+  for (final record in server.records) {
+    record['is_favorite'] = true;
+  }
+  return server;
 }
 
 Future<void> _openCategory(WidgetTester tester, int categoryId) async {
@@ -343,7 +468,560 @@ void main() {
       fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
     }
     await fonts.load();
+    await (FontLoader(
+      'PretendardDetail',
+    )..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'))).load();
   });
+
+  testWidgets('E06 actual ID pagination retains the selected server sort', (
+    tester,
+  ) async {
+    final server = _unclassifiedServer();
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .onSortChanged(true);
+      await tester.pumpAndSettle();
+      await _openCategory(tester, 99);
+      final feed = tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .feed!;
+      expect(feed.categoryId, 99);
+      expect(feed.bookmarkedFirst, isTrue);
+      expect(find.byType(ArchiveToolbar), findsNothing);
+      expect(find.byType(RandomReviewButton), findsNothing);
+      for (var attempt = 0; attempt < 8 && feed.hasMore; attempt++) {
+        await _scrollArchiveToEnd(tester);
+      }
+      expect(feed.items, hasLength(45));
+      expect(feed.items.map((item) => item.apiId).toSet(), hasLength(45));
+      final filtered = server.feedCalls
+          .where(
+            (request) => request.url.queryParameters['category_id'] == '99',
+          )
+          .toList();
+      expect(filtered, isNotEmpty);
+      expect(filtered.first.url.queryParameters['cursor'], isNull);
+      expect(
+        filtered.any((r) => r.url.queryParameters['cursor'] != null),
+        isTrue,
+      );
+      expect(
+        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'true'),
+        isTrue,
+      );
+      expect(
+        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'false'),
+        isTrue,
+      );
+      final firstNonFavorite = feed.items.indexWhere(
+        (item) => !item.bookmarked,
+      );
+      expect(firstNonFavorite, 23);
+      expect(
+        feed.items.take(firstNonFavorite).every((item) => item.bookmarked),
+        isTrue,
+      );
+      expect(
+        feed.items.skip(firstNonFavorite).every((item) => !item.bookmarked),
+        isTrue,
+      );
+      expect(feed.hasMore, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets(
+    'E06 management search detail and back preserve their source positions',
+    (tester) async {
+      final server = _unclassifiedServer();
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final categoriesPosition = _categoryListPosition(tester);
+        categoriesPosition.jumpTo(120);
+        await tester.pumpAndSettle();
+        final categoryOffset = categoriesPosition.pixels;
+        await _openCategory(tester, 99);
+        _allContentPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final before = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+        final feed = before.feed!;
+        final ids = before.contents.map((item) => item.id).toList();
+        final version = feed.version;
+        final cursor = feed.nextCursor;
+        final requests = server.feedCalls.length;
+        void checkPreserved() {
+          final current = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          expect(current.activeTab, 0);
+          expect(current.activeCategoryName, catUncategorized.name);
+          expect(current.feed, same(feed));
+          expect(feed.categoryId, 99);
+          expect(feed.version, version);
+          expect(feed.nextCursor, cursor);
+          expect(current.contents.map((item) => item.id), ids);
+          expect(_allContentPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(requests));
+        }
+
+        await tester.tap(find.byKey(const ValueKey('unclassified-settings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        checkPreserved();
+        await tester.tap(find.byKey(const ValueKey('unclassified-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+        final current = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        current.onOpenContent(current.contents[2]);
+        await tester.pumpAndSettle();
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        checkPreserved();
+        await tester.tap(find.byKey(const ValueKey('unclassified-back')));
+        await tester.pumpAndSettle();
+        final root = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+        expect(root.activeTab, 1);
+        expect(root.activeCategoryName, isNull);
+        expect(root.feed!.categoryId, isNull);
+        expect(
+          _categoryListPosition(tester).pixels,
+          closeTo(categoryOffset, .01),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  for (final failFirst in [false, true]) {
+    testWidgets(
+      'E06 last item classification ${failFirst ? 'failure then retry' : 'success'} returns to confirmed empty',
+      (tester) async {
+        var attempts = 0;
+        final server = _unclassifiedServer(
+          count: 1,
+          respond: (request, _) {
+            if (request.method == 'PUT' &&
+                request.url.path.endsWith('/categories')) {
+              attempts++;
+              if (failFirst && attempts == 1) {
+                return _json({'detail': '분류 변경 거절'}, 503);
+              }
+            }
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _openArchive(tester);
+          await _openCategory(tester, 99);
+          final initial = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          final originalId = initial.contents.single.id;
+          initial.onOpenContent(initial.contents.single);
+          await tester.pumpAndSettle();
+          var detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          final target = detail.categories.singleWhere(
+            (category) => category.id == 101,
+          );
+          detail.onChangeCategory(detail.content, target);
+          // Captured callbacks remain guarded while the first write is pending.
+          detail.onChangeCategory(detail.content, target);
+          await tester.pumpAndSettle();
+          expect(attempts, 1);
+          detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          if (failFirst) {
+            expect(detail.content.category.id, 99);
+            expect(detail.feed!.items.single.id, originalId);
+            expect(
+              detail.categories.singleWhere((c) => c.id == 99).contentCount,
+              1,
+            );
+            expect(find.text('분류 변경 거절'), findsOneWidget);
+            detail.onChangeCategory(detail.content, target);
+            await tester.pumpAndSettle();
+            expect(attempts, 2);
+            detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+          }
+          expect(detail.content.id, originalId);
+          expect(detail.content.category.id, 101);
+          expect(detail.feed!.items, isEmpty);
+          expect(detail.feed!.categoryId, 99);
+          expect(detail.feed!.initialized, isTrue);
+          expect(detail.feed!.loading, isFalse);
+          expect(detail.feed!.error, isNull);
+          expect(detail.feed!.hasMore, isFalse);
+          expect(
+            detail.categories.singleWhere((c) => c.id == 99).contentCount,
+            0,
+          );
+          expect(server.records, hasLength(1));
+          expect(
+            (server.records.single['categories'] as List).single,
+            _category,
+          );
+          detail.onBack();
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('unclassified-empty-group')),
+            findsOneWidget,
+          );
+          expect(find.text('전체보기'), findsNothing);
+          expect(find.byType(RandomReviewButton), findsNothing);
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  testWidgets('E06 waits for the actual filtered request before showing zero', (
+    tester,
+  ) async {
+    final gate = Completer<http.Response>();
+    addTearDown(() => _release(gate));
+    final server = _unclassifiedServer(
+      count: 0,
+      respond: (request, _) {
+        if (request.url.path == _feed &&
+            request.url.queryParameters['category_id'] == '99') {
+          return gate.future;
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      final screen = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+      screen.onOpenCategory(
+        screen.categories.singleWhere((category) => category.id == 99),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      final loading = tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .feed!;
+      expect(loading.categoryId, 99);
+      expect(loading.loading, isTrue);
+      expect(
+        find.byKey(const ValueKey('unclassified-empty-group')),
+        findsNothing,
+      );
+      gate.complete(_json({'items': [], 'next_cursor': null}));
+      await tester.pumpAndSettle();
+      expect(loading.initialized, isTrue);
+      expect(loading.hasMore, isFalse);
+      expect(loading.loading, isFalse);
+      expect(
+        find.byKey(const ValueKey('unclassified-empty-group')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets(
+    'I01 bookmark management search detail and root tabs preserve its feed',
+    (tester) async {
+      final server = _favoriteServer();
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        _bookmarkPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final original = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final feed = original.feed!,
+            ids = original.contents.map((c) => c.id).toList();
+        final version = feed.version,
+            cursor = feed.nextCursor,
+            requests = server.feedCalls.length;
+        void preserved() {
+          final current = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          expect(current.feed, same(feed));
+          expect(feed.isFavorite, isTrue);
+          expect(feed.query, isNull);
+          expect(feed.categoryId, isNull);
+          expect(feed.version, version);
+          expect(feed.nextCursor, cursor);
+          expect(current.contents.map((c) => c.id), ids);
+          expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(requests));
+        }
+
+        await tester.tap(find.byKey(const ValueKey('bookmark-settings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        preserved();
+        await tester.tap(find.byKey(const ValueKey('bookmark-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        preserved();
+        original.onOpenContent(original.contents[2]);
+        await tester.pumpAndSettle();
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        preserved();
+        tester
+            .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+            .onTab(AppRoute.home);
+        await tester.pumpAndSettle();
+        await _openBookmark(tester);
+        preserved();
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  for (final failFirst in [false, true]) {
+    testWidgets(
+      'I01 pending unfavorite ${failFirst ? 'rolls back then retries' : 'commits then removes row'} without duplicate writes',
+      (tester) async {
+        final gate = Completer<http.Response?>();
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete(null);
+        });
+        var hold = true;
+        final server = _favoriteServer(
+          respond: (request, _) {
+            if (hold &&
+                request.method == 'PUT' &&
+                request.url.path.endsWith('/favorite')) {
+              return gate.future;
+            }
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _openBookmark(tester);
+          _bookmarkPosition(tester).jumpTo(300);
+          await tester.pumpAndSettle();
+          final before = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          final item = before.contents.first,
+              feed = before.feed!,
+              version = before.feed!.version;
+          before.onToggleBookmark(item);
+          before.onToggleBookmark(item);
+          await tester.pump();
+          final pending = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          final pendingItem = pending.contents.singleWhere(
+            (c) => c.id == item.id,
+          );
+          expect(pendingItem.bookmarked, isFalse);
+          expect(pendingItem.mutationLabel, isNotNull);
+          expect(pending.contents, hasLength(before.contents.length));
+          expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+          expect(feed.version, version);
+          expect(server.requests.where((r) => r.method == 'PUT'), hasLength(1));
+          hold = false;
+          gate.complete(
+            failFirst ? _json({'detail': '즐겨찾기 해제 거절'}, 503) : null,
+          );
+          await tester.pumpAndSettle();
+          var current = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          if (failFirst) {
+            final restored = current.contents.singleWhere(
+              (c) => c.id == item.id,
+            );
+            expect(restored.bookmarked, isTrue);
+            expect(restored.mutationLabel, isNull);
+            expect(current.bookmarkedIds, contains(item.id));
+            expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
+            expect(find.text('즐겨찾기 해제 거절'), findsOneWidget);
+            current.onToggleBookmark(restored);
+            await tester.pumpAndSettle();
+            current = tester.widget<BookmarkScreen>(
+              find.byType(BookmarkScreen),
+            );
+          }
+          expect(current.contents.any((c) => c.id == item.id), isFalse);
+          expect(current.bookmarkedIds, isNot(contains(item.id)));
+          expect(_bookmarkPosition(tester).pixels, 0);
+          expect(feed.version, greaterThan(version));
+          expect(server.records, hasLength(45));
+          expect(
+            server.records.singleWhere(
+              (r) => r['id'] == item.apiId,
+            )['is_favorite'],
+            isFalse,
+          );
+          expect(
+            server.requests.where((r) => r.method == 'PUT'),
+            hasLength(failFirst ? 2 : 1),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  testWidgets(
+    'I02 last unfavorite confirms zero while preserving the saved content',
+    (tester) async {
+      final server = _favoriteServer(count: 1);
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        final before = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final id = before.contents.single.id;
+        before.onToggleBookmark(before.contents.single);
+        await tester.pumpAndSettle();
+        final after = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        expect(after.contents, isEmpty);
+        expect(after.feed!.isFavorite, isTrue);
+        expect(after.feed!.initialized, isTrue);
+        expect(after.feed!.loading, isFalse);
+        expect(after.feed!.error, isNull);
+        expect(after.feed!.hasMore, isFalse);
+        expect(after.bookmarkedIds, isNot(contains(id)));
+        expect(server.records, hasLength(1));
+        expect(server.records.single['is_favorite'], isFalse);
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('bookmark-toolbar')), findsNothing);
+        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'I01 committed unfavorite survives refresh failure until existing retry',
+    (tester) async {
+      var committed = false, failRefresh = true;
+      final server = _favoriteServer(
+        count: 2,
+        respond: (request, _) {
+          if (request.method == 'PUT' &&
+              request.url.path.endsWith('/favorite')) {
+            committed = true;
+          }
+          if (committed &&
+              failRefresh &&
+              request.url.path == _feed &&
+              request.url.queryParameters['is_favorite'] == 'true') {
+            return _json({'detail': '즐겨찾기 재조회 실패'}, 503);
+          }
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openBookmark(tester);
+        final before = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final item = before.contents.first;
+        before.onToggleBookmark(item);
+        await tester.pumpAndSettle();
+        final failed = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        final retained = failed.contents.singleWhere((c) => c.id == item.id);
+        expect(retained.bookmarked, isFalse);
+        expect(retained.mutationLabel, isNull);
+        expect(failed.feed!.error, isNotNull);
+        expect(
+          server.records.singleWhere(
+            (r) => r['id'] == item.apiId,
+          )['is_favorite'],
+          isFalse,
+        );
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsNothing,
+        );
+        expect(find.text('다시 시도'), findsOneWidget);
+        final writes = server.requests.where((r) => r.method == 'PUT').length;
+        failRefresh = false;
+        await tester.tap(find.text('다시 시도'));
+        await tester.pumpAndSettle();
+        final retried = tester.widget<BookmarkScreen>(
+          find.byType(BookmarkScreen),
+        );
+        expect(retried.feed!.error, isNull);
+        expect(retried.contents, hasLength(1));
+        expect(retried.contents.single.id, isNot(item.id));
+        expect(
+          server.requests.where((r) => r.method == 'PUT'),
+          hasLength(writes),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'I02 whole-list CTA clears a remembered archive category and tab',
+    (tester) async {
+      final server = _Server(count: 1);
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        await _openCategory(tester, 101);
+        expect(
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .bookmarkedFirst,
+          isTrue,
+        );
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.bookmark);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('bookmark-empty-group')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('bookmark-empty-cta')));
+        await tester.pumpAndSettle();
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 0);
+        expect(archive.activeCategoryName, isNull);
+        expect(archive.feed!.categoryId, isNull);
+        expect(archive.feed!.query, isNull);
+        expect(archive.feed!.isFavorite, isNull);
+        expect(archive.bookmarkedFirst, isTrue);
+        expect(archive.feed!.bookmarkedFirst, isTrue);
+        expect(archive.contents.single.apiId, 1);
+        expect(
+          server.requests.where(
+            (r) => r.method == 'PUT' || r.method == 'DELETE',
+          ),
+          isEmpty,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
 
   testWidgets('archive scrolling requests the next opaque feed cursor', (
     tester,
@@ -648,12 +1326,15 @@ void main() {
     }
     await _withApp(tester, server, () async {
       await _openBookmark(tester);
+      expect(find.text('불러온 20개'), findsOneWidget);
+      expect(find.text('999'), findsNothing);
       await _scrollToEnd(tester, BookmarkScreen);
       await _scrollToEnd(tester, BookmarkScreen);
       final items = tester
           .widget<BookmarkScreen>(find.byType(BookmarkScreen))
           .contents;
       expect(items, hasLength(45));
+      expect(find.text('불러온 45개'), findsOneWidget);
       expect(items.every((content) => content.bookmarked), isTrue);
       final favoriteCalls = server.feedCalls.where(
         (request) => request.url.queryParameters['is_favorite'] != null,
@@ -676,7 +1357,7 @@ void main() {
       final server = _Server(count: 21);
       await _withApp(tester, server, () async {
         await _openBookmark(tester);
-        expect(find.text('즐겨찾기한 콘텐츠가 없어요'), findsOneWidget);
+        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
         expect(
           tester.widget<BookmarkScreen>(find.byType(BookmarkScreen)).contents,
           isEmpty,
@@ -1466,15 +2147,12 @@ void main() {
         await tester.pumpAndSettle();
         tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
         await tester.pumpAndSettle();
-        await tester
-            .widget<AccountManagementScreen>(
-              find.byType(AccountManagementScreen),
-            )
-            .onLogout();
+        await logoutFromAccount(tester);
         await tester.pumpAndSettle();
         final guest = tester
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onContinue();
+        await confirmPermissionGuideIfPresent(tester);
         await tester.pumpAndSettle();
         await guest;
         gate.complete(oldResponse!);
@@ -1521,6 +2199,226 @@ void main() {
           999,
         );
         expect(find.text('999'), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'archive all settings, search and detail preserve tab, pixels and feed',
+    (tester) async {
+      final server = _Server(count: 45);
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        _allContentPosition(tester).jumpTo(300);
+        await tester.pumpAndSettle();
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        final ids = archive.contents.map((item) => item.id).toList();
+        final feed = archive.feed!;
+        final cursor = feed.nextCursor;
+        final version = feed.version;
+        final calls = server.feedCalls.length;
+
+        void checkPreserved() {
+          final current = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          expect(current.activeTab, 0);
+          expect(current.activeCategoryName, isNull);
+          expect(current.contents.map((item) => item.id), ids);
+          expect(current.feed, same(feed));
+          expect(current.feed!.version, version);
+          expect(current.feed!.nextCursor, cursor);
+          expect(_allContentPosition(tester).pixels, closeTo(300, .01));
+          expect(server.feedCalls, hasLength(calls));
+        }
+
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        checkPreserved();
+
+        await tester.tap(find.byKey(const Key('archive-category-search')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SearchScreen), findsOneWidget);
+        await tester.tap(find.text('취소'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onOpenContent(archive.contents[2]);
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsOneWidget);
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        await tester.tap(find.text('카테고리'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('전체보기'));
+        await tester.pumpAndSettle();
+        checkPreserved();
+
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        expect(_allContentPosition(tester).pixels, 0);
+        expect(feed.version, greaterThan(version));
+        expect(server.feedCalls.length, greaterThan(calls));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'archive category settings returns to category tab and its scroll offset',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final position = _categoryListPosition(tester);
+        expect(position.maxScrollExtent, greaterThan(360));
+        position.jumpTo(360);
+        await tester.pumpAndSettle();
+        final offset = _categoryListPosition(tester).pixels;
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 1);
+        expect(archive.activeCategoryName, isNull);
+        expect(_categoryListPosition(tester).pixels, closeTo(offset, 0.01));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'system back dismisses a management modal before restoring the archive',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final position = _categoryListPosition(tester);
+        expect(position.maxScrollExtent, greaterThan(360));
+        position.jumpTo(360);
+        await tester.pumpAndSettle();
+        final offset = _categoryListPosition(tester).pixels;
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+
+        tester.widget<CategoryRow>(find.byType(CategoryRow).first).onMore!();
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryActionSheet), findsOneWidget);
+        expect(await tester.binding.handlePopRoute(), isTrue);
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryActionSheet), findsNothing);
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        expect(find.byType(ArchiveScreen), findsNothing);
+
+        expect(await tester.binding.handlePopRoute(), isTrue);
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsNothing);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        expect(archive.activeTab, 1);
+        expect(archive.activeCategoryName, isNull);
+        expect(_categoryListPosition(tester).pixels, closeTo(offset, 0.01));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'My management entry returns to My after an earlier archive entry',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        await tester.tap(find.byKey(const Key('archive-manage-categories')));
+        await tester.pumpAndSettle();
+        await _backFromCategoryManagement(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('카테고리 관리'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        await _backFromCategoryManagement(tester);
+        expect(find.byType(MyScreen), findsOneWidget);
+        expect(find.byType(ArchiveScreen), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'new account cannot restore the prior account category-list offset',
+    (tester) async {
+      final server = _Server(
+        count: 1,
+        respond: (request, _) => request.url.path == '/api/v1/categories'
+            ? _json(_navigationCategories())
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openArchiveCategories(tester);
+        final oldPosition = _categoryListPosition(tester);
+        expect(oldPosition.maxScrollExtent, greaterThan(360));
+        oldPosition.jumpTo(360);
+        await tester.pumpAndSettle();
+        expect(_categoryListPosition(tester).pixels, greaterThan(0));
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+        await tester.pumpAndSettle();
+        await logoutFromAccount(tester);
+        await tester.pumpAndSettle();
+        final guest = tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onContinue();
+        await confirmPermissionGuideIfPresent(tester);
+        await tester.pumpAndSettle();
+        await guest;
+        tester.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
+        await tester.pumpAndSettle();
+        tester
+            .widget<InterestSelectionScreen>(
+              find.byType(InterestSelectionScreen),
+            )
+            .onDone();
+        await tester.pumpAndSettle();
+        expect(server.userId, 2);
+        await _openArchiveCategories(tester);
+        expect(_categoryListPosition(tester).maxScrollExtent, greaterThan(360));
+        expect(_categoryListPosition(tester).pixels, 0);
+        expect(
+          server.calls('/api/v1/categories').last.headers['Authorization'],
+          'Bearer guest-access',
+        );
+        expect(tester.takeException(), isNull);
       });
     },
   );
@@ -1607,7 +2505,7 @@ void main() {
               .count,
           94,
         );
-        expect(find.text('51'), findsOneWidget);
+        expect(find.text('51'), findsNothing);
         rows.first.onMore!();
         await tester.pumpAndSettle();
         expect(

@@ -31,6 +31,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'safe_area_preview.dart';
+import 'login_alignment_preview.dart' as login;
 
 final _captureKey = GlobalKey();
 final _measurements = <Map<String, Object?>>[];
@@ -194,6 +195,21 @@ Future<void> _runChecks() async {
   await _waitFor<LoginScreen>();
   await _capture('00_login');
   _widget<LoginScreen>().onContinue();
+  await _settle(2);
+  await login.loginConfirmPermissionGuide(
+    _captureKey.currentContext! as Element,
+    tap: (element) async {
+      final view = View.of(element), point = _rect(element).center;
+      GestureBinding.instance.handlePointerEvent(
+        PointerDownEvent(pointer: 9876, viewId: view.viewId, position: point),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      GestureBinding.instance.handlePointerEvent(
+        PointerUpEvent(pointer: 9876, viewId: view.viewId, position: point),
+      );
+      await _settle(8);
+    },
+  );
   await _waitFor<OnboardingScreen>();
   _widget<OnboardingScreen>().onDone();
   await _waitFor<InterestSelectionScreen>();
@@ -327,7 +343,7 @@ Future<void> _checkOriginalSheet() async {
   }
   (_first<SvgIconButton>(
             within: _first<DetailScreen>(),
-            where: (button) => button.asset == Assets.link,
+            where: (button) => button.asset == Assets.detailLink,
           ).widget
           as SvgIconButton)
       .onPressed();

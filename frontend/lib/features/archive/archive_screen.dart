@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
+import 'package:clipback_frontend/features/archive/category_content_widgets.dart';
+import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -11,7 +13,6 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
 import 'package:flutter/material.dart';
 
 class ArchiveScreen extends StatelessWidget {
@@ -19,6 +20,7 @@ class ArchiveScreen extends StatelessWidget {
     this.feed,
     this.onLoadMore,
     this.onRetry,
+    this.onOpenCategoryManagement,
     required this.activeTab,
     required this.contents,
     required this.categories,
@@ -50,6 +52,7 @@ class ArchiveScreen extends StatelessWidget {
   final FeedPage? feed;
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
+  final VoidCallback? onOpenCategoryManagement;
   final List<ContentItem> contents;
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
@@ -78,6 +81,17 @@ class ArchiveScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final rootArchive = activeCategoryName == null;
+    final allRoot = rootArchive && activeTab == 0;
+    final unclassified = activeCategoryName == catUncategorized.name;
+    final categoryContent = !rootArchive && !unclassified && activeTab == 0;
+    final selectedCategory = categories
+        .where(
+          (category) => feed?.categoryId != null
+              ? category.id == feed!.categoryId
+              : category.name == activeCategoryName,
+        )
+        .firstOrNull;
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -107,32 +121,52 @@ class ArchiveScreen extends StatelessWidget {
           bottom: false,
           child: Column(
             children: [
-              if (activeCategoryName == null)
-                AppTopBar(title: '아카이브', onSearch: onSearch)
-              else
-                CategoryTopBar(
-                  title: activeCategoryName!,
+              if (rootArchive)
+                CategoryArchiveTopBar(
+                  onSearch: onSearch,
+                  onOpenCategoryManagement: onOpenCategoryManagement,
+                )
+              else if (unclassified)
+                UnclassifiedTopBar(
                   onBack: onClearCategory,
                   onSearch: onSearch,
-                  onMore: () => showModalBottomSheet<void>(
-                    context: context,
-                    useSafeArea: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => SortSheet(
-                      activeBookmarkedFirst: bookmarkedFirst,
-                      onSelect: onSortChanged,
+                  onOpenCategoryManagement: onOpenCategoryManagement,
+                )
+              else
+                CategoryContentTopBar(
+                  title: activeCategoryName!,
+                  category: selectedCategory,
+                  onBack: onClearCategory,
+                  onSearch: onSearch,
+                  onOpenCategoryManagement: onOpenCategoryManagement,
+                ),
+              if (rootArchive)
+                SizedBox(
+                  key: ValueKey(
+                    allRoot ? 'archive-all-tabs' : 'archive-category-tabs',
+                  ),
+                  height: 64,
+                  child: Center(
+                    child: ArchiveTabs(
+                      activeTab: activeTab,
+                      onChanged: onTabChanged,
+                      labelStyle: const TextStyle(
+                        inherit: false,
+                        fontFamily: 'Pretendard',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.4,
+                      ),
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
-              if (activeCategoryName == null)
-                ArchiveTabs(activeTab: activeTab, onChanged: onTabChanged),
               Expanded(
                 child: activeTab == 0
-                    ? Stack(
+                    ? Column(
                         children: [
-                          Positioned.fill(
+                          Expanded(
                             child: ContentListView(
+                              archiveAllStyle: allRoot || categoryContent,
                               feed: feed,
                               onLoadMore: onLoadMore,
                               onRetry: onRetry,
@@ -150,12 +184,17 @@ class ArchiveScreen extends StatelessWidget {
                               onGoHome: () => onTab(AppRoute.home),
                             ),
                           ),
-                          if (activeCategoryName != null && contents.isNotEmpty)
-                            Positioned(
-                              right: 16,
-                              bottom: 24,
-                              child: RandomReviewButton(
-                                onPressed: onOpenRandomView,
+                          if (categoryContent && contents.isNotEmpty)
+                            // The footer takes its natural height. The list ends
+                            // above it, so even the final card remains reachable.
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: RandomReviewButton(
+                                  categoryContentStyle: true,
+                                  onPressed: onOpenRandomView,
+                                ),
                               ),
                             ),
                         ],

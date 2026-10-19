@@ -1,4 +1,5 @@
 import 'package:clipback_frontend/shared/theme/assets.dart';
+import 'package:clipback_frontend/shared/theme/app_text.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
 
@@ -8,6 +9,7 @@ class SectionHeader extends StatelessWidget {
     required this.onTap,
     this.horizontalPadding = 16,
     this.iconAsset = Assets.chevronRight,
+    this.showTrailingIcon = true,
     super.key,
   });
 
@@ -15,26 +17,30 @@ class SectionHeader extends StatelessWidget {
   final VoidCallback onTap;
   final double horizontalPadding;
   final String iconAsset;
+  final bool showTrailingIcon;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      child: SizedBox(
-        height: 44,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: 8,
+          ),
           child: Row(
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.sectionTitle,
                 ),
               ),
-              const Spacer(),
-              SvgIcon(asset: iconAsset, size: 24),
+              if (showTrailingIcon) SvgIcon(asset: iconAsset, size: 24),
             ],
           ),
         ),

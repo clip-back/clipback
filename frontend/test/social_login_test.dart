@@ -1,3 +1,5 @@
+import 'auth_navigation.dart';
+import 'support/app_startup.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -6,6 +8,7 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/login_status_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
@@ -162,7 +165,7 @@ Future<void> _app(
       await tester.pumpWidget(
         ClipbackApp(sessionStorage: storage, socialAuth: social),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -192,12 +195,21 @@ void main() {
       await _app(tester, server, social, () async {
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(server.calls, isEmpty);
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(server.calls, isEmpty);
         expect(await ApiSessionStorage().read(), isNull);
+        final cancelled = tester.widget<LoginCancelledScreen>(
+          find.byType(LoginCancelledScreen),
+        );
+        cancelled.onChooseMethods();
+        await tester.pumpAndSettle();
+        expect(server.calls, isEmpty);
         expect(find.byType(LoginScreen), findsOneWidget);
       });
     },
@@ -209,9 +221,12 @@ void main() {
       (tester) async {
         final server = _Server()..newUser = isNew;
         await _app(tester, server, _Social(), () async {
-          await tester
-              .widget<LoginScreen>(find.byType(LoginScreen))
-              .onSocialLogin(SocialLoginProvider.google);
+          await performLoginChoice(
+            tester,
+            () => tester
+                .widget<LoginScreen>(find.byType(LoginScreen))
+                .onSocialLogin(SocialLoginProvider.google),
+          );
           await tester.pumpAndSettle();
           expect(server.at('/auth/social/google'), hasLength(1));
           expect(jsonDecode(server.at('/auth/social/google').single.body), {
@@ -244,9 +259,14 @@ void main() {
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onSocialLogin(SocialLoginProvider.google);
         await tester.pumpAndSettle();
-        expect(find.text('이미 연결된 계정이에요'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('account-link-conflict-screen')),
+          findsOneWidget,
+        );
         expect((await ApiSessionStorage().read())?.accessToken, 'guest-access');
-        await tester.tap(find.text('게스트 유지'));
+        await tester.tap(
+          find.byKey(const ValueKey('account-link-conflict-keep')),
+        );
         await tester.pumpAndSettle();
         await attempt;
         expect(server.at('/auth/social/google'), isEmpty);
@@ -280,7 +300,9 @@ void main() {
             .widget<LoginScreen>(find.byType(LoginScreen))
             .onSocialLogin(SocialLoginProvider.apple);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('기존 계정으로 전환'));
+        await tester.tap(
+          find.byKey(const ValueKey('account-link-conflict-confirm')),
+        );
         await tester.pumpAndSettle();
         await attempt;
         expect(social.nonces, ['nonce-1', 'nonce-2']);
@@ -342,9 +364,12 @@ void main() {
       final server = _Server();
       final storage = _Storage()..failWrite = true;
       await _app(tester, server, _Social(), () async {
-        await tester
-            .widget<LoginScreen>(find.byType(LoginScreen))
-            .onSocialLogin(SocialLoginProvider.google);
+        await performLoginChoice(
+          tester,
+          () => tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(server.at('/auth/social/google'), hasLength(1));
@@ -369,9 +394,12 @@ void main() {
         ? _json({'detail': 'unavailable'}, 503)
         : null;
     await _app(tester, server, _Social(), () async {
-      await tester
-          .widget<LoginScreen>(find.byType(LoginScreen))
-          .onSocialLogin(SocialLoginProvider.google);
+      await performLoginChoice(
+        tester,
+        () => tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onSocialLogin(SocialLoginProvider.google),
+      );
       await tester.pumpAndSettle();
       expect(find.text('다시 시도'), findsOneWidget);
       fail = false;
@@ -567,11 +595,7 @@ void main() {
           await tester.pumpAndSettle();
           tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
           await tester.pumpAndSettle();
-          await tester
-              .widget<AccountManagementScreen>(
-                find.byType(AccountManagementScreen),
-              )
-              .onLogout();
+          await logoutFromAccount(tester);
           await tester.pumpAndSettle();
           expect(find.byType(HomeScreen), findsNothing);
           expect(find.text('다시 시도'), findsOneWidget);

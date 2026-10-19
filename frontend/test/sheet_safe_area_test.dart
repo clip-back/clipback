@@ -153,7 +153,7 @@ void main() {
         },
       );
 
-      await tester.tap(_icon(Assets.more));
+      await tester.tap(_icon(Assets.detailMore));
       await tester.pumpAndSettle();
       await tester.tap(find.text('카테고리 변경'));
       await tester.pumpAndSettle();
@@ -193,8 +193,8 @@ void main() {
     await tester.pump();
     expect(requestedAssets, [9]);
 
-    await tester.ensureVisible(_icon(Assets.link));
-    await tester.tap(_icon(Assets.link));
+    await tester.ensureVisible(_icon(Assets.detailLink));
+    await tester.tap(_icon(Assets.detailLink));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(OriginalContentSheet), findsOneWidget);
     expect(requestedAssets, [9]);

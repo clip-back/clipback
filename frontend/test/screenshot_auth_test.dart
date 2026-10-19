@@ -1,3 +1,4 @@
+import 'support/app_startup.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -54,6 +55,21 @@ final Uint8List _png = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDw'
   'AEhQGAhKmMIQAAAABJRU5ErkJggg==',
 );
+
+void _expectSavedPhotoResult(WidgetTester tester) {
+  final confirmation = tester.widget<SavedContentConfirmation>(
+    find.byType(SavedContentConfirmation),
+  );
+  expect(find.text('screen.png'), findsNothing);
+  expect(confirmation.originalUrl, 'screen.png');
+  expect(confirmation.photoBytes, orderedEquals(_png));
+  final imageFinder = find.byKey(const ValueKey('save-result-photo-image'));
+  expect(imageFinder, findsOneWidget);
+  final image = tester.widget<Image>(imageFinder);
+  expect(image.semanticLabel, contains('screen.png'));
+  expect(image.image, isA<MemoryImage>());
+  expect((image.image as MemoryImage).bytes, orderedEquals(_png));
+}
 
 Map<String, Object> _tokens(ApiSession session) => {
   'access_token': session.accessToken,
@@ -317,7 +333,7 @@ Future<void> _withApp(
           child: const ClipbackApp(),
         ),
       );
-      await tester.pumpAndSettle();
+      await completeAppStartup(tester);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1006,7 +1022,7 @@ void main() {
         await tester.tap(find.text('허투루에 저장하기'));
         await tester.pumpAndSettle();
         expect(find.byType(SavedContentConfirmation), findsOneWidget);
-        expect(find.text('screen.png'), findsOneWidget);
+        _expectSavedPhotoResult(tester);
         expect(find.text('저장한 테스트 사진'), findsWidgets);
         expect(find.byType(SaveErrorToast), findsNothing);
         expect(server.calls(_upload), hasLength(2));
@@ -1048,7 +1064,12 @@ void main() {
           find.byType(SaveFlowButton),
         );
         expect(button.enabled, isFalse);
-        expect(button.loading, isTrue);
+        expect(button.loading, isFalse);
+        expect(button.label, '닫기');
+        expect(
+          find.byKey(const ValueKey('photo-pending-skeleton')),
+          findsOneWidget,
+        );
         submit();
         await tester.pump();
         expect(server.calls(_upload), hasLength(1));
@@ -1092,7 +1113,7 @@ void main() {
         await tester.tap(find.text('허투루에 저장하기'));
         await tester.pumpAndSettle();
         expect(find.byType(SavedContentConfirmation), findsOneWidget);
-        expect(find.text('screen.png'), findsOneWidget);
+        _expectSavedPhotoResult(tester);
         expect(picker.calls, 1);
         final uploads = server.calls(_upload);
         expect(uploads, hasLength(2));
