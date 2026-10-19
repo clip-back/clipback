@@ -84,8 +84,12 @@ class LinkPendingServer extends login.LoginServer {
   }
 }
 
-Map<String, Object?> linkPendingMeasure(Element root) {
-  final target = b.splashKey(root, 'link-pending-skeleton');
+Map<String, Object?> linkPendingMeasure(
+  Element root, {
+  String prefix = 'link-pending',
+  bool photo = false,
+}) {
+  final target = b.splashKey(root, '$prefix-skeleton');
   if (target == null) return {'active': false};
   Map<String, double>? box(String k) {
     final e = b.splashKey(root, k);
@@ -135,7 +139,9 @@ Map<String, Object?> linkPendingMeasure(Element root) {
       w = button.widget as SaveFlowButton,
       dec = b.splashFind<DecoratedBox>(button)!.widget as DecoratedBox,
       shape = dec.decoration as BoxDecoration;
-  final validation = b.splashFind<ValidationMessage>(root)!;
+  final validation = photo
+      ? b.splashKey(root, '$prefix-summary')!
+      : b.splashFind<ValidationMessage>(root)!;
   final position = target.findAncestorStateOfType<ScrollableState>()?.position;
   Map<String, double>? viewport;
   target.visitAncestorElements((e) {
@@ -147,19 +153,20 @@ Map<String, Object?> linkPendingMeasure(Element root) {
   });
   return {
     'active': true,
+    'photo': photo,
     'viewport': viewport,
-    'previewHeading': role('link-pending-preview-heading'),
-    'categoryHeading': role('link-pending-category-heading'),
-    'categoryStatus': role('link-pending-category-status'),
-    'status': role('link-pending-status'),
-    'preview': paint('link-pending-preview'),
-    'thumbnail': paint('link-pending-thumbnail'),
-    'bar1': paint('link-pending-bar-1'),
-    'bar2': paint('link-pending-bar-2'),
-    'bar3': paint('link-pending-bar-3'),
-    'category': paint('link-pending-category'),
-    'categoryBar': paint('link-pending-category-bar'),
-    'categoryRow': box('link-pending-category-row'),
+    'previewHeading': role('$prefix-preview-heading'),
+    'categoryHeading': role('$prefix-category-heading'),
+    'categoryStatus': role('$prefix-category-status'),
+    'status': role('$prefix-status'),
+    'preview': paint('$prefix-preview'),
+    'thumbnail': paint('$prefix-thumbnail'),
+    'bar1': paint('$prefix-bar-1'),
+    'bar2': paint('$prefix-bar-2'),
+    'bar3': paint('$prefix-bar-3'),
+    'category': paint('$prefix-category'),
+    'categoryBar': paint('$prefix-category-bar'),
+    'categoryRow': box('$prefix-category-row'),
     'validation': b.splashRect(b.splashBox(validation)),
     'button': {
       'bounds': b.splashRect(b.splashBox(button)),
@@ -219,9 +226,9 @@ Map<String, Object?> linkPendingJudgment(Map<String, Object?> m) {
       button = rect('button'),
       status = rect('status');
   near(
-    'validation to preview',
+    'input to preview',
     n(heading, 'top') - n(rect('validation'), 'bottom'),
-    32,
+    m['photo'] == true ? 16 : 32,
   );
   near('heading to card', n(preview, 'top') - n(heading, 'bottom'), 16);
   near('card height', n(preview, 'height'), 116);

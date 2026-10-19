@@ -1,5 +1,7 @@
 # FE 병합 전 수정 진행 현황
 
+최근 `de14d75` 기준: D08 사진 저장 처리 중의1배율 표현을 적용했다. 기존 D09 제출 요약89px/패딩16px/중앙 cover와 D04 스켈레톤을 재사용하고 D07 전체 보기·원본 바이트/파일명·저장 정책은 유지한다. 집중362/전체1633·분석0, 양 플랫폼 각13동작·전체true·프레임워크 오류0·새2쌍/영상2개를 확인했다.
+
 ## 1. 목적과 현재 범위
 
 FE의 계정 유지·콘텐츠 저장·재조회 문제를 문제별 PR로 수정하고, 검증 결과를 이 문서에 기록한다.
@@ -2894,3 +2896,19 @@ flutter build web --no-pub
 - 완료는 해당 D04 표현이며 실제 운영 서버·OAuth·실기기/CI와 저장 전체 디자인 완료를 뜻하지 않는다. 기존 보류 목록과 과거 검증 기록은 유지한다.
 
 [비교2쌍](/private/tmp/clipback-save-loading-alignment-20261019/comparison-document.html) · [실제 결과](/private/tmp/clipback-save-loading-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-save-loading-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-save-loading-alignment-20261019/android-gesture/after/interaction.mp4)
+
+## D08 사진 저장 처리 중 1배율 적용 — 2026-10-19
+
+- 제품 기준 `de14d75`, Page 1 >261007·D08 `111:4834`. 컨텍스트/375×812px 원본을 **2026-10-19 18:54:56~18:55:03 KST**에 한 번 재조회했다. 보관 원본과 SHA가 같으며 다른 파일/대체 화면을 사용하지 않았다. 새 구현 에셋·공개 생성자/콜백·API/모델은 추가하지 않았다.
+- 실제 제출한 사진과 현재 탭·사진 바이트·파일명이 같고 기존 오류가 없는 저장 콜백 대기에만 원본 처리 중 표현을 표시한다. 기존 D09 요약의 **외곽89px·패딩16px·내부57px·전경1px 테두리·중앙 cover**를 공통 내부 위젯으로 추출해 재사용했다. D07의437/405px·원본 비율 전체 보기는 유지한다. 예제 사진의 특정 크롭 계수/위치 보정을 새로 추가하지 않았다.
+- 미리보기116px·8px 패딩·164×100px 자리와 원본 막대,55px 카테고리 자리·처리 문구·회색 비활성 닫기는 D04와 같은 내부 컴포넌트를 사용한다. D04 키/기본 동작과 결과 D09의 기존 키·외형은 보존한다. 실제 저장·후속 조회·선택/재선택/취소·제출 입력 고정·완료 탭·중복 방지·실패 후 재시도·닫기/늦은 응답은 유지한다.
+- 탭/사진을 바꾸거나 이전 오류가 남으면 기존 편집/오류 표현을 유지한다. 기존 콜백 대기는 커밋 후 조회도 포함하므로 별도 OCR/추출 단계·진행률·최소 대기를 추가한 것이 아니다. 실제 OCR 실패와 저장/조회 실패를 새로 구분하지 않는다.
+- 제품 변경 전에 실제 루트·메모리 세션/업로드 API·공유 격리·고정 사진으로 새 BEFORE 원본을 양 플랫폼에서 확보했다. 목표8건을 먼저 재현했다. 실제 multipart의 원본 바이트 **478337바이트 전체 포함**·파일명 `selected-photo.png`를 확인했다. AFTER 실제 Pretendard·iOS/Android 테마×320/375px×1배율×812/520px에서 글자·요약/막대 치수·여백·최대 스크롤/하단24px·재선택/완료 입력을 검사했다. **집중362·전체1633 통과/skip0·`flutter analyze --no-pub` 지적0**이다. 기존 확대/보안 검사를 삭제하거나 건너뛰지 않았다.
+- 검사 도구에서 진행 중 스피너에 `pumpAndSettle`을 사용해 테스트 시계가 기존10초 timeout까지 진행되던 부분을 제한된 pump로 수정했다. 기존 재선택 helper3건은 실제 D08 요약 버튼을 누르게 하고 기존 auth1건은 새 비활성 닫기를 기대하도록 바꿨으며 데이터/실패/늦은 응답 단언은 유지했다. 최초 실패 시도와 최종 통과를 구분한다. BEFORE 빌드 기록은 제품/entry/입력 에셋을 포함하지만 새 사진 fixture/test의 개별 해시는 누락했고, AFTER manifest에는 포함했다. 양쪽 실제 요청 데이터의 일치는 별도로 확인했다.
+- iPhone16/iOS18.6·Android13/API33 제스처에서 각13동작·스타일/레이아웃/에셋/동작/전체true·프레임워크 오류0, 새 BEFORE2/AFTER2·3열2쌍을 확인했다. 최대 스크롤은 두 기기 모두0이며 낮은 화면의 스크롤은 위젯 검사에서 확인했다. 같은 기종/데이터/1배율/키보드 숨김/스크롤0이고 OS 창/여백과 원본 예제의 특정 사진 크롭 차이는 원본 그대로 설명한다.
+- 영상은 iOS **5.615초/97프레임**, Android **4.824189초/98프레임**이다. 같은 multipart 요청의 대기→성공 결과를 촬영했고 전체13동작은 녹화 전에 별도로 실행했다. 중간 홈/선택 화면은 촬영용 대역 root 재구성 과정이다. 실제 PTS 장면·원본 전체 디코딩·녹화 완료를 확인했으며 영상을 재인코딩하지 않았다.
+- AFTER 소스/번들111건·BEFORE 제품95파일의 기준 커밋 일치·입력/대체 사진과 폰트5개 양 플랫폼 번들 바이트 일치를 확인했다. 소유 기기/앱·8767/8768 포워딩·ADB를 종료하고 Android 탐색2 설정을 보존했다. 실제 Photos 선택기·OAuth·운영 업로드/OCR·실기기·원격 CI는 미검증이다. 기존 원문 시트의 별도 비동기 SVG 진단을 전체 앱 오류0으로 덮지 않는다.
+
+[3열 비교2쌍](/private/tmp/clipback-photo-pending-alignment-20261019/comparison-document.html) · [실제 검사/한계](/private/tmp/clipback-photo-pending-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-photo-pending-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-photo-pending-alignment-20261019/android-gesture/after/interaction.mp4)
+
+확정 원본의 자율 구현 범위와 원본/정책/API가 필요한 나머지는 [계획 문서](figma-ui-alignment-plan.md#확정-원본의-자율-구현-마감과-후속-경계--2026-10-19)에 종합했다. 확인된1배율 외형의 마감이며 모든 운영 기능·모든 원본/상태·새 확대의 완료를 뜻하지 않는다. 푸시·PR은 수행하지 않았다.

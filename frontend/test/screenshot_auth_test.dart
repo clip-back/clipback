@@ -1064,7 +1064,12 @@ void main() {
           find.byType(SaveFlowButton),
         );
         expect(button.enabled, isFalse);
-        expect(button.loading, isTrue);
+        expect(button.loading, isFalse);
+        expect(button.label, '닫기');
+        expect(
+          find.byKey(const ValueKey('photo-pending-skeleton')),
+          findsOneWidget,
+        );
         submit();
         await tester.pump();
         expect(server.calls(_upload), hasLength(1));

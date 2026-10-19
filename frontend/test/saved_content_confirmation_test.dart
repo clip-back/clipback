@@ -110,7 +110,9 @@ Future<void> _link(WidgetTester tester, String url) async {
 Future<void> _photo(WidgetTester tester) async {
   await _tab(tester, '사진 첨부');
   await tester.tap(
-    find.byType(SelectedPhotoPreview).evaluate().isEmpty
+    find.byKey(const ValueKey('photo-pending-reselect')).evaluate().isNotEmpty
+        ? find.byKey(const ValueKey('photo-pending-reselect'))
+        : find.byType(SelectedPhotoPreview).evaluate().isEmpty
         ? find.text('사진 선택')
         : find.byType(SelectedPhotoPreview),
   );

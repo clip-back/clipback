@@ -68,7 +68,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
   var _isSaving = false;
-  String? _pendingLinkUrl;
+  _SaveSubmission? _pendingSubmission;
   String? _saveError;
   ({ContentItem content, _SaveSubmission submission})? _savedResult;
 
@@ -150,7 +150,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
 
     setState(() {
       _isSaving = true;
-      _pendingLinkUrl = submission.isLink ? submission.label : null;
+      _pendingSubmission = submission;
     });
     try {
       late final ContentItem savedContent;
@@ -167,7 +167,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
         _saveErrorTimer?.cancel();
         setState(() {
           _isSaving = false;
-          _pendingLinkUrl = null;
+          _pendingSubmission = null;
           _savedResult = (content: savedContent, submission: submission);
           _activeTab = submission.tab;
           _saveError = null;
@@ -182,7 +182,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _pendingLinkUrl = null;
+          _pendingSubmission = null;
         });
         _showSaveErrorToast(error.message);
       }
@@ -190,7 +190,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _pendingLinkUrl = null;
+          _pendingSubmission = null;
         });
         _showSaveErrorToast();
       }
@@ -233,16 +233,26 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
         savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
-    // D04 describes the submitted link. Retain the existing presentation when
-    // the user switches inputs/tabs or an earlier error is still visible.
+    // Only render a known processing design while it still describes the
+    // current submitted input. Editing/reselection retains the legacy view.
+    final pending = _pendingSubmission;
+    final canShowPending =
+        _isSaving && savedResult == null && _saveError == null;
     final pendingLink =
-        _isSaving &&
-        savedResult == null &&
+        canShowPending &&
+        pending?.isLink == true &&
         _activeTab == 0 &&
         stage == SaveFlowStage.valid &&
-        _saveError == null &&
-        _pendingLinkUrl != null &&
-        _urlController.text.trim() == _pendingLinkUrl;
+        _urlController.text.trim() == pending!.label;
+    final pendingPhoto =
+        canShowPending &&
+        pending != null &&
+        !pending.isLink &&
+        _activeTab == 1 &&
+        stage == SaveFlowStage.valid &&
+        identical(_selectedPhotoBytes, pending.photoBytes) &&
+        _selectedPhotoFilename == pending.label;
+    final processing = pendingLink || pendingPhoto;
     final bottomObstruction = math.max(
       MediaQuery.viewInsetsOf(context).bottom,
       MediaQuery.viewPaddingOf(context).bottom,
@@ -302,9 +312,15 @@ class _AddContentSheetState extends State<AddContentSheet> {
                                   ),
                                   if (pendingLink) ...[
                                     const SizedBox(height: 32),
-                                    const _LinkPendingSkeleton(),
+                                    const _PendingContentSkeleton(),
                                   ],
                                 ],
+                              )
+                            : pendingPhoto
+                            ? _PhotoPendingBody(
+                                photoBytes: pending.photoBytes!,
+                                label: pending.label,
+                                onSelect: _selectPhoto,
                               )
                             : PhotoSaveBody(
                                 stage: _photoStage,
@@ -323,11 +339,15 @@ class _AddContentSheetState extends State<AddContentSheet> {
                               padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
                               child: SaveErrorToast(message: message),
                             ),
-                          if (pendingLink) ...[
-                            const Center(
+                          if (processing) ...[
+                            Center(
                               child: Text(
                                 '허투루가 정보를 추출 중입니다...',
-                                key: ValueKey('link-pending-status'),
+                                key: ValueKey(
+                                  pendingPhoto
+                                      ? 'photo-pending-status'
+                                      : 'link-pending-status',
+                                ),
                                 style: _SaveTextStyles.categoryMessage,
                               ),
                             ),
@@ -338,11 +358,11 @@ class _AddContentSheetState extends State<AddContentSheet> {
                             child: SizedBox(
                               height: 56,
                               child: SaveFlowButton(
-                                label: savedResult != null || pendingLink
+                                label: savedResult != null || processing
                                     ? '닫기'
                                     : '허투루에 저장하기',
                                 enabled: enabled,
-                                loading: _isSaving && !pendingLink,
+                                loading: _isSaving && !processing,
                                 onPressed: savedResult == null
                                     ? _submit
                                     : () => Navigator.of(
@@ -656,23 +676,24 @@ class LinkSaveBody extends StatelessWidget {
   }
 }
 
-/// Static placeholder geometry from D04. It is not extracted content, a
+/// Shared static placeholder geometry from D04/D08. It is not extracted content, a
 /// classification result, or an additional API operation.
-class _LinkPendingSkeleton extends StatelessWidget {
-  const _LinkPendingSkeleton();
+class _PendingContentSkeleton extends StatelessWidget {
+  const _PendingContentSkeleton({this.prefix = 'link-pending'});
+  final String prefix;
   @override
   Widget build(BuildContext context) => Column(
-    key: const ValueKey('link-pending-skeleton'),
+    key: ValueKey('$prefix-skeleton'),
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const Text(
+      Text(
         '미리보기',
-        key: ValueKey('link-pending-preview-heading'),
+        key: ValueKey('$prefix-preview-heading'),
         style: _SaveTextStyles.heading,
       ),
       const SizedBox(height: 16),
       Container(
-        key: const ValueKey('link-pending-preview'),
+        key: ValueKey('$prefix-preview'),
         height: 116,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
@@ -705,19 +726,19 @@ class _LinkPendingSkeleton extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 32),
-      const Row(
-        key: ValueKey('link-pending-category-row'),
+      Row(
+        key: ValueKey('$prefix-category-row'),
         children: [
           Text(
             '카테고리',
-            key: ValueKey('link-pending-category-heading'),
+            key: ValueKey('$prefix-category-heading'),
             style: _SaveTextStyles.heading,
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               '허투루가 분류하고 있어요.',
-              key: ValueKey('link-pending-category-status'),
+              key: ValueKey('$prefix-category-status'),
               style: _SaveTextStyles.categoryMessage,
             ),
           ),
@@ -725,7 +746,7 @@ class _LinkPendingSkeleton extends StatelessWidget {
       ),
       const SizedBox(height: 16),
       Container(
-        key: const ValueKey('link-pending-category'),
+        key: ValueKey('$prefix-category'),
         height: 55,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         alignment: Alignment.centerLeft,
@@ -737,14 +758,89 @@ class _LinkPendingSkeleton extends StatelessWidget {
       ),
     ],
   );
-  static Widget _bar(String name, double width, double height) => Container(
-    key: ValueKey('link-pending-$name'),
+  Widget _bar(String name, double width, double height) => Container(
+    key: ValueKey('$prefix-$name'),
     width: width,
     height: height,
     decoration: BoxDecoration(
       color: AppColors.faint,
       borderRadius: BorderRadius.circular(4),
     ),
+  );
+}
+
+class _SubmittedPhotoSummary extends StatelessWidget {
+  const _SubmittedPhotoSummary({
+    required this.photoBytes,
+    required this.label,
+    this.keyPrefix = 'save-result-photo',
+  });
+  final Uint8List photoBytes;
+  final String? label;
+  final String keyPrefix;
+  @override
+  Widget build(BuildContext context) => Container(
+    key: ValueKey('$keyPrefix-summary'),
+    height: 89,
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    foregroundDecoration: BoxDecoration(
+      border: Border.all(color: AppColors.subtler),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Container(
+      foregroundDecoration: BoxDecoration(
+        border: Border.all(color: AppColors.subtler),
+      ),
+      child: ClipRect(
+        child: Image.memory(
+          photoBytes,
+          key: ValueKey('$keyPrefix-image'),
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          semanticLabel: label,
+        ),
+      ),
+    ),
+  );
+}
+
+class _PhotoPendingBody extends StatelessWidget {
+  const _PhotoPendingBody({
+    required this.photoBytes,
+    required this.label,
+    required this.onSelect,
+  });
+  final Uint8List photoBytes;
+  final String label;
+  final Future<void> Function() onSelect;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        '저장할 사진',
+        key: ValueKey('photo-pending-input-heading'),
+        style: _SaveTextStyles.heading,
+      ),
+      const SizedBox(height: 16),
+      GestureDetector(
+        key: const ValueKey('photo-pending-reselect'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onSelect,
+        child: _SubmittedPhotoSummary(
+          photoBytes: photoBytes,
+          label: label,
+          keyPrefix: 'photo-pending',
+        ),
+      ),
+      const SizedBox(height: 16),
+      const _PendingContentSkeleton(prefix: 'photo-pending'),
+    ],
   );
 }
 
@@ -779,34 +875,7 @@ class SavedContentConfirmation extends StatelessWidget {
         Text(isPhoto ? '저장할 사진' : '저장할 링크', style: _SaveTextStyles.heading),
         const SizedBox(height: 16),
         if (isPhoto)
-          Container(
-            key: const ValueKey('save-result-photo-summary'),
-            height: 89,
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            foregroundDecoration: BoxDecoration(
-              border: Border.all(color: AppColors.subtler),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Container(
-              foregroundDecoration: BoxDecoration(
-                border: Border.all(color: AppColors.subtler),
-              ),
-              child: ClipRect(
-                child: Image.memory(
-                  photoBytes!,
-                  key: const ValueKey('save-result-photo-image'),
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                  semanticLabel: linkLabel,
-                ),
-              ),
-            ),
-          )
+          _SubmittedPhotoSummary(photoBytes: photoBytes!, label: linkLabel)
         else
           Container(
             key: const ValueKey('save-result-input-summary'),
