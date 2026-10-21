@@ -28,9 +28,11 @@ class DetailViewModel extends ContentViewModel {
   int _navigationVersion = 0;
   bool _active = false;
   bool moving = false;
+  WeeklyNavigationOrigin? _weeklyOrigin;
   _TodayDetailContext? _todayContext;
   Object? _todayPending;
   bool get isToday => _todayContext != null;
+  WeeklyNavigationOrigin? get weeklyOrigin => _weeklyOrigin;
 
   ContentItem? get content => !_active || repository.selectedContent == null
       ? null
@@ -73,12 +75,22 @@ class DetailViewModel extends ContentViewModel {
     required FeedKey source,
     required FeedPage sourcePage,
     bool recordView = true,
+    WeeklyNavigationOrigin? weeklyOrigin,
   }) {
     if (isDisposed || item.apiId == null) return false;
     final current = repository.currentContent(item.apiId!);
     if (current == null) return false;
     _todayContext = null;
     _todayPending = null;
+    _weeklyOrigin =
+        source == FeedKey.archive &&
+            weeklyOrigin?.accountVersion == repository.accountVersion &&
+            sourcePage.categoryId == weeklyOrigin?.categoryId &&
+            current.categories.any(
+              (category) => category.id == weeklyOrigin?.categoryId,
+            )
+        ? weeklyOrigin
+        : null;
     _source = source;
     _sourcePage = sourcePage;
     _active = true;
@@ -89,12 +101,19 @@ class DetailViewModel extends ContentViewModel {
     notifyListeners();
     if (recordView) {
       unawaited(repository.refreshDetail(_handle!));
-      repository.recordOpen(current);
+      final origin = _weeklyOrigin;
+      if (origin != null &&
+          current.categories.any((c) => c.id == origin.categoryId)) {
+        repository.recordRecommendationOpen(current, origin.itemId);
+      } else {
+        repository.recordOpen(current);
+      }
     }
     return true;
   }
 
   void close() {
+    _weeklyOrigin = null;
     _todayContext = null;
     _todayPending = null;
     _originalOpening = null;
@@ -152,7 +171,12 @@ class DetailViewModel extends ContentViewModel {
     }
     final nextIndex = index + delta;
     if (nextIndex >= 0 && nextIndex < page.items.length) {
-      open(page.items[nextIndex], source: source, sourcePage: page);
+      open(
+        page.items[nextIndex],
+        source: source,
+        sourcePage: page,
+        weeklyOrigin: _weeklyOrigin,
+      );
     }
   }
 

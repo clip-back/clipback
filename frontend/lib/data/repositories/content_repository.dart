@@ -62,6 +62,11 @@ abstract class ContentRepository extends ChangeNotifier {
   bool isCurrentDetail(DetailHandle handle);
   Future<bool> refreshDetail(DetailHandle handle);
   Future<Uint8List> readAsset(DetailHandle handle, int assetId);
+  ApiWeeklyRecommendation? get weekly;
+  Object beginWeeklyVisit();
+  void endWeeklyVisit(Object visit);
+  Future<void> loadWeekly(Object visit);
+  void recordWeeklyExposure(Object visit, int itemId);
   ApiTodayRecommendation? get today;
   int get todayVersion;
   Future<ApiTodayRecommendation?> loadToday({
@@ -159,6 +164,13 @@ class RemoteContentRepository extends ContentRepository {
   int _detailVersion = 0;
   ApiContent? _selectedContent;
   DetailHandle? _detailHandle;
+  ApiWeeklyRecommendation? _weekly;
+  Object? _weeklyVisit;
+  int _weeklyRequest = 0;
+  Future<void>? _weeklyPending;
+  final _weeklyExposures = <int, String>{};
+  @override
+  ApiWeeklyRecommendation? get weekly => _weekly;
   ApiTodayRecommendation? _today;
   int _todayVersion = 0;
   int _todayRequest = 0;
@@ -206,6 +218,11 @@ class RemoteContentRepository extends ContentRepository {
   void resetAccount(int version) {
     if (_disposed) return;
     _accountVersion = version;
+    _weekly = null;
+    _weeklyVisit = null;
+    _weeklyRequest++;
+    _weeklyPending = null;
+    _weeklyExposures.clear();
     _today = null;
     _todayVersion++;
     _todayRequest++;
@@ -724,7 +741,16 @@ class RemoteContentRepository extends ContentRepository {
     return _copyContent(content, categories: List.unmodifiable(categories));
   }
 
+  void _normalizeWeekly() {
+    _weekly = _weekly?.mapCategories(
+      (category) => _deletedCategoryIds.contains(category.id)
+          ? null
+          : _applyCategoryState(category),
+    );
+  }
+
   void _normalizeLoadedCategories() {
+    _normalizeWeekly();
     _today = _today?.mapContents(_normalizeContentCategories);
     for (final page in _feeds.values) {
       for (var index = 0; index < page.items.length; index++) {
@@ -800,6 +826,10 @@ class RemoteContentRepository extends ContentRepository {
         page.items[index] = replace(page.items[index]);
       }
     }
+    _weekly = _weekly?.mapCategories(
+      (category) => category.id == id ? updated : category,
+    );
+    _normalizeWeekly();
     _today = _today?.mapContents(replace);
     if (_selectedContent != null) _selectedContent = replace(_selectedContent!);
     _notify();
@@ -981,6 +1011,74 @@ class RemoteContentRepository extends ContentRepository {
       throw const ClipbackApiException('화면이 변경되어 원본 조회를 취소했어요.');
     }
     return bytes;
+  }
+
+  @override
+  Object beginWeeklyVisit() {
+    final token = Object();
+    _weeklyVisit = token;
+    _weekly = null;
+    _weeklyPending = null;
+    _weeklyRequest++;
+    _weeklyExposures.clear();
+    return token;
+  }
+
+  @override
+  void endWeeklyVisit(Object visit) {
+    if (!identical(visit, _weeklyVisit)) return;
+    _weeklyVisit = null;
+    _weekly = null;
+    _weeklyPending = null;
+    _weeklyRequest++;
+    _weeklyExposures.clear();
+    _notify();
+  }
+
+  @override
+  Future<void> loadWeekly(Object visit) {
+    if (_disposed || !identical(visit, _weeklyVisit)) return Future.value();
+    if (_weeklyPending != null) return _weeklyPending!;
+    final account = _accountVersion, request = ++_weeklyRequest;
+    bool current() =>
+        !_disposed &&
+        identical(visit, _weeklyVisit) &&
+        account == _accountVersion &&
+        request == _weeklyRequest;
+    final task = () async {
+      try {
+        final response = await _api.readWeeklyRecommendation();
+        if (!current()) return;
+        _weekly = response;
+        _normalizeWeekly();
+        _notify();
+      } catch (_) {
+        if (current()) rethrow;
+      } finally {
+        if (current()) _weeklyPending = null;
+      }
+    }();
+    _weeklyPending = task;
+    return task;
+  }
+
+  @override
+  void recordWeeklyExposure(Object visit, int itemId) {
+    if (_disposed ||
+        !identical(visit, _weeklyVisit) ||
+        !(_weekly?.items.any((item) => item.id == itemId) ?? false) ||
+        _weeklyExposures.containsKey(itemId)) {
+      return;
+    }
+    final id = newEventUuid();
+    _weeklyExposures[itemId] = id;
+    // ClipbackApi's authentication refresh replays this captured body unchanged.
+    _ignoreEventFailure(
+      () => _api.recordRecommendationExposure(
+        clientEventId: id,
+        recommendationItemId: itemId,
+      ),
+    );
   }
 
   @override

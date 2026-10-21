@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'package:clipback_frontend/clipback_api.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -108,6 +110,10 @@ double _textHeight(
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
+    this.weeklyItems = const [],
+    this.onWeeklySelected,
+    this.onWeeklyExposed,
+    this.weeklyExposureEnabled = false,
     this.feed,
     this.onRetry,
     this.activeCategoryId,
@@ -129,6 +135,10 @@ class HomeScreen extends StatelessWidget {
   });
 
   final List<ContentItem> contents;
+  final List<ApiWeeklyRecommendationItem> weeklyItems;
+  final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
+  final ValueChanged<int>? onWeeklyExposed;
+  final bool weeklyExposureEnabled;
   final FeedPage? feed;
   final VoidCallback? onRetry;
   final int? activeCategoryId;
@@ -172,38 +182,44 @@ class HomeScreen extends StatelessWidget {
 
     return PhoneFrame(
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: SingleChildScrollView(
-            key: const ValueKey('home-scroll'),
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Column(
-              children: [
-                HomeHero(
-                  hasSavedContent: hasSavedContent,
-                  confirmedEmpty: confirmedEmpty,
-                  onSearch: onSearch,
-                  onOpenNotifications: onOpenNotifications,
-                  onOpenToday: hasSavedContent
-                      ? onOpenToday
-                      : showAddContentSheet,
-                ),
-                HomeContentPanel(
-                  feed: feed,
-                  onRetry: onRetry,
-                  activeCategoryId: activeCategoryId,
-                  onCategorySelected: onCategorySelected,
-                  hasSavedContent: hasSavedContent,
-                  confirmedEmpty: confirmedEmpty,
-                  contents: contents,
-                  categories: categories,
-                  bookmarkedIds: bookmarkedIds,
-                  onOpenArchive: onOpenArchive,
-                  onOpenCategories: onOpenCategories,
-                  onOpenContent: onOpenContent,
-                  onToggleBookmark: onToggleBookmark,
-                ),
-              ],
+        body: ScrollNotificationObserver(
+          child: SafeArea(
+            bottom: false,
+            child: SingleChildScrollView(
+              key: const ValueKey('home-scroll'),
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Column(
+                children: [
+                  HomeHero(
+                    hasSavedContent: hasSavedContent,
+                    confirmedEmpty: confirmedEmpty,
+                    onSearch: onSearch,
+                    onOpenNotifications: onOpenNotifications,
+                    onOpenToday: hasSavedContent
+                        ? onOpenToday
+                        : showAddContentSheet,
+                  ),
+                  HomeContentPanel(
+                    weeklyItems: weeklyItems,
+                    onWeeklySelected: onWeeklySelected,
+                    onWeeklyExposed: onWeeklyExposed,
+                    weeklyExposureEnabled: weeklyExposureEnabled,
+                    feed: feed,
+                    onRetry: onRetry,
+                    activeCategoryId: activeCategoryId,
+                    onCategorySelected: onCategorySelected,
+                    hasSavedContent: hasSavedContent,
+                    confirmedEmpty: confirmedEmpty,
+                    contents: contents,
+                    categories: categories,
+                    bookmarkedIds: bookmarkedIds,
+                    onOpenArchive: onOpenArchive,
+                    onOpenCategories: onOpenCategories,
+                    onOpenContent: onOpenContent,
+                    onToggleBookmark: onToggleBookmark,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -438,6 +454,10 @@ class HomeHero extends StatelessWidget {
 
 class HomeContentPanel extends StatefulWidget {
   const HomeContentPanel({
+    this.weeklyItems = const [],
+    this.onWeeklySelected,
+    this.onWeeklyExposed,
+    this.weeklyExposureEnabled = false,
     this.feed,
     this.onRetry,
     this.activeCategoryId,
@@ -456,6 +476,10 @@ class HomeContentPanel extends StatefulWidget {
 
   final bool hasSavedContent;
   final bool confirmedEmpty;
+  final List<ApiWeeklyRecommendationItem> weeklyItems;
+  final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
+  final ValueChanged<int>? onWeeklyExposed;
+  final bool weeklyExposureEnabled;
   final FeedPage? feed;
   final VoidCallback? onRetry;
   final int? activeCategoryId;
@@ -548,14 +572,20 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
       child: Column(
         children: [
           const SizedBox(height: 16),
-          if (widget.hasSavedContent) ...[
+          if (widget.weeklyItems.isNotEmpty) ...[
             SectionHeader(
               title: '이번주 허투루 픽 🎯',
               onTap: widget.onOpenCategories,
               showTrailingIcon: false,
             ),
             const SizedBox(height: 8),
-            WeeklyPickRail(onOpenCategory: widget.onOpenCategories),
+            WeeklyPickRail(
+              onOpenCategory: widget.onOpenCategories,
+              items: widget.weeklyItems,
+              onSelected: widget.onWeeklySelected,
+              onExposed: widget.onWeeklyExposed,
+              exposureEnabled: widget.weeklyExposureEnabled,
+            ),
             const SizedBox(height: 32),
           ],
           SectionHeader(title: '최근 저장한 콘텐츠', onTap: widget.onOpenArchive),
@@ -771,18 +801,95 @@ class HomeFilteredEmptyContent extends StatelessWidget {
   }
 }
 
-class WeeklyPickRail extends StatelessWidget {
-  const WeeklyPickRail({required this.onOpenCategory, super.key});
+/// Area in global coordinates, intersected with every ancestor scroll viewport.
+/// A card can be clipped both by the horizontal rail and the vertical home body.
+double weeklyVisibleFraction(RenderBox box) {
+  if (!box.attached || box.size.isEmpty) return 0;
+  final card = box.localToGlobal(Offset.zero) & box.size;
+  var visible = card;
+  RenderObject? parent = box.parent;
+  while (parent != null) {
+    if (parent is RenderAbstractViewport) {
+      visible = visible.intersect(
+        MatrixUtils.transformRect(
+          parent.getTransformTo(null),
+          parent.paintBounds,
+        ),
+      );
+    }
+    parent = parent.parent;
+  }
+  if (visible.isEmpty) return 0;
+  return (visible.width * visible.height / (card.width * card.height)).clamp(
+    0,
+    1,
+  );
+}
 
+class WeeklyPickRail extends StatefulWidget {
+  const WeeklyPickRail({
+    required this.onOpenCategory,
+    this.items = const [],
+    this.onSelected,
+    this.onExposed,
+    this.exposureEnabled = false,
+    super.key,
+  });
   final VoidCallback onOpenCategory;
+  final List<ApiWeeklyRecommendationItem> items;
+  final ValueChanged<ApiWeeklyRecommendationItem>? onSelected;
+  final ValueChanged<int>? onExposed;
+  final bool exposureEnabled;
+  @override
+  State<WeeklyPickRail> createState() => _WeeklyPickRailState();
+}
+
+class _WeeklyPickRailState extends State<WeeklyPickRail> {
+  final _keys = <int, GlobalKey>{};
+  ScrollNotificationObserverState? _observer;
+  bool _scheduled = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _observer?.removeListener(_onScroll);
+    _observer = ScrollNotificationObserver.maybeOf(context);
+    _observer?.addListener(_onScroll);
+    _measureAfterFrame();
+  }
+
+  void _onScroll(ScrollNotification notification) => _measureAfterFrame();
+  @override
+  void didUpdateWidget(covariant WeeklyPickRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _keys.removeWhere((id, _) => !widget.items.any((item) => item.id == id));
+    _measureAfterFrame();
+  }
+
+  void _measureAfterFrame() {
+    if (_scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (!mounted || !widget.exposureEnabled) return;
+      for (final item in widget.items) {
+        final box = _keys[item.id]?.currentContext?.findRenderObject();
+        if (box is RenderBox && weeklyVisibleFraction(box) >= 0.5) {
+          widget.onExposed?.call(item.id);
+        }
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void dispose() {
+    _observer?.removeListener(_onScroll);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final picks = [
-      ('많이 저장한', '일본 여행을\n준비 중이라면?', false, '일본 여행'),
-      ('자주 본', '평생의 숙제\n다이어트', false, '다이어트'),
-      ('공지사항', '허투루\n100% 활용법', true, ''),
-    ];
+    if (widget.items.isEmpty) return const SizedBox.shrink();
     final labelHeight = _textHeight(context, '한', _pickLabel, maxLines: 1);
     final titleHeight = _textHeight(context, '한\n한', _cardTitle, maxLines: 2);
     final railHeight = math.max(
@@ -794,43 +901,65 @@ class WeeklyPickRail extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: picks.length,
+        itemCount: widget.items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final pick = picks[index];
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onOpenCategory,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: 133,
-                padding: const EdgeInsets.fromLTRB(16, 16, 21, 16),
-                decoration: BoxDecoration(
-                  color: pick.$3 ? AppColors.main : AppColors.surface,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                foregroundDecoration: BoxDecoration(
-                  border: pick.$3 ? null : Border.all(color: AppColors.faint),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      pick.$1,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: _pickLabel,
-                    ),
-                    const Spacer(),
-                    Text.rich(
-                      _pickTitleSpan(pick.$2, pick.$4),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: _cardTitle,
-                    ),
-                  ],
+          final pick = widget.items[index];
+          final label = switch (pick.type) {
+            WeeklyCardType.mostSaved => '많이 저장한',
+            WeeklyCardType.mostViewed => '자주 본',
+            WeeklyCardType.rediscovery => '다시 발견',
+          };
+          return SizedBox(
+            key: _keys.putIfAbsent(pick.id, GlobalKey.new),
+            child: Material(
+              key: ValueKey('weekly-card-${pick.id}'),
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => widget.onSelected != null
+                    ? widget.onSelected!(pick)
+                    : widget.onOpenCategory(),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 133,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 21, 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(color: AppColors.faint),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _pickLabel,
+                      ),
+                      const Spacer(),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            if (pick.type == WeeklyCardType.mostViewed)
+                              const TextSpan(text: '내가 관심 있던 '),
+                            TextSpan(
+                              text: pick.category.name,
+                              style: const TextStyle(color: Color(0xFFFF0000)),
+                            ),
+                            if (pick.type != WeeklyCardType.mostViewed)
+                              const TextSpan(text: ' 콘텐츠를 다시 볼까요?'),
+                          ],
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: _cardTitle,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -839,21 +968,6 @@ class WeeklyPickRail extends StatelessWidget {
       ),
     );
   }
-}
-
-TextSpan _pickTitleSpan(String title, String highlighted) {
-  if (highlighted.isEmpty) return TextSpan(text: title);
-  final start = title.indexOf(highlighted);
-  return TextSpan(
-    children: [
-      TextSpan(text: title.substring(0, start)),
-      TextSpan(
-        text: highlighted,
-        style: const TextStyle(color: Color(0xFFFF0000)),
-      ),
-      TextSpan(text: title.substring(start + highlighted.length)),
-    ],
-  );
 }
 
 class HomeContentCard extends StatelessWidget {

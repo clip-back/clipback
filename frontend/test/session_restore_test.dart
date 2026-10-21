@@ -115,6 +115,15 @@ class _Server {
     requests.add(request);
     final response = await respond?.call(request);
     if (response != null) return response;
+    if (request.url.path == '/api/v1/recommendations/weekly') {
+      return _json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     switch (request.url.path) {
       case _guest:
         return _tokens('guest');

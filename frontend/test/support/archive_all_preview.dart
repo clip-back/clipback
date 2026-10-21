@@ -288,11 +288,21 @@ class ArchiveAllServer {
   );
   late final client = MockClient((request) async {
     final path = request.url.path;
+
     requests.add({
       'method': request.method,
       'path': path,
       'query': request.url.queryParameters,
     });
+    if (path == '/api/v1/recommendations/weekly') {
+      return json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     if (path == '/api/v1/auth/refresh' || path == '/api/v1/auth/guest') {
       return json({
         'access_token': 'fixture-access',

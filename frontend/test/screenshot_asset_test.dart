@@ -122,6 +122,15 @@ class _Server {
   });
 
   http.Response _default(http.BaseRequest request) {
+    if (request.url.path == '/api/v1/recommendations/weekly') {
+      return _json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     final path = request.url.path;
     switch (path) {
       case '/api/v1/uploads/screenshots':

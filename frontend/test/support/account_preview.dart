@@ -548,11 +548,21 @@ class AccountServer {
   );
   late final client = MockClient((r) async {
     final path = r.url.path, q = r.url.queryParameters;
+
     requests.add({
       'method': r.method,
       'path': path,
       'query': Map<String, String>.from(q),
     });
+    if (path == '/api/v1/recommendations/weekly') {
+      return json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     if (r.method != 'GET' &&
         !path.contains('/metrics/') &&
         !path.contains('/auth/') &&

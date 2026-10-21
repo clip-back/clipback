@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/data/repositories/content_repository.dart';
@@ -9,6 +12,22 @@ class ArchiveViewModel extends FeedViewModel {
   ArchiveViewModel(ContentRepository repository, this.actions)
     : super(repository, FeedKey.archive) {
     _accountVersion = repository.accountVersion;
+  }
+
+  WeeklyNavigationOrigin? weeklyOrigin;
+  void clearWeeklyOrigin() => weeklyOrigin = null;
+  bool openWeekly(ApiWeeklyRecommendationItem item) {
+    if (repository.isCategoryDeleted(item.category.id)) return false;
+    final category =
+        categories.where((c) => c.id == item.category.id).firstOrNull ??
+        categoryFromApi(item.category);
+    unawaited(selectCategory(category));
+    weeklyOrigin = WeeklyNavigationOrigin(
+      itemId: item.id,
+      categoryId: category.id!,
+      accountVersion: repository.accountVersion,
+    );
+    return true;
   }
 
   int activeTab = 0;
@@ -22,10 +41,12 @@ class ArchiveViewModel extends FeedViewModel {
   void repositoryChanged() {
     if (_accountVersion != repository.accountVersion) {
       _accountVersion = repository.accountVersion;
+      weeklyOrigin = null;
       activeCategoryName = null;
       _selectedCategoryId = null;
     } else if (_selectedCategoryId != null) {
       if (repository.isCategoryDeleted(_selectedCategoryId!)) {
+        weeklyOrigin = null;
         activeCategoryName = null;
         _selectedCategoryId = null;
       } else {
@@ -47,6 +68,7 @@ class ArchiveViewModel extends FeedViewModel {
   }
 
   void open({int tab = 0, String? categoryName}) {
+    weeklyOrigin = null;
     final category = categories
         .where((item) => item.name == categoryName)
         .firstOrNull;
@@ -62,6 +84,7 @@ class ArchiveViewModel extends FeedViewModel {
   }
 
   void enterRootTab() {
+    weeklyOrigin = null;
     activeTab = 0;
     activeCategoryName = null;
     _selectedCategoryId = null;
@@ -73,12 +96,14 @@ class ArchiveViewModel extends FeedViewModel {
   }
 
   void selectTab(int value) {
+    weeklyOrigin = null;
     activeTab = value;
     notifyListeners();
     if (value == 0) ensureLoaded();
   }
 
   Future<void> selectCategory(CategoryItem? category) async {
+    weeklyOrigin = null;
     if (category?.id != null && repository.isCategoryDeleted(category!.id!)) {
       return;
     }
@@ -98,11 +123,13 @@ class ArchiveViewModel extends FeedViewModel {
   }
 
   void setRandomViewing(bool value) {
+    if (value) weeklyOrigin = null;
     randomViewing = value;
     notifyListeners();
   }
 
   void clearCategory() {
+    weeklyOrigin = null;
     activeCategoryName = null;
     _selectedCategoryId = null;
     activeTab = 1;

@@ -72,6 +72,107 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _myNoticeStorageAuthEpoch = 0;
   bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
+  Object? _weeklyVisit, _weeklyRequest, _pendingWeeklyFailure;
+  int _weeklyGeneration = -1;
+  bool _weeklyForeground = true;
+  bool _weeklyVisibilityScheduled = false;
+  late final _WeeklyOverlayObserver _weeklyObserver = _WeeklyOverlayObserver(
+    _weeklyVisibilityChanged,
+  );
+  bool get _weeklyHome =>
+      mounted &&
+      _launchPhase == _LaunchPhase.ready &&
+      _d.app.route == AppRoute.home &&
+      _canUseAccountActions &&
+      _d.session.hasSession &&
+      !_d.session.pendingSessionClear;
+  bool get _weeklyVisible =>
+      _weeklyHome && _weeklyForeground && !_weeklyObserver.covered;
+  bool _ownsWeekly(Object visit) =>
+      _weeklyHome &&
+      identical(_weeklyVisit, visit) &&
+      _weeklyGeneration == _d.app.accountGeneration;
+
+  void _syncWeeklyHome() {
+    if (!_weeklyHome || _weeklyGeneration != _d.app.accountGeneration) {
+      final old = _weeklyVisit;
+      _weeklyVisit = null;
+      _weeklyRequest = null;
+      _pendingWeeklyFailure = null;
+      if (old != null) _d.content.endWeeklyVisit(old);
+    }
+    if (_weeklyHome && _weeklyVisit == null) {
+      _weeklyGeneration = _d.app.accountGeneration;
+      final visit = _d.content.beginWeeklyVisit();
+      _weeklyVisit = visit;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_ownsWeekly(visit)) unawaited(_loadWeekly(visit));
+      });
+    }
+    if (_d.app.route != AppRoute.archive && _d.app.route != AppRoute.detail) {
+      _d.archive.clearWeeklyOrigin();
+    }
+  }
+
+  Future<void> _loadWeekly(Object visit) async {
+    if (!_ownsWeekly(visit) || _weeklyRequest != null) return;
+    final request = Object();
+    _weeklyRequest = request;
+    try {
+      await _d.content.loadWeekly(visit);
+    } catch (_) {
+      if (_ownsWeekly(visit)) {
+        _pendingWeeklyFailure = visit;
+        _showWeeklyFailure();
+      }
+    } finally {
+      if (identical(_weeklyRequest, request)) _weeklyRequest = null;
+    }
+  }
+
+  void _showWeeklyFailure() {
+    final visit = _pendingWeeklyFailure;
+    if (visit == null || !_weeklyVisible || !_ownsWeekly(visit)) return;
+    _pendingWeeklyFailure = null;
+    _handleEffect(
+      MessageEffect(
+        '이번주 추천을 불러오지 못했어요. 다시 시도해 주세요.',
+        retry: () {
+          if (_ownsWeekly(visit)) unawaited(_loadWeekly(visit));
+        },
+      ),
+    );
+  }
+
+  void _weeklyVisibilityChanged() {
+    if (!mounted || _weeklyVisibilityScheduled) return;
+    _weeklyVisibilityScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _weeklyVisibilityScheduled = false;
+      if (!mounted) return;
+      setState(() {});
+      _showWeeklyFailure();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _openWeekly(Object? visit, ApiWeeklyRecommendationItem item) {
+    if (visit == null ||
+        !_ownsWeekly(visit) ||
+        !_weeklyVisible ||
+        !(_d.content.weekly?.items.any(
+              (c) => c.id == item.id && c.category.id == item.category.id,
+            ) ??
+            false)) {
+      return;
+    }
+    _d.detail.close();
+    if (_d.archive.openWeekly(item)) {
+      _d.archive.recordCategoryOpen(item.category.id);
+      _d.app.openArchive();
+    }
+  }
+
   Object _todayVisit = Object();
   Object? _todayRequest;
   late final NavigatorObserver _todayObserver = _TodayTransientObserver(() {
@@ -85,6 +186,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _weeklyForeground =
+        lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _d = AppDependencies(
       storage: widget.sessionStorage,
       socialAuth: widget.socialAuth,
@@ -115,6 +219,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _weeklyForeground = state == AppLifecycleState.resumed;
+    _weeklyVisibilityChanged();
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
       unawaited(_d.sharing.resume());
@@ -133,6 +239,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     if (_d.app.route != AppRoute.detail && _d.detail.isToday) {
       _d.detail.cancelTodayNavigation();
     }
+    _syncWeeklyHome();
     _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
@@ -530,6 +637,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _launchPhase != _LaunchPhase.mounting) return;
       setState(() => _launchPhase = _LaunchPhase.ready);
+      _syncWeeklyHome();
       _d.sharing.sessionSettled();
       _flushUiEffects();
       _schedulePersistenceBannerUpdate();
@@ -676,7 +784,26 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     if (route == AppRoute.bookmark) _d.bookmark.ensureLoaded();
   }
 
+  VoidCallback _archiveBackAction() {
+    final origin = _d.archive.weeklyOrigin;
+    final generation = _d.app.accountGeneration;
+    return () {
+      if (!_canUseAccountActions ||
+          _d.app.route != AppRoute.archive ||
+          generation != _d.app.accountGeneration ||
+          !identical(origin, _d.archive.weeklyOrigin)) {
+        return;
+      }
+      if (origin != null) {
+        _selectRootTab(AppRoute.home);
+      } else {
+        _d.archive.clearCategory();
+      }
+    };
+  }
+
   void _openSearch() {
+    _d.archive.clearWeeklyOrigin();
     _d.search.open();
     _d.app.openSearch();
   }
@@ -706,7 +833,17 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       FeedKey.bookmark => _d.bookmark.page,
       FeedKey.search => _d.search.page,
     };
-    if (_d.detail.open(content, source: source, sourcePage: page)) {
+    final origin = source == FeedKey.archive
+        ? (_d.app.route == AppRoute.detail
+              ? _d.detail.weeklyOrigin
+              : _d.archive.weeklyOrigin)
+        : null;
+    if (_d.detail.open(
+      content,
+      source: source,
+      sourcePage: page,
+      weeklyOrigin: origin,
+    )) {
       _d.app.openDetail();
     }
   }
@@ -753,7 +890,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
-      navigatorObservers: [_todayObserver],
+      navigatorObservers: [_todayObserver, _weeklyObserver],
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
@@ -814,6 +951,17 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           )),
           showingNotifications: _d.app.route == AppRoute.notificationList,
           home: HomeScreen(
+            weeklyItems: _weeklyVisit == null
+                ? const []
+                : _d.content.weekly?.items ?? const [],
+            weeklyExposureEnabled: _weeklyVisible,
+            onWeeklySelected: ((visit) =>
+                (item) => _openWeekly(visit, item))(_weeklyVisit),
+            onWeeklyExposed: ((visit) => (id) {
+              if (visit != null && _ownsWeekly(visit) && _weeklyVisible) {
+                _d.content.recordWeeklyExposure(visit, id);
+              }
+            })(_weeklyVisit),
             contents: _d.home.page.items,
             feed: _d.home.page,
             onRetry: _d.home.retry,
@@ -869,7 +1017,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onSortChanged: _d.archive.sort,
             onOpenRandomView: () => _d.archive.setRandomViewing(true),
             onExitRandomView: () => _d.archive.setRandomViewing(false),
-            onClearCategory: _d.archive.clearCategory,
+            onClearCategory: _archiveBackAction(),
             onSearch: _openSearch,
             onOpenCategoryManagement: () =>
                 _openCategoryManagement(AppRoute.archive),
@@ -1059,5 +1207,42 @@ class _TodayTransientObserver extends NavigatorObserver {
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     invalidate();
+  }
+}
+
+/// Popped overlays remain occluding until their reverse transition completes.
+class _WeeklyOverlayObserver extends NavigatorObserver {
+  _WeeklyOverlayObserver(this.changed);
+  final VoidCallback changed;
+  final _overlays = <Route<dynamic>>{};
+  bool get covered => _overlays.isNotEmpty;
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (previousRoute != null) {
+      _overlays.add(route);
+      changed();
+    }
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is TransitionRoute<dynamic>) {
+      route.completed.then((_) {
+        if (_overlays.remove(route)) changed();
+      });
+    } else {
+      if (_overlays.remove(route)) changed();
+    }
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_overlays.remove(route)) changed();
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (_overlays.remove(oldRoute) && newRoute != null) _overlays.add(newRoute);
+    changed();
   }
 }
