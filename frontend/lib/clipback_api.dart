@@ -676,6 +676,24 @@ class ClipbackApi {
     ),
   );
 
+  Future<ApiTodayRecommendation> readTodayRecommendation() async =>
+      ApiTodayRecommendation.fromJson(
+        await _json('GET', '/recommendations/today'),
+      );
+
+  Future<void> recordRecommendationView(
+    int contentId, {
+    required String clientEventId,
+    required int recommendationItemId,
+  }) => _json(
+    'POST',
+    '/contents/$contentId/view',
+    body: {
+      'client_event_id': clientEventId,
+      'recommendation_item_id': recommendationItemId,
+    },
+  );
+
   Future<void> recordContentView(int contentId) =>
       _json('POST', '/contents/$contentId/view');
 
@@ -965,3 +983,74 @@ List<Map<String, dynamic>> _jsonList(Object? value) =>
 
 DateTime? _dateTime(Object? value) =>
     value is String ? DateTime.tryParse(value)?.toLocal() : null;
+
+/// A server-owned daily selection; rank is not renumbered after deletion.
+class ApiTodayRecommendationItem {
+  const ApiTodayRecommendationItem({
+    required this.id,
+    required this.rank,
+    required this.content,
+  });
+  final int id;
+  final int rank;
+  final ApiContent content;
+  factory ApiTodayRecommendationItem.fromJson(Map<String, dynamic> value) =>
+      ApiTodayRecommendationItem(
+        id: value['recommendation_item_id'] as int,
+        rank: value['rank'] as int,
+        content: ApiContent.fromJson(
+          Map<String, dynamic>.from(value['content'] as Map),
+        ),
+      );
+}
+
+class ApiTodayRecommendation {
+  ApiTodayRecommendation({
+    required this.stage,
+    required this.date,
+    required this.batchId,
+    required this.generatedAt,
+    required List<ApiTodayRecommendationItem> items,
+  }) : items = List.unmodifiable(items);
+  final int stage;
+  final String date;
+  final int? batchId;
+  final DateTime? generatedAt;
+  final List<ApiTodayRecommendationItem> items;
+  factory ApiTodayRecommendation.fromJson(Map<String, dynamic> value) {
+    final items =
+        (value['items'] as List)
+            .map(
+              (v) => ApiTodayRecommendationItem.fromJson(
+                Map<String, dynamic>.from(v as Map),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.rank.compareTo(b.rank));
+    return ApiTodayRecommendation(
+      stage: value['stage'] as int,
+      date: value['recommendation_date'] as String,
+      batchId: value['batch_id'] as int?,
+      generatedAt: value['generated_at'] == null
+          ? null
+          : DateTime.parse(value['generated_at'] as String),
+      items: items,
+    );
+  }
+  ApiTodayRecommendation mapContents(ApiContent? Function(ApiContent) change) =>
+      ApiTodayRecommendation(
+        stage: stage,
+        date: date,
+        batchId: batchId,
+        generatedAt: generatedAt,
+        items: [
+          for (final item in items)
+            if (change(item.content) case final ApiContent updated)
+              ApiTodayRecommendationItem(
+                id: item.id,
+                rank: item.rank,
+                content: updated,
+              ),
+        ],
+      );
+}

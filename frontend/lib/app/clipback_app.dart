@@ -72,6 +72,14 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _myNoticeStorageAuthEpoch = 0;
   bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
+  Object _todayVisit = Object();
+  Object? _todayRequest;
+  late final NavigatorObserver _todayObserver = _TodayTransientObserver(() {
+    _todayVisit = Object();
+    _todayRequest = null;
+    _d.detail.cancelTodayNavigation();
+    if (mounted) setState(() {});
+  });
 
   @override
   void initState() {
@@ -115,6 +123,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    if (_d.app.route != AppRoute.home ||
+        !_canUseAccountActions ||
+        !_d.session.hasSession ||
+        _d.session.pendingSessionClear) {
+      _todayVisit = Object();
+      _todayRequest = null;
+    }
+    if (_d.app.route != AppRoute.detail && _d.detail.isToday) {
+      _d.detail.cancelTodayNavigation();
+    }
     _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
@@ -670,6 +688,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   }
 
   void _openDetail(ContentItem content) {
+    if (_d.app.route == AppRoute.detail && _d.detail.isToday) {
+      unawaited(_d.detail.openTodayItem(content));
+      return;
+    }
     final source = _d.app.route == AppRoute.detail
         ? _d.detail.source ?? FeedKey.home
         : switch (_d.app.route) {
@@ -694,11 +716,44 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _d.app.backFromDetail();
   }
 
+  VoidCallback _todayAction() {
+    final visit = _todayVisit;
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    bool current() =>
+        mounted &&
+        identical(visit, _todayVisit) &&
+        _d.app.route == AppRoute.home &&
+        _canUseAccountActions &&
+        _d.session.hasSession &&
+        !_d.session.pendingSessionClear &&
+        generation == _d.app.accountGeneration &&
+        epoch == _d.app.authEpoch;
+    return () {
+      if (!current() || _todayRequest != null) return;
+      final token = Object();
+      _todayRequest = token;
+      unawaited(() async {
+        try {
+          final opened = await _d.detail.openToday(
+            isCurrent: () => current() && identical(_todayRequest, token),
+          );
+          if (opened && current() && identical(_todayRequest, token)) {
+            _d.app.openDetail();
+          }
+        } finally {
+          if (identical(_todayRequest, token)) _todayRequest = null;
+        }
+      }());
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
+      navigatorObservers: [_todayObserver],
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
@@ -778,9 +833,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
                   ?.name,
             ),
             onOpenCategories: () => _openArchive(tab: 1),
-            onOpenToday: _d.home.page.items.isEmpty
-                ? () {}
-                : () => _openDetail(_d.home.page.items.first),
+            onOpenToday: _todayAction(),
             onOpenContent: _openDetail,
             onToggleBookmark: _d.home.toggleBookmark,
             onAddLink: _d.save.addLink,
@@ -889,7 +942,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onChangeCategory: _d.detail.changeCategory,
           onDeleteContent: _d.detail.deleteContent,
           onOpenOriginalLink: _d.detail.originalLinkAction(),
-          onOpenAdjacent: _d.detail.move,
+          onOpenAdjacent: _d.detail.adjacentAction(),
           onOpenContent: _openDetail,
           onAddLink: _d.save.addLink,
           onAddScreenshot: _d.save.addScreenshot,
@@ -991,5 +1044,20 @@ class _PermissionGuideAttempt {
 
   void cancel() {
     if (!cancelled) cancellation.complete(null);
+  }
+}
+
+/// A save sheet can open and close while the root route stays home.
+class _TodayTransientObserver extends NavigatorObserver {
+  _TodayTransientObserver(this.invalidate);
+  final VoidCallback invalidate;
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (previousRoute != null) invalidate();
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    invalidate();
   }
 }
