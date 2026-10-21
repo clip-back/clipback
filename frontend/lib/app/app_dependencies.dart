@@ -2,6 +2,7 @@ import '../clipback_api.dart';
 import '../social_auth.dart';
 import '../data/repositories/share_repository.dart';
 import '../data/services/native_share_service.dart';
+import '../data/services/original_link_opener.dart';
 import 'actions/share_coordinator.dart';
 import '../data/repositories/content_repository.dart';
 import '../data/repositories/session_repository.dart';
@@ -25,6 +26,7 @@ class AppDependencies {
     ApiSessionStorage? storage,
     SocialAuth? socialAuth,
     NativeShareService? nativeShare,
+    OriginalLinkOpener? originalLinkOpener,
     bool Function()? canPrepareSharing,
   }) {
     final api = ClipbackApi(
@@ -73,7 +75,11 @@ class AppDependencies {
     archive = ArchiveViewModel(content, contentActions);
     bookmark = BookmarkViewModel(content, contentActions);
     search = SearchViewModel(content, contentActions);
-    detail = DetailViewModel(content, contentActions);
+    detail = DetailViewModel(
+      content,
+      contentActions,
+      originalLinkOpener: originalLinkOpener,
+    );
     save = ContentSaveViewModel(content, contentActions);
     categories = CategoryManagementViewModel(content, contentActions);
     account = AccountViewModel(users);

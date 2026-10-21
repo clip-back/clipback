@@ -2912,3 +2912,16 @@ flutter build web --no-pub
 [3열 비교2쌍](/private/tmp/clipback-photo-pending-alignment-20261019/comparison-document.html) · [실제 검사/한계](/private/tmp/clipback-photo-pending-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-photo-pending-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-photo-pending-alignment-20261019/android-gesture/after/interaction.mp4)
 
 확정 원본의 자율 구현 범위와 원본/정책/API가 필요한 나머지는 [계획 문서](figma-ui-alignment-plan.md#확정-원본의-자율-구현-마감과-후속-경계--2026-10-19)에 종합했다. 확인된1배율 외형의 마감이며 모든 운영 기능·모든 원본/상태·새 확대의 완료를 뜻하지 않는다. 푸시·PR은 수행하지 않았다.
+
+## 2026-10-21 · 원문 보기 오류와 원본 링크 열기
+
+- `main/b169d93` 기준, `fix/original-link-opening`. F02 `111:3842`의 기존 링크 아이콘에서 OS 외부 앱/브라우저를 바로 여는 사용자 확정 동작을 연결했다. 손상 instagram.svg와 링크 시트를 제거하고 사진 원본/전문 펼침을 보존했다. Figma 컨텍스트·375×890px 렌더 원본을18:15 KST에 재조회했다.
+- URL 검증·중복 차단·실패 안내/수동 재시도·상세/계정 세대와 ID 고정·늦은 응답 방어를 추가했다. OS 수락 뒤 기존 통계를1회 기록하고 통계 실패는 분리한다. API·Repository 계약·모델·세션/공유 보안 처리는 유지했다.
+- BEFORE 제품222파일의 기준 일치와 촬영 대역 동결을 확인하고 양 플랫폼 SVG XML 오류를 먼저 재현했다. 초기 집중72, 최종 관련118, 전체1666 통과(실패/건너뜀0), analyze 문제0. 기존 1배율 실제 글꼴·안전 영역·확대·사진 원본 회귀를 포함한다.
+- iPhone16/iOS18.6·Android13/API33 제스처에서 실제 Safari/Chrome 열기와 복귀·펼침/스크롤12px·대상601 이벤트1회·사진 시트/링크 이벤트0·공유 격리·오류0을 각각11/11로 확인했다. BEFORE/AFTER 창·안전 여백·버튼 경계·스크롤0은 같다. 새3열2쌍·영상2개(iOS10.005초306프레임, Android9.230611초179프레임)의 전체 디코딩과 녹화 완료를 확인했다.
+- 디스크 부족 빌드 실패·초기 Android System UI ANR·촬영 대역과 관찰 필드 진단을 보존하고, 캐시 정리/host GPU 재실행 뒤 새 최종 결과와 구분했다. 아카이브/과거 비교 자료는 유지했다. OS/예제 데이터 차이와 대응 Figma 없는 브라우저/사진 시트를 별도 설명한다.
+- API/세션/통계/공유 대역과 실제 OS URL 실행을 구분한다. 실제 전문/미디어·공급자 앱·운영 API·OAuth·실기기·TestFlight는 미검증/후속이다. 새 디자인/새 확대를 추가하지 않았다.
+- 검증 후 소유 기기/앱·8767/8768 임시 서버·8768/54709 포워딩·이번 빌드 데몬을 종료했다. Android 탐색2 설정은 보존했고 로컬 iOS `FLUTTER_TARGET=lib/main.dart`를 복원했다. 기존 ADB/다른 작업의 프로세스와 아카이브는 유지했다.
+
+
+[3열 비교2쌍](/private/tmp/clipback-original-link-20261021/comparison-document.html) · [검사/한계](/private/tmp/clipback-original-link-20261021/verification-summary.json) · [iOS 영상](/private/tmp/clipback-original-link-20261021/after/ios/after-final.mp4) · [Android 영상](/private/tmp/clipback-original-link-20261021/after/android/after-final.mp4)

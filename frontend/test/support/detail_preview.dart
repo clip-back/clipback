@@ -1288,19 +1288,13 @@ Future<void> _run(double? referenceOffset) async {
   final host = _hostKey.currentState!;
   _position.jumpTo(0);
   await _settle();
-  await _tap(_icon(Assets.link, _find<DetailScreen>())!);
+  await _tap(_key('detail-original-button', _find<DetailScreen>())!);
   _require(
-    _find<OriginalContentSheet>() != null &&
-        _text(host.active.originalUrl, _find<OriginalContentSheet>()) != null &&
+    _find<OriginalContentSheet>() == null &&
         host.calls.where((c) => c['action'] == 'openOriginalLink').length == 1,
-    'Original link sheet did not preserve URL/local callback',
+    'Original link action must call the host without opening a legacy sheet',
   );
-  await _tapText('확인');
-  _require(
-    _find<OriginalContentSheet>() == null,
-    'Original link sheet did not close',
-  );
-  _record('original_link_sheet_opened_closed');
+  _record('original_link_callback_without_legacy_sheet');
   await _tap(_find<BookmarkActionButton>(_find<DetailTopBar>())!);
   _require(
     host.bookmarks.contains('main') &&

@@ -888,7 +888,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onToggleBookmark: _d.detail.toggleBookmark,
           onChangeCategory: _d.detail.changeCategory,
           onDeleteContent: _d.detail.deleteContent,
-          onOpenOriginalLink: _d.detail.recordOriginalOpen,
+          onOpenOriginalLink: _d.detail.originalLinkAction(),
           onOpenAdjacent: _d.detail.move,
           onOpenContent: _openDetail,
           onAddLink: _d.save.addLink,

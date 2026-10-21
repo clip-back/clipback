@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
+import 'package:clipback_frontend/data/services/original_link_opener.dart';
 import 'package:clipback_frontend/data/repositories/content_repository.dart';
 import 'package:clipback_frontend/data/repositories/session_repository.dart';
 import 'package:clipback_frontend/data/repositories/user_repository.dart';
@@ -71,7 +72,7 @@ class _Social extends SocialAuth {
 }
 
 class _Fixture {
-  _Fixture(this.respond) {
+  _Fixture(this.respond, {OriginalLinkOpener? originalLinkOpener}) {
     client = MockClient((request) async {
       requests.add(request);
       final custom = respond(request);
@@ -114,7 +115,11 @@ class _Fixture {
     );
     actions = ContentActions(repository, users, session);
     home = HomeViewModel(repository, actions);
-    detail = DetailViewModel(repository, actions);
+    detail = DetailViewModel(
+      repository,
+      actions,
+      originalLinkOpener: originalLinkOpener,
+    );
     addTearDown(dispose);
   }
 
@@ -160,6 +165,7 @@ Future<void> _until(bool Function() ready) async {
 }
 
 void main() {
+  _originalLinkTests();
   test(
     'home preserves feed and scroll while sharing an additional request',
     () async {
@@ -511,6 +517,236 @@ void main() {
       expect(effects, isEmpty);
       expect(fixture.home.page.items.map((item) => item.apiId), [7]);
       expect(fixture.requests.length, requestCount);
+    },
+  );
+}
+
+class _ControlledOriginalOpener implements OriginalLinkOpener {
+  final urls = <Uri>[];
+  final responses = <Completer<bool>>[];
+  @override
+  Future<bool> open(Uri uri) {
+    urls.add(uri);
+    final pending = Completer<bool>();
+    responses.add(pending);
+    return pending.future;
+  }
+}
+
+List<Map<String, dynamic>> _originalEvents(_Fixture f) => f.requests
+    .where((r) => r.url.path == '/api/v1/metrics/events')
+    .map((r) => Map<String, dynamic>.from(jsonDecode(r.body) as Map))
+    .where((m) => m['event_type'] == 'original_link_opened')
+    .toList();
+
+void _originalLinkTests() {
+  _Fixture fixture(
+    _ControlledOriginalOpener opener, {
+    String? url,
+    bool photo = false,
+    bool failMetrics = false,
+  }) => _Fixture((r) {
+    if (r.url.path == '/api/v1/feed') {
+      return _feed([
+        {
+          ..._content(),
+          if (url != null) 'original_url': url,
+          if (photo) 'content_type': 'screenshot',
+        },
+        _content(id: 8),
+      ]);
+    }
+    if (r.url.path == '/api/v1/metrics/events' && failMetrics) {
+      return _json({'detail': 'metric failed'}, 503);
+    }
+    return null;
+  }, originalLinkOpener: opener);
+
+  test(
+    'original opening preserves URL, coalesces taps and records each accepted launch once',
+    () async {
+      final opener = _ControlledOriginalOpener();
+      final f = fixture(
+        opener,
+        url: '  https://example.com/path?a=a%20b&other=%2F#section  ',
+      );
+      await f.load();
+      f.open();
+      final action = f.detail.originalLinkAction();
+      action();
+      action();
+      expect(opener.urls.map((u) => u.toString()), [
+        'https://example.com/path?a=a%20b&other=%2F#section',
+      ]);
+      expect(_originalEvents(f), isEmpty);
+      opener.responses[0].complete(true);
+      await _until(() => _originalEvents(f).length == 1);
+      expect(_originalEvents(f).single['content_id'], 7);
+      expect(f.detail.drainEffects(), isEmpty);
+      action();
+      expect(opener.urls, hasLength(2));
+      opener.responses[1].complete(true);
+      await _until(() => _originalEvents(f).length == 2);
+    },
+  );
+
+  for (final failure in ['false', 'exception']) {
+    test(
+      'original $failure keeps detail and allows manual retry without false metric',
+      () async {
+        final opener = _ControlledOriginalOpener();
+        final current = fixture(opener);
+        await current.load();
+        current.open();
+        final action = current.detail.originalLinkAction();
+        action();
+        if (failure == 'false') {
+          opener.responses.single.complete(false);
+        } else {
+          opener.responses.single.completeError(
+            StateError('private SDK detail'),
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        final effects = current.detail
+            .drainEffects()
+            .whereType<MessageEffect>()
+            .toList();
+        expect(effects.single.message, '원본 링크를 열지 못했어요. 다시 시도해 주세요.');
+        expect(current.detail.content?.apiId, 7);
+        expect(_originalEvents(current), isEmpty);
+        action();
+        expect(opener.urls, hasLength(2));
+        opener.responses.last.complete(true);
+        await _until(() => _originalEvents(current).length == 1);
+      },
+    );
+  }
+
+  for (final url in [
+    '',
+    '   ',
+    'example.com/path',
+    '//example.com',
+    'https://',
+    'http:///path',
+    'javascript:alert(1)',
+    'file:///tmp/image',
+    'mailto:a@example.com',
+    'intent://example.com',
+    'https://[invalid',
+  ]) {
+    test('invalid original URL is rejected before OS launch: $url', () async {
+      final opener = _ControlledOriginalOpener();
+      final current = fixture(opener, url: url);
+      await current.load();
+      current.open();
+      current.detail.originalLinkAction()();
+      await Future<void>.delayed(Duration.zero);
+      expect(opener.urls, isEmpty);
+      expect(_originalEvents(current), isEmpty);
+      expect(
+        current.detail.drainEffects().whereType<MessageEffect>().single.message,
+        '원본 링크를 열지 못했어요. 다시 시도해 주세요.',
+      );
+    });
+  }
+
+  for (final change in ['close', 'reopen', 'move', 'account', 'dispose']) {
+    for (final outcome in ['success', 'failure']) {
+      test(
+        'late original $outcome after $change cannot affect a new owner',
+        () async {
+          final opener = _ControlledOriginalOpener();
+          final current = fixture(opener);
+          await current.load();
+          current.open();
+          final stale = current.detail.originalLinkAction();
+          stale();
+          switch (change) {
+            case 'close':
+              current.detail.close();
+            case 'reopen':
+              current.detail.close();
+              current.open();
+            case 'move':
+              current.detail.open(
+                current.home.page.items.last,
+                source: FeedKey.home,
+                sourcePage: current.home.page,
+                recordView: false,
+              );
+            case 'account':
+              current.repository.resetAccount(1);
+            case 'dispose':
+              current.detail.dispose();
+          }
+          current.detail.drainEffects();
+          stale();
+          expect(opener.urls, hasLength(1));
+          opener.responses.single.complete(outcome == 'success');
+          await Future<void>.delayed(Duration.zero);
+          expect(_originalEvents(current), isEmpty);
+          expect(current.detail.drainEffects(), isEmpty);
+        },
+      );
+    }
+  }
+
+  test(
+    'photo original never launches a URL or records a link metric',
+    () async {
+      final opener = _ControlledOriginalOpener(),
+          f = fixture(opener, photo: true);
+      await f.load();
+      f.open();
+      f.detail.originalLinkAction()();
+      await Future<void>.delayed(Duration.zero);
+      expect(opener.urls, isEmpty);
+      expect(_originalEvents(f), isEmpty);
+      expect(f.detail.drainEffects(), isEmpty);
+    },
+  );
+
+  test(
+    'metric failure does not reopen URL or turn launch success into an error',
+    () async {
+      final opener = _ControlledOriginalOpener(),
+          f = fixture(opener, failMetrics: true);
+      await f.load();
+      f.open();
+      f.detail.originalLinkAction()();
+      opener.responses.single.complete(true);
+      await _until(() => _originalEvents(f).length == 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(opener.urls, hasLength(1));
+      expect(f.detail.drainEffects(), isEmpty);
+    },
+  );
+
+  test(
+    'old launch completion cannot unlock or record a different pending detail',
+    () async {
+      final opener = _ControlledOriginalOpener(), f = fixture(opener);
+      await f.load();
+      f.open();
+      f.detail.originalLinkAction()();
+      f.detail.open(
+        f.home.page.items.last,
+        source: FeedKey.home,
+        sourcePage: f.home.page,
+        recordView: false,
+      );
+      final next = f.detail.originalLinkAction();
+      next();
+      opener.responses.first.complete(false);
+      await Future<void>.delayed(Duration.zero);
+      next();
+      expect(opener.urls, hasLength(2));
+      expect(f.detail.drainEffects(), isEmpty);
+      opener.responses.last.complete(true);
+      await _until(() => _originalEvents(f).isNotEmpty);
+      expect(_originalEvents(f).single['content_id'], 8);
     },
   );
 }

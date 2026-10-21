@@ -2925,3 +2925,15 @@ flutter run --no-pub -t test/support/link_pending_preview.dart --dart-define=LIN
 검증용 entry는 [photo_pending_preview.dart](test/support/photo_pending_preview.dart)이며 실제 루트와 메모리 업로드 API/사진 선택 대역을 사용합니다. `flutter run -t test/support/photo_pending_preview.dart --dart-define=PHOTO_PENDING_PHASE=after`로 실행하면 기기 loopback8767의 `/scene?kind=photo-loading`, `/run`, `/complete`, `/status`를 사용합니다. `/run`은13동작을 수행하고 `/complete`는 같은 대기 업로드를 성공으로 해제합니다. 정상 앱 entry/운영 API/실제 사진 선택기 검증과 구분합니다. 원본 바이트·프레임·공유 검사는 [전용 검사](test/photo_pending_alignment_test.dart)·[대역/실측](test/fixtures/photo_pending_fixture.dart)에 있습니다.
 
 전체 정리와 보류 범위는 [계획 문서의 자율 구현 마감](../docs/figma-ui-alignment-plan.md#확정-원본의-자율-구현-마감과-후속-경계--2026-10-19)을 따릅니다. 운영 계약이 필요한 화면을 원본 부재로 묶거나 가짜 성공으로 구현하지 않았습니다.
+
+## 원본 링크 외부 열기 검증 — 2026-10-21
+
+- 상세의 링크 아이콘은 `url_launcher ^6.3.3`의 외부 모드로 실제 원본 URL을 연다. 사진 원본 시트·전문 펼침은 유지하고 손상된 링크 시트 에셋은 제거했다. 잘못된 URL/OS 거절/예외는 기존 오류 안내와 수동 재시도를 사용한다.
+- 주입 가능한 `OriginalLinkOpener`와 상세 방문 소유권 검사로 중복·늦은 응답을 방어한다. OS 수락 후 같은 계정/상세의 정확한 ID만 기존 통계로 기록하며 통계 실패는 열기 성공과 분리한다. 기존 화면 필수 생성자/콜백·서버 API/모델은 유지한다.
+- 실제 루트 프리뷰: `flutter run -t test/support/original_link_preview.dart --dart-define=ORIGINAL_LINK_PHASE=after -d <기기ID>`. API/세션/공유만 격리하며 URL 플러그인은 실제 구현이다. HTTP8767의 `/scene?kind=link|photo`, `/toggle`, `/scroll?offset=12`, `/original`, `/close-sheet`, `/state`로 관찰한다. Android는 검증용8768→8767 포워딩을 사용했다. 제품 실행/배포 진입점은 **`lib/main.dart`**다.
+- 초기 집중72·최종 관련118·전체1666 통과(실패/건너뜀0), analyze 문제0. 기존 실제 글꼴·320/375px·1배율 및 확대 자동 검사를 유지했다. iPhone16/iOS18.6·Android13/API33 제스처에서 실제 Safari/Chrome 열기·복귀·사진 원본을 각각11/11로 확인했으며 수정 경로 Flutter/비동기 Dart 오류0이다.
+- 제품 변경 전에 동일 대역·기기·데이터·배율로 새 BEFORE를 촬영해 SVG 오류를 양 플랫폼에서 재현했다. 전후 창/안전 여백/버튼 경계/스크롤0이 같고 F02 재조회 원본과3열2쌍을 제공한다. Figma와의 OS/예제 데이터 차이 및 초기 디스크/에뮬레이터/촬영 도구 진단을 구분했다. 운영 API·OAuth·공급자 앱·실기기·TestFlight·실제 기사 전문/미디어는 별도다.
+- 검증 후 소유 기기/앱·8767/8768 임시 서버·8768/54709 포워딩·이번 빌드 데몬을 종료했다. Android 탐색2 설정은 보존했고 로컬 iOS `FLUTTER_TARGET=lib/main.dart`를 복원했다. 기존 ADB/다른 작업의 프로세스와 아카이브는 유지했다.
+
+
+[3열 비교](/private/tmp/clipback-original-link-20261021/comparison-document.html) · [실제 검사/한계](/private/tmp/clipback-original-link-20261021/verification-summary.json) · [iOS 영상](/private/tmp/clipback-original-link-20261021/after/ios/after-final.mp4) · [Android 영상](/private/tmp/clipback-original-link-20261021/after/android/after-final.mp4) · [계획/적용 범위](../docs/figma-ui-alignment-plan.md#원문-보기-오류와-원본-링크-열기--2026-10-21)

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
+import 'package:clipback_frontend/data/services/original_link_opener.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -11,9 +12,16 @@ import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
 
 class DetailViewModel extends ContentViewModel {
-  DetailViewModel(super.repository, this.actions);
+  DetailViewModel(
+    super.repository,
+    this.actions, {
+    OriginalLinkOpener? originalLinkOpener,
+  }) : _originalLinkOpener =
+           originalLinkOpener ?? const PlatformOriginalLinkOpener();
 
   final ContentActions actions;
+  final OriginalLinkOpener _originalLinkOpener;
+  Object? _originalOpening;
   DetailHandle? _handle;
   FeedKey? _source;
   FeedPage? _sourcePage;
@@ -61,6 +69,7 @@ class DetailViewModel extends ContentViewModel {
     _source = source;
     _sourcePage = sourcePage;
     _active = true;
+    _originalOpening = null;
     _navigationVersion++;
     moving = false;
     _handle = repository.openDetail(current);
@@ -73,6 +82,7 @@ class DetailViewModel extends ContentViewModel {
   }
 
   void close() {
+    _originalOpening = null;
     _active = false;
     _handle = null;
     _source = null;
@@ -136,9 +146,53 @@ class DetailViewModel extends ContentViewModel {
     return bytes;
   }
 
-  void recordOriginalOpen() {
-    final id = content?.apiId;
-    if (id != null) repository.recordOriginalLinkOpened(id);
+  /// Bind the action to this visit, including close/reopen of the same content.
+  void Function() originalLinkAction() {
+    final handle = _handle;
+    final version = _navigationVersion;
+    return () {
+      if (!_ownsOriginalAction(handle, version)) return;
+      unawaited(_openOriginalLink(handle!, version));
+    };
+  }
+
+  bool _ownsOriginalAction(DetailHandle? handle, int version) =>
+      !isDisposed &&
+      _active &&
+      handle != null &&
+      identical(_handle, handle) &&
+      version == _navigationVersion &&
+      repository.isCurrentDetail(handle);
+
+  Future<void> _openOriginalLink(DetailHandle handle, int version) async {
+    if (_originalOpening != null) return;
+    final snapshot = repository.currentContent(handle.contentId);
+    if (snapshot == null || snapshot.contentType != 'link') return;
+    final token = Object();
+    _originalOpening = token;
+    const message = '원본 링크를 열지 못했어요. 다시 시도해 주세요.';
+    try {
+      final uri = Uri.tryParse((snapshot.originalUrl ?? '').trim());
+      final valid =
+          uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.hasAuthority &&
+          uri.host.isNotEmpty;
+      final accepted = valid && await _originalLinkOpener.open(uri);
+      if (!_ownsOriginalAction(handle, version)) return;
+      if (accepted) {
+        repository.recordOriginalLinkOpened(snapshot.id);
+      } else {
+        emitEffect(const MessageEffect(message));
+      }
+    } catch (_) {
+      if (_ownsOriginalAction(handle, version)) {
+        emitEffect(const MessageEffect(message));
+      }
+    } finally {
+      // An older completion must not unlock a new detail's pending launch.
+      if (identical(_originalOpening, token)) _originalOpening = null;
+    }
   }
 
   Future<void> toggleBookmark(ContentItem item) async {
@@ -161,6 +215,7 @@ class DetailViewModel extends ContentViewModel {
 
   @override
   void dispose() {
+    _originalOpening = null;
     _navigationVersion++;
     _active = false;
     _handle = null;
