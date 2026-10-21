@@ -1,3 +1,5 @@
+import '../data/services/search_history_storage.dart';
+import '../data/repositories/search_history_repository.dart';
 import '../clipback_api.dart';
 import '../social_auth.dart';
 import '../data/repositories/share_repository.dart';
@@ -24,6 +26,7 @@ import 'app_view_model.dart';
 class AppDependencies {
   AppDependencies({
     ApiSessionStorage? storage,
+    SearchHistoryStorage? searchHistoryStorage,
     SocialAuth? socialAuth,
     NativeShareService? nativeShare,
     OriginalLinkOpener? originalLinkOpener,
@@ -74,7 +77,11 @@ class AppDependencies {
     home = HomeViewModel(content, contentActions);
     archive = ArchiveViewModel(content, contentActions);
     bookmark = BookmarkViewModel(content, contentActions);
-    search = SearchViewModel(content, contentActions);
+    searchHistory = SearchHistoryRepository(
+      storage: searchHistoryStorage ?? PreferencesSearchHistoryStorage(),
+      environment: api.baseUrl,
+    );
+    search = SearchViewModel(content, contentActions, history: searchHistory);
     detail = DetailViewModel(
       content,
       contentActions,
@@ -83,8 +90,29 @@ class AppDependencies {
     save = ContentSaveViewModel(content, contentActions);
     categories = CategoryManagementViewModel(content, contentActions);
     account = AccountViewModel(users);
+    app.addListener(_syncSearchHistory);
+    session.addListener(_syncSearchHistory);
+    users.addListener(_syncSearchHistory);
+    _syncSearchHistory();
   }
 
+  void _syncSearchHistory() {
+    searchHistory.bind(
+      generation: app.accountGeneration,
+      active:
+          session.hasSession &&
+          !session.pendingSessionClear &&
+          !app.authBusy &&
+          !app.isRestoringSession,
+      userId:
+          app.authenticatedUser?.id ??
+          (users.accountVersion == app.accountGeneration
+              ? users.user?.id
+              : null),
+    );
+  }
+
+  late final SearchHistoryRepository searchHistory;
   late final SessionRepository session;
   bool _disposed = false;
   late final ShareCoordinator sharing;
@@ -118,10 +146,14 @@ class AppDependencies {
     _disposed = true;
     app.removeListener(sharing.sessionSettled);
     session.removeListener(sharing.sessionSettled);
+    app.removeListener(_syncSearchHistory);
+    session.removeListener(_syncSearchHistory);
+    users.removeListener(_syncSearchHistory);
     app.dispose();
     for (final viewModel in featureViewModels) {
       viewModel.dispose();
     }
+    searchHistory.dispose();
     initializeAccount.dispose();
     contentActions.dispose();
     content.dispose();

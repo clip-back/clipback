@@ -16,6 +16,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
     this.feed,
+    this.recentTerms,
+    this.onRemoveRecentTerm,
     this.onLoadMore,
     this.onRetry,
     required this.initialQuery,
@@ -33,6 +35,8 @@ class SearchScreen extends StatefulWidget {
     super.key,
   });
 
+  final List<String>? recentTerms;
+  final ValueChanged<String>? onRemoveRecentTerm;
   final String initialQuery;
   final FeedPage? feed;
   final Future<void> Function()? onLoadMore;
@@ -56,7 +60,8 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   late final TextEditingController _controller;
-  late List<String> _terms;
+  final List<String> _localTerms = [];
+  List<String> get _terms => widget.recentTerms ?? _localTerms;
   List<ContentItem>? _serverResults;
   String? _completedQuery;
   var _isSearching = false;
@@ -66,7 +71,6 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialQuery);
-    _terms = List.of(recentSearches);
   }
 
   @override
@@ -82,14 +86,16 @@ class _SearchScreenState extends State<SearchScreen> {
     if (term.isEmpty) return;
     final version = ++_requestVersion;
     widget.onQueryChanged(term);
-    setState(() {
-      _terms
-        ..remove(term)
-        ..insert(0, term);
-      if (_terms.length > 5) {
-        _terms = _terms.take(5).toList();
-      }
-    });
+    if (widget.recentTerms == null) {
+      setState(() {
+        _localTerms
+          ..remove(term)
+          ..insert(0, term);
+        if (_localTerms.length > 5) {
+          _localTerms.removeRange(5, _localTerms.length);
+        }
+      });
+    }
     setState(() {
       _isSearching = true;
       _serverResults = null;
@@ -226,7 +232,13 @@ class _SearchScreenState extends State<SearchScreen> {
                 _controller.text = term;
                 unawaited(_submitQuery(term));
               },
-              onRemove: () => setState(() => _terms.remove(term)),
+              onRemove: () {
+                if (widget.recentTerms != null) {
+                  widget.onRemoveRecentTerm?.call(term);
+                } else {
+                  setState(() => _localTerms.remove(term));
+                }
+              },
             ),
           ],
         ],
@@ -369,5 +381,3 @@ class EmptySearchResult extends StatelessWidget {
     );
   }
 }
-
-const recentSearches = ['올영세일', '여름 쇼핑몰', '부산 맛집', '금리', '도쿄역'];

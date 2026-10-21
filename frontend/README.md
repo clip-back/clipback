@@ -2986,3 +2986,17 @@ Figma: Page1 >261007, 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 C01 `111:3584`·F01 `11
 촬영 도구의 최초 프레임 판정과 Android OS 복귀 전환 대기 보완 시도는 `diagnostics`에 보존하고 최종 성공 근거에서 제외했다. 제품 대기/타이밍을 바꾸지 않았고 촬영 중 무거운 빌드/전체 검사를 병행하지 않았다. 고정 비교 데이터와 장면은 보존했으며 AFTER용 모달/정렬/오류 제어와 경계 수집을 프리뷰에 보완한 사실은 소스 동결 기록과 구분한다.
 
 후속: 운영 추천 품질/운영 서버·실제 OAuth·실기기·TestFlight·원격CI, 공지 데이터/목적지, 새 확대 맞춤과 원본 없는 상태 디자인. 로컬 대역/DB·시뮬레이터/에뮬레이터 확인 범위이며 추천 전체 제품 완료가 아니다. 화면 증거·빌드·임시DB·AGENTS.md는 커밋에서 제외하고 푸시/PR은 하지 않는다. 소유 Flutter 실행/앱·iPhone/Android 가상 기기·8776 포워딩·네이티브 녹화 임시 파일·임시 PostgreSQL 클러스터·이번 Gradle 데몬을 종료/정리했다. Android 제스처 설정2는 변경하지 않았고 기존 ADB 서버는 보존했다. 제품 iOS 생성 설정은 `FLUTTER_TARGET=lib/main.dart`로 복원했다. 설정 복원은 Archive/배포 검증이 아니다.
+
+
+## 실제 최근 검색어 저장·삭제 (2026-10-22)
+
+검색은 기존 API를 사용하며 최근어만 별도 기기 저장소에 보관한다. `SearchHistoryStorage`를 `AppDependencies`/`ClipbackApp`에 선택적으로 주입할 수 있고 기본은 shared_preferences다. API 환경·서버 사용자ID별로 최대5개를 최신순 저장하며 제출 실패/결과0도 기록한다. 개별 삭제·재진입·앱 재실행 복원을 지원하고 로그아웃 후 같은 계정으로 로그인하면 복원한다. 게스트 동일ID 승격은 유지하고 다른 계정의 기록은 합치지 않는다.
+
+ID 미확인은 현재 세대의 임시 기록만 사용한다. 지연 읽기는 제출/삭제 작업을 재적용하고 쓰기는 계정별로 직렬화한다. 저장 장애는 검색을 막지 않고 다음 명시적 작업/검색 재진입에서 재시도하며 새 오류 UI는 추가하지 않는다. 서버 동기화·자동완성·전체 삭제·새 확대 맞춤은 후속이다.
+
+- 전체 `flutter test --no-pub` **1731건 통과**, `flutter analyze --no-pub` 문제0. 새 검사23건을 포함하며 기존 확대/인증/검색 회귀를 유지했다.
+- `test/support/search_history_preview.dart`는 실제 ClipbackApp과 메모리 HTTP/세션/공유 대역을 사용한다. native preferences만 검증 전용 prefix로 실제 저장하며 앱 OS 프로세스 재시작 복원을 양 플랫폼에서 확인한다. 기존 `search_preview.dart`의 예제는 주입된 메모리 저장소로 격리한다.
+- 실행: `flutter run --no-pub -t test/support/search_history_preview.dart --dart-define=HISTORY_PHASE=after`. 검증 HTTP는 기기의 loopback8777이며 Android에서만 소유 포워딩8778→8777을 사용한다. 제품 실행/출시는 계속 `-t lib/main.dart`를 명시한다.
+- iPhone16/iOS18.6·Android13/API33 제스처 각21동작 통과, 프레임워크/비동기 오류0. [전후/Figma4쌍](/private/tmp/clipback-search-history-20261022/comparison-document.html)·[검증 요약](/private/tmp/clipback-search-history-20261022/verification-summary.json)·[iOS 영상](/private/tmp/clipback-search-history-20261022/after/ios/after.mp4)·[Android 영상](/private/tmp/clipback-search-history-20261022/after/android/after.mp4).
+
+Figma H01(`111:3991`)의 최신 확보 원본을 사용한다. 기존 취소/최근어14px 승인 기준과 OS 여백을 유지하고 예제/키보드 차이는 비교에 명시한다. 서버 API·실제 OAuth·운영 계정·실기기·원격 CI 검증과 로컬 대역/네이티브 저장소 검증은 별개다. 화면 증거·빌드·개인 preference 데이터는 Git에 포함하지 않는다.

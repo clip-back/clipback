@@ -1,3 +1,4 @@
+import 'fixtures/search_history_examples.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -87,6 +88,7 @@ Future<_Calls> _pump(
   double width = 375,
   double height = 812,
   String query = '검증',
+  List<String> historyTerms = recentSearches,
   FeedPage? page,
   List<ContentItem>? contents,
   bool attachFeed = true,
@@ -100,6 +102,8 @@ Future<_Calls> _pump(
   tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
   addTearDown(tester.view.reset);
   final calls = _Calls(), feed = page ?? _page();
+  var terms = List<String>.of(historyTerms);
+  late StateSetter update;
   await tester.pumpWidget(
     MaterialApp(
       key: UniqueKey(),
@@ -113,25 +117,38 @@ Future<_Calls> _pump(
           surface: AppColors.bg,
         ),
       ),
-      home: SearchScreen(
-        initialQuery: query,
-        contents: contents ?? feed.items,
-        feed: attachFeed ? feed : null,
-        onLoadMore: () async {},
-        onRetry: () {},
-        bookmarkedIds: const {},
-        categories: const [_category, _second, _third],
-        onSearch: (value) {
-          calls.searches.add(value);
-          return search?.call(value) ?? Future.value(const []);
+      home: StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return SearchScreen(
+            recentTerms: terms,
+            onRemoveRecentTerm: (term) => update(() => terms.remove(term)),
+            initialQuery: query,
+            contents: contents ?? feed.items,
+            feed: attachFeed ? feed : null,
+            onLoadMore: () async {},
+            onRetry: () {},
+            bookmarkedIds: const {},
+            categories: const [_category, _second, _third],
+            onSearch: (value) {
+              update(() {
+                terms
+                  ..remove(value)
+                  ..insert(0, value);
+                terms = terms.take(5).toList();
+              });
+              calls.searches.add(value);
+              return search?.call(value) ?? Future.value(const []);
+            },
+            onQueryChanged: calls.changes.add,
+            onClose: () => calls.close++,
+            onOpenContent: (_) => calls.open++,
+            onToggleBookmark: (_) => calls.bookmark++,
+            onChangeContentCategory: (_, _) {},
+            onDeleteContent: (_) {},
+            onOpenArchive: () => calls.archive++,
+          );
         },
-        onQueryChanged: calls.changes.add,
-        onClose: () => calls.close++,
-        onOpenContent: (_) => calls.open++,
-        onToggleBookmark: (_) => calls.bookmark++,
-        onChangeContentCategory: (_, _) {},
-        onDeleteContent: (_) {},
-        onOpenArchive: () => calls.archive++,
       ),
     ),
   );
@@ -198,6 +215,42 @@ void main() {
   });
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
+      testWidgets('H01 actual empty and long histories $platform width$width', (
+        tester,
+      ) async {
+        for (final terms in <List<String>>[
+          const [],
+          [
+            for (var i = 0; i < 5; i++)
+              '$i 아주 긴 검색어를 한 줄에서 말줄임하며 글자 크기는 그대로 유지합니다',
+          ],
+        ]) {
+          await _pump(
+            tester,
+            platform: platform,
+            width: width,
+            query: '',
+            historyTerms: terms,
+          );
+          final rows = find.byType(SearchHistoryRow);
+          expect(rows, findsNWidgets(terms.length));
+          expect(find.text('최근 검색어'), findsOneWidget);
+          for (var i = 0; i < terms.length; i++) {
+            final row = rows.at(i), text = find.text(terms[i]);
+            expect(tester.getSize(row).height, 32);
+            final w = tester.widget<Text>(text);
+            expect(w.maxLines, 1);
+            expect(w.overflow, TextOverflow.ellipsis);
+            final p = _paragraph(tester, text);
+            expect(p.text.style!.fontSize, 14);
+            final rowRect = tester.getRect(row),
+                textRect = tester.getRect(text);
+            expect(textRect.left, greaterThanOrEqualTo(rowRect.left));
+            expect(textRect.right, lessThanOrEqualTo(rowRect.right));
+          }
+          expect(tester.takeException(), isNull);
+        }
+      });
       testWidgets('H01 input and recent-history1x $platform width$width', (
         tester,
       ) async {
@@ -600,36 +653,35 @@ void main() {
     });
   }
 
-  testWidgets(
-    'H01 preserves current example five and in-screen history policy',
-    (tester) async {
-      await _pump(tester, query: '', attachFeed: false, contents: const []);
-      expect(
-        tester
-            .widgetList<SearchHistoryRow>(find.byType(SearchHistoryRow))
-            .map((r) => r.term),
-        recentSearches,
-      );
-      for (final term in ['새 검색1', '새 검색2', '새 검색1']) {
-        await _submit(tester, term);
-        await tester.pump();
-        await _clear(tester);
-      }
-      final rows = tester
+  testWidgets('H01 explicit fixture preserves latest-first five and deletion', (
+    tester,
+  ) async {
+    await _pump(tester, query: '', attachFeed: false, contents: const []);
+    expect(
+      tester
           .widgetList<SearchHistoryRow>(find.byType(SearchHistoryRow))
-          .toList();
-      expect(rows, hasLength(5));
-      expect(rows.take(2).map((r) => r.term), ['새 검색1', '새 검색2']);
-      rows.first.onRemove();
+          .map((r) => r.term),
+      recentSearches,
+    );
+    for (final term in ['새 검색1', '새 검색2', '새 검색1']) {
+      await _submit(tester, term);
       await tester.pump();
-      expect(
-        tester
-            .widgetList<SearchHistoryRow>(find.byType(SearchHistoryRow))
-            .map((r) => r.term),
-        isNot(contains('새 검색1')),
-      );
-    },
-  );
+      await _clear(tester);
+    }
+    final rows = tester
+        .widgetList<SearchHistoryRow>(find.byType(SearchHistoryRow))
+        .toList();
+    expect(rows, hasLength(5));
+    expect(rows.take(2).map((r) => r.term), ['새 검색1', '새 검색2']);
+    rows.first.onRemove();
+    await tester.pump();
+    expect(
+      tester
+          .widgetList<SearchHistoryRow>(find.byType(SearchHistoryRow))
+          .map((r) => r.term),
+      isNot(contains('새 검색1')),
+    );
+  });
   testWidgets(
     'H01 typing and whitespace do not submit while nonempty submit trims',
     (tester) async {

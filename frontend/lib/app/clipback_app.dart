@@ -36,11 +36,18 @@ import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
 import 'app_view_model.dart';
 import '../features/share/pending_share_prompt.dart';
+import '../data/services/search_history_storage.dart';
 
 class ClipbackApp extends StatefulWidget {
-  const ClipbackApp({this.sessionStorage, this.socialAuth, super.key});
+  const ClipbackApp({
+    this.sessionStorage,
+    this.socialAuth,
+    this.searchHistoryStorage,
+    super.key,
+  });
 
   final ApiSessionStorage? sessionStorage;
+  final SearchHistoryStorage? searchHistoryStorage;
   final SocialAuth? socialAuth;
 
   @override
@@ -191,6 +198,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _d = AppDependencies(
       storage: widget.sessionStorage,
+      searchHistoryStorage: widget.searchHistoryStorage,
       socialAuth: widget.socialAuth,
       canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
     );
@@ -802,6 +810,43 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     };
   }
 
+  Widget _searchScreen() {
+    final generation = _d.app.accountGeneration;
+    final owner = _d.search.historyOwner;
+    bool current() =>
+        _canUseAccountActions &&
+        _d.app.route == AppRoute.search &&
+        generation == _d.app.accountGeneration &&
+        _d.searchHistory.owns(owner);
+    return SearchScreen(
+      key: ValueKey(generation),
+      recentTerms: _d.search.recentTerms,
+      onRemoveRecentTerm: (term) {
+        if (current()) _d.search.removeRecentTerm(term);
+      },
+      initialQuery: _d.search.query,
+      contents: _d.search.page.items,
+      feed: _d.search.page,
+      onLoadMore: _d.search.loadMore,
+      onRetry: _d.search.retry,
+      bookmarkedIds: _d.home.bookmarkedIds,
+      categories: _d.categories.categories,
+      onSearch: (value) =>
+          current() ? _d.search.search(value) : Future.value(const []),
+      onQueryChanged: (value) {
+        if (current()) _d.search.changeQuery(value);
+      },
+      onClose: () {
+        if (current()) _go(_d.app.searchReturnRoute);
+      },
+      onOpenContent: _openDetail,
+      onToggleBookmark: _d.search.toggleBookmark,
+      onChangeContentCategory: _d.search.changeCategory,
+      onDeleteContent: _d.search.deleteContent,
+      onOpenArchive: () => _openArchive(),
+    );
+  }
+
   void _openSearch() {
     _d.archive.clearWeeklyOrigin();
     _d.search.open();
@@ -1058,23 +1103,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onAddScreenshot: _d.save.addScreenshot,
           onTab: _selectRootTab,
         ),
-        AppRoute.search => SearchScreen(
-          initialQuery: _d.search.query,
-          contents: _d.search.page.items,
-          feed: _d.search.page,
-          onLoadMore: _d.search.loadMore,
-          onRetry: _d.search.retry,
-          bookmarkedIds: _d.home.bookmarkedIds,
-          categories: _d.categories.categories,
-          onSearch: _d.search.search,
-          onQueryChanged: _d.search.changeQuery,
-          onClose: () => _go(_d.app.searchReturnRoute),
-          onOpenContent: _openDetail,
-          onToggleBookmark: _d.search.toggleBookmark,
-          onChangeContentCategory: _d.search.changeCategory,
-          onDeleteContent: _d.search.deleteContent,
-          onOpenArchive: () => _openArchive(),
-        ),
+        AppRoute.search => _searchScreen(),
         AppRoute.detail => DetailScreen(
           key: ValueKey((_d.app.accountGeneration, _d.detail.content?.id)),
           onReadAsset: _d.detail.readAsset,
