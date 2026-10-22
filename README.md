@@ -127,6 +127,8 @@ flutter run
 
 ## 개발 문서
 
+- [사용자 업데이트 내역](CHANGELOG.md)
+- [업데이트 내역 작성·배포 절차](docs/release-process.md)
 - [백엔드 설정·API 계약](backend/README.md)
 - [앱 구현·실행·검증 범위](frontend/README.md)
 - [MVP 현황·범위 결정](docs/backend-mvp-plan.md)
