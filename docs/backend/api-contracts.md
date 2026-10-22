@@ -3,6 +3,28 @@
 현재 API의 요청·응답·오류·권한·재시도 계약을 모은 참조 문서입니다. 서버 준비·실행은 [백엔드 README](../../backend/README.md), 전용 테스트 DB와 로컬 검증은 [테스트 안내](testing.md)를 따릅니다.
 기존 문서의 영어 설명과 코드·JSON 예시는 그대로 보존합니다. 코드 경로·설정·명령은 별도 표기가 없으면 `backend/` 기준입니다.
 
+## 문서 내 목차
+
+- [담당 기준](#담당-기준)
+- [MVP Scope](#mvp-scope)
+- [API 구현 목록](#api-구현-목록)
+- [Guest Authentication](#guest-authentication)
+- [Mobile Social Authentication](#mobile-social-authentication)
+- [Native Mobile Share Authentication and Retries](#native-mobile-share-authentication-and-retries)
+- [My Page Account and Statistics](#my-page-account-and-statistics)
+- [Content View Events](#content-view-events)
+- [Today Recommendations](#today-recommendations)
+- [Weekly Recommendations](#weekly-recommendations)
+- [Recommendation Exposures](#recommendation-exposures)
+- [Category Summaries](#category-summaries)
+- [Personal Categories: Update and Delete](#personal-categories-update-and-delete)
+- [Content Category Validation](#content-category-validation)
+- [Content URL Length](#content-url-length)
+- [Tag Replacement](#tag-replacement)
+- [Feed Pagination](#feed-pagination)
+- [Screenshot Storage](#screenshot-storage)
+- [추천 API 연결 계약](#추천-api-연결-계약)
+
 ## 담당 기준
 
 - 일반 HTTP 계약과 API 목록: 이 문서
@@ -27,7 +49,9 @@
 - Provide content detail and original link access metadata.
 - Track product metrics such as re-open events and category filter usage.
 
-## 4. API 구현 목록
+<a id="4-api-구현-목록"></a>
+
+## API 구현 목록
 
 | Method | Path | 목적 | 상태 |
 | --- | --- | --- | --- |
@@ -705,7 +729,9 @@ selection remains authoritative. Railway mounts persistent storage at `/data`.
 Saved images are private. Use the Bearer-authenticated asset URL returned in
 `ContentRead.assets` to download an image.
 
-## 9. API·프론트 연결 계약
+<a id="9-api프론트-연결-계약"></a>
+
+## 추천 API 연결 계약
 
 Today 조회는 3단계, 노출 POST는 4단계, Weekly 조회는 5단계에서 구현했으며,
 기존 view POST의 이벤트 ID·추천 유입 확장은 2단계에서 구현했다.

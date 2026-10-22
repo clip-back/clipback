@@ -84,7 +84,7 @@ ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로�
 
 ## 실행과 검증
 
-기본 분석·테스트 명령은 [README의 기본 검증](../../frontend/README.md#기본-검증)을 따릅니다. 아래는 각 테스트의 범위이며 이번 문서 정리에서 실행한 결과가 아닙니다.
+기본 분석·테스트 명령은 [README의 기본 검증](../../frontend/README.md#기본-검증)을 따릅니다. 아래는 각 테스트의 범위이며 실제 실행 결과와 미검증 범위는 [작업 이력](../history/README.md)에서 확인합니다.
 
 세션 복원·저장·동시 갱신 회귀 테스트는 `test/session_restore_test.dart`, `test/session_persistence_test.dart`,
 `test/session_refresh_test.dart`에서 HTTP와 저장소 오류를 대체해 확인합니다.
@@ -98,7 +98,7 @@ ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로�
 `test/app/account_stats_regression_test.dart`와 `test/data/user_repository_test.dart`는 프로필 재조회 시
 이미 받은 서버 통계를 보존하고, 계정 초기화 때만 기존 통계를 비우는 경계를 검증합니다.
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
-실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 위 진행 문서에 별도로 기록합니다.
+실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 [작업·검증 이력](../history/README.md)에 날짜와 환경을 구분해 기록합니다.
 
 ## 안전 영역 검증 도구
 

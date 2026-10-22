@@ -46,3 +46,19 @@
 - `pg_blocking_pids()`로 실제 대기를 확인하며 열람·분류·콘텐츠/카테고리 삭제·카테고리 노출의 양쪽 실행 순서, 같은 사용자 별도 배치·다른 사용자 독립 처리, 신규 저장 제외, 자정 통과와 실패 후 대기 요청 복구를 검증했다.
 - Python 3.12.7·격리 PostgreSQL 17.7의 전체 검증 전용 DB에서 **857개 테스트 통과**(70개 추가, DB 테스트 생략 없음). Ruff·compileall, 별도 빈 DB `alembic upgrade head`·`alembic check`, Git diff 검사를 통과했다. 기존 Starlette/httpx 경고 1건은 남아 있다. 외부 AI·OCR·메타데이터를 대체하고 YouTube 워커는 비활성화했다.
 - 신규 마이그레이션·프론트 연동·원격 push·운영 배포는 포함하지 않았다. 6~7단계는 미착수이며 원격 CI·Docker·실기기·운영 검증은 실행하지 않았다. 프론트는 같은 홈 방문의 항목 ID를 유지하고 노출 재전송에 재사용해야 한다.
+
+## 추가 원문 출처: docs/product-metrics-queries.md
+
+<a id="metrics-validation-20260925"></a>
+
+2026-10-22 문서 후속 정리에서 추가한 원문입니다. 검증 수행일은 원문의 2026-09-25를 유지합니다.
+출처 기준: `b6384dc5122628aec7b0d2fcb1b098fd4a887a7b`, 원본 122–126행, UTF-8 SHA-256: `0077ff79a9ce260dbde54cf5462364cb8b5e4a84c62437692b6d20ce4259b889`.
+기존 출처별 문구와 동일하지 않아 별도 원문으로 보존하며 새 실행 결과로 합치지 않습니다.
+
+2026-09-25 로컬 Python 3.12.7·격리 PostgreSQL 17.7에서 전체 857개 테스트가 통과했다.
+신규 70개는 순수 선정 31개·API/집계 20개·독립 연결 동시성 19개이며, 스냅샷·중복 배열·
+삭제·사용자 격리·조회 무집계를 확인했다. 위 Weekly SQL도 별도 검증 DB에서 실행했다.
+Ruff·compileall·빈 DB upgrade/check·Git diff 검사를 통과했다. 프론트 실제 전송·원격 CI·
+실기기·운영 검증은 포함하지 않는다.
+
+원문의 ‘위 Weekly SQL’은 [제품 지표 문서의 Weekly 집계 SQL](../product-metrics-queries.md#weekly-카테고리-행동-집계)을 가리킵니다. SQL은 현행 문서에 유지하며 이 문단의 수행일을 새 실행일로 바꾸지 않습니다.
