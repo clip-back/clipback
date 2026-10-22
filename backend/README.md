@@ -5,6 +5,10 @@ FastAPI backend for the Clipback MVP.
 Implementation status and remaining scope decisions are tracked in the
 [MVP status document](../docs/backend-mvp-plan.md).
 
+사용자에게 보이는 서버 변경은 같은 PR에서 [업데이트 내역](../CHANGELOG.md)에 작성합니다.
+서버 단독 배포와 앱 동반 배포의 SHA·마이그레이션·실제 검증은
+[배포 절차](../docs/release-process.md)에 따라 기록합니다.
+
 ## MVP Scope
 
 - Save link-based content from share flow or direct input.
