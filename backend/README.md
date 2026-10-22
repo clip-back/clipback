@@ -810,23 +810,7 @@ Obtain guest/access/share credentials through the normal API; do not print token
 Stop the local server after validation. The database and temporary files are
 explicitly disposable; they are not application backups.
 
-### Verification on 2026-10-12
-
-- Full backend suite with a dedicated PostgreSQL 16 database: **986 passed, zero
-  skipped, 81.32 seconds**. The one warning is the existing Starlette TestClient
-  `httpx` deprecation warning. The run includes 26 new share cases covering token
-  scope, parent-session revocation, retries, concurrency, file cleanup and safe
-  Instagram redirect resolution; existing test scenarios and assertions remain.
-- `ruff check app alembic tests`, `python -m compileall -q app alembic tests` and
-  the backend diff whitespace check passed.
-- Migration `202610120014` passed on an empty database and when upgrading from
-  `202610110013`, using separate disposable databases. `alembic check` reported
-  no new upgrade operations. Migration commands used
-  `YOUTUBE_SUMMARY_ENABLED=false` because this local test setup uses no Gemini key.
-- The loopback harness passed an actual HTTP guest login, share-credential issue,
-  save and same-key replay against PostgreSQL; a share credential was rejected by
-  the user-read route. External metadata, OAuth, AI and OCR were test replacements.
-  These results do not verify production deployment or live provider responses.
+과거 공유 서버 검증 결과는 [모바일 공유 작업 기록](../docs/history/2026-10-12-mobile-share.md)을 참고합니다.
 
 ## Railway deployment
 
@@ -838,6 +822,12 @@ three-second timeout; `/api/v1/health` retains its existing liveness contract.
 
 See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)
 for all required variables, dashboard settings, Docker persistence checks, and
-recovery instructions. The user has reported Railway deployment. Live connectivity, provider login, backups,
-and real-device persistence still require separate verification; this documentation
-update did not inspect the deployed environment.
+recovery instructions. Record deployment status and verification evidence using the
+[release process](../docs/release-process.md); code and local checks alone do not confirm the deployed environment.
+
+<details>
+<summary>이전 문서 링크와 제목 호환</summary>
+
+- <a id="verification-on-2026-10-12"></a>[Verification on 2026-10-12](../docs/history/2026-10-12-mobile-share.md#b-bd065ba1319d232b)
+
+</details>
