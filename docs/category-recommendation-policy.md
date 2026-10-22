@@ -199,7 +199,7 @@ AI에게 전달하는 핵심 지침은 다음과 같다.
 이번 문서 정리에서는 테스트나 실제 공급자 호출을 재실행하지 않았다.
 
 진행 현황과 후속 범위는 [MVP 현황](backend-mvp-plan.md), 수정·삭제 API 계약은
-[백엔드 README](../backend/README.md), 지표 정의는
+[백엔드 API 계약](backend/api-contracts.md), 지표 정의는
 [제품 지표 문서](product-metrics-queries.md)를 참고한다.
 
 ## 12. 후속 검토

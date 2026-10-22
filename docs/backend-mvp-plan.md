@@ -1,4 +1,4 @@
-# 허투루 백엔드 MVP 진행 현황
+# MVP 범위와 구현 현황
 
 ## 모바일 소셜 로그인 범위
 
@@ -57,42 +57,7 @@ Today·Weekly 프론트 연결, 실제 카드 노출·추천 유입, 최근 검�
 
 ## 4. API 구현 목록
 
-| Method | Path | 목적 | 상태 |
-| --- | --- | --- | --- |
-| `POST` | `/api/v1/auth/guest` | 게스트 생성과 JWT 발급 | 구현 |
-| `POST` | `/api/v1/auth/refresh` | refresh token 회전 | 구현 |
-| `POST` | `/api/v1/auth/logout` | 인증 세션 폐기 | 구현 |
-| `POST` | `/api/v1/auth/social/apple/challenge` | Apple 로그인·게스트 승격용 5분 일회용 nonce 발급 | 구현 |
-| `POST` | `/api/v1/auth/social/{provider}` | 소셜 가입·로그인 | 구현 |
-| `POST` | `/api/v1/auth/social/{provider}/upgrade` | 게스트 데이터 유지 소셜 전환 | 구현 |
-| `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자 조회 | 구현 |
-| `GET` | `/api/v1/users/me/stats` | 이벤트 기준 누적 저장·열람 횟수, 콘텐츠 삭제 후에도 유지 | 구현 |
-| `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
-| `GET` | `/api/v1/categories/recent` | 내 콘텐츠 저장순 최근 카테고리, 미분류·빈 카테고리 제외 | 구현 |
-| `POST` | `/api/v1/categories` | 사용자 카테고리 생성 | 구현 |
-| `PATCH` | `/api/v1/categories/{id}` | 개인화된 기본·사용자 카테고리 이름·색상 수정 | 구현 |
-| `DELETE` | `/api/v1/categories/{id}` | 카테고리 삭제, 콘텐츠 보존 및 필요 시 미분류 이동 | 구현 |
-| `POST` | `/api/v1/contents` | 링크 직접 입력 저장 | 구현 |
-| `POST` | `/api/v1/contents/share` | OS 공유 링크 저장 | Instagram·YouTube 구현 |
-| `GET` | `/api/v1/contents/{id}` | 콘텐츠 상세 조회 | 구현 |
-| `PUT` | `/api/v1/contents/{id}/categories` | 콘텐츠 카테고리 보정 | 구현 |
-| `PUT` | `/api/v1/contents/{id}/tags` | 콘텐츠 태그 전체 교체 | 구현 |
-| `PUT` | `/api/v1/contents/{id}/favorite` | 콘텐츠 즐겨찾기 상태 지정 | 구현 |
-| `DELETE` | `/api/v1/contents/{id}` | 콘텐츠 영구 삭제 | 구현 |
-| `POST` | `/api/v1/contents/{id}/view` | 재열람 기록 | 구현 |
-| `GET` | `/api/v1/feed` | 제목·요약·태그 검색과 카테고리·즐겨찾기 필터 | 구현 |
-| `GET` | `/api/v1/recommendations/today` | Today 선정·일별 결과와 최신 카드 조회 | 구현 |
-| `GET` | `/api/v1/recommendations/weekly` | Weekly 집계·카드 선정과 현재 카테고리 요약 조회 | 구현 |
-| `POST` | `/api/v1/recommendations/exposures` | 추천 카드 노출과 UUID 중복 방지·추천 집계 | 구현 |
-| `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 구현 |
-| `GET` | `/api/v1/uploads/assets/{id}` | 인증된 스크린샷 자산 조회 | 구현 |
-| `POST` | `/api/v1/metrics/events` | 사용자 행동 이벤트 기록 | 구현 |
-| `GET` | `/api/v1/health` | 서버 응답 확인 | 구현 |
-| `GET` | `/api/v1/health/ready` | DB·이미지 저장소 준비 상태 | 구현 |
-
-요청·응답의 세부 계약은 [백엔드 README](../backend/README.md)와 실행 중인 서버의 `/docs`를 참고한다.
-피드 응답은 `items`, `next_cursor`이며 `total_count`는 없다.
-`next_cursor`는 해석하지 않고 그대로 전달하는 문자열이며, 검색·카테고리·즐겨찾기 조건이나 계정이 바뀌면 초기화한다.
+메서드·경로·상태 목록은 [백엔드 API 목록](backend/api-contracts.md#4-api-구현-목록), 요청·응답·오류 조건은 같은 문서의 엔드포인트별 설명을 따릅니다. 이 문서는 구현 범위와 다음 결정 사항을 유지합니다.
 
 ## 5. 다음 진행 순서
 
@@ -102,7 +67,7 @@ Today·Weekly 프론트 연결, 실제 카드 노출·추천 유입, 최근 검�
 4. 재배포 후 이미지·콘텐츠 유지, 운영 백업 활성화와 복구 절차를 확인한다.
 5. 외부 metadata·AI·OCR의 실제 성공률과 저장 지연을 관찰하고 발견한 결함을 수정한다.
 
-연동 테스트는 [백엔드 실행·검증 안내](../backend/README.md), 운영 확인은
+연동 테스트는 [백엔드 테스트 안내](backend/testing.md), 운영 확인은
 [Railway 배포·복구 안내](railway-deployment.md)를 따른다. 로컬 통합 테스트는 외부 응답을 대체하므로
 운영 공급자 설정과 실기기 검증을 대신하지 않는다.
 
@@ -152,5 +117,12 @@ YouTube의 상태 응답·20분 제한·작업 복구·운영 검증은 [유튜�
 - <a id="15-2026-09-24-콘텐츠카테고리-노출-수집"></a>[15. 2026-09-24 콘텐츠·카테고리 노출 수집](history/2026-09-24-recommendation-exposures.md#b-d4815ac9bd2ad0d6)
 - <a id="16-2026-09-25-weekly-집계카테고리-조회"></a>[16. 2026-09-25 Weekly 집계·카테고리 조회](history/2026-09-25-weekly-backend.md#b-588e68ec7528ff75)
 - <a id="17-2026-10-02-카테고리-조합-검증-통일"></a>[17. 2026-10-02 카테고리 조합 검증 통일](history/2026-10-02-category-validation.md#b-9c314bd87e9e4c2c)
+
+</details>
+
+<details>
+<summary>상세 설명 이동과 이전 제목 안내</summary>
+
+- <a id="허투루-백엔드-mvp-진행-현황"></a>[허투루 백엔드 MVP 진행 현황](backend-mvp-plan.md#mvp-범위와-구현-현황)
 
 </details>

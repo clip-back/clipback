@@ -48,9 +48,9 @@
 ## 검증과 스토어 등록
 
 - 모바일 실행·설정은 [프론트 README](../frontend/README.md),
-  iOS 업로드는 [TestFlight 권한 설명과 재업로드](../frontend/README.md#testflight-권한-설명과-재업로드)를 따릅니다.
+  iOS 업로드는 [TestFlight 권한 설명과 재업로드](frontend/development.md#testflight-권한-설명과-재업로드)를 따릅니다.
   Flutter 빌드의 앱 진입점은 `lib/main.dart`로 명시하고 산출물의 실제 버전·빌드 번호를 확인합니다.
-- 백엔드 검사는 [백엔드 검증 안내](../backend/README.md#validation),
+- 백엔드 검사는 [백엔드 검증 안내](backend/testing.md#validation),
   운영 배포·마이그레이션·복구는 [Railway 배포·복구](railway-deployment.md)를 따릅니다.
   이 문서에 실행 명령이나 공급자 설정을 중복 복사하지 않습니다.
 - 배포 기록의 검증 표에 실제 명령·시나리오·결과·근거를 남깁니다.

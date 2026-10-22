@@ -1,4 +1,4 @@
-# 콘텐츠 재발견 추천 구현 계획
+# 콘텐츠 재발견 추천 정책과 구현 현황
 
 현재 합의 정책과 코드 위치를 정리합니다. 이관 기준 커밋에서 백엔드 1~5단계와 Today·Weekly 프론트 연결이 구현되어 있습니다.
 상세 검증 결과와 과거 계획은 [작업 이력](history/README.md)에 보존합니다. 아래 구현 상태는 신규 실행 검증이나 운영 품질 확인을 뜻하지 않습니다.
@@ -259,65 +259,10 @@ Today 선정·배치 저장·조회 API는 3단계, 노출 수집은 4단계, We
 
 ## 9. API·프론트 연결 계약
 
-Today 조회는 3단계, 노출 POST는 4단계, Weekly 조회는 5단계에서 구현했으며,
-기존 view POST의 이벤트 ID·추천 유입 확장은 2단계에서 구현했다.
+- [API 필드·상태·이벤트 ID와 재시도 계약](backend/api-contracts.md#9-api프론트-연결-계약)
+- [Today·Weekly 표시·이동·실제 노출·추천 유입의 프론트 계약](frontend/behavior.md#추천-프론트-연결-계약)
 
-| 구분 | API | 계약 |
-| --- | --- | --- |
-| 신규 | `GET /api/v1/recommendations/today` | 현재 Stage, 기준 날짜, 배치 ID, 순서가 있는 콘텐츠 목록. 미생성 빈 결과와 기존 배치의 빈 결과를 구별 |
-| 신규 | `GET /api/v1/recommendations/weekly` | 카드 유형, 카테고리 정보, 추천 결과 식별정보. 0~2개 |
-| 신규 | `POST /api/v1/recommendations/exposures` | 필수 UUID와 추천 항목 ID로 노출 기록, 재시도 중복 방지 |
-| 확장 | `POST /api/v1/contents/{id}/view` | 상세 진입 이벤트 ID와 선택적 추천 유입 정보 수신 |
-
-Today 성공 응답은 200과 `Cache-Control: no-store`를 사용한다. 응답은 현재 `stage`,
-KST `recommendation_date`, nullable `batch_id`·`generated_at`, 최대 5개의 `items`다.
-각 항목은 `recommendation_item_id`, 최초 `rank`, 기존 `ContentRead` 형식의 최신 `content`를
-포함하며 점수는 공개하지 않는다. 삭제 후 남은 순위는 다시 매기지 않는다.
-
-Weekly 성공 응답은 200·`Cache-Control: no-store`와 UTC `period_start`·`period_end`,
-nullable `batch_id`·`generated_at`, 최대 두 개 `items`다. 항목은 `recommendation_item_id`,
-`rank`, `card_type`, 기존 `CategorySummaryRead` 형식의 `category`다. 카테고리의
-`content_count`·`last_saved_at`은 현재 보유 콘텐츠 기준이며 기간 내 행동 수와 다르다.
-문구·행동 건수·점수는 공개하지 않는다. 배치가 있으면 `generated_at=period_end`다.
-GET 재시도도 새 배치를 만들 수 있으므로 같은 홈 방문에서는 기존 항목 ID를 보관하고,
-노출 재전송을 위해 Weekly를 다시 조회하지 않는다.
-
-노출 POST에는 `client_event_id` UUID와 `recommendation_item_id` JSON 정수(1~2,147,483,647)가
-필수다. 본문 없음·`null`·빈 객체·잘못된 값·미정의 필드는 422다. 인증된 사용자와 실제
-항목→배치에서 대상·추천 위치·순위·점수를 결정하며 클라이언트 시각이나 대상 ID를 받지 않는다.
-신규·재시도 모두 201·`Cache-Control: no-store`와
-`{exposure_id, client_event_id, recommendation_item_id, recommended_at}`을 반환한다.
-
-같은 사용자·UUID·항목은 최초 응답을 반환하고 다른 항목에 UUID를 재사용하면 대상 검증보다
-먼저 409다. UUID는 사용자별·이벤트 테이블별로 독립적이다. 신규 노출은 본인 배치·실제 대상의
-소유권을 확인하고 Today 콘텐츠/Weekly 카테고리 조합만 허용한다. 접근 불가·삭제는 404,
-접근 가능한 항목의 유형 불일치는 422다. 배치 날짜·현재 Stage·빈 카테고리 여부로 만료시키지 않는다.
-열람과 노출은 서로 선행 조건이 없으며 기존 당일 선정 결과를 변경하지 않는다.
-
-사용자는 인증에서 결정한다. 대상 소유권과 추천 결과·대상의 일치를 서버에서 검증한다.
-추천 점수·순위는 클라이언트가 임의 제출한 값을 신뢰하지 않는다.
-view POST의 동일 이벤트 재시도는 기존 201 및 `{content_id, event_type}`을 반환하고,
-다른 콘텐츠·추천 항목·이벤트 유형에 같은 사용자·UUID를 재사용하면 409로 거절한다.
-
-view POST는 본문 없음 또는 JSON `null`을 계속 허용하며 매번 새 열람으로 기록한다.
-본문 객체에는 `client_event_id` UUID가 필수이고 `recommendation_item_id`는 1~2,147,483,647 범위의 선택적 JSON 정수다.
-빈 객체·잘못된 값·미정의 필드는 422다. 새 프론트는 새 상세 진입마다 새 UUID를 발급하고
-재시도에는 동일 UUID를 사용해야 한다. 기존 이벤트 ID 없는 호출의 재시도 중복 방지는 보장하지 않는다.
-
-신규 추천 유입은 본인 배치·실제 대상의 소유권을 검증한다. Today 콘텐츠는 열람 대상과 일치하고,
-Weekly 카테고리는 현재 소속이어야 한다. 접근 불가·삭제 대상은 404, 유형·대상 불일치는 422다.
-노출 기록이나 배치 만료 조건은 요구하지 않는다. 동일 요청 재시도는 이후 분류 변경·삭제가 있어도
-다시 검증하지 않지만, 콘텐츠가 삭제됐거나 본인 소유가 아니면 재시도도 404다.
-
-현재 프론트 연결 계약:
-
-- Today 버튼은 서버 추천을 조회해 최대 5개 상세를 순서대로 탐색한다. 버튼·조회·상세 진입을 카드 노출로 기록하지 않는다.
-- Weekly는 홈 방문별 최대 2개 서버 카드를 표시하며 선택한 카테고리로 이동한다. 실제 화면에 보이는 카드만 방문·항목별 UUID로 노출을 기록한다.
-- 추천 상세 진입은 새 UUID와 추천 항목 ID를 사용하고 재전송에는 같은 UUID를 유지한다. 일반 상세와 추천 유입의 구분을 보존한다.
-- 홈 방문·OS 백그라운드 복귀·모달·필터의 경계와 실패·빈 결과 처리는 각 프론트 작업 기록에서 확인한다.
-- `frontend/lib/app/clipback_app.dart`가 이동을 조정하고 상세 ViewModel·콘텐츠 Repository가 조회·유입을 처리한다. `frontend/lib/main.dart`는 앱 시작 진입점이다.
-
-추천 API만 구현한 상태와 실제 프론트 노출·상세 진입까지 검증한 상태를 구분해 기록한다.
+이 문서는 선정·시간·집계·삭제 정책과 구현 범위를 관리합니다. 상세 계약은 연결한 문서에 작성합니다.
 
 ## 10. 구현 단계와 완료 기준
 
@@ -371,5 +316,12 @@ Weekly 카테고리는 현재 소속이어야 한다. 접근 불가·삭제 대�
 - <a id="운영-반영-경계"></a>[운영 반영 경계](history/2026-09-24-recommendation-planning.md#b-4f93c2ab48ae2d2b)
 - <a id="12-2026-10-21-today-프론트-부분-연결"></a>[12. 2026-10-21 Today 프론트 부분 연결](history/2026-10-21-today-frontend.md#b-755258ced17e313b)
 - <a id="13-2026-10-21-weekly-프론트-연결--승인-범위-완료"></a>[13. 2026-10-21 Weekly 프론트 연결 — 승인 범위 완료](history/2026-10-21-weekly-frontend.md#b-58536e4a0677aaab)
+
+</details>
+
+<details>
+<summary>상세 설명 이동과 이전 제목 안내</summary>
+
+- <a id="콘텐츠-재발견-추천-구현-계획"></a>[콘텐츠 재발견 추천 구현 계획](content-recommendation-plan.md#콘텐츠-재발견-추천-정책과-구현-현황)
 
 </details>

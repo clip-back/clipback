@@ -95,7 +95,7 @@ docs/      제품 정책, 구현 현황, 지표, 배포·운영 문서
 
 ### Backend
 
-의존성 설치와 환경 변수 준비는 [백엔드 설정 안내](backend/README.md#local-development)를 따릅니다.
+의존성 설치와 환경 변수 준비는 [백엔드 설정 안내](backend/README.md#빠른-실행)를 따릅니다.
 저장소 루트에서 PostgreSQL을 실행합니다. 호스트 포트는 `5433`입니다.
 
 ```bash
@@ -131,15 +131,38 @@ flutter run
 같은 작업 결과는 한 번만 기록하고 기준 문서에서는 링크로 연결합니다. 사용자용 변경 내용은 CHANGELOG,
 실제 공개·배포 결과는 배포 기록으로 구분합니다.
 
-- [작업·검증 이력과 원문 이관 대조표](docs/history/README.md)
+### 시작·개발
 
-- [사용자 업데이트 내역](CHANGELOG.md)
-- [업데이트 내역 작성·배포 절차](docs/release-process.md)
-- [백엔드 설정·API 계약](backend/README.md)
+- [백엔드 설정·실행](backend/README.md)
 - [앱 구현·실행·검증 범위](frontend/README.md)
+- [프론트 동작·상태 처리](docs/frontend/behavior.md)
+- [프론트 설정·실행·검증](docs/frontend/development.md)
+- [백엔드 API 목록·계약](docs/backend/api-contracts.md)
+
+### 정책·디자인
+
 - [MVP 현황·범위 결정](docs/backend-mvp-plan.md)
 - [카테고리 추천 정책](docs/category-recommendation-policy.md)
 - [콘텐츠 재발견 추천 설계](docs/content-recommendation-plan.md)
 - [제품 이벤트·지표](docs/product-metrics-queries.md)
+- [YouTube 저장·요약·worker](docs/youtube-summary.md)
+- [Figma 화면 기준·디자인 확인 필요](docs/figma-ui-alignment-plan.md)
+- [시작 화면 에셋 출처](frontend/ios/Runner/Assets.xcassets/SplashA01Brand.imageset/README.md)
+
+### 검증·운영·배포
+
+- [백엔드 테스트·전용 DB·로컬 공유 서버](docs/backend/testing.md)
+- [iOS 네이티브 공유 검증](frontend/ios/ShareVerification/README.md)
+- [Android 네이티브 공유 검증](frontend/android/SHARE_TESTING.md)
 - [Railway 배포·복구](docs/railway-deployment.md)
+- [사용자 업데이트 내역](CHANGELOG.md)
+- [업데이트 내역 작성·배포 절차](docs/release-process.md)
+- [실제 배포 기록 양식](docs/releases/TEMPLATE.md)
+
+### 협업·이력
+
 - [Git 협업 규칙](docs/git-conventions.md)
+- [작업·검증 이력과 원문 이관 대조표](docs/history/README.md)
+- [PR 템플릿](.github/pull_request_template.md)
+- [FE 기존 경로 안내](docs/fe-merge-fixes.md)
+- [이전 Figma 캐시](frontend/design_cache/figma_624_16572.md)

@@ -111,6 +111,7 @@
 | 2026-10-21 | [Weekly 표시·이동·실제 노출 연결](2026-10-21-weekly-frontend.md) | 추천 |
 | 2026-10-22 | [최근 검색어 저장과 삭제](2026-10-22-search-history.md) | 기능 |
 | 2026-10-22 | [시스템 뒤로가기와 종료 확인](2026-10-22-system-back.md) | 기능 |
+| 2026-10-22 | [일반 문서 README·상세 기준 정리와 보존 검증](2026-10-22-general-docs-structure.md) | 문서 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 
