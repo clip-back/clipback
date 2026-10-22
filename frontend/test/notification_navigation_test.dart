@@ -285,6 +285,9 @@ void main() {
               for (final action in ['header', 'os']) {
                 final before = await _prime(tester);
                 final requests = server.requests.length;
+                final weeklyRequests = server.requests
+                    .where((r) => r['path'] == '/api/v1/recommendations/weekly')
+                    .length;
                 final records = server.records.length;
                 await _open(tester);
                 _preserved(tester, before);
@@ -299,7 +302,16 @@ void main() {
                 expect(_notifications, findsNothing);
                 expect(_home, findsOneWidget);
                 _preserved(tester, before);
-                expect(server.requests.length, requests);
+                expect(server.requests.length, requests + 1);
+                // Leaving notifications for Home is a new Weekly visit.
+                expect(
+                  server.requests
+                      .where(
+                        (r) => r['path'] == '/api/v1/recommendations/weekly',
+                      )
+                      .length,
+                  weeklyRequests + 1,
+                );
                 expect(server.records.length, records);
                 expect(server.writes, 0);
                 expect(server.logoutCalls, 0);
@@ -431,6 +443,9 @@ void main() {
         () async {
           final before = await _prime(tester);
           final requests = server.requests.length;
+          final weeklyRequests = server.requests
+              .where((r) => r['path'] == '/api/v1/recommendations/weekly')
+              .length;
           await _open(tester);
           final notificationElement = tester.element(_notifications);
           final savedBack = _back(tester);
@@ -460,7 +475,14 @@ void main() {
           _back(tester)();
           await tester.pumpAndSettle();
           _preserved(tester, before);
-          expect(server.requests.length, requests);
+          expect(server.requests.length, requests + 1);
+          // Leaving notifications for Home is a new Weekly visit.
+          expect(
+            server.requests
+                .where((r) => r['path'] == '/api/v1/recommendations/weekly')
+                .length,
+            weeklyRequests + 1,
+          );
           expect(server.writes, 0);
           expect(server.logoutCalls, 0);
           expect(tester.takeException(), isNull);

@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/data/repositories/search_history_repository.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
@@ -6,12 +7,26 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
 
 class SearchViewModel extends FeedViewModel {
-  SearchViewModel(ContentRepository repository, this.actions)
-    : super(repository, FeedKey.search);
+  SearchViewModel(ContentRepository repository, this.actions, {this.history})
+    : super(repository, FeedKey.search) {
+    history?.addListener(notifyListeners);
+  }
+  final SearchHistoryRepository? history;
+  List<String> get recentTerms => history?.terms ?? const [];
+  Object? get historyOwner => history?.owner;
+  void removeRecentTerm(String term) => history?.remove(term);
+  @override
+  void dispose() {
+    history?.removeListener(notifyListeners);
+    super.dispose();
+  }
 
   String query = '';
 
-  void open() => changeQuery('');
+  void open() {
+    history?.open();
+    changeQuery('');
+  }
 
   void changeQuery(String value) {
     query = value;
@@ -21,7 +36,10 @@ class SearchViewModel extends FeedViewModel {
   }
 
   Future<List<ContentItem>> search(String value) async {
-    repository.configureFeed(key, query: value.trim());
+    final term = value.trim();
+    if (isDisposed || term.isEmpty) return const [];
+    history?.record(term);
+    repository.configureFeed(key, query: term);
     await repository.loadNext(key, reset: true);
     return List.of(page.items);
   }

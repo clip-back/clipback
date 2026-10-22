@@ -1,5 +1,7 @@
 # FE 병합 전 수정 진행 현황
 
+최근 `9e52b98` 기준 **홈 Weekly 표시·실제 카테고리 이동·보이는 카드 노출·추천 유입을 연결**했다. 신규21/전체1,708·정적 분석0·임시 PostgreSQL 계약100개와 새 비교6쌍/영상2개의 실제 결과는 아래 Weekly 독립 기록을 따른다. 운영 추천 품질·공지·새 확대는 후속이다.
+
 최근 `de14d75` 기준: D08 사진 저장 처리 중의1배율 표현을 적용했다. 기존 D09 제출 요약89px/패딩16px/중앙 cover와 D04 스켈레톤을 재사용하고 D07 전체 보기·원본 바이트/파일명·저장 정책은 유지한다. 집중362/전체1633·분석0, 양 플랫폼 각13동작·전체true·프레임워크 오류0·새2쌍/영상2개를 확인했다.
 
 ## 1. 목적과 현재 범위
@@ -2912,3 +2914,73 @@ flutter build web --no-pub
 [3열 비교2쌍](/private/tmp/clipback-photo-pending-alignment-20261019/comparison-document.html) · [실제 검사/한계](/private/tmp/clipback-photo-pending-alignment-20261019/verification-summary.json) · [iOS 영상](/private/tmp/clipback-photo-pending-alignment-20261019/ios/after/interaction.mp4) · [Android 영상](/private/tmp/clipback-photo-pending-alignment-20261019/android-gesture/after/interaction.mp4)
 
 확정 원본의 자율 구현 범위와 원본/정책/API가 필요한 나머지는 [계획 문서](figma-ui-alignment-plan.md#확정-원본의-자율-구현-마감과-후속-경계--2026-10-19)에 종합했다. 확인된1배율 외형의 마감이며 모든 운영 기능·모든 원본/상태·새 확대의 완료를 뜻하지 않는다. 푸시·PR은 수행하지 않았다.
+
+## 2026-10-21 · 원문 보기 오류와 원본 링크 열기
+
+- `main/b169d93` 기준, `fix/original-link-opening`. F02 `111:3842`의 기존 링크 아이콘에서 OS 외부 앱/브라우저를 바로 여는 사용자 확정 동작을 연결했다. 손상 instagram.svg와 링크 시트를 제거하고 사진 원본/전문 펼침을 보존했다. Figma 컨텍스트·375×890px 렌더 원본을18:15 KST에 재조회했다.
+- URL 검증·중복 차단·실패 안내/수동 재시도·상세/계정 세대와 ID 고정·늦은 응답 방어를 추가했다. OS 수락 뒤 기존 통계를1회 기록하고 통계 실패는 분리한다. API·Repository 계약·모델·세션/공유 보안 처리는 유지했다.
+- BEFORE 제품222파일의 기준 일치와 촬영 대역 동결을 확인하고 양 플랫폼 SVG XML 오류를 먼저 재현했다. 초기 집중72, 최종 관련118, 전체1666 통과(실패/건너뜀0), analyze 문제0. 기존 1배율 실제 글꼴·안전 영역·확대·사진 원본 회귀를 포함한다.
+- iPhone16/iOS18.6·Android13/API33 제스처에서 실제 Safari/Chrome 열기와 복귀·펼침/스크롤12px·대상601 이벤트1회·사진 시트/링크 이벤트0·공유 격리·오류0을 각각11/11로 확인했다. BEFORE/AFTER 창·안전 여백·버튼 경계·스크롤0은 같다. 새3열2쌍·영상2개(iOS10.005초306프레임, Android9.230611초179프레임)의 전체 디코딩과 녹화 완료를 확인했다.
+- 디스크 부족 빌드 실패·초기 Android System UI ANR·촬영 대역과 관찰 필드 진단을 보존하고, 캐시 정리/host GPU 재실행 뒤 새 최종 결과와 구분했다. 아카이브/과거 비교 자료는 유지했다. OS/예제 데이터 차이와 대응 Figma 없는 브라우저/사진 시트를 별도 설명한다.
+- API/세션/통계/공유 대역과 실제 OS URL 실행을 구분한다. 실제 전문/미디어·공급자 앱·운영 API·OAuth·실기기·TestFlight는 미검증/후속이다. 새 디자인/새 확대를 추가하지 않았다.
+- 검증 후 소유 기기/앱·8767/8768 임시 서버·8768/54709 포워딩·이번 빌드 데몬을 종료했다. Android 탐색2 설정은 보존했고 로컬 iOS `FLUTTER_TARGET=lib/main.dart`를 복원했다. 기존 ADB/다른 작업의 프로세스와 아카이브는 유지했다.
+
+
+[3열 비교2쌍](/private/tmp/clipback-original-link-20261021/comparison-document.html) · [검사/한계](/private/tmp/clipback-original-link-20261021/verification-summary.json) · [iOS 영상](/private/tmp/clipback-original-link-20261021/after/ios/after-final.mp4) · [Android 영상](/private/tmp/clipback-original-link-20261021/after/android/after-final.mp4)
+
+
+## 홈 Today 추천의 실제 연결 — 2026-10-21
+
+기준 `9bf6b6e`에서 `feature/home-today-recommendation`으로 분기했다. 홈 ‘오늘의 콘텐츠 보기’는 이제 홈 첫 항목이 아니라 인증된 Today API의 최대5개를 서버 rank 순서대로 연다. 홈 첫 항목601·추천 첫 항목606을 다르게 고정한 변경 전 검사에서601 진입을 재현했고, 제품 수정 전 양 플랫폼 홈/상세4장을 새로 촬영했으나 Android 최초 촬영은 OS 대화상자로 가려져 제외하고 기준 코드로 재촬영했다. 상세 경위는 아래에 기록하며 촬영 대역의 소스 해시는 전후 동일하다.
+
+- 버튼에서만 조회하며 최초 홈 로딩·재빌드에 호출을 추가하지 않는다. 별도 유한 추천 목록은 일반 피드의 개수/필터/커서에 삽입하지 않는다. 홈에 없는 추천도 열 수 있으며 기존 상세의 이전/다음·연관 이동에 추천 항목을 유지한다. 매 버튼 진입은 새 조회와 첫 추천부터 시작하고 탐색 중 추가 조회·당일 보충·재번호·클라이언트 추첨은 없다.
+- 각 추천 진입 전에 상세 GET을1회 수행한다.404는 대상만 제외하고 현재 화면과 기존 SnackBar 안내를 유지하며 다른 콘텐츠를 자동 대체하지 않는다. 기존 북마크·분류·삭제 처리와 계정/요청 세대의 오래된 응답 방어를 연결했다. 저장 화면의 열기/닫기도 대기 중 홈 요청을 무효화한다.
+- 서버stage0은 ‘콘텐츠를 5개 이상 저장하면 오늘의 추천을 볼 수 있어요.’, 그 외0개는 ‘오늘 추천할 콘텐츠가 없어요. 나중에 다시 확인해 주세요.’, 일반 실패는 ‘오늘의 콘텐츠를 불러오지 못했어요. 다시 시도해 주세요.’,404는 ‘이 콘텐츠는 더 이상 볼 수 없어요.’를 기존 SnackBar로 표시한다. 빈 홈의 기존 저장 진입은 유지한다.
+- 추천 상세 진입마다 UUID v4와 해당 `recommendation_item_id`로 view POST를1회 보낸다. 재전송은 같은 UUID이며 일반 상세의 기존 본문 없는 view와 구분한다. 기존 card_clicked/원본 링크 이벤트를 유지하고 지표 실패가 화면 진입을 실패시키지 않는다. 버튼에는 개별 추천이 표시되지 않으므로 조회·버튼·상세를 추천 카드 노출로 만들지 않았다. exposures API 호출은0회다.
+- 서버 API·DB·선정 알고리즘과 홈/상세 화면 위젯·폰트·에셋을 바꾸지 않았다. 새 추천 화면·주간 추천·실제 카드 노출·확대 맞춤·운영 검증은 후속이며 추천 프론트 전체 완료가 아니다.
+
+검사: 새 Today 자동 검사21건, 관련82건, 전체 Flutter1,687건이 통과했고 `flutter analyze --no-pub` 문제0건이다. 전용 임시 PostgreSQL17에 현재 마이그레이션을 적용한 Today/view HTTP 통합 검사60건이 통과했다. 서버0/4/5/9/10개 경계·일별 선정/삭제, 프론트0/1/5개·순위 공백·조회만으로 지표0·중복/이탈/저장 화면/늦은 응답·조회와 쓰기 경합·추천 유입/일반 상세 분리·기존 원본 열기 회귀를 확인했다. [자동 검사](/private/tmp/clipback-today-recommendation-20261021/tests/after-related.log) · [전체 검사](/private/tmp/clipback-today-recommendation-20261021/tests/flutter-test.jsonl) · [PostgreSQL 계약](/private/tmp/clipback-today-recommendation-20261021/tests/backend-target.log).
+
+Figma는 Page1 >261007의 C01 `111:3584`·F02 `111:3842`를 구현 전에 각각 재조회했고 원본과 컨텍스트를 보관했다. 응답 보관 시각은2026-10-21 20:12:33 KST이며 실제 도구 조회 이후의 파일 보관 시각이다. [출처 기록](/private/tmp/clipback-today-recommendation-20261021/figma/reference-manifest.json). 예제 데이터·실제 OS 창과 여백의 차이를 유지하며 원본은 보정하지 않는다.
+
+기기 실행은 iPhone16/iOS18.6·Android13/API33 제스처에서 새로 수행해 최종 iOS26/26·Android27/27이 통과했다. 양쪽 홈 앱 영역의 변경 전후 픽셀은 동일하고 창 크기·안전 여백도 동일하다. 첫 상세는601→606으로 대상과 불러온 개수가 달라지는 의도된 변경이다. 홈→추천5개 순서/양 끝→북마크→원본 외부 열기/복귀→홈→실패·stage0·빈 결과→수동 재시도를 확인했다. 프레임워크·Dart 비동기 오류는 최종 실행0건이며 영상의 종료·전체 디코딩·PTS를 별도로 검사했다.
+
+초기 Android OS System UI 응답 없음 대화상자가 촬영을 가린 사실을 원본 이미지 검토에서 발견했다. 가린 최초 BEFORE/AFTER·첫 판정은 진단 폴더에 보존하고 최종 비교/성공 근거에서 제외했다. 수정한 제품4파일을 `9bf6b6e` 내용으로 일시 복원해 유효한 Android BEFORE를 다시 촬영한 다음, 구현 파일을 전체 검사 통과 당시 해시와 일치하게 복원했다. 따라서 Android 최종 BEFORE는 최초 제품 수정 이전 촬영이 아닌 기준 코드 재촬영이며 이 차이를 숨기지 않는다. 촬영 대역의 소스는 계속 동일하다. 빌드/검사 병행 중 발생한 대역의 프레임 대기 timeout과 attach 실행 옵션 진단도 최종 성공으로 덮지 않았다. 실제 OS 브라우저 열기/앱 복귀를 확인했으며 외부 페이지 본문 로딩 완료를 성공 조건으로 삼지 않았다.
+
+자료: [3열 비교4쌍](/private/tmp/clipback-today-recommendation-20261021/comparison-document.html) · [검증 요약과 한계](/private/tmp/clipback-today-recommendation-20261021/verification-summary.json) · [iOS 영상](/private/tmp/clipback-today-recommendation-20261021/after/ios/after.mp4) · [Android 영상](/private/tmp/clipback-today-recommendation-20261021/after/android/after.mp4). 대역/로컬 DB 검증은 운영 API·실제 OAuth·실기기·TestFlight·원격CI 검증과 구분한다. 화면 증거·DB·빌드·AGENTS.md는 커밋에서 제외하며 푸시/PR은 하지 않는다.
+
+검증 후 소유 Flutter 실행·Gradle·임시 PostgreSQL·iPhone/Android 기기·8776 포워딩을 종료했다. Android 제스처 설정2는 변경하지 않았고 기존 ADB 서버는 유지했다. iOS 생성 설정의 `FLUTTER_TARGET=lib/main.dart`를 복원했으며 이는 Archive/서명/배포 검증이 아니다.
+
+
+## 2026-10-21 Weekly 프론트 연결 — 승인 범위 완료
+
+기준 `9e52b98`에서 `feature/home-weekly-recommendation`으로 분기했다. 완료 범위는 **Weekly 표시·카테고리 이동·실제 카드 노출·추천 유입 연결**이다. 서버 선정 알고리즘·DB·Today 동작·기존 콘텐츠/저장 정책과 기존 확대 자동 검사는 유지한다.
+
+- 실제 홈 첫 프레임 이후 방문당 인증된 Weekly GET1회, 서버 순서/항목ID/순위/유형/기간·배치·카테고리를 보존한 최대2개 흰 카드다. `MOST_SAVED`·`MOST_VIEWED`·`REDISCOVERY`의 승인 문구와 실제 카테고리명만 빨간 강조를 사용한다. 고정 노란 공지 카드를 제거했다.133×120px·여백/테두리·두 줄 말줄임과 기존 확대 구조를 유지한다.
+- 홈 첫 초기화·900ms 스플래시를 연장하지 않는다. 다른 화면에서 홈으로 돌아오면 새 방문/배치를 조회하고 이전 카드를 숨긴다. 필터/스크롤/재빌드·모달/시트·OS 백그라운드 복귀는 같은 방문이다. 조회 중/0개에는 제목·카드·해당 간격을 함께 숨긴다. 실패는 기존 SnackBar ‘이번주 추천을 불러오지 못했어요. 다시 시도해 주세요.’와 해당 방문에만 유효한 수동 재시도다. 새 스켈레톤/오류 디자인은 없다.
+- 추천은 일반 피드/개수/커서·홈 필터/Today Stage와 분리한다. 카드는 실제 categoryID로 F01을 열고 검색/다른 필터를 해제하되 아카이브 정렬은 보존한다. Weekly F01의 헤더 뒤로→홈, 일반 아카이브의 기존 복귀를 구분한다. F01↔상세의 항목ID/categoryID/계정 소유권은 홈 방문 종료와 분리하며 다른 카테고리/전체/검색/다시보기·계정 변경에는 해제한다. 실제 소속이 확인된 상세와 이전/다음 진입만 추천 열람에 귀속하고 일반 상세/Today와 섞지 않는다.
+- 앱 전면·홈 최상위·모달 없음에서 카드와 모든 상위 가로/세로 viewport의 실제 면적 교집합이50% 이상인 첫 프레임에만 노출한다. 방문/항목당 UUID1개이며 스크롤/재빌드/모달/OS 복귀 중복을 차단한다. 응답 수신·카테고리 이동을 열람으로 만들지 않는다. 기존 인증 재전송은 같은 UUID이고 통계 실패는 조회/이동을 막거나 새 배치/자동 재시도 루프를 만들지 않는다. 계정·방문·요청 변경/종료 후 늦은 응답과 예약된 측정을 무효화한다. 확정 삭제된 카테고리는 제외하고 보충하지 않는다.
+
+검증: 신규 자동21개(Repository/API7·루트8·실제 폰트/viewport6), 전체 `flutter test --no-pub` **1,708개 통과**·`flutter analyze --no-pub` **문제0건**. 기존 확대·인증/공유/세션·콘텐츠 변경·페이지네이션·원본 링크 회귀를 유지했다. 새 홈 GET을 알지 못한 기존 테스트 대역에는 빈 Weekly 정상 계약을 명시했으며 기존 보안/오류 검사를 삭제하거나 건너뛰지 않았다. 별도 임시 PostgreSQL17에서 전체 마이그레이션 적용 후 기존 Weekly/exposure/view HTTP 통합 **100개 통과**(Starlette 의존성 deprecation 경고1건). 대역 통과로 운영 API 성공을 대신하지 않는다.
+
+Figma: Page1 >261007, 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 C01 `111:3584`·F01 `111:3968` 컨텍스트를 **2026-10-21 21:32:22 KST**에 각각 재조회했다. C01 원본375×910px·F01 원본375×1396px을 보관했다. F01은 기본 컨텍스트의 축소 이미지와 구분해 자연 크기 원본도 확보했다. [출처/보관 시각](/private/tmp/clipback-weekly-recommendation-20261021/figma/reference-manifest.json).
+
+기기: iPhone16/iOS18.6·Android13/API33 제스처에서 같은 고정 데이터·1배율·키보드 숨김·스크롤0으로 BEFORE/AFTER를 새로 촬영했다. **제품 수정 전에 BEFORE6장 원본을 직접 열어 앱 전면·OS 대화상자 없음**을 확인했다. 홈 예제3개→실제 추천2개, 재발견 문구와 공지 제외, 목적지 전체 카테고리→선택ID의 F01은 의도한 변경이다. 재발견·로딩·빈/오류 전용 원본은 없으므로 공통 C01을 참조하며 대체 디자인을 만들지 않았다.
+
+최종 네이티브 결과와 영상 검사: iOS22/22·Android22/22, 스타일/레이아웃/동작/전체 `passed:true`, 프레임워크/Dart 비동기 오류0건. iOS 22.058333초·Android 25.623511초 영상의 녹화 정상 종료·전체 디코딩 종료0/오류0·원본 PTS 증가와 주요/마지막 장면을 확인했다. 실제 문단 글꼴/굵기/자간/색상/행간·133×120px 카드·경계, 실제 탭·모달·스크롤·OS 복귀·카테고리/상세·북마크·F01 복귀·새 방문/배치/UUID·실패/재시도·빈 결과를 검사했다. iOS 창393×852px/상59·하34px, Android Flutter 창392.727×783.273px/상24·하0px이며 Android 실제 OS 탐색 표시는 창 밖에 있다. Figma 예제 콘텐츠·카테고리 색/개수와 OS 창/안전 영역 차이를 유지하며 원본을 보정하지 않는다.
+
+자료: [3열 비교6쌍](/private/tmp/clipback-weekly-recommendation-20261021/comparison-document.html) · [최종 검증 요약](/private/tmp/clipback-weekly-recommendation-20261021/verification-summary.json) · [iOS 영상](/private/tmp/clipback-weekly-recommendation-20261021/after/ios/after.mp4) · [Android 영상](/private/tmp/clipback-weekly-recommendation-20261021/after/android/after.mp4) · [전체 Flutter](/private/tmp/clipback-weekly-recommendation-20261021/tests/flutter-final.log) · [로컬 DB](/private/tmp/clipback-weekly-recommendation-20261021/tests/backend.log).
+
+촬영 도구의 최초 프레임 판정과 Android OS 복귀 전환 대기 보완 시도는 `diagnostics`에 보존하고 최종 성공 근거에서 제외했다. 제품 대기/타이밍을 바꾸지 않았고 촬영 중 무거운 빌드/전체 검사를 병행하지 않았다. 고정 비교 데이터와 장면은 보존했으며 AFTER용 모달/정렬/오류 제어와 경계 수집을 프리뷰에 보완한 사실은 소스 동결 기록과 구분한다.
+
+후속: 운영 추천 품질/운영 서버·실제 OAuth·실기기·TestFlight·원격CI, 공지 데이터/목적지, 새 확대 맞춤과 원본 없는 상태 디자인. 로컬 대역/DB·시뮬레이터/에뮬레이터 확인 범위이며 추천 전체 제품 완료가 아니다. 화면 증거·빌드·임시DB·AGENTS.md는 커밋에서 제외하고 푸시/PR은 하지 않는다. 소유 Flutter 실행/앱·iPhone/Android 가상 기기·8776 포워딩·네이티브 녹화 임시 파일·임시 PostgreSQL 클러스터·이번 Gradle 데몬을 종료/정리했다. Android 제스처 설정2는 변경하지 않았고 기존 ADB 서버는 보존했다. 제품 iOS 생성 설정은 `FLUTTER_TARGET=lib/main.dart`로 복원했다. 설정 복원은 Archive/배포 검증이 아니다.
+
+
+## 2026-10-22 — 실제 최근 검색어 저장·삭제 연결
+
+- 기준0797901에서 `feature/search-history-persistence`로 분리했다. 제품의 예제5개를 제거하고 제출 시 실제 이력 저장·최신순/중복 제거/최대5개·개별 삭제·계정별 재진입/재실행 복원을 연결했다. 실패/0개도 기록하고 공백/입력만으로 기록하거나 조회하지 않는다.
+- 로그아웃 후 계정별 보존, 동일ID 게스트 승격 유지와 다른 계정 전환 시 비병합을 확정했다. API 환경/서버ID 키, 세대/소유권 방어, 늦은 읽기 작업 재적용과 직렬 쓰기, 장애 시 메모리 유지·명시적 재시도를 적용했다. 토큰/이메일로 계정을 추정하거나 서버 API를 변경하지 않았다.
+- 제품 변경 전 해시 gate·새 BEFORE4장과 예제 노출 재현1실패를 확보했다. 수정 후 새23건 포함 전체1731건 통과·분석0, 집중53/1배율38건 통과(기존34건 중복)를 확인했다. 기존 검색 프리뷰의 예제는 테스트 fixture/메모리 저장소로 주입하고 실제 개인 기록과 격리했다.
+- iPhone16/iOS18.6·Android13/API33 제스처 각21동작 통과·프레임워크/비동기 오류0. 실제 플랫폼 저장 완료 후 OS 프로세스 종료/재실행 복원과 삭제·두 대역 계정 분리·키보드 왕복을 확인했다. 로그아웃/게스트/장애/늦은 응답은 자동 검사이며 실제 공급자 로그인으로 오인하지 않는다.
+- [비교4쌍/영상2개](/private/tmp/clipback-search-history-20261022/comparison-document.html)·[실측/검증](/private/tmp/clipback-search-history-20261022/verification-summary.json). H01 컨텍스트/원본은2026-10-22 02:18:22.929~02:18:34.492 KST 호출/결과 구간에 재조회했다. 아이콘3개는 원본과 bytes 일치하며 예제4개/닫기/디자인 키보드와 실제 기록/취소/OS 여백 차이를 명시했다. 초기 도구/Android 최종 영상 프레임 진단은 별도 보존해 최종 성공 수에서 제외했다.
+- UI-11의 실제 기기 기록만 완료 범위로 표시한다. 빈 기록/저장 오류의 새 디자인·서버 동기화·자동완성·전체 집계·운영 계정/서버·OAuth·실기기·원격 CI·새 확대는 후속이다. 제품 진입 `lib/main.dart`를 복원하고 소유 기기/프로세스/포워딩을 정리한다. 푸시/PR은 하지 않는다.

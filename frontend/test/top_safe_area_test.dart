@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/clipback_api.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
@@ -40,6 +41,14 @@ Future<ContentItem> saveImage({
 }) async => initialContents.first;
 
 Widget home() => HomeScreen(
+  weeklyItems: const [
+    ApiWeeklyRecommendationItem(
+      id: 1,
+      rank: 1,
+      type: WeeklyCardType.mostSaved,
+      category: ApiCategory(id: 1, name: '생활', color: null, isDefault: false),
+    ),
+  ],
   contents: initialContents,
   categories: const [],
   bookmarkedIds: const {},

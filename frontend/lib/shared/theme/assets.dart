@@ -106,7 +106,6 @@ class Assets {
   static const categoryCardStar = 'assets/icons/category-card-star.svg';
   static const categoryCardStarSmall =
       'assets/icons/category-card-star-small.svg';
-  static const instagram = 'assets/icons/instagram.svg';
   static const categorySheetEdit = 'assets/icons/category-sheet-edit.svg';
   static const categorySheetTrash = 'assets/icons/category-sheet-trash.svg';
   static const categorySheetWarning = 'assets/icons/category-sheet-warning.svg';

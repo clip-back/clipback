@@ -21,7 +21,6 @@ import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 // Detail-only roles keep the shared theme and other screens unchanged.
 class _DetailText {
@@ -227,20 +226,20 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<void> _showOriginalSheet() async {
+    if (!widget.content.isScreenshot) {
+      widget.onOpenOriginalLink();
+      return;
+    }
     if (_showingOriginalSheet) return;
     _showingOriginalSheet = true;
     final version = ++_originalSheetVersion;
     final content = widget.content;
     final image = _originalImage;
-    if (content.isScreenshot) {
-      unawaited(image.load());
-    } else if (content.originalUrl.isNotEmpty) {
-      widget.onOpenOriginalLink();
-    }
+    unawaited(image.load());
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
-      isScrollControlled: content.isScreenshot,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         final route = ModalRoute.of<void>(sheetContext);
@@ -255,9 +254,7 @@ class _DetailScreenState extends State<DetailScreen> {
         _originalSheetRoute = route;
         return OriginalContentSheet(
           content: content,
-          originalImage: content.isScreenshot
-              ? _ScreenshotAssetView(controller: image)
-              : null,
+          originalImage: _ScreenshotAssetView(controller: image),
         );
       },
     );
@@ -774,14 +771,11 @@ class OriginalContentSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSheet(
-      title: content.isScreenshot ? '원본 이미지' : '원문 보기',
+      title: '원본 이미지',
       children: [
         Row(
           children: [
-            if (content.isScreenshot)
-              const Icon(Icons.image_outlined, size: 18)
-            else
-              SvgPicture.asset(Assets.instagram, width: 18, height: 18),
+            const Icon(Icons.image_outlined, size: 18),
             const SizedBox(width: 6),
             Text(
               content.source,
@@ -797,25 +791,16 @@ class OriginalContentSheet extends StatelessWidget {
         const SizedBox(height: 14),
         Container(
           constraints: BoxConstraints(
-            maxHeight: content.isScreenshot
-                ? MediaQuery.sizeOf(context).height * 0.55
-                : 280,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.55,
           ),
           width: double.infinity,
-          padding: EdgeInsets.all(content.isScreenshot ? 0 : 16),
+          padding: EdgeInsets.zero,
           decoration: BoxDecoration(
             color: AppColors.bg,
             borderRadius: BorderRadius.circular(8),
           ),
           child: SingleChildScrollView(
-            child: content.isScreenshot
-                ? originalImage ?? const Text('저장된 원본 이미지가 없어요.')
-                : Text(
-                    content.originalText.isEmpty
-                        ? content.summary
-                        : content.originalText,
-                    style: const TextStyle(fontSize: 15, height: 1.6),
-                  ),
+            child: originalImage ?? const Text('저장된 원본 이미지가 없어요.'),
           ),
         ),
         if (content.originalUrl.isNotEmpty) ...[

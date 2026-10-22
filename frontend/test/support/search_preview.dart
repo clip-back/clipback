@@ -32,6 +32,8 @@ import 'package:http/testing.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'archive_all_preview.dart' as e01;
+import '../fixtures/search_history_memory_storage.dart';
+import '../fixtures/search_history_examples.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 
 const searchPhase = String.fromEnvironment(
@@ -1340,6 +1342,9 @@ Future<void> _fresh(String kind, double offset) async {
       key: _capture,
       child: ClipbackApp(
         key: ValueKey(++_epoch),
+        searchHistoryStorage: SearchHistoryMemoryStorage(
+          initialTerms: recentSearches,
+        ),
         sessionStorage: e01.ArchiveAllMemoryStorage(),
         socialAuth: e01.ArchiveAllSocialAuth(),
       ),

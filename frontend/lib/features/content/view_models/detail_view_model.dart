@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
+import 'package:clipback_frontend/data/services/original_link_opener.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -11,15 +12,27 @@ import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
 
 class DetailViewModel extends ContentViewModel {
-  DetailViewModel(super.repository, this.actions);
+  DetailViewModel(
+    super.repository,
+    this.actions, {
+    OriginalLinkOpener? originalLinkOpener,
+  }) : _originalLinkOpener =
+           originalLinkOpener ?? const PlatformOriginalLinkOpener();
 
   final ContentActions actions;
+  final OriginalLinkOpener _originalLinkOpener;
+  Object? _originalOpening;
   DetailHandle? _handle;
   FeedKey? _source;
   FeedPage? _sourcePage;
   int _navigationVersion = 0;
   bool _active = false;
   bool moving = false;
+  WeeklyNavigationOrigin? _weeklyOrigin;
+  _TodayDetailContext? _todayContext;
+  Object? _todayPending;
+  bool get isToday => _todayContext != null;
+  WeeklyNavigationOrigin? get weeklyOrigin => _weeklyOrigin;
 
   ContentItem? get content => !_active || repository.selectedContent == null
       ? null
@@ -32,6 +45,12 @@ class DetailViewModel extends ContentViewModel {
 
   @override
   void repositoryChanged() {
+    final today = _todayContext;
+    if (today != null &&
+        today.accountVersion == repository.accountVersion &&
+        today.version == repository.todayVersion) {
+      _projectToday(today);
+    }
     if (_active && _handle != null && !repository.isCurrentDetail(_handle!)) {
       final sameAccount = _handle!.accountVersion == repository.accountVersion;
       // A new open sets its handle after the synchronous repository notification.
@@ -42,6 +61,8 @@ class DetailViewModel extends ContentViewModel {
         moving = false;
         _source = null;
         _sourcePage = null;
+        _todayContext = null;
+        _todayPending = null;
         if (sameAccount) emitEffect(const DetailDeletedEffect());
       }
     }
@@ -54,25 +75,48 @@ class DetailViewModel extends ContentViewModel {
     required FeedKey source,
     required FeedPage sourcePage,
     bool recordView = true,
+    WeeklyNavigationOrigin? weeklyOrigin,
   }) {
     if (isDisposed || item.apiId == null) return false;
     final current = repository.currentContent(item.apiId!);
     if (current == null) return false;
+    _todayContext = null;
+    _todayPending = null;
+    _weeklyOrigin =
+        source == FeedKey.archive &&
+            weeklyOrigin?.accountVersion == repository.accountVersion &&
+            sourcePage.categoryId == weeklyOrigin?.categoryId &&
+            current.categories.any(
+              (category) => category.id == weeklyOrigin?.categoryId,
+            )
+        ? weeklyOrigin
+        : null;
     _source = source;
     _sourcePage = sourcePage;
     _active = true;
+    _originalOpening = null;
     _navigationVersion++;
     moving = false;
     _handle = repository.openDetail(current);
     notifyListeners();
     if (recordView) {
       unawaited(repository.refreshDetail(_handle!));
-      repository.recordOpen(current);
+      final origin = _weeklyOrigin;
+      if (origin != null &&
+          current.categories.any((c) => c.id == origin.categoryId)) {
+        repository.recordRecommendationOpen(current, origin.itemId);
+      } else {
+        repository.recordOpen(current);
+      }
     }
     return true;
   }
 
   void close() {
+    _weeklyOrigin = null;
+    _todayContext = null;
+    _todayPending = null;
+    _originalOpening = null;
     _active = false;
     _handle = null;
     _source = null;
@@ -84,6 +128,22 @@ class DetailViewModel extends ContentViewModel {
   }
 
   Future<void> move(int delta) async {
+    final today = _todayContext;
+    if (today != null) {
+      if (moving || content == null) return;
+      final index = today.page.items.indexWhere(
+        (item) => item.id == content!.id,
+      );
+      final next = index + delta;
+      if (index >= 0 && next >= 0 && next < today.page.items.length) {
+        await _openTodayContent(
+          today.page.items[next].apiId!,
+          today,
+          isCurrent: () => _active,
+        );
+      }
+      return;
+    }
     final current = content;
     final source = _source;
     final page = _sourcePage;
@@ -111,7 +171,12 @@ class DetailViewModel extends ContentViewModel {
     }
     final nextIndex = index + delta;
     if (nextIndex >= 0 && nextIndex < page.items.length) {
-      open(page.items[nextIndex], source: source, sourcePage: page);
+      open(
+        page.items[nextIndex],
+        source: source,
+        sourcePage: page,
+        weeklyOrigin: _weeklyOrigin,
+      );
     }
   }
 
@@ -121,6 +186,140 @@ class DetailViewModel extends ContentViewModel {
     } else {
       await move(1);
     }
+  }
+
+  static const _todayFailure = '오늘의 콘텐츠를 불러오지 못했어요. 다시 시도해 주세요.';
+  static const _todayUnavailable = '이 콘텐츠는 더 이상 볼 수 없어요.';
+
+  void _projectToday(_TodayDetailContext context) {
+    context.page.items
+      ..clear()
+      ..addAll(
+        (repository.today?.items ?? const <ApiTodayRecommendationItem>[]).map(
+          (item) => present(item.content),
+        ),
+      );
+  }
+
+  /// The home action owns the entire query plus the initial detail read.
+  Future<bool> openToday({required bool Function() isCurrent}) async {
+    try {
+      final response = await repository.loadToday(isCurrent: isCurrent);
+      if (isDisposed || !isCurrent() || response == null) return false;
+      if (response.stage == 0 || response.items.isEmpty) {
+        emitEffect(
+          MessageEffect(
+            response.stage == 0
+                ? '콘텐츠를 5개 이상 저장하면 오늘의 추천을 볼 수 있어요.'
+                : '오늘 추천할 콘텐츠가 없어요. 나중에 다시 확인해 주세요.',
+          ),
+        );
+        return false;
+      }
+      final context = _TodayDetailContext(
+        repository.accountVersion,
+        repository.todayVersion,
+      );
+      _projectToday(context);
+      return _openTodayContent(
+        response.items.first.content.id,
+        context,
+        isCurrent: isCurrent,
+      );
+    } catch (_) {
+      if (!isDisposed && isCurrent()) {
+        emitEffect(const MessageEffect(_todayFailure));
+      }
+      return false;
+    }
+  }
+
+  Future<void> openTodayItem(ContentItem item) async {
+    final context = _todayContext;
+    if (context == null ||
+        moving ||
+        item.apiId == null ||
+        !context.page.items.any((value) => value.apiId == item.apiId)) {
+      return;
+    }
+    await _openTodayContent(item.apiId!, context, isCurrent: () => _active);
+  }
+
+  Future<bool> _openTodayContent(
+    int id,
+    _TodayDetailContext context, {
+    required bool Function() isCurrent,
+  }) async {
+    if (isDisposed || moving || !isCurrent()) return false;
+    final token = Object(), navigation = _navigationVersion;
+    _todayPending = token;
+    moving = true;
+    notifyListeners();
+    bool current() =>
+        !isDisposed &&
+        identical(_todayPending, token) &&
+        navigation == _navigationVersion &&
+        isCurrent() &&
+        context.accountVersion == repository.accountVersion &&
+        context.version == repository.todayVersion;
+    try {
+      final value = await repository.readTodayContent(id, isCurrent: current);
+      if (!current()) return false;
+      final recommendation = repository.today?.items
+          .where((item) => item.content.id == id)
+          .firstOrNull;
+      if (value == null || recommendation == null) {
+        emitEffect(const MessageEffect(_todayUnavailable));
+        return false;
+      }
+      _projectToday(context);
+      final opened = open(
+        present(value),
+        source: FeedKey.home,
+        sourcePage: context.page,
+        recordView: false,
+      );
+      if (!opened) return false;
+      _todayContext = context;
+      // The explicit preflight is the one detail GET. Do not also refresh/read or
+      // record the ordinary un-attributed view path in open().
+      repository.recordRecommendationOpen(value, recommendation.id);
+      notifyListeners();
+      return true;
+    } catch (error) {
+      if (current()) {
+        emitEffect(
+          MessageEffect(
+            error is ClipbackApiException && error.statusCode == 404
+                ? _todayUnavailable
+                : _todayFailure,
+          ),
+        );
+      }
+      return false;
+    } finally {
+      if (identical(_todayPending, token)) {
+        _todayPending = null;
+        moving = false;
+        if (!isDisposed) notifyListeners();
+      }
+    }
+  }
+
+  void cancelTodayNavigation() {
+    if (_todayPending == null) return;
+    _todayPending = null;
+    moving = false;
+    if (!isDisposed) notifyListeners();
+  }
+
+  void Function(int) adjacentAction() {
+    final version = _navigationVersion;
+    return (delta) {
+      if (!isDisposed && _active && version == _navigationVersion) {
+        unawaited(move(delta));
+      }
+    };
   }
 
   Future<Uint8List> readAsset(int assetId) async {
@@ -136,9 +335,53 @@ class DetailViewModel extends ContentViewModel {
     return bytes;
   }
 
-  void recordOriginalOpen() {
-    final id = content?.apiId;
-    if (id != null) repository.recordOriginalLinkOpened(id);
+  /// Bind the action to this visit, including close/reopen of the same content.
+  void Function() originalLinkAction() {
+    final handle = _handle;
+    final version = _navigationVersion;
+    return () {
+      if (!_ownsOriginalAction(handle, version)) return;
+      unawaited(_openOriginalLink(handle!, version));
+    };
+  }
+
+  bool _ownsOriginalAction(DetailHandle? handle, int version) =>
+      !isDisposed &&
+      _active &&
+      handle != null &&
+      identical(_handle, handle) &&
+      version == _navigationVersion &&
+      repository.isCurrentDetail(handle);
+
+  Future<void> _openOriginalLink(DetailHandle handle, int version) async {
+    if (_originalOpening != null) return;
+    final snapshot = repository.currentContent(handle.contentId);
+    if (snapshot == null || snapshot.contentType != 'link') return;
+    final token = Object();
+    _originalOpening = token;
+    const message = '원본 링크를 열지 못했어요. 다시 시도해 주세요.';
+    try {
+      final uri = Uri.tryParse((snapshot.originalUrl ?? '').trim());
+      final valid =
+          uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.hasAuthority &&
+          uri.host.isNotEmpty;
+      final accepted = valid && await _originalLinkOpener.open(uri);
+      if (!_ownsOriginalAction(handle, version)) return;
+      if (accepted) {
+        repository.recordOriginalLinkOpened(snapshot.id);
+      } else {
+        emitEffect(const MessageEffect(message));
+      }
+    } catch (_) {
+      if (_ownsOriginalAction(handle, version)) {
+        emitEffect(const MessageEffect(message));
+      }
+    } finally {
+      // An older completion must not unlock a new detail's pending launch.
+      if (identical(_originalOpening, token)) _originalOpening = null;
+    }
   }
 
   Future<void> toggleBookmark(ContentItem item) async {
@@ -161,9 +404,21 @@ class DetailViewModel extends ContentViewModel {
 
   @override
   void dispose() {
+    _todayPending = null;
+    _todayContext = null;
+    _originalOpening = null;
     _navigationVersion++;
     _active = false;
     _handle = null;
     super.dispose();
   }
+}
+
+class _TodayDetailContext {
+  _TodayDetailContext(this.accountVersion, this.version);
+  final int accountVersion;
+  final int version;
+  final FeedPage page = FeedPage()
+    ..initialized = true
+    ..hasMore = false;
 }

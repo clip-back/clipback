@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -132,6 +133,7 @@ Widget _panel({
   VoidCallback? onOpenCategories,
 }) => SingleChildScrollView(
   child: HomeContentPanel(
+    weeklyItems: _weeklyTestItems,
     feed: feed,
     activeCategoryId: categoryId,
     hasSavedContent: contents.isNotEmpty,
@@ -202,7 +204,10 @@ void main() {
     tester,
   ) async {
     addTearDown(tester.view.reset);
-    await _render(tester, child: WeeklyPickRail(onOpenCategory: () {}));
+    await _render(
+      tester,
+      child: WeeklyPickRail(items: _weeklyTestItems, onOpenCategory: () {}),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -225,7 +230,10 @@ void main() {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    WeeklyPickRail(onOpenCategory: () => weeklyTaps++),
+                    WeeklyPickRail(
+                      items: _weeklyTestItems,
+                      onOpenCategory: () => weeklyTaps++,
+                    ),
                     const SizedBox(height: 24),
                     HomeContentCard(
                       content: _content(0, long: true),
@@ -701,3 +709,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
+
+const _weeklyTestItems = [
+  ApiWeeklyRecommendationItem(
+    id: 1,
+    rank: 1,
+    type: WeeklyCardType.mostSaved,
+    category: ApiCategory(
+      id: 1,
+      name: "아주 긴 카테고리 이름",
+      color: null,
+      isDefault: false,
+    ),
+  ),
+  ApiWeeklyRecommendationItem(
+    id: 2,
+    rank: 3,
+    type: WeeklyCardType.mostViewed,
+    category: ApiCategory(id: 2, name: "다이어트", color: null, isDefault: false),
+  ),
+];

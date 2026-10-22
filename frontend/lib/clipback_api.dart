@@ -676,6 +676,41 @@ class ClipbackApi {
     ),
   );
 
+  Future<ApiWeeklyRecommendation> readWeeklyRecommendation() async =>
+      ApiWeeklyRecommendation.fromJson(
+        await _json('GET', '/recommendations/weekly'),
+      );
+
+  Future<void> recordRecommendationExposure({
+    required String clientEventId,
+    required int recommendationItemId,
+  }) => _json(
+    'POST',
+    '/recommendations/exposures',
+    body: {
+      'client_event_id': clientEventId,
+      'recommendation_item_id': recommendationItemId,
+    },
+  );
+
+  Future<ApiTodayRecommendation> readTodayRecommendation() async =>
+      ApiTodayRecommendation.fromJson(
+        await _json('GET', '/recommendations/today'),
+      );
+
+  Future<void> recordRecommendationView(
+    int contentId, {
+    required String clientEventId,
+    required int recommendationItemId,
+  }) => _json(
+    'POST',
+    '/contents/$contentId/view',
+    body: {
+      'client_event_id': clientEventId,
+      'recommendation_item_id': recommendationItemId,
+    },
+  );
+
   Future<void> recordContentView(int contentId) =>
       _json('POST', '/contents/$contentId/view');
 
@@ -965,3 +1000,164 @@ List<Map<String, dynamic>> _jsonList(Object? value) =>
 
 DateTime? _dateTime(Object? value) =>
     value is String ? DateTime.tryParse(value)?.toLocal() : null;
+
+/// A server-owned daily selection; rank is not renumbered after deletion.
+class ApiTodayRecommendationItem {
+  const ApiTodayRecommendationItem({
+    required this.id,
+    required this.rank,
+    required this.content,
+  });
+  final int id;
+  final int rank;
+  final ApiContent content;
+  factory ApiTodayRecommendationItem.fromJson(Map<String, dynamic> value) =>
+      ApiTodayRecommendationItem(
+        id: value['recommendation_item_id'] as int,
+        rank: value['rank'] as int,
+        content: ApiContent.fromJson(
+          Map<String, dynamic>.from(value['content'] as Map),
+        ),
+      );
+}
+
+class ApiTodayRecommendation {
+  ApiTodayRecommendation({
+    required this.stage,
+    required this.date,
+    required this.batchId,
+    required this.generatedAt,
+    required List<ApiTodayRecommendationItem> items,
+  }) : items = List.unmodifiable(items);
+  final int stage;
+  final String date;
+  final int? batchId;
+  final DateTime? generatedAt;
+  final List<ApiTodayRecommendationItem> items;
+  factory ApiTodayRecommendation.fromJson(Map<String, dynamic> value) {
+    final items =
+        (value['items'] as List)
+            .map(
+              (v) => ApiTodayRecommendationItem.fromJson(
+                Map<String, dynamic>.from(v as Map),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.rank.compareTo(b.rank));
+    return ApiTodayRecommendation(
+      stage: value['stage'] as int,
+      date: value['recommendation_date'] as String,
+      batchId: value['batch_id'] as int?,
+      generatedAt: value['generated_at'] == null
+          ? null
+          : DateTime.parse(value['generated_at'] as String),
+      items: items,
+    );
+  }
+  ApiTodayRecommendation mapContents(ApiContent? Function(ApiContent) change) =>
+      ApiTodayRecommendation(
+        stage: stage,
+        date: date,
+        batchId: batchId,
+        generatedAt: generatedAt,
+        items: [
+          for (final item in items)
+            if (change(item.content) case final ApiContent updated)
+              ApiTodayRecommendationItem(
+                id: item.id,
+                rank: item.rank,
+                content: updated,
+              ),
+        ],
+      );
+}
+
+/// Server order and rank are retained, including gaps after a deletion.
+enum WeeklyCardType { mostSaved, mostViewed, rediscovery }
+
+class ApiWeeklyRecommendationItem {
+  const ApiWeeklyRecommendationItem({
+    required this.id,
+    required this.rank,
+    required this.type,
+    required this.category,
+  });
+  final int id, rank;
+  final WeeklyCardType type;
+  final ApiCategory category;
+  factory ApiWeeklyRecommendationItem.fromJson(Map<String, dynamic> value) =>
+      ApiWeeklyRecommendationItem(
+        id: value['recommendation_item_id'] as int,
+        rank: value['rank'] as int,
+        type: switch (value['card_type']) {
+          'MOST_SAVED' => WeeklyCardType.mostSaved,
+          'MOST_VIEWED' => WeeklyCardType.mostViewed,
+          'REDISCOVERY' => WeeklyCardType.rediscovery,
+          _ => throw const FormatException('Unknown Weekly card type'),
+        },
+        category: ApiCategory.fromJson(
+          Map<String, dynamic>.from(value['category'] as Map),
+        ),
+      );
+  ApiWeeklyRecommendationItem withCategory(ApiCategory value) =>
+      ApiWeeklyRecommendationItem(
+        id: id,
+        rank: rank,
+        type: type,
+        category: value,
+      );
+}
+
+class ApiWeeklyRecommendation {
+  ApiWeeklyRecommendation({
+    required this.periodStart,
+    required this.periodEnd,
+    required this.batchId,
+    required this.generatedAt,
+    required List<ApiWeeklyRecommendationItem> items,
+  }) : items = List.unmodifiable(items);
+  final String periodStart, periodEnd;
+  final int? batchId;
+  final DateTime? generatedAt;
+  final List<ApiWeeklyRecommendationItem> items;
+  factory ApiWeeklyRecommendation.fromJson(Map<String, dynamic> value) =>
+      ApiWeeklyRecommendation(
+        periodStart: value['period_start'] as String,
+        periodEnd: value['period_end'] as String,
+        batchId: value['batch_id'] as int?,
+        generatedAt: value['generated_at'] == null
+            ? null
+            : DateTime.parse(value['generated_at'] as String),
+        items: (value['items'] as List)
+            .map(
+              (v) => ApiWeeklyRecommendationItem.fromJson(
+                Map<String, dynamic>.from(v as Map),
+              ),
+            )
+            .take(2)
+            .toList(),
+      );
+  ApiWeeklyRecommendation mapCategories(
+    ApiCategory? Function(ApiCategory) change,
+  ) => ApiWeeklyRecommendation(
+    periodStart: periodStart,
+    periodEnd: periodEnd,
+    batchId: batchId,
+    generatedAt: generatedAt,
+    items: [
+      for (final item in items)
+        if (change(item.category) case final ApiCategory category)
+          item.withCategory(category),
+    ],
+  );
+}
+
+/// An attribution origin outlives its home visit, but never its account.
+class WeeklyNavigationOrigin {
+  const WeeklyNavigationOrigin({
+    required this.itemId,
+    required this.categoryId,
+    required this.accountVersion,
+  });
+  final int itemId, categoryId, accountVersion;
+}

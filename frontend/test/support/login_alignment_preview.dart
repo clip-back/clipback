@@ -137,7 +137,17 @@ class LoginServer {
   };
   late final client = MockClient((r) async {
     final path = r.url.path;
+
     requests.add({'method': r.method, 'path': path});
+    if (path == '/api/v1/recommendations/weekly') {
+      return json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     if (path == '/api/v1/auth/social/apple/challenge') {
       challenges++;
       return json({

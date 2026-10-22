@@ -3,6 +3,8 @@ import 'auth_navigation.dart';
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
+import 'fixtures/original_link_launcher.dart';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
@@ -120,6 +122,15 @@ class _Server {
   });
 
   http.Response _default(http.BaseRequest request) {
+    if (request.url.path == '/api/v1/recommendations/weekly') {
+      return _json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
+      });
+    }
     final path = request.url.path;
     switch (path) {
       case '/api/v1/uploads/screenshots':
@@ -684,17 +695,21 @@ void main() {
   );
 
   testWidgets(
-    'web link retains its original text and URL without an image request',
+    'web link opens the actual URL without an image request or legacy sheet',
     (tester) async {
       final server = _Server();
       server.contents[0] = _content(screenshot: false);
+      final previous = UrlLauncherPlatform.instance;
+      final launcher = RecordingUrlLauncher();
+      UrlLauncherPlatform.instance = launcher;
+      addTearDown(() => UrlLauncherPlatform.instance = previous);
       await _withApp(tester, server, () async {
         await _openFirst(tester);
         expect(find.text('원본 이미지 보기'), findsNothing);
         expect(find.text('전문 보기'), findsOneWidget);
         await _openOriginalSheet(tester);
-        expect(find.text('원문 보기'), findsOneWidget);
-        expect(find.text('https://example.com/original'), findsWidgets);
+        expect(find.byType(OriginalContentSheet), findsNothing);
+        expect(launcher.calls.single.url, 'https://example.com/original');
         expect(server.at(_assetPath), isEmpty);
       });
     },

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:flutter/foundation.dart';
+import '../services/event_uuid.dart';
 
 abstract class ContentRepository extends ChangeNotifier {
   int get accountVersion;
@@ -61,6 +62,22 @@ abstract class ContentRepository extends ChangeNotifier {
   bool isCurrentDetail(DetailHandle handle);
   Future<bool> refreshDetail(DetailHandle handle);
   Future<Uint8List> readAsset(DetailHandle handle, int assetId);
+  ApiWeeklyRecommendation? get weekly;
+  Object beginWeeklyVisit();
+  void endWeeklyVisit(Object visit);
+  Future<void> loadWeekly(Object visit);
+  void recordWeeklyExposure(Object visit, int itemId);
+  ApiTodayRecommendation? get today;
+  int get todayVersion;
+  Future<ApiTodayRecommendation?> loadToday({
+    required bool Function() isCurrent,
+  });
+  Future<ApiContent?> readTodayContent(
+    int id, {
+    required bool Function() isCurrent,
+  });
+  void removeTodayContent(int id);
+  void recordRecommendationOpen(ApiContent content, int recommendationItemId);
   void recordOpen(ApiContent content);
   void recordCategoryFilter(int categoryId);
   void recordOriginalLinkOpened(int contentId);
@@ -147,6 +164,20 @@ class RemoteContentRepository extends ContentRepository {
   int _detailVersion = 0;
   ApiContent? _selectedContent;
   DetailHandle? _detailHandle;
+  ApiWeeklyRecommendation? _weekly;
+  Object? _weeklyVisit;
+  int _weeklyRequest = 0;
+  Future<void>? _weeklyPending;
+  final _weeklyExposures = <int, String>{};
+  @override
+  ApiWeeklyRecommendation? get weekly => _weekly;
+  ApiTodayRecommendation? _today;
+  int _todayVersion = 0;
+  int _todayRequest = 0;
+  @override
+  ApiTodayRecommendation? get today => _today;
+  @override
+  int get todayVersion => _todayVersion;
   bool _disposed = false;
 
   @override
@@ -187,6 +218,14 @@ class RemoteContentRepository extends ContentRepository {
   void resetAccount(int version) {
     if (_disposed) return;
     _accountVersion = version;
+    _weekly = null;
+    _weeklyVisit = null;
+    _weeklyRequest++;
+    _weeklyPending = null;
+    _weeklyExposures.clear();
+    _today = null;
+    _todayVersion++;
+    _todayRequest++;
     _contentVersion++;
     _contentChanges.clear();
     _contentReads.clear();
@@ -482,7 +521,10 @@ class RemoteContentRepository extends ContentRepository {
         if (content.id == id) return content;
       }
     }
-    return null;
+    return _today?.items
+        .where((item) => item.content.id == id)
+        .firstOrNull
+        ?.content;
   }
 
   ContentMutationHandle? _beginContentMutation(
@@ -630,6 +672,7 @@ class RemoteContentRepository extends ContentRepository {
       for (final page in _feeds.values) {
         page.items.removeWhere((item) => item.id == id);
       }
+      _today = _today?.mapContents((item) => item.id == id ? null : item);
       _bookmarkedIds.remove(id);
       if (_selectedContent?.id == id) {
         _detailVersion++;
@@ -698,7 +741,17 @@ class RemoteContentRepository extends ContentRepository {
     return _copyContent(content, categories: List.unmodifiable(categories));
   }
 
+  void _normalizeWeekly() {
+    _weekly = _weekly?.mapCategories(
+      (category) => _deletedCategoryIds.contains(category.id)
+          ? null
+          : _applyCategoryState(category),
+    );
+  }
+
   void _normalizeLoadedCategories() {
+    _normalizeWeekly();
+    _today = _today?.mapContents(_normalizeContentCategories);
     for (final page in _feeds.values) {
       for (var index = 0; index < page.items.length; index++) {
         page.items[index] = _normalizeContentCategories(page.items[index]);
@@ -773,6 +826,11 @@ class RemoteContentRepository extends ContentRepository {
         page.items[index] = replace(page.items[index]);
       }
     }
+    _weekly = _weekly?.mapCategories(
+      (category) => category.id == id ? updated : category,
+    );
+    _normalizeWeekly();
+    _today = _today?.mapContents(replace);
     if (_selectedContent != null) _selectedContent = replace(_selectedContent!);
     _notify();
   }
@@ -956,6 +1014,154 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
+  Object beginWeeklyVisit() {
+    final token = Object();
+    _weeklyVisit = token;
+    _weekly = null;
+    _weeklyPending = null;
+    _weeklyRequest++;
+    _weeklyExposures.clear();
+    return token;
+  }
+
+  @override
+  void endWeeklyVisit(Object visit) {
+    if (!identical(visit, _weeklyVisit)) return;
+    _weeklyVisit = null;
+    _weekly = null;
+    _weeklyPending = null;
+    _weeklyRequest++;
+    _weeklyExposures.clear();
+    _notify();
+  }
+
+  @override
+  Future<void> loadWeekly(Object visit) {
+    if (_disposed || !identical(visit, _weeklyVisit)) return Future.value();
+    if (_weeklyPending != null) return _weeklyPending!;
+    final account = _accountVersion, request = ++_weeklyRequest;
+    bool current() =>
+        !_disposed &&
+        identical(visit, _weeklyVisit) &&
+        account == _accountVersion &&
+        request == _weeklyRequest;
+    final task = () async {
+      try {
+        final response = await _api.readWeeklyRecommendation();
+        if (!current()) return;
+        _weekly = response;
+        _normalizeWeekly();
+        _notify();
+      } catch (_) {
+        if (current()) rethrow;
+      } finally {
+        if (current()) _weeklyPending = null;
+      }
+    }();
+    _weeklyPending = task;
+    return task;
+  }
+
+  @override
+  void recordWeeklyExposure(Object visit, int itemId) {
+    if (_disposed ||
+        !identical(visit, _weeklyVisit) ||
+        !(_weekly?.items.any((item) => item.id == itemId) ?? false) ||
+        _weeklyExposures.containsKey(itemId)) {
+      return;
+    }
+    final id = newEventUuid();
+    _weeklyExposures[itemId] = id;
+    // ClipbackApi's authentication refresh replays this captured body unchanged.
+    _ignoreEventFailure(
+      () => _api.recordRecommendationExposure(
+        clientEventId: id,
+        recommendationItemId: itemId,
+      ),
+    );
+  }
+
+  @override
+  Future<ApiTodayRecommendation?> loadToday({
+    required bool Function() isCurrent,
+  }) async {
+    final account = _accountVersion, request = ++_todayRequest;
+    final read = _beginContentRead();
+    bool current() =>
+        !_disposed &&
+        account == _accountVersion &&
+        request == _todayRequest &&
+        isCurrent();
+    try {
+      final response = await _api.readTodayRecommendation();
+      if (!current()) return null;
+      _today = response.mapContents(
+        (item) => _reconcileContentRead(item, read.version),
+      );
+      _todayVersion++;
+      // Update already-loaded copies without inserting into any feed.
+      for (final item in _today!.items) {
+        _replaceContent(item.content);
+      }
+      _notify();
+      return _today;
+    } finally {
+      _endContentRead(read.key);
+    }
+  }
+
+  @override
+  Future<ApiContent?> readTodayContent(
+    int id, {
+    required bool Function() isCurrent,
+  }) async {
+    final account = _accountVersion, version = _todayVersion;
+    final read = _beginContentRead();
+    bool current() =>
+        !_disposed &&
+        account == _accountVersion &&
+        version == _todayVersion &&
+        isCurrent();
+    try {
+      final response = await _api.readContent(id);
+      if (!current()) return null;
+      final updated = _reconcileContentRead(response, read.version);
+      if (updated != null) _replaceContent(updated);
+      return updated;
+    } on ClipbackApiException catch (error) {
+      if (current() && error.statusCode == 404) removeTodayContent(id);
+      rethrow;
+    } finally {
+      _endContentRead(read.key);
+    }
+  }
+
+  @override
+  void removeTodayContent(int id) {
+    if (_disposed) return;
+    _today = _today?.mapContents((item) => item.id == id ? null : item);
+    _notify();
+  }
+
+  @override
+  void recordRecommendationOpen(ApiContent content, int recommendationItemId) {
+    final eventId = newEventUuid();
+    _ignoreEventFailure(
+      () => _api.recordRecommendationView(
+        content.id,
+        clientEventId: eventId,
+        recommendationItemId: recommendationItemId,
+      ),
+    );
+    _ignoreEventFailure(
+      () => _api.createCardClickEvent(
+        contentId: content.id,
+        categoryId: content.categories.firstOrNull?.id,
+      ),
+    );
+  }
+
+  @override
   void recordOpen(ApiContent content) {
     _ignoreEventFailure(() => _api.recordContentView(content.id));
     _ignoreEventFailure(
@@ -991,6 +1197,10 @@ class RemoteContentRepository extends ContentRepository {
 
   void _updateExistingContent(int id, ApiContent Function(ApiContent) update) {
     if (_disposed) return;
+    _today = _today?.mapContents(
+      (item) =>
+          item.id == id ? _normalizeContentCategories(update(item)) : item,
+    );
     for (final page in _feeds.values) {
       final index = page.items.indexWhere((item) => item.id == id);
       if (index != -1) {
@@ -1018,6 +1228,9 @@ class RemoteContentRepository extends ContentRepository {
   void _replaceContent(ApiContent updated) {
     if (_disposed) return;
     updated = _normalizeContentCategories(updated);
+    _today = _today?.mapContents(
+      (item) => item.id == updated.id ? updated : item,
+    );
     for (final page in _feeds.values) {
       final index = page.items.indexWhere((item) => item.id == updated.id);
       if (index != -1) page.items[index] = updated;
