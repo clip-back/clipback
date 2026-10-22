@@ -98,3 +98,7 @@ explicitly disposable; they are not application backups.
 과거 공유 서버 검증 결과는 [모바일 공유 작업 기록](../history/2026-10-12-mobile-share.md)을 참고합니다.
 
 운영 배포 확인·백업·복구는 [Railway 운영 안내](../railway-deployment.md), 실제 산출물·공개 상태는 [배포 기록](../release-process.md)으로 구분합니다.
+
+운영 백업 입력을 새 로컬 자원에만 복원하는 도구와 별도의 합성 Docker 검사는
+[백업 격리 복원 검사](backup-recovery.md)를 따릅니다. 운영 dump를 일반 pytest나 테스트 DB에
+넣지 않으며, 합성 검사 성공과 실제 운영 백업 복원 결과를 구분합니다.
