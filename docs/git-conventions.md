@@ -152,3 +152,14 @@ git commit -m "feat: 백엔드 예제 기능 추가"
 git push -u origin feature/backend-example
 gh pr create --base main --head feature/backend-example
 ```
+
+## 문서 관리
+
+- README는 현재 실행·구조·API 안내, 정책 문서는 현재 합의·범위·확인 필요 항목을 유지합니다.
+- 상세 작업·검증·실패·미검증 기록은 [작업 이력](history/README.md)에 작업별로 한 번만 작성하고 다른 문서에서는 링크로 연결합니다.
+- 과거 결과에 날짜·기준 커밋·검증 환경을 남기고 현재 코드 확인·새 실행·운영 배포를 구분합니다.
+- 사용자 변경은 CHANGELOG, 실제 공개·배포 상태는 배포 기록에 남깁니다. 문서 정리만으로 해당 결과를 완료 처리하지 않습니다.
+
+- README의 API·기능 안내는 요약과 상세 문서 연결로 구성합니다. 실행·구조가 바뀌면 README를 갱신하고, 상세 계약만 바뀌면 해당 기준 문서를 갱신합니다.
+- 상세 설명은 [프론트 동작](frontend/behavior.md)·[프론트 개발·검증](frontend/development.md)·[백엔드 API](backend/api-contracts.md)·[백엔드 테스트](backend/testing.md)에서 관리합니다. 자동 분류·재발견·YouTube·디자인·운영의 전문 정책은 각 기존 문서를 따릅니다.
+- 문서를 이동할 때 고유 본문·명령·검증 조건을 보존하고 상대 링크를 보정합니다. 기존 경로·제목 앵커에는 새 위치 안내를 남기며, 이관 기준과 대조 결과는 해당 작업 이력에 기록합니다.

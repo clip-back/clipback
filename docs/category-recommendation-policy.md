@@ -196,10 +196,10 @@ AI에게 전달하는 핵심 지침은 다음과 같다.
 - 회귀 대상: 링크·Instagram 공유·스크린샷 저장, 피드 필터와 상세 조회
 
 설정과 테스트 코드는 저장소 기준이며 실제 운영 설정·공급자 품질을 보장하지 않는다.
-이번 문서 정리에서는 테스트나 실제 공급자 호출을 재실행하지 않았다.
+테스트와 실제 공급자 호출의 수행 여부·결과·미검증 범위는 [작업 이력](history/README.md)에서 확인한다.
 
 진행 현황과 후속 범위는 [MVP 현황](backend-mvp-plan.md), 수정·삭제 API 계약은
-[백엔드 README](../backend/README.md), 지표 정의는
+[백엔드 API 계약](backend/api-contracts.md), 지표 정의는
 [제품 지표 문서](product-metrics-queries.md)를 참고한다.
 
 ## 12. 후속 검토
