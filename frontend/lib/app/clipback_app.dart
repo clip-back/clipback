@@ -33,8 +33,11 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'app_dependencies.dart';
 import 'app_view_model.dart';
+import 'exit_confirmation_dialog.dart';
 import '../features/share/pending_share_prompt.dart';
 import '../data/services/search_history_storage.dart';
 
@@ -70,6 +73,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _permissionGuideVisitGeneration = -1;
   _PermissionGuideAttempt? _permissionGuideAttempt;
   PermissionGuideRoute? _permissionGuideRoute;
+  _ExitConfirmationAttempt? _exitConfirmation;
   bool _persistenceBannerUpdateScheduled = false;
   PageStorageBucket _archivePageStorageBucket = PageStorageBucket();
   int _archiveStorageAccountGeneration = 0;
@@ -213,6 +217,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _cancelExitConfirmation();
     _cancelPermissionGuide();
     WidgetsBinding.instance.removeObserver(this);
     _d.app.removeListener(_onChanged);
@@ -237,6 +242,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _onChanged() {
     if (!mounted) return;
+    final exit = _exitConfirmation;
+    if (exit != null && exit.owner != _backIdentity) {
+      _cancelExitConfirmation();
+    }
     if (_d.app.route != AppRoute.home ||
         !_canUseAccountActions ||
         !_d.session.hasSession ||
@@ -930,6 +939,171 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     };
   }
 
+  // Logical screens share one Navigator route. Keep this wrapper stable so
+  // home/notification round-trips retain their IndexedStack and scroll state.
+  // Existing screen scopes remain the sole handlers when delegated to them.
+  bool get _backBlocked =>
+      _launchPhase != _LaunchPhase.ready ||
+      _d.app.route == AppRoute.splash ||
+      _d.app.authBusy ||
+      _d.app.isRestoringSession ||
+      _d.app.showInitialHomeLoading ||
+      _d.app.apiConnectionError != null ||
+      _d.session.pendingSessionClear;
+
+  Object get _backIdentity => (
+    _d.app.route,
+    _d.app.accountGeneration,
+    _d.app.authEpoch,
+    _d.app.linkingGuest,
+    _backBlocked,
+    _d.app.ordinaryLoginStatus,
+    _d.app.ordinaryLoginFailure,
+    _d.app.accountLinkConflict,
+    _d.archive.activeCategoryName,
+    _d.archive.activeTab,
+    _d.archive.randomViewing,
+    _d.archive.weeklyOrigin,
+  );
+
+  bool get _hasScreenBackOwner {
+    // Restore/splash replace the logical screen, including its PopScope.
+    if (_launchPhase != _LaunchPhase.ready ||
+        _d.app.isRestoringSession ||
+        _d.app.showInitialHomeLoading ||
+        _d.app.apiConnectionError != null) {
+      return false;
+    }
+    return switch (_d.app.route) {
+      AppRoute.notificationList ||
+      AppRoute.noticeList ||
+      AppRoute.logoutConfirmation ||
+      AppRoute.categoryManagement => true,
+      AppRoute.login =>
+        _d.app.ordinaryLoginStatus != null ||
+            _d.app.ordinaryLoginFailure != null ||
+            _d.app.accountLinkConflict != null,
+      _ => false,
+    };
+  }
+
+  Widget _withSystemBack(Widget page) {
+    final delegated = _hasScreenBackOwner;
+    final owner = _backIdentity;
+    return Builder(
+      builder: (context) => PopScope<void>(
+        canPop: delegated,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop || delegated || !mounted || owner != _backIdentity) return;
+          // Android normally consumes Back in the IME first. Also protect the
+          // route when a pop is delivered while its inset is still nonzero.
+          if (MediaQuery.viewInsetsOf(context).bottom > 0) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            return;
+          }
+          if (_backBlocked) return;
+          switch (_d.app.route) {
+            case AppRoute.home:
+            case AppRoute.onboarding:
+              unawaited(_confirmAppExit(context, owner));
+            case AppRoute.login:
+              if (_d.app.linkingGuest) {
+                _go(AppRoute.account);
+              } else {
+                unawaited(_confirmAppExit(context, owner));
+              }
+            case AppRoute.archive:
+              if (_d.archive.activeCategoryName != null &&
+                  _d.archive.randomViewing &&
+                  _d.archive.activeTab == 0) {
+                _d.archive.setRandomViewing(false);
+              } else if (_d.archive.activeCategoryName != null) {
+                _archiveBackAction()();
+              } else {
+                _selectRootTab(AppRoute.home);
+              }
+            case AppRoute.bookmark:
+            case AppRoute.my:
+              _selectRootTab(AppRoute.home);
+            case AppRoute.detail:
+              _backFromDetail();
+            case AppRoute.search:
+              _go(_d.app.searchReturnRoute);
+            case AppRoute.account:
+              _go(AppRoute.my);
+            case AppRoute.interests:
+              _go(AppRoute.onboarding);
+            default:
+              break;
+          }
+        },
+        child: page,
+      ),
+    );
+  }
+
+  bool _ownsExitConfirmation(_ExitConfirmationAttempt attempt) =>
+      mounted &&
+      identical(_exitConfirmation, attempt) &&
+      !attempt.cancelled &&
+      !_backBlocked &&
+      attempt.owner == _backIdentity;
+
+  Future<void> _confirmAppExit(BuildContext context, Object owner) async {
+    if (kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android ||
+        _exitConfirmation != null ||
+        _backBlocked ||
+        owner != _backIdentity) {
+      return;
+    }
+    final attempt = _ExitConfirmationAttempt(owner);
+    final navigator = _navigatorKey.currentState!;
+    _exitConfirmation = attempt;
+    final route = DialogRoute<bool>(
+      context: context,
+      builder: (_) => ExitConfirmationDialog(
+        onCancel: () {
+          if (_ownsExitConfirmation(attempt) && attempt.route!.isCurrent) {
+            navigator.pop(false);
+          }
+        },
+        onExit: () {
+          if (_ownsExitConfirmation(attempt) &&
+              !attempt.confirmed &&
+              attempt.route!.isCurrent) {
+            attempt.confirmed = true;
+            navigator.pop(true);
+          }
+        },
+      ),
+    );
+    attempt.route = route;
+    try {
+      final confirmed = await navigator.push(route);
+      if (confirmed == true && _ownsExitConfirmation(attempt)) {
+        await SystemNavigator.pop();
+      }
+    } finally {
+      if (identical(_exitConfirmation, attempt)) _exitConfirmation = null;
+    }
+  }
+
+  void _cancelExitConfirmation() {
+    final attempt = _exitConfirmation;
+    if (attempt == null) return;
+    attempt.cancelled = true;
+    _exitConfirmation = null;
+    final route = attempt.route;
+    final navigator = _navigatorKey.currentState;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator != null && navigator.mounted && route?.isActive == true) {
+        navigator.removeRoute<bool>(route!);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -1174,9 +1348,19 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     );
   }
 
-  Widget _withLaunchSplash(Widget route) => _launchPhase == _LaunchPhase.showing
-      ? SplashScreen(onDone: _finishLaunchSplash)
-      : route;
+  Widget _withLaunchSplash(Widget route) => _withSystemBack(
+    _launchPhase == _LaunchPhase.showing
+        ? SplashScreen(onDone: _finishLaunchSplash)
+        : route,
+  );
+}
+
+class _ExitConfirmationAttempt {
+  _ExitConfirmationAttempt(this.owner);
+  final Object owner;
+  DialogRoute<bool>? route;
+  bool cancelled = false;
+  bool confirmed = false;
 }
 
 // Preserve the existing modal round-trip semantics only for home/notifications.

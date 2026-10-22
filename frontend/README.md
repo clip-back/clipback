@@ -1,5 +1,7 @@
 # Clipback Frontend
 
+이번 `2661514` 기준 작업은 **시스템 뒤로가기 복귀와 Android 종료 확인**이다. 하위 화면은 기존 복귀 경로, 아카이브/즐겨찾기/마이 최상위는 홈으로 이동하며 홈/일반 로그인/소개에서는 명시 확인 후에만 종료한다. 키보드/모달 우선과 기존 인증·복구 잠금을 유지한다. 신규36/집중45·전체1767·분석0, Android 제스처21/3버튼21·iOS 17항목의 실제 최종 확인과 비교7쌍·AFTER영상3개는 [독립 기록](../docs/figma-ui-alignment-plan.md#android-system-back-20261022)을 따른다. 팝업은 전용 Figma 없이 사용자 승인된 기존 표현 재사용이며 실제 Galaxy/운영 검증과 구분한다.
+
 최근 `9e52b98` 기준 **홈 Weekly 표시·실제 카테고리 이동·보이는 카드 노출·추천 유입을 연결**했다. 신규21/전체1,708·정적 분석0·임시 PostgreSQL 계약100개와 새 비교6쌍/영상2개의 실제 결과는 아래 Weekly 독립 기록을 따른다. 운영 추천 품질·공지·새 확대는 후속이다.
 
 최근 `de14d75` 기준 **D08 사진 저장 처리 중의1배율 표현을 적용했다. 기존 D09 제출 요약89px/패딩16px/중앙 cover와 D04 스켈레톤을 재사용하고 D07 전체 보기·원본 바이트/파일명·저장 정책은 유지한다. 집중362/전체1633·분석0, 양 플랫폼 각13동작·전체true·프레임워크 오류0·새2쌍/영상2개를 확인했다.**
@@ -3004,3 +3006,15 @@ ID 미확인은 현재 세대의 임시 기록만 사용한다. 지연 읽기는
 - iPhone16/iOS18.6·Android13/API33 제스처 각21동작 통과, 프레임워크/비동기 오류0. [전후/Figma4쌍](/private/tmp/clipback-search-history-20261022/comparison-document.html)·[검증 요약](/private/tmp/clipback-search-history-20261022/verification-summary.json)·[iOS 영상](/private/tmp/clipback-search-history-20261022/after/ios/after.mp4)·[Android 영상](/private/tmp/clipback-search-history-20261022/after/android/after.mp4).
 
 Figma H01(`111:3991`)의 최신 확보 원본을 사용한다. 기존 취소/최근어14px 승인 기준과 OS 여백을 유지하고 예제/키보드 차이는 비교에 명시한다. 서버 API·실제 OAuth·운영 계정·실기기·원격 CI 검증과 로컬 대역/네이티브 저장소 검증은 별개다. 화면 증거·빌드·개인 preference 데이터는 Git에 포함하지 않는다.
+
+
+## 시스템 뒤로가기 검증 프리뷰
+
+제품 진입점은 `lib/main.dart`로 유지한다. 아래 프리뷰는 실제 ClipbackApp을 사용하되 API·세션·검색 기록·첫 실행부터의 공유를 대역으로 격리한다. 실제 IME/OS Back 채널은 대체하지 않는다.
+
+```bash
+flutter test --no-pub test/system_back_navigation_test.dart test/system_back_policy_test.dart test/notification_navigation_test.dart
+flutter run -t test/support/system_back_preview.dart --dart-define=BACK_PHASE=after
+```
+
+프리뷰의 loopback8778 `/scene?kind=account|my|home|archive|bookmark|category|review|search|detail|login`과 `/state`로 고정 장면/실측을 준비한다. Android 검증은 실제 가장자리 제스처와 OS Back 이벤트를 사용한다. `/back`은 프레임워크 Pop 회귀용으로 실제 iOS 가장자리 제스처 증거가 아니다. 개인 검색 기록·세션·보관된 네이티브 공유 내용을 조회하지 않는다. [이번 화면 비교/영상](/private/tmp/clipback-system-back-20261022/comparison-document.html)·[정책/실행 결과](../docs/figma-ui-alignment-plan.md#android-system-back-20261022)를 참고한다.
