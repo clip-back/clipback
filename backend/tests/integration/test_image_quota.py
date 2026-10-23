@@ -130,13 +130,15 @@ async def test_main_and_native_concurrent_writes_cannot_overrun_remaining_space(
     credential = await request(api, "POST", "auth/share-credential", headers=headers)
     native = {"Authorization": f"Bearer {credential['share_token']}",
               "Idempotency-Key": str(uuid4())}
-    entered, release = asyncio.Event(), asyncio.Event()
+    entered, release, second_entered = asyncio.Event(), asyncio.Event(), asyncio.Event()
     original = OCRClient.extract
     observed = []
 
     async def ocr(self, **kwargs):
         observed.append(kwargs["image_bytes"])
         entered.set()
+        if len(observed) == 2:
+            second_entered.set()
         await asyncio.wait_for(release.wait(), 10)
         return await original(self, **kwargs)
 
@@ -145,6 +147,12 @@ async def test_main_and_native_concurrent_writes_cannot_overrun_remaining_space(
     try:
         await asyncio.wait_for(entered.wait(), 10)
         second = asyncio.create_task(upload(api, native, png_bytes, status=409))
+        # Give the competing request a chance to reach OCR while the first is
+        # still in flight. A broken quota lock would admit both at this point.
+        try:
+            await asyncio.wait_for(second_entered.wait(), 0.2)
+        except TimeoutError:
+            pass
         release.set()
         await asyncio.wait_for(asyncio.gather(first, second), 10)
         assert observed == [png_bytes]
