@@ -118,7 +118,10 @@ YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup_jobs main
 
 완료 시각 기준 7일 이상인 복구 지점을 만료시키고, 사용자 삭제 intent 이후 **6일**이 지난 원본을
 참조하는 지점도 만료시킵니다. DB commit이 불확실해 삭제 intent 이후에 생성된 지점에 그 원본이
-남아 있는 경우도 포함합니다. 완료 manifest를 먼저 내린 뒤 지점 dump와 미참조 원본을 삭제하고
+남아 있는 경우도 포함합니다. 먼저 `gc/points/<id>.json`에 불변 원본 identity를 가진 작은 정리
+receipt를 검증해 보관하고, 완료 manifest를 내린 뒤 지점 dump와 미참조 원본을 삭제합니다.
+모든 정리가 확인된 뒤 receipt를 지웁니다. manifest 제거 후 실패해도 hash가 없던 legacy 삭제의
+원본 연결과 기한을 잃지 않습니다. 정리 중인 ID는 새 지점으로 재사용하지 못합니다. 원본 삭제는
 실제 HEAD 부재를 확인합니다. 변경 없는 원본은 hash별 한 사본을 지점 간 재사용합니다.
 중단된 지점의 하루 이상 된 잔여 파일도 정리합니다. 삭제 기록은 복구에 필요하므로 지우지 않습니다.
 유지할 지점의 dump·원본 존재와 크기를 HEAD로 확인하며 누락·크기 손상은 성공으로 보고하지
@@ -142,6 +145,10 @@ docker build -f backend/Dockerfile.operator --build-arg POSTGRES_MAJOR=17 \
 위 `daily` 또는 `maintain` 인자들을 지정합니다. 원본 DB·Bucket·삭제 기록 환경은 작업 서비스에,
 `0600` 백업 자격은 작업 사용자 소유의 별도 파일로만 공급합니다. API 서비스에는 백업 자격을
 주지 않습니다. 전용 이미지는 백업 작업용이며 Docker socket/CLI를 운영 서비스에 연결하지 않습니다.
+이미지는 `YOUTUBE_SUMMARY_ENABLED=false`를 기본 제공해 AI worker와 해당 API 키를 요구하지
+않습니다. `APP_ENVIRONMENT=production`의 기존 SECRET_KEY·저장 경로·소셜 인증 등 보안 검증은
+그대로 적용됩니다. OPENAI_API_KEY를 포함한 기존 production 검증도 유지됩니다. source API의
+필요한 운영 설정을 명시적으로 공급하고 검증을 우회하지 않습니다. 백업은 AI API를 호출하지 않습니다.
 
 ## 최신 삭제 기록을 반영한 격리 복원
 
@@ -162,7 +169,9 @@ YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup_jobs rest
 삭제 보장 복원에 실패합니다. 오래된 offline export만으로 최신성을 주장하지 않습니다.
 
 격리 DB·원본을 복원한 직후 **삭제 전 snapshot 기준을 먼저 비교**합니다. 그 뒤 owner·content ID·
-saved_at·불변 원본 키/해시가 일치하는 최신 삭제를 적용하고 나서 API를 시작합니다. 숫자 ID가
+saved_at·불변 원본 키가 일치하는 최신 삭제를 적용하고 나서 API를 시작합니다. local/S3는
+보관 위치이며 legacy NULL size/hash 보강도 새 원본으로 보지 않습니다. hash/size가 양쪽 모두
+알려진 경우의 충돌은 다른 원본으로 보호합니다. 실제 복원된 backend로 물리 정리합니다. 숫자 ID가
 재사용된 다른 원본은 지우지 않습니다. 삭제된 콘텐츠·binary·access descriptor의 인증 GET이
 404인지 확인합니다. 원본이 하나도 없으면 실제 `users/me` 인증 조회는 확인하되 이미지 GET은
 `image_get_skipped: true`, `image_bytes_passed: false`로 보고합니다. 빈 서비스나 삭제된 시험

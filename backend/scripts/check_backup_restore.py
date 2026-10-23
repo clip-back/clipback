@@ -526,6 +526,7 @@ def check(directory, credentials_file, image, drill=None):
         manifest, paths = load_backup(directory)
         credentials = private_json(credentials_file)
         report.update(backup_id=manifest["backup_id"], origin=manifest["origin"])
+        report["manifest_sha256"] = sha256_file(directory / "manifest.json")
         report.update(drill.run(manifest, paths, credentials, image))
         report["passed"] = True
     except CheckError as exc:

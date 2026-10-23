@@ -217,6 +217,62 @@ async def test_database_commit_uncertainty_reconciles_from_independent_deletion_
     ).content == png_bytes
 
 
+@pytest.mark.parametrize(("restore_local", "conflict"), [
+    (False, None), (True, None), (False, "sha256"), (True, "size_bytes"),
+])
+async def test_older_legacy_snapshot_reconciles_a_later_enriched_deletion(
+    committed_api, png_bytes, monkeypatch, tmp_path, s3_storage, restore_local, conflict,
+):
+    from app.services.image_deletion_service import retry_image_deletions
+
+    client, headers, sessions = committed_api
+    content = await upload(client, headers, png_bytes)
+    survivor = await upload(client, headers, png_bytes)
+    original_commit = AsyncSession.commit
+    failed = False
+
+    async def fail_delete_commit(session):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise ConnectionError("synthetic deletion commit rollback")
+        await original_commit(session)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(AsyncSession, "commit", fail_delete_commit)
+        response = await client.delete(f"/api/v1/contents/{content['id']}", headers=headers)
+    assert response.status_code == 500
+    event = get_deletion_ledger().read_verified_events()[0]
+    assert event["assets"][0]["size_bytes"] == len(png_bytes)
+    # Restore the old point's NULL metadata and optionally its pre-migration local location.
+    restored_backend = "local" if restore_local else "s3"
+    metadata = {"size": None, "sha": None}
+    if conflict:
+        metadata = {"size": len(png_bytes), "sha": event["assets"][0]["sha256"]}
+        metadata["sha" if conflict == "sha256" else "size"] = (
+            "f" * 64 if conflict == "sha256" else len(png_bytes) + 1
+        )
+    async with sessions() as restored:
+        await restored.execute(text("UPDATE content_assets SET size_bytes=:size, sha256=:sha, "
+                                    "storage_backend=:backend WHERE content_id=:id"),
+                               {"backend": restored_backend, "id": content["id"], **metadata})
+        await restored.commit()
+    path = tmp_path / event["assets"][0]["storage_key"]
+    if restore_local:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(png_bytes)
+    url = content["assets"][0]["download_url"]
+    assert (await client.get(url, headers=headers)).status_code == 200
+    async with sessions() as restarted:
+        assert (await retry_image_deletions(restarted))["pending"] == 0
+    expected = 200 if conflict else 404
+    assert (await client.get(url, headers=headers)).status_code == expected
+    if restore_local:
+        assert path.exists() is bool(conflict)
+    survivor_url = survivor["assets"][0]["download_url"]
+    assert (await client.get(survivor_url, headers=headers)).content == png_bytes
+
+
 async def test_backup_snapshot_lock_defers_physical_cleanup_without_delaying_delete_acknowledgement(
     committed_api,
     png_bytes,

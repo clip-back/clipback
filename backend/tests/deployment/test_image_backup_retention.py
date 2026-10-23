@@ -60,7 +60,8 @@ def test_deleted_copies_expire_with_margin_but_live_shared_bytes_survive(stores)
     store, ledger = stores
     now = datetime(2026, 10, 23, tzinfo=UTC)
     asset = original(store)
-    point(store, "before-delete", now - timedelta(days=6, hours=1), [asset])
+    point(store, "before-delete", now - timedelta(days=6, hours=1),
+          [{**asset, "storage_backend": "local"}])
     deleted(ledger, asset, now - timedelta(days=6))
     shared = {**asset, "storage_key": "another-user.png", "content_id": 2}
     point(store, "current", now, [shared])
@@ -192,3 +193,34 @@ def test_point_with_missing_original_is_not_a_healthy_completed_backup(stores):
     store.delete_verified(asset["backup_key"])
     with pytest.raises(CheckError, match="backup_object_missing_or_unavailable"):
         maintain_backups(store, ledger, now=now)
+
+
+def test_partial_cleanup_keeps_legacy_identity_until_late_retry_is_reported(stores):
+    from botocore.exceptions import ClientError
+
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime.now(UTC)
+    asset = original(store)
+    point(store, "before", now - timedelta(days=6, hours=1), [asset])
+    point(store, "current", now, [])
+    deleted(ledger, {**asset, "sha256": None, "size_bytes": None}, now - timedelta(days=6))
+    store.client.put_bucket_policy(Bucket=store.bucket, Policy=json.dumps({
+        "Version": "2012-10-17", "Statement": [{
+            "Effect": "Deny", "Principal": "*", "Action": "s3:DeleteObject",
+            "Resource": "arn:aws:s3:::private-backup/originals/*",
+        }],
+    }))
+    with pytest.raises(ClientError):
+        maintain_backups(store, ledger, now=now)
+    assert store.completed_points() == ["current"]
+    later = now + timedelta(days=1, seconds=1)
+    point(store, "fresh", later, [])
+    store.client.delete_bucket_policy(Bucket=store.bucket)
+    report = maintain_backups(store, ledger, now=later)
+    assert report["freshness_met"] is True
+    assert report["retention_overdue"] == 1
+    assert report["passed"] is False
+    assert store.list_objects("originals/") == []
+    assert store.list_objects("gc/") == []

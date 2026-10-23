@@ -235,6 +235,12 @@ async def publish_backup(
     """Publish manifest last. Caller holds the paired DB snapshot / write freeze."""
     require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", backup_id)), "invalid_backup_id")
     require(backup_id not in store.completed_points(), "backup_id_exists")
+    try:
+        await asyncio.to_thread(store.read, f"gc/points/{backup_id}.json")
+    except FileNotFoundError:
+        pass
+    else:
+        raise CheckError("backup_id_retiring")
     if any(asset["storage_backend"] == "s3" for asset in snapshot["assets"]):
         source = storage.for_backend("s3")
         require(

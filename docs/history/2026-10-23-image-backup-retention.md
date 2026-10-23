@@ -32,7 +32,7 @@ pg_dump와 작업 모듈을 포함한다. API에는 백업 자격을 추가하�
 - 7일에 늦게 정리해도 성공으로 표시하던 문제를 실패 테스트로 재현해 overdue 보고로 수정했다.
 - 현재 원본이 사라져도 유지 지점을 건강하다고 표시하던 문제를 재현해 HEAD 검증을 추가했다.
 - 관련 단위/외부 S3 대역 검사: `test_image_backup.py`, `test_backup_restore.py`,
-  `test_image_backup_retention.py` 합계 **59 passed**, 7.23초.
+  `test_image_backup_retention.py` 합계 **60 passed**, 9.09초.
 - Ruff scripts·변경 검사 파일 및 `git diff --check` 통과.
 
 실제 Docker 검사는 PostgreSQL16·moto5.2.4·기준 SHA의 API 이미지
@@ -59,6 +59,11 @@ bounded tip 캡처를 추가했다. 최종 operator 이미지를 갱신해 같�
 `old_point` 시나리오를 다시 실행했고 **1 passed, 2 deselected**, 76.84초였다. 과거 prefix 누락으로
 backup manifest가 게시되지 않는 것과 수동 create도 실행 중 job을 거부하는 경우를 보완했다.
 전체 통합 회귀와 모든 티켓을 합친 API 이미지 기준 검증은 통합 작업에서 이어간다.
+
+마지막 부분 실패 검토에서는 manifest를 내린 뒤 원본 삭제가 실패한 경우 legacy(hash NULL)
+삭제와 사본의 연결이 사라져 늦은 재시도를 성공으로 표시하던 문제를 추가 재현했다. 같은 Bucket의
+작은 GC receipt를 먼저 영속 저장하고 확인된 정리가 끝나야 지우도록 수정했다. 최종 60개에는
+manifest가 이미 사라진 뒤 하루가 지나 재시도해도 overdue를 놓치지 않는 검사가 포함된다.
 
 ## 경계
 

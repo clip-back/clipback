@@ -10,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from scripts.check_backup_restore import CheckError, RestoreDrill, check, load_backup, require
-from scripts.image_backup import BackupBucket, create_backup
+from scripts.image_backup import BackupBucket, canonical_json, create_backup
 
 BACKUP_JOB_LOCK = 74264003
 POINT_RETENTION = timedelta(days=7)
@@ -36,8 +36,7 @@ def aware(value):
 
 def asset_matches(asset, deleted):
     return (
-        asset["storage_backend"] == deleted["storage_backend"]
-        and asset["storage_key"] == deleted["storage_key"]
+        asset["storage_key"] == deleted["storage_key"]
         and (deleted["sha256"] is None or asset["sha256"] == deleted["sha256"])
     )
 
@@ -48,9 +47,22 @@ def maintain_backups(store, ledger, *, now=None):
     events = ledger.read_verified_events()
     points = []
     overdue = set()
+    inventory = {
+        identifier: store.read_manifest(identifier) for identifier in store.completed_points()
+    }
+    retiring = {}
+    for item in store.list_objects("gc/points/"):
+        match = re.fullmatch(r"gc/points/([A-Za-z0-9._-]{1,100})\.json", item["key"])
+        require(match is not None, "invalid_gc_receipt")
+        identifier = match[1]
+        manifest = json.loads(store.read(item["key"]))
+        require(identifier not in inventory
+                or canonical_json(inventory[identifier]) == canonical_json(manifest),
+                "gc_receipt_conflict")
+        inventory[identifier] = manifest
+        retiring[identifier] = item["key"]
     # Validate the entire inventory before making a destructive change.
-    for identifier in store.completed_points():
-        manifest = store.read_manifest(identifier)
+    for identifier, manifest in inventory.items():
         require(manifest.get("format_version") == 2, "retention_requires_v2")
         captured = aware(manifest["captured_at"])
         require(captured <= now and manifest["backup_id"] == identifier, "invalid_manifest")
@@ -61,7 +73,7 @@ def maintain_backups(store, ledger, *, now=None):
                     and bool(re.fullmatch(r"[0-9a-f]{64}", asset.get("sha256", "")))
                     and asset.get("backup_key") == "originals/sha256/" + asset["sha256"],
                     "invalid_manifest")
-        expire = now - captured >= POINT_RETENTION
+        expire = identifier in retiring or now - captured >= POINT_RETENTION
         for event in events:
             if now - aware(event["deleted_at"]) >= DELETED_COPY_RETENTION and any(
                 asset_matches(asset, deleted)
@@ -84,8 +96,13 @@ def maintain_backups(store, ledger, *, now=None):
             if asset["backup_key"] not in checked:
                 store.verify_present(asset["backup_key"], asset["size_bytes"])
                 checked.add(asset["backup_key"])
-    for identifier, _, _, expire in points:
+    for identifier, manifest, _, expire in points:
         if expire:
+            # Keep immutable identity across a crash after unpublishing the point. Legacy
+            # deletion intents may lack SHA, so a digest alone cannot recover this link.
+            receipt_key = f"gc/points/{identifier}.json"
+            if identifier not in retiring:
+                store.put_verified(receipt_key, canonical_json(manifest))
             # Unpublish the point before deleting anything it references.
             store.delete_verified(f"points/{identifier}/manifest.json")
             for item in store.list_objects(f"points/{identifier}/"):
@@ -102,6 +119,9 @@ def maintain_backups(store, ledger, *, now=None):
     for item in partial:
         if now - aware(item["last_modified"]) >= timedelta(days=1):
             store.delete_verified(item["key"])
+    for identifier, _, _, expire in points:
+        if expire:
+            store.delete_verified(f"gc/points/{identifier}.json")
     fresh = any(now - captured <= timedelta(days=1) for _, _, captured, _ in retained)
     return {
         "passed": fresh and not overdue, "freshness_met": fresh,

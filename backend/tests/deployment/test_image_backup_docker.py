@@ -313,6 +313,29 @@ def test_old_point_restores_latest_deletions_before_api_and_copies_expire(bucket
     drill.docker("start", api)
     drill.wait("exec", api, "python", "-c", "import urllib.request; "
                "urllib.request.urlopen('http://127.0.0.1:8123/api/v1/health/ready')")
+    # The old point has legacy NULL/local metadata. A later size/hash backfill and
+    # local->S3 migration preserve the immutable key, before the user deletes it.
+    execute(drill, api, """
+import asyncio, hashlib, json
+from pathlib import Path
+from sqlalchemy import select
+from app.db.session import AsyncSessionLocal
+from app.models.content_asset import ContentAsset
+from app.integrations.storage_client import get_storage_client
+async def enrich_and_move():
+    storage=get_storage_client()
+    async with AsyncSessionLocal() as session:
+        for asset in await session.scalars(select(ContentAsset).where(
+                ContentAsset.storage_backend=='local')):
+            body=Path('/data/screenshots',asset.storage_key).read_bytes()
+            await storage.save_file(asset.storage_key,body)
+            asset.storage_backend='s3'
+            asset.size_bytes=len(body)
+            asset.sha256=hashlib.sha256(body).hexdigest()
+        await session.commit()
+asyncio.run(enrich_and_move())
+print('{}')
+""")
     # Pause the external pg_dump after snapshot capture. The API can accept deletion while
     # the backup keeps original bytes protected, without a manual writer-freeze flag.
     import time
@@ -382,6 +405,8 @@ print(json.dumps({'status':urllib.request.urlopen(r,timeout=3).status}))
         mounted_config.chmod(0o600)
         environment = {**fixture["environment"], "S3_ENDPOINT_URL": "http://127.0.0.1:5000",
                        "DELETION_LEDGER_S3_ENDPOINT_URL": "http://127.0.0.1:5000"}
+        # Fresh operator image must work without AI keys or an explicit worker override.
+        environment.pop("YOUTUBE_SUMMARY_ENABLED")
         envfile = fixture["directory"] / "operator.env"
         envfile.write_text("\n".join(f"{k}={v}" for k, v in environment.items()) + "\n")
         envfile.chmod(0o600)
