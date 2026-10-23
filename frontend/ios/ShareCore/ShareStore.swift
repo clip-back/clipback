@@ -188,13 +188,14 @@ final class ShareStore {
     var data = Data()
     while let chunk = try file.read(upToCount: min(64 * 1024, Self.maxImageBytes + 1 - data.count)), !chunk.isEmpty {
       data.append(chunk)
-      guard data.count <= Self.maxImageBytes else { throw ShareFailure.unsupported }
+      guard data.count <= Self.maxImageBytes else { throw ShareFailure.fileTooLarge }
     }
     return try createImage(data)
   }
 
   func createImage(_ data: Data) throws -> ShareDraft {
-    guard !data.isEmpty, data.count <= Self.maxImageBytes,
+    guard data.count <= Self.maxImageBytes else { throw ShareFailure.fileTooLarge }
+    guard !data.isEmpty,
           let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
           CGImageSourceGetCount(imageSource) == 1 else { throw ShareFailure.unsupported }
     let header = [UInt8](data.prefix(12))

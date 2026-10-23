@@ -101,6 +101,7 @@ enum ShareFailure: LocalizedError {
   static let authentication = ShareFailure.message("초안을 보관했습니다. 허투루 앱을 열어 로그인을 확인한 뒤 대기 항목을 선택해 주세요.")
   static let changedAccount = ShareFailure.message("저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.")
   static let unsupported = ShareFailure.message("Instagram·YouTube 링크 하나 또는 PNG·JPEG·WebP 이미지 한 장(10MiB 이하)을 공유해 주세요.")
+  static let fileTooLarge = ShareFailure.message("이미지는 10MiB 이하만 저장할 수 있습니다.")
 }
 
 enum ShareConfiguration {

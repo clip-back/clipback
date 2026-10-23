@@ -86,6 +86,21 @@ final class ShareStoreTests: XCTestCase {
     XCTAssertThrowsError(try store.createLink("https://youtu.be/dQw4w9WgXcQ"))
     XCTAssertNotNil(try store.draft(first.id))
   }
+  func testKnownOversizedImageHasDedicatedReasonForMemoryAndFileIntake() throws {
+    let bytes = Data(repeating: 0, count: ShareStore.maxImageBytes + 1)
+    let expected = "이미지는 10MiB 이하만 저장할 수 있습니다."
+    XCTAssertThrowsError(try store.createImage(bytes)) { error in
+      XCTAssertEqual(error.localizedDescription, expected)
+    }
+    let file = folder.appendingPathComponent("oversized.png")
+    try bytes.write(to: file)
+    XCTAssertThrowsError(try store.createImage(fileURL: file)) { error in
+      XCTAssertEqual(error.localizedDescription, expected)
+    }
+    XCTAssertThrowsError(try store.createImage(Data("not an image".utf8))) { error in
+      XCTAssertNotEqual(error.localizedDescription, expected)
+    }
+  }
   func testOldUnauthorizedCannotBlockNewlyPublishedCredential() throws {
     let revision = try store.blockCredential()
     let old = credential(revision)
