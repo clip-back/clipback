@@ -80,7 +80,9 @@
 
 보관 정책과 기존 인증 API 통합 테스트 중심의 검증 경계를 합의했으며,
 [GitHub 이슈 #64](https://github.com/clip-back/clipback/issues/64)에 명세를 게시하고 `ready-for-agent`로 분류했다.
-제품 코드 구현과 운영 전환은 아직 시작하지 않았다.
+제품 코드는 `feature/image-storage-integration` 브랜치에서 구현 중이다.
+운영 전환은 아직 실행하지 않았다. 티켓별 구현·검증 기록은
+[통합 구현 이력](history/2026-10-23-image-storage-implementation.md)에서 확인한다.
 소스 확인·명세 게시·문서 검증의 기준과 결과는 [설계 인터뷰 이력](history/2026-10-23-image-storage-design.md)에 기록한다.
 
 ## 비용 해석

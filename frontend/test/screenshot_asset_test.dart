@@ -1,4 +1,5 @@
 import 'support/app_startup.dart';
+import 'support/asset_access_fixture.dart';
 import 'auth_navigation.dart';
 
 import 'dart:async';
@@ -100,6 +101,10 @@ http.Response _json(Object body, [int status = 200]) => http.Response(
 );
 
 class _Server {
+  final originals = <int, ({Uint8List bytes, String mime})>{
+    9: (bytes: _png, mime: 'image/png'),
+    10: (bytes: _portraitPng, mime: 'image/png'),
+  };
   _Server({this.respond, this.saved = true});
 
   final Future<http.Response?> Function(http.BaseRequest)? respond;
@@ -109,7 +114,34 @@ class _Server {
   late final client = MockClient.streaming((request, stream) async {
     await stream.toBytes();
     calls.add(request);
-    final response = await respond?.call(request) ?? _default(request);
+    final access = RegExp(
+      r'^/api/v1/uploads/assets/(\d+)/access$',
+    ).firstMatch(request.url.path);
+    if (access != null) {
+      final id = int.parse(access.group(1)!);
+      final value = originals[id] ?? (bytes: _png, mime: 'image/png');
+      final response = originalAccessFixture(
+        id,
+        value.bytes,
+        mimeType: value.mime,
+      );
+      return http.StreamedResponse(
+        Stream.value(response.bodyBytes),
+        200,
+        headers: response.headers,
+      );
+    }
+    var response = await respond?.call(request) ?? _default(request);
+    if (request.url.path.startsWith('/api/v1/uploads/assets/') &&
+        response.statusCode == 200 &&
+        !response.headers.containsKey('content-type')) {
+      final id = int.parse(request.url.path.split('/').last);
+      response = http.Response.bytes(
+        response.bodyBytes,
+        200,
+        headers: {'content-type': originals[id]?.mime ?? 'image/png'},
+      );
+    }
     if (request.url.path == '/api/v1/uploads/screenshots' &&
         response.statusCode == 201) {
       saved = true;
@@ -544,6 +576,7 @@ void main() {
               : null,
         );
         server.contents[0] = _content(mime: fixture.mime);
+        server.originals[9] = (bytes: fixture.bytes, mime: fixture.mime);
         await _withApp(tester, server, () async {
           await _openFirst(tester);
           await _expandOriginal(tester);
@@ -606,7 +639,7 @@ void main() {
           }
           final message = switch (failure) {
             '404' => '원본 이미지를 찾을 수 없어요.',
-            'decode' || 'empty bytes' => '원본 이미지를 표시하지 못했어요.',
+            'decode' || 'empty bytes' => '원본 이미지를 불러오지 못했어요.',
             _ => '원본 이미지를 불러오지 못했어요.',
           };
           expect(find.text(message), findsOneWidget);
@@ -794,6 +827,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(_memoryImages, findsNothing);
         expect(find.text('원본 이미지를 불러오지 못했어요.'), findsNothing);
+        server.originals[9] = (bytes: _portraitPng, mime: 'image/png');
         await _expandOriginal(tester);
         _expectOriginalBytes(tester, _portraitPng);
         expect(server.at(_assetPath), hasLength(2));

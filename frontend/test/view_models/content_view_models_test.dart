@@ -1,3 +1,5 @@
+import '../support/asset_access_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -93,6 +95,9 @@ class _Fixture {
           return _json({'saved_count': 42, 'reopened_count': 17});
         case '/api/v1/metrics/events':
           return _json({});
+      }
+      if (request.url.path == '/api/v1/uploads/assets/3/access') {
+        return originalAccessFixture(3, [1, 2, 3]);
       }
       if (request.url.path.endsWith('/view')) return _json({});
       throw StateError('Unexpected ${request.method} ${request.url.path}');
