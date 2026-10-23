@@ -1178,6 +1178,9 @@ class ClipbackApi {
       if (detail is Map && detail['code'] == 'image_quota_exceeded') {
         message = '이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.';
       }
+      if (detail is Map && detail['code'] == 'image_uploads_paused') {
+        message = '이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.';
+      }
       if (detail is String) message = detail;
       if (detail is List && detail.isNotEmpty) {
         message =

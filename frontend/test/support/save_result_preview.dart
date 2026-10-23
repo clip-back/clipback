@@ -4,7 +4,7 @@
 //   --dart-define=SAVE_RESULT_PHASE=before|after
 // HTTP loopback :8767: /status, /scene?kind=link-input|photo-empty|photo-selected|link|photo&scale=1|1.5|2, /run,
 // /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
-// /error?kind=photo&reason=quota|file-limit uses the real API error mapper with
+// /error?kind=photo&reason=quota|file-limit|paused uses the real API error mapper with
 // an in-memory HTTP stand-in. prepared=1 submits an existing selection; offset
 // fixes the actual scroll for BEFORE/AFTER comparison. No server quota proof.
 // /scroll?max=1, /paste-scene?scale=1|1.5|2&keyboard=0|1, /paste-run.
@@ -176,7 +176,7 @@ Future<void> main() async {
           final scale = _requestedScale(request.uri);
           final reason = request.uri.queryParameters['reason'] ?? 'fail';
           _require(
-            ['fail', 'quota', 'file-limit'].contains(reason),
+            ['fail', 'quota', 'file-limit', 'paused'].contains(reason),
             'Unknown failure',
           );
           if (request.uri.queryParameters['prepared'] == '1') {
@@ -285,17 +285,19 @@ class _PreviewState extends State<_Preview> {
       return pending!.future;
     }
     if (mode == 'fail') throw StateError('Fixture save failure');
-    if (mode == 'quota' || mode == 'file-limit') {
+    if (mode == 'quota' || mode == 'file-limit' || mode == 'paused') {
       final client = MockClient(
         (_) async => http.Response(
           jsonEncode({
             'detail': {
-              'code': mode == 'quota'
-                  ? 'image_quota_exceeded'
-                  : 'image_file_too_large',
+              'code': switch (mode) {
+                'quota' => 'image_quota_exceeded',
+                'paused' => 'image_uploads_paused',
+                _ => 'image_file_too_large',
+              },
             },
           }),
-          mode == 'quota' ? 409 : 413,
+          mode == 'file-limit' ? 413 : 409,
           headers: {'content-type': 'application/json'},
         ),
       );

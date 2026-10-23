@@ -139,6 +139,19 @@ async def test_operator_report_separates_logical_physical_backup_and_observed_tr
     ):
         assert private_value not in output
 
+    await request(api, "DELETE", f"contents/{saved['id']}", headers=owner, status=204)
+    async with AsyncSession(bind=database_connection) as db:
+        after_delete = await usage_report(
+            db,
+            get_storage_client(),
+            BackupBucket(s3_storage, "backup-images"),
+            month=datetime.now(UTC).date().replace(day=1),
+        )
+    assert after_delete["accounts"][0]["original_bytes"] == 0
+    assert after_delete["logical_originals"] == {"size_bytes": 77, "count": 1}
+    assert after_delete["physical_storage"]["backup"] == {"size_bytes": 18, "objects": 2}
+    assert after_delete["observed_transfers"] == report["observed_transfers"]
+
 
 async def test_pause_waits_for_admitted_save_then_retry_after_resume_has_one_original(
     independent_api,  # noqa: F811 - reused PostgreSQL fixture

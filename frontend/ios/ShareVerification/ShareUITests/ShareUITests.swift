@@ -224,9 +224,11 @@ final class ShareUITests: XCTestCase {
     let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
     sender.launch()
     for (status, code, message, artifact) in [
+      (409, "image_uploads_paused", "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", "ios-share-image-paused"),
       (409, "image_quota_exceeded", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", "ios-share-image-quota"),
       (413, "image_file_too_large", "이미지는 10MiB 이하만 저장할 수 있습니다.", "ios-share-image-file-limit")
     ] {
+      let before = savedCount()
       control(["next_save_status": status, "next_save_detail": ["code": code]])
       openShare(sender, button: "스크린샷 공유")
       let save = sender.buttons["share.save"]
@@ -234,7 +236,14 @@ final class ShareUITests: XCTestCase {
       tapReady(save)
       XCTAssertTrue(sender.staticTexts[message].waitForExistence(timeout: 10), sender.debugDescription)
       XCTAssertTrue(save.isEnabled)
+      XCTAssertEqual(savedCount(), before)
       capture(artifact)
+      if code == "image_uploads_paused" {
+        tapReady(save)
+        XCTAssertTrue(sender.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), sender.debugDescription)
+        XCTAssertEqual(savedCount(), before + 1)
+        capture("ios-share-image-pause-resumed")
+      }
       tapReady(sender.buttons["share.close"])
     }
   }
