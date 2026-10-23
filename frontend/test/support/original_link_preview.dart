@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'archive_all_preview.dart' as isolated;
+import 'asset_access_fixture.dart';
 
 const originalPreviewUrl = 'https://example.com/?clipback=original#source';
 const _phase = String.fromEnvironment(
@@ -35,6 +36,10 @@ class OriginalLinkPreviewServer extends isolated.ArchiveAllServer {
   late final previewClient = MockClient((request) async {
     if (request.url.path == '/api/v1/metrics/events') {
       metrics.add(Map<String, dynamic>.from(jsonDecode(request.body) as Map));
+    }
+    if (request.url.path == '/api/v1/uploads/assets/901/access') {
+      final bytes = await rootBundle.load(Assets.savedPhotoPreview);
+      return originalAccessFixture(901, bytes.buffer.asUint8List());
     }
     if (request.url.path == '/api/v1/uploads/assets/901') {
       final bytes = await rootBundle.load(Assets.savedPhotoPreview);
