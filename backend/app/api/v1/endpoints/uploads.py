@@ -18,6 +18,7 @@ from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
+from app.services.image_storage_control import ImageUploadControl
 from app.services.upload_service import UploadService
 
 router = APIRouter()
@@ -108,4 +109,5 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
         content_asset_repository=content_asset_repository,
         storage_client=get_storage_client(),
         ocr_client=get_ocr_client(),
+        image_storage_control=ImageUploadControl(db),
     )

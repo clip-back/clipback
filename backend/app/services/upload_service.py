@@ -34,6 +34,7 @@ from app.schemas.content import (
 )
 from app.services.content_service import ContentService, PendingContentAsset
 from app.services.image_deletion_service import cleanup_failed_upload
+from app.services.image_storage_control import ImageUploadControl
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class UploadService:
         content_asset_repository: ContentAssetRepository,
         storage_client: StorageRouter,
         ocr_client: OCRClient,
+        image_storage_control: ImageUploadControl | None = None,
         max_bytes: int = settings.screenshot_max_bytes,
     ) -> None:
         self.content_service = content_service
@@ -79,6 +81,7 @@ class UploadService:
         self.storage_client = storage_client
         self.ocr_client = ocr_client
         self.max_bytes = max_bytes
+        self.image_storage_control = image_storage_control
 
     async def upload_screenshot(
         self,
@@ -116,6 +119,8 @@ class UploadService:
             receipt_args["share_receipt"] = pending
 
         mime_type, extension = self._validate_image(content)
+        if self.image_storage_control is not None:
+            await self.image_storage_control.authorize()
         ocr_result, ocr_metadata = await self._extract_ocr(
             content=content,
             mime_type=mime_type,
@@ -128,6 +133,10 @@ class UploadService:
             raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
         try:
+            if self.image_storage_control is not None:
+                await self.image_storage_control.observe(
+                    f"original_upload_{self.storage_client.backend}", len(content),
+                )
             return await self.content_service.create_content(
                 **receipt_args,
                 user_id=user_id,
@@ -249,6 +258,10 @@ class UploadService:
             raise NotFoundError("Content asset not found") from exc
         except OSError as exc:
             raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
+        if self.image_storage_control is not None:
+            await self.image_storage_control.observe(
+                "direct_access_grant" if expires_at else "proxy_access_grant", commit=True,
+            )
         return ContentAssetAccess(
             asset_id=asset.id, mode="direct" if expires_at else "proxy", url=url,
             expires_at=expires_at, mime_type=mime_type, size_bytes=size, sha256=digest,
@@ -272,6 +285,8 @@ class UploadService:
         except StorageUnavailableError as exc:
             raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
+        if self.image_storage_control is not None:
+            await self.image_storage_control.observe("proxy_download", len(content), commit=True)
         return StoredAssetFile(
             content=content,
             mime_type=asset.mime_type or "application/octet-stream",

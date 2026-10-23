@@ -9,6 +9,9 @@ Implementation status and remaining scope decisions are tracked in the
 서버 단독 배포와 앱 동반 배포의 SHA·마이그레이션·실제 검증은
 [배포 절차](../docs/release-process.md)에 따라 기록합니다.
 
+이미지 보관량·관측 전송량과 운영자의 신규 저장 중단·재개 명령은
+[이미지 운영 안내](../docs/backend/image-storage-operations.md)를 따릅니다.
+
 ## 준비 사항
 
 Python 3.11 또는 3.12, Docker Compose의 PostgreSQL을 준비합니다. 아래 설치는 저장소 루트에서 시작하고, 서버·migration·검사는 가상환경이 준비된 `backend/`에서 실행합니다.
