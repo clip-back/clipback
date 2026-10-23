@@ -162,6 +162,7 @@ flutter run
 ### 협업·이력
 
 - [Git 협업 규칙](docs/git-conventions.md)
+- [에이전트 이슈 관리](docs/agents/issue-tracker.md) · [분류 라벨](docs/agents/triage-labels.md) · [도메인 문서 규칙](docs/agents/domain.md)
 - [작업·검증 이력과 원문 이관 대조표](docs/history/README.md)
 - [PR 템플릿](.github/pull_request_template.md)
 - [FE 기존 경로 안내](docs/fe-merge-fixes.md)
