@@ -109,6 +109,7 @@ class _Server {
 
   final Future<http.Response?> Function(http.BaseRequest)? respond;
   final calls = <http.BaseRequest>[];
+  int accessStatus = 200;
   bool saved;
   final contents = [_content()];
   late final client = MockClient.streaming((request, stream) async {
@@ -118,6 +119,14 @@ class _Server {
       r'^/api/v1/uploads/assets/(\d+)/access$',
     ).firstMatch(request.url.path);
     if (access != null) {
+      if (accessStatus != 200) {
+        final response = _json({'detail': 'unavailable'}, accessStatus);
+        return http.StreamedResponse(
+          Stream.value(response.bodyBytes),
+          accessStatus,
+          headers: response.headers,
+        );
+      }
       final id = int.parse(access.group(1)!);
       final value = originals[id] ?? (bytes: _png, mime: 'image/png');
       final response = originalAccessFixture(
@@ -469,6 +478,26 @@ void main() {
     expect(item.assets, isEmpty);
     expect(item.copyWith(bookmarked: true).assets, isEmpty);
   });
+
+  testWidgets(
+    'a reopened original discards old display bytes when access is deleted',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        server.accessStatus = 404;
+        await _openOriginalSheet(tester);
+        expect(_memoryImages, findsNothing);
+        expect(find.text('원본 이미지를 찾을 수 없어요.'), findsOneWidget);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(1));
+      });
+    },
+  );
 
   testWidgets(
     'reopening the original sheet checks current access even after a successful display',
