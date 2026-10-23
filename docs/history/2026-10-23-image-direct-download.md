@@ -58,10 +58,27 @@ flutter analyze --no-pub
 - 변경 백엔드 파일의 `ruff check --no-cache`: **통과**.
 - 최종 `git diff --check`: **통과**.
 
+## 통합 브랜치에서 추가한 기기 실행
+
+- 통합 `7a0ecc1` 이후 iPhone 16 Pro / iOS 18.6와 Android 13 / API 33에서 기존
+  `ClipbackApp`·`ClipbackApi`를 사용하는 임시 원본 보기 호스트를 실행했다.
+  인증·목록 응답은 기존 HTTP 주입 fixture, 원본 본문은 로컬 moto Bucket의 실제 HTTP GET이다.
+- 두 플랫폼 모두 원본 이미지 표시, Bucket 요청 1회, 앱 Authorization·Cookie 미전송,
+  Flutter 프레임워크·비동기 오류 0건을 상태와 원본 OS 스크린샷으로 확인했다.
+  iOS 빌드 59.3초, Android 빌드 103.6초·설치 6.4초였다.
+- Android 연결이 사라져 기존 데이터를 보존한 채 작업 전용 AVD를 host GPU로 다시 시작한 뒤
+  확인했다. 정상 화면을 직접 열어 확인했으며 재시작 전 연결 실패를 성공으로 세지 않았다.
+- 기존 프리뷰의 종합 `passed`는 원문 링크 metric도 요구해 사진 전용 실행에서는 `false`다.
+  이 값은 바꾸지 않았고 사진 표시·요청·자격 분리의 명시 검사를 별도로 기록했다.
+- [검증 상태](</Users/leehyeongyu/.codex/visualizations/2026/10/22/01a16370-b415-77f3-a86a-160b5b4f0a56/image-storage-implementation/native-67-result.json>),
+  [iOS 화면](</Users/leehyeongyu/.codex/visualizations/2026/10/22/01a16370-b415-77f3-a86a-160b5b4f0a56/image-storage-implementation/ios-67-direct-original.png>),
+  [Android 화면](</Users/leehyeongyu/.codex/visualizations/2026/10/22/01a16370-b415-77f3-a86a-160b5b4f0a56/image-storage-implementation/android-67-direct-original.png>)과
+  같은 폴더의 `native-67-proof.md`에 임시 호스트·명령·검증 경계를 보존했다.
+  화면 배치는 변경하지 않았고 이 기능 화면은 별도 기준 데이터이므로 초기 디자인 비교 쌍으로 사용하지 않는다.
+
 ## 미검증과 후속 통합 확인
 
 - 실제 Railway Bucket·운영 계정·운영 데이터·배포는 사용하지 않았다.
-- 이 개별 작업에서는 iOS Simulator·Android Emulator 빌드와 실행 증거를 수집하지 않았다.
-  통합 검증 #74에서 같은 합성 원본으로 두 플랫폼 원본 보기와 계정 전환을 확인해야 한다.
+- 통합 검증 #74에서는 실제 격리 API와 두 플랫폼의 계정 전환·캐시 흐름을 함께 확인해야 한다.
 - 전체 백엔드·Flutter 검사와 실제 격리 복원도 최종 통합 #74의 검증으로 남아 있다.
   이 작업의 관련 자동 테스트 통과를 해당 실행·운영 검증의 증거로 사용하지 않는다.
