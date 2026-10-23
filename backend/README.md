@@ -111,6 +111,10 @@ command. New originals can use a private S3-compatible Bucket by selecting
 local assets keep using the mounted volume. `/api/v1/health/ready` checks PostgreSQL
 and the selected writer (temporary local write or read-only Bucket listing) with a
 three-second timeout; `/api/v1/health` retains its existing liveness contract.
+Initialize the separate deletion ledger before accepting image deletion requests;
+production Bucket originals require independent S3 ledger settings. See
+[durable deletion and cleanup retry](../docs/backend/image-deletion.md) for setup,
+the bounded retry command, and the recovery checkpoint contract.
 
 See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)
 for all required variables, dashboard settings, Docker persistence checks, and

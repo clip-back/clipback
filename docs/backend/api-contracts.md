@@ -713,6 +713,12 @@ No database migration or new frontend response field is required.
 
 ## Screenshot Storage
 
+Original deletion uses the existing content DELETE endpoint. It confirms an independent
+deletion receipt before committing the DB removal and a durable physical-cleanup job.
+Missing/unavailable receipts reject deletion with 503; repeated missing content remains 404.
+See [deletion, retry and recovery contracts](image-deletion.md) for partial failures,
+failed-upload cleanup, and the limits of already-issued signed URLs.
+
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
 10MiB as multipart form data and returns the saved content with its asset metadata.
 The original bytes are preserved without resizing or recompression. `STORAGE_BACKEND`
