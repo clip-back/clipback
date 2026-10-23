@@ -471,7 +471,24 @@ void main() {
   });
 
   testWidgets(
-    'detail and original sheet share one lazy authenticated download',
+    'reopening the original sheet checks current access even after a successful display',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+      });
+    },
+  );
+
+  testWidgets(
+    'each completed original surface opening authorizes again when disk cache is unavailable',
     (tester) async {
       final server = _Server();
       await _withApp(tester, server, () async {
@@ -484,10 +501,11 @@ void main() {
         _expectOriginalBytes(tester, _png);
         await _openOriginalSheet(tester);
         expect(find.text('원본 이미지'), findsOneWidget);
-        expect(server.at(_assetPath), hasLength(1));
-        expect(server.at(_assetPath).single.method, 'GET');
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
+        expect(server.at(_assetPath).last.method, 'GET');
         expect(
-          server.at(_assetPath).single.headers['Authorization'],
+          server.at(_assetPath).last.headers['Authorization'],
           'Bearer test-access',
         );
         _expectOriginalBytes(tester, _png, count: 2);
@@ -500,22 +518,24 @@ void main() {
     },
   );
 
-  testWidgets('sheet first also shares its download with the detail toggle', (
-    tester,
-  ) async {
-    final server = _Server();
-    await _withApp(tester, server, () async {
-      await _openFirst(tester);
-      await _openOriginalSheet(tester);
-      expect(find.text('원본 이미지'), findsOneWidget);
-      _expectOriginalBytes(tester, _png);
-      Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
-      await tester.pumpAndSettle();
-      await _expandOriginal(tester);
-      _expectOriginalBytes(tester, _png);
-      expect(server.at(_assetPath), hasLength(1));
-    });
-  });
+  testWidgets(
+    'detail toggle authorizes again after closing a completed sheet',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        expect(find.text('원본 이미지'), findsOneWidget);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        await _expandOriginal(tester);
+        _expectOriginalBytes(tester, _png);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
+      });
+    },
+  );
 
   testWidgets(
     'restarted app lazily retrieves the saved original without a new guest',
@@ -978,7 +998,7 @@ void main() {
   );
 
   testWidgets(
-    'collapsing and reopening keeps the original cached only in its detail',
+    'collapsing and reopening checks access instead of retaining display bytes',
     (tester) async {
       final server = _Server();
       await _withApp(tester, server, () async {
@@ -989,13 +1009,15 @@ void main() {
         expect(_memoryImages, findsNothing);
         await _expandOriginal(tester);
         _expectOriginalBytes(tester, _png);
-        expect(server.at(_assetPath), hasLength(1));
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
         tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
         await tester.pumpAndSettle();
         await _openFirst(tester);
         expect(_memoryImages, findsNothing);
         await _expandOriginal(tester);
-        expect(server.at(_assetPath), hasLength(2));
+        expect(server.at('$_assetPath/access'), hasLength(3));
+        expect(server.at(_assetPath), hasLength(3));
       });
     },
   );
