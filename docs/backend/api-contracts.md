@@ -727,6 +727,21 @@ selects `local` (default, rooted at `STORAGE_ROOT`) or a private S3-compatible B
 for new uploads. Each asset records its own storage backend, actual byte length and
 SHA-256; pre-existing assets remain `local` with nullable integrity metadata until
 an explicit migration fills it. Changing the writer never changes old asset locations.
+Original images share one byte quota per server user ID across the main app and
+both native share extensions: guests have 30MiB (31,457,280 bytes), connected
+accounts 300MiB (314,572,800 bytes). Exact equality is accepted. Completed
+idempotent shares replay before checking the quota; new saves check it before
+OCR and keep the same user's database lock through commit/rollback. Missing
+legacy size metadata is resolved from its original store; unverifiable sizes
+reject a new save with 503 rather than count as zero. Deleted content leaves
+the live sum immediately after deletion commits; cache and backup bytes do not
+count. Promotion preserves the user ID and existing bytes while raising the
+limit. Existing over-quota images remain readable and deletable.
+
+Quota rejection is HTTP409 with `detail.code=image_quota_exceeded` and
+`detail.limit_bytes`. One file exceeding the configured 10MiB limit is HTTP413
+with `detail.code=image_file_too_large` and `detail.limit_bytes`. Clients inspect
+the error code before treating every 409 as an idempotency conflict.
 OpenAI OCR extracts text, title, and summary and feeds category recommendation.
 New screenshot summaries are instructed to use concise Korean informational prose
 with noun-ending sentences (for example, `성수동 카페 소개. 대표 메뉴와 영업시간 안내.`),

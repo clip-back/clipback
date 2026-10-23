@@ -96,6 +96,9 @@ API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이�
 - Today·Weekly, 최근 검색어, 시스템 뒤로가기는 기준 커밋에 연결되어 있습니다. 작업별 실제 검증과 한계는 이력 목차를 확인합니다.
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
+- 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다. Dart API 오류 검사는
+  `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
+  [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서

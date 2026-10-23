@@ -154,4 +154,23 @@ final class ShareSaveServiceTests: XCTestCase {
     XCTAssertEqual(try store.draft(draft.id)?.state, "unknown")
     XCTAssertEqual(try store.draft(draft.id)?.userId, "7")
   }
+  func testQuotaAndFileSizeErrorsKeepDraftAndAuthenticationWithSpecificMessages() throws {
+    for (status, detail, message) in [
+      (409, "{\"code\":\"image_quota_exceeded\"}", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요."),
+      (413, "{\"code\":\"image_file_too_large\"}", "이미지는 10MiB 이하만 저장할 수 있습니다.")
+    ] {
+      let draft = try store.createLink("https://youtu.be/dQw4w9WgXcQ")
+      ShareResponseProtocol.handler = { _ in (status, Data("{\"detail\":\(detail)}".utf8)) }
+      let saving = service()
+      let finished = expectation(description: "specific image error \(status)")
+      saving.save(draft.id, expected: credential) { result in
+        if case .failure(let error) = result { XCTAssertEqual(error.localizedDescription, message) }
+        else { XCTFail("An image limit rejection cannot succeed") }
+        finished.fulfill()
+      }
+      wait(for: [finished], timeout: 5)
+      XCTAssertEqual(try store.draft(draft.id)?.state, "failed")
+      XCTAssertNotNil(try store.currentCredential())
+    }
+  }
 }

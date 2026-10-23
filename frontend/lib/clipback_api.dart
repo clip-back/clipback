@@ -1175,6 +1175,9 @@ class ClipbackApi {
     try {
       final data = _decodeJson(response);
       final detail = data['detail'];
+      if (detail is Map && detail['code'] == 'image_quota_exceeded') {
+        message = '이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.';
+      }
       if (detail is String) message = detail;
       if (detail is List && detail.isNotEmpty) {
         message =
@@ -1182,6 +1185,9 @@ class ClipbackApi {
       }
     } on FormatException {
       // The API can return an empty non-JSON response for infrastructure errors.
+    }
+    if (response.statusCode == 413) {
+      message = '이미지는 10MiB 이하만 저장할 수 있습니다.';
     }
     throw ClipbackApiException(message, statusCode: response.statusCode);
   }

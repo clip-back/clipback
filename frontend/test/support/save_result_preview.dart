@@ -4,6 +4,9 @@
 //   --dart-define=SAVE_RESULT_PHASE=before|after
 // HTTP loopback :8767: /status, /scene?kind=link-input|photo-empty|photo-selected|link|photo&scale=1|1.5|2, /run,
 // /keyboard?scale=1|1.5|2, /error?scale=1|1.5|2&keyboard=1, /keyboard-hide,
+// /error?kind=photo&reason=quota|file-limit uses the real API error mapper with
+// an in-memory HTTP stand-in. prepared=1 submits an existing selection; offset
+// fixes the actual scroll for BEFORE/AFTER comparison. No server quota proof.
 // /scroll?max=1, /paste-scene?scale=1|1.5|2&keyboard=0|1, /paste-run.
 // /paste-scene?kind=empty|invalid&scale=1&keyboard=0 adds base input states.
 // /base-style-scene?kind=empty|valid|invalid|photo-empty|photo-selected|link|photo
@@ -21,6 +24,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -34,6 +38,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 const _phase = String.fromEnvironment(
   'SAVE_RESULT_PHASE',
@@ -168,14 +174,42 @@ Future<void> main() async {
           await _capture(_sceneName('keyboard', scale));
         case '/error':
           final scale = _requestedScale(request.uri);
-          await _open('link-input', scale: scale, mode: 'fail');
+          final reason = request.uri.queryParameters['reason'] ?? 'fail';
+          _require(
+            ['fail', 'quota', 'file-limit'].contains(reason),
+            'Unknown failure',
+          );
+          if (request.uri.queryParameters['prepared'] == '1') {
+            _appKey.currentState!.mode = reason;
+            _scene = '${_sceneName('photo', scale)}_$reason';
+          } else {
+            await _open(
+              request.uri.queryParameters['kind'] == 'photo'
+                  ? 'photo'
+                  : 'link-input',
+              scale: scale,
+              mode: reason,
+            );
+          }
           if (request.uri.queryParameters['keyboard'] == '1') {
             await _showKeyboard();
           }
           await _save();
           _require(_has<SaveErrorToast>(), 'Failure toast missing');
-          await _scrollToMax();
-          _checkFooter(atMaximum: true);
+          final offset = double.tryParse(
+            request.uri.queryParameters['offset'] ?? '',
+          );
+          if (offset != null) {
+            _require(
+              offset >= 0 && offset <= _bodyPosition.maxScrollExtent,
+              'Invalid offset',
+            );
+            _bodyPosition.jumpTo(offset);
+            await _settle(1);
+          } else {
+            await _scrollToMax();
+          }
+          _checkFooter(atMaximum: offset == null);
           await _capture(
             _sceneName(
               request.uri.queryParameters['keyboard'] == '1'
@@ -251,6 +285,36 @@ class _PreviewState extends State<_Preview> {
       return pending!.future;
     }
     if (mode == 'fail') throw StateError('Fixture save failure');
+    if (mode == 'quota' || mode == 'file-limit') {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'detail': {
+              'code': mode == 'quota'
+                  ? 'image_quota_exceeded'
+                  : 'image_file_too_large',
+            },
+          }),
+          mode == 'quota' ? 409 : 413,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      final api = ClipbackApi(client: client)
+        ..restoreSession(
+          const ApiSession(
+            accessToken: 'local-renderer-access',
+            refreshToken: 'local-renderer-refresh',
+            expiresIn: 3600,
+            refreshExpiresIn: 86400,
+          ),
+        );
+      try {
+        await api.uploadScreenshot(bytes: bytes!, filename: filename!);
+      } finally {
+        client.close();
+      }
+      throw StateError('An image policy rejection unexpectedly succeeded');
+    }
     return _content(kind);
   }
 
