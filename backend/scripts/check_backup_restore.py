@@ -94,7 +94,10 @@ def validate_archive(path):
 
 def load_backup(directory):
     manifest = json.loads((directory / "manifest.json").read_text())
-    require(isinstance(manifest, dict) and manifest.get("format_version") == 1, "invalid_manifest")
+    require(
+        isinstance(manifest, dict) and manifest.get("format_version") in {1, 2}, "invalid_manifest"
+    )
+    version = manifest["format_version"]
     allowed = {
         "format_version",
         "backup_id",
@@ -111,6 +114,8 @@ def load_backup(directory):
         "images",
         "extra_file_count",
     }
+    if version == 2:
+        allowed.add("deletion_checkpoint")
     require(set(manifest).issubset(allowed), "invalid_manifest")
     require(manifest.get("origin") in {"production", "synthetic"}, "invalid_manifest")
     require(
@@ -191,7 +196,18 @@ def load_backup(directory):
             and bool(SHA256.fullmatch(asset["sha256"])),
             "invalid_manifest",
         )
-        require("screenshots/" + key in files, "missing_asset")
+        prefix = "screenshots/"
+        if version == 2:
+            require(asset.get("storage_backend") in {"local", "s3"}, "invalid_manifest")
+            require(
+                type(asset.get("content_id")) is int and asset["content_id"] > 0, "invalid_manifest"
+            )
+            require(
+                asset.get("backup_key") == f"originals/sha256/{asset['sha256']}", "invalid_manifest"
+            )
+            if asset["storage_backend"] == "s3":
+                prefix = "s3/"
+        require(prefix + key in files, "missing_asset")
     require(sample["asset_id"] in seen, "invalid_manifest")
     # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
     required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
@@ -282,6 +298,13 @@ class RestoreDrill:
         network, db, api, files, pg = [
             self.owner + suffix for suffix in ("-net", "-db", "-api", "-files", "-pg")
         ]
+        bucket_mode = manifest["format_version"] == 2 and any(
+            asset["storage_backend"] == "s3" for asset in manifest["assets"]
+        )
+        s3 = self.owner + "-s3"
+        if bucket_mode:
+            # A local, internal test double only; no source/backup endpoint can be passed in.
+            s3_image = json.loads(self.docker("image", "inspect", "motoserver/moto:5.2.4"))[0]["Id"]
         self.create("network", network, "--internal")
         self.create("volume", pg)
         self.create("volume", files)
@@ -291,7 +314,7 @@ class RestoreDrill:
             env.write_text(
                 "\n".join(
                     [
-                        "APP_ENVIRONMENT=production",
+                        "APP_ENVIRONMENT=test" if bucket_mode else "APP_ENVIRONMENT=production",
                         "YOUTUBE_SUMMARY_ENABLED=false",
                         f"SECRET_KEY={credentials['secret_key']}",
                         f"POSTGRES_PASSWORD={password}",
@@ -303,6 +326,19 @@ class RestoreDrill:
                         'GOOGLE_CLIENT_IDS=["offline-restore-placeholder"]',
                         "KAKAO_REST_API_KEY=offline-restore-placeholder",
                         "BACKEND_CORS_ORIGINS=[]",
+                        *(
+                            [
+                                "STORAGE_BACKEND=s3",
+                                f"S3_ENDPOINT_URL=http://{s3}:5000",
+                                "S3_BUCKET=restored-originals",
+                                "S3_REGION=us-east-1",
+                                "S3_ADDRESSING_STYLE=path",
+                                "S3_ACCESS_KEY_ID=synthetic-recovery",
+                                "S3_SECRET_ACCESS_KEY=synthetic-recovery",
+                            ]
+                            if bucket_mode
+                            else []
+                        ),
                     ]
                 )
                 + "\n"
@@ -379,6 +415,37 @@ class RestoreDrill:
             )
             with paths["images"].open("rb") as stream:
                 self.docker("start", "-a", "-i", unpack, stdin=stream)
+            if bucket_mode:
+                self.container(s3, "--network", network, s3_image)
+                self.docker("start", s3)
+                self.wait(
+                    "exec",
+                    s3,
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000')",
+                )
+                seed_bucket = self.owner + "-seed-bucket"
+                self.container(
+                    seed_bucket,
+                    "--network",
+                    network,
+                    "--env-file",
+                    str(env),
+                    "-v",
+                    f"{files}:/data:ro",
+                    "--entrypoint",
+                    "python",
+                    app_image,
+                    "-c",
+                    "from pathlib import Path; "
+                    "from app.integrations.storage_client import get_storage_client; "
+                    "s=get_storage_client().for_backend('s3'); "
+                    "s.client.create_bucket(Bucket=s.bucket); root=Path('/data/s3'); "
+                    "[(s.client.put_object(Bucket=s.bucket,Key=str(p.relative_to(root)),"
+                    "Body=p.read_bytes())) for p in root.rglob('*') if p.is_file()]",
+                )
+                self.docker("start", "-a", seed_bucket)
             self.container(
                 api, "--network", network, "--env-file", str(env), "-v", f"{files}:/data", app_image
             )
@@ -394,6 +461,7 @@ class RestoreDrill:
             payload = {
                 "sample": {k: manifest["sample"][k] for k in ("content_id", "asset_id")},
                 "access_token": credentials["access_token"],
+                "format_version": manifest["format_version"],
             }
             with tempfile.TemporaryFile() as stream:
                 stream.write(json.dumps(payload).encode())
@@ -408,6 +476,7 @@ class RestoreDrill:
                 "extra_file_count": actual["extra_file_count"],
                 "authentication_passed": True,
                 "image_bytes_passed": True,
+                "deletions_applied": False,
             }
 
 

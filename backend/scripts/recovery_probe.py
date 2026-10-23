@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
+from app.integrations.storage_client import get_storage_client
 
 
 def fingerprint(value):
@@ -46,6 +48,11 @@ async def snapshot(payload):
     async with AsyncSessionLocal() as session:
         # Capture the source while all app writes are stopped.
         await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        if payload.get("snapshot_id"):
+            snapshot_id = payload["snapshot_id"]
+            if not re.fullmatch(r"[0-9A-Fa-f-]+", snapshot_id):
+                raise ValueError("Invalid exported snapshot")
+            await session.execute(text(f"SET TRANSACTION SNAPSHOT '{snapshot_id}'"))
         names = (
             (
                 await session.execute(
@@ -79,20 +86,39 @@ async def snapshot(payload):
             )
         ]
         assets = []
-        for row in await session.execute(
-            text("SELECT id, content_id, storage_key FROM content_assets ORDER BY id")
-        ):
-            path = (root / row.storage_key).resolve()
-            if not path.is_relative_to(root) or not path.is_file():
-                raise ValueError("Invalid or missing stored asset")
-            assets.append(
-                {
-                    "id": row.id,
-                    "storage_key": row.storage_key,
-                    "size_bytes": path.stat().st_size,
-                    "sha256": file_hash(path),
-                }
-            )
+        version = payload.get("format_version", 1)
+        columns = "id, content_id, storage_key"
+        if version == 2:
+            columns += ", storage_backend, size_bytes, sha256"
+        storage = get_storage_client() if version == 2 else None
+        for row in await session.execute(text(f"SELECT {columns} FROM content_assets ORDER BY id")):
+            if version == 2:
+                content_bytes = await storage.read_file(
+                    row.storage_key, backend=row.storage_backend
+                )
+                size, digest = len(content_bytes), hashlib.sha256(content_bytes).hexdigest()
+                if (row.size_bytes is not None and size != row.size_bytes) or (
+                    row.sha256 is not None and digest != row.sha256
+                ):
+                    raise ValueError("Stored original metadata differs")
+            else:
+                path = (root / row.storage_key).resolve()
+                if not path.is_relative_to(root) or not path.is_file():
+                    raise ValueError("Invalid or missing stored asset")
+                size, digest = path.stat().st_size, file_hash(path)
+            asset = {
+                "id": row.id,
+                "storage_key": row.storage_key,
+                "size_bytes": size,
+                "sha256": digest,
+            }
+            if version == 2:
+                asset.update(
+                    content_id=row.content_id,
+                    storage_backend=row.storage_backend,
+                    backup_key=f"originals/sha256/{digest}",
+                )
+            assets.append(asset)
         sample = payload["sample"]
         content = await session.scalar(
             text("SELECT to_jsonb(c) FROM contents c WHERE id=:id"), {"id": sample["content_id"]}
@@ -136,7 +162,9 @@ async def snapshot(payload):
             or hashlib.sha256(image).hexdigest() != expected["sha256"]
         ):
             raise ValueError("Authenticated API data differs")
-    referenced = {asset["storage_key"] for asset in assets}
+    referenced = {
+        asset["storage_key"] for asset in assets if asset.get("storage_backend", "local") == "local"
+    }
     extra = sum(
         1
         for path in root.rglob("*")

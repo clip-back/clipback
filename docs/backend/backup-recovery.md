@@ -5,6 +5,77 @@
 운영 절차는 [Railway 안내](../railway-deployment.md), 실제 결과는
 [작업 이력](../history/2026-10-22-production-recovery.md)을 따릅니다.
 
+## Bucket 원본의 수동 백업과 v2 복구 지점
+
+`backend/scripts/image_backup.py`는 DB와 `local`·`s3` 원본을 함께 백업하는 **운영자 전용**
+명령입니다. 원본과 다른 비공개 백업 Bucket을 준비하고, 별도 운영자 환경에서 실행합니다.
+일반 API의 `Settings`에는 백업 자격 항목이 없으며 API 서비스에 이 자격 파일을 배포하지 않습니다.
+동일 endpoint의 원본 Bucket을 백업 대상으로 쓰면 거부합니다. 실제 Railway 자격의 권한 분리는
+배포 시 별도로 확인해야 하며 로컬 S3 대역 검사가 공급자 IAM을 검증하지는 않습니다.
+
+백업 설정 파일은 저장소 밖 `0600`, 소유자는 실행 사용자여야 합니다. 필드는 다음과 같습니다.
+자격을 argv·로그·manifest에 넣지 않습니다. HTTPS를 사용하며 로컬 대역 서버의 loopback HTTP만
+검사용으로 허용합니다. `region` 기본값은 `auto`, `addressing_style` 기본값은 `virtual`입니다.
+
+```json
+{"endpoint_url":"https://PRIVATE_ENDPOINT","bucket":"PRIVATE_BACKUP_BUCKET","region":"auto","addressing_style":"virtual","access_key_id":"PRIVATE_VALUE","secret_access_key":"PRIVATE_VALUE"}
+```
+
+원본 API·worker·배치 등 **모든 쓰기 주체를 먼저 중지**하고 source DB·원본 환경을 명시합니다.
+`--writers-frozen`은 실제 중지 사실에 대한 운영자 확인이며 명령이 서비스를 중지하지 않습니다.
+시험 계정의 `content_id`, `asset_id`만 담은 별도 sample JSON을 준비합니다.
+원본 DB와 같은 주 버전의 `pg_dump`를 사용합니다. 다르면 dump 전에 거부합니다.
+다음 명령은 `backend/`에서 실행합니다.
+
+```sh
+YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup \
+  --backup-config-file /absolute/private/backup-bucket.json create \
+  --backup-id UNIQUE_BACKUP_ID --sample-file /absolute/private/sample.json \
+  --app-commit FULL_40_CHARACTER_SOURCE_SHA --origin production --writers-frozen \
+  --pg-dump /absolute/path/to/pg_dump
+```
+
+명령은 PostgreSQL shared session advisory lock `74264001`을 잡고, exported repeatable-read
+snapshot을 원본 목록·건수 조회와 `pg_dump`가 공유하게 합니다. 같은 lock을 따르는 원본 물리 삭제와
+경합하지 않지만, 초기 수동 경로에서 쓰기 중지 요구를 대신하지 않습니다. 원본은 재인코딩하지 않고
+실제 바이트의 크기·SHA-256을 확인합니다. DB 메타데이터가 있으면 그것과도 대조합니다.
+
+백업 Bucket에는 다음을 보관합니다.
+
+- `originals/sha256/<sha256>`: 변경 없는 바이트를 복구 지점 간 재사용하는 불변 보관본
+- `points/<backup_id>/database.dump`: 해당 snapshot의 DB dump
+- `points/<backup_id>/manifest.json`: 모든 사본을 다시 읽어 확인한 **후 마지막으로** 게시하는 완료 표식
+
+서비스 원본은 기존의 계정별 저장 요청·키를 유지합니다. 이 재사용은 백업 내부 최적화입니다.
+완료된 backup ID는 덮어쓰지 않습니다. 중간 실패의 원본 보관본·dump는 남을 수 있으나 완료 지점으로
+나열되지 않습니다. 동시 운영자는 서로 다른 ID를 사용해야 합니다. 보존 정리는 후속 정책을 따릅니다.
+
+v2 manifest는 v1의 기준 메타데이터에 `assets[].content_id`, `storage_backend`, `backup_key`와
+`database.backup_key`, 선택적 `deletion_checkpoint`를 추가합니다. 비밀값·접속 URL은 포함하지 않습니다.
+`backup_key`는 원본 해시와 대응합니다. 기존 `format_version: 1` 입력도 계속 읽습니다.
+v2는 DB에서 참조하는 원본만 보관하며 미참조 파일까지 보존하는 기존 v1 archive와 구분합니다.
+
+복원 검사는 먼저 새 비공개 폴더에 완료 지점을 내려받습니다.
+
+```sh
+YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup \
+  --backup-config-file /absolute/private/backup-bucket.json download \
+  --backup-id UNIQUE_BACKUP_ID --directory /absolute/private/NEW_DOWNLOAD_DIRECTORY
+```
+
+실제 원본·DB의 크기·해시가 다르거나 사본이 없으면 실패하며, 부분 다운로드를 완료 입력으로
+사용하지 않습니다. 다운로드 폴더는 새로 생성하며 기존 폴더를 덮어쓰지 않습니다. 결과의
+`database.dump`, `images.tar`, `manifest.json`을 아래 기존 격리 검사 명령에 전달합니다.
+tar에는 local 원본은 `screenshots/<key>`, Bucket 원본은 `s3/<key>`로 담습니다.
+검사는 입력을 바꾸지 않고 내부 Docker moto Bucket에 원본을 복원한 뒤 실제 인증 GET과 모든
+원본 해시를 확인합니다. `motoserver/moto:5.2.4` 이미지를 사전에 준비해야 하며 외부 endpoint는
+받지 않습니다. Bucket 대역은 HTTP 때문에 `APP_ENVIRONMENT=test`로 실행합니다.
+
+**이 단일 지점 검사 결과는 `deletions_applied: false`입니다.** 일일 일정·7일 보존·최신 삭제 기록의
+반영은 후속 복구 기능이 담당합니다. 이 명령만으로 운영 DB를 되돌리거나 서비스 트래픽을
+전환하지 않습니다. 이번 실제 합성 검증과 한계는
+[Bucket 백업 작업 이력](../history/2026-10-23-image-storage-backup.md)에 기록합니다.
+
 ## 준비와 실행
 
 저장소 루트에서 실행합니다. Docker는 이 Mac의 Unix socket을 사용하는 로컬 context여야 합니다.
@@ -102,6 +173,7 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 ```sh
 .venv/bin/pytest -q tests/deployment/test_backup_restore.py
+.venv/bin/pytest -q tests/deployment/test_image_backup.py
 ```
 
 실제 Docker 검사는 합성 계정 2개·이미지·미참조 파일을 가진 원본 DB와 백업을 별도로 준비합니다.
@@ -112,6 +184,10 @@ RUN_DOCKER_RECOVERY_TESTS=1 \
 CLIPBACK_RECOVERY_TEST_IMAGE=clipback-backup-recovery:check \
   .venv/bin/pytest -q tests/deployment/test_backup_restore_docker.py
 ```
+
+같은 환경변수로 `tests/deployment/test_image_backup_docker.py`를 실행하면 실제 PostgreSQL 16
+dump, local·Bucket 원본, 내용별 백업 재사용, 격리 Bucket 복원과 인증 GET, 누락·손상 사본을
+검사합니다. 이 합성 fixture는 두 private Bucket을 가진 로컬 moto만 사용합니다.
 
 16·18 각각 정상 복원, 손상 dump, 잘못된 테이블 건수·이미지 해시·자격·revision을 확인합니다.
 운영 자료는 이 fixture로 사용하지 않습니다. 명시적 환경변수가 없으면 Docker 사례만 skip하므로
