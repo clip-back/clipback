@@ -161,6 +161,23 @@ class BackupBucket:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=value)
         require(self.read(key) == value, "backup_hash_mismatch")
 
+    def delete_verified(self, key):
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in {"NoSuchKey", "404", "NotFound"}:
+                return
+            raise CheckError("backup_cleanup_unverified") from exc
+        raise CheckError("backup_cleanup_unverified")
+
+    def verify_present(self, key, size_bytes):
+        try:
+            response = self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            raise CheckError("backup_object_missing_or_unavailable") from exc
+        require(response["ContentLength"] == size_bytes, "backup_hash_mismatch")
+
     def download_verified(self, key, destination, size_bytes, digest):
         response = self.client.get_object(Bucket=self.bucket, Key=key)
         actual, size = hashlib.sha256(), 0
@@ -180,9 +197,10 @@ class BackupBucket:
         with tempfile.TemporaryDirectory(prefix="clipback-backup-verify-") as temporary:
             self.download_verified(key, Path(temporary) / "readback", size, digest)
 
-    def list_objects(self, prefix=""):
+    def list_objects(self, prefix="", *, include_dates=False):
         return [
-            {"key": item["Key"], "size_bytes": item["Size"]}
+            {"key": item["Key"], "size_bytes": item["Size"],
+             **({"last_modified": item["LastModified"].isoformat()} if include_dates else {})}
             for page in self.client.get_paginator("list_objects_v2").paginate(
                 Bucket=self.bucket, Prefix=prefix
             )
@@ -279,8 +297,11 @@ def dump_database(database_url, snapshot_id, destination, pg_dump="pg_dump", pos
         PGUSER=url.username or "",
         PGPASSWORD=url.password or "",
     )
-    if "sslmode" in url.query:
-        environment["PGSSLMODE"] = url.query["sslmode"]
+    sslmode = url.query.get("sslmode", url.query.get("ssl"))
+    if sslmode is not None:
+        require(sslmode in {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"},
+                "unsupported_database_ssl")
+        environment["PGSSLMODE"] = sslmode
     try:
         version = subprocess.run(
             [pg_dump, "--version"],
@@ -323,21 +344,46 @@ async def create_backup(
     writers_frozen,
     pg_dump="pg_dump",
     deletion_checkpoint=None,
+    ledger=None,
+    _job_locked=False,
 ):
-    """Capture one paired point. The operator must first stop all source writers."""
+    """Capture a frozen source or an online snapshot coordinated with its live ledger."""
     from app.core.config import settings
     from app.db.session import engine
     from app.integrations.storage_client import get_storage_client
     from scripts.recovery_probe import snapshot
 
-    require(writers_frozen is True, "source_write_freeze_required")
+    require(writers_frozen is True or ledger is not None, "source_write_freeze_required")
     require(bool(re.fullmatch(r"[0-9a-f]{40}", app_commit)), "invalid_manifest")
     require(origin in {"production", "synthetic"}, "invalid_manifest")
+    if not _job_locked:
+        from scripts.image_backup_jobs import BACKUP_JOB_LOCK, source_lock
+
+        async with source_lock(BACKUP_JOB_LOCK, try_only=True):
+            return await create_backup(
+                store, backup_id=backup_id, sample=sample, app_commit=app_commit, origin=origin,
+                writers_frozen=writers_frozen, pg_dump=pg_dump,
+                deletion_checkpoint=deletion_checkpoint, ledger=ledger, _job_locked=True,
+            )
     async with engine.connect() as connection:
         await connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
-        await connection.execute(text(f"SELECT pg_advisory_lock_shared({PHYSICAL_CLEANUP_LOCK})"))
+        ledger_locked = physical_locked = False
         try:
+            if ledger is not None:
+                await connection.execute(text("SELECT pg_advisory_lock_shared(74264002)"))
+                ledger_locked = True
+            await connection.execute(
+                text(f"SELECT pg_advisory_lock_shared({PHYSICAL_CLEANUP_LOCK})")
+            )
+            physical_locked = True
             snapshot_id = await connection.scalar(text("SELECT pg_export_snapshot()"))
+            if ledger is not None:
+                deletion_checkpoint = await asyncio.to_thread(ledger.read_checkpoint_tip)
+                # Exported DB snapshot + immutable originals remain protected by the physical lock.
+                # New deletion acknowledgements need not wait for the dump and object copies.
+                await connection.execute(text("SELECT pg_advisory_unlock_shared(74264002)"))
+                ledger_locked = False
+                await asyncio.to_thread(ledger.read_verified_events, deletion_checkpoint)
             major = int(await connection.scalar(text("SHOW server_version_num"))) // 10000
             captured_at = datetime.now(UTC).isoformat()
             data = await snapshot(
@@ -371,9 +417,12 @@ async def create_backup(
             # A failed SQL transaction must not return a session lock to the pool.
             try:
                 await connection.rollback()
-                await connection.execute(
-                    text(f"SELECT pg_advisory_unlock_shared({PHYSICAL_CLEANUP_LOCK})")
-                )
+                if ledger_locked:
+                    await connection.execute(text("SELECT pg_advisory_unlock_shared(74264002)"))
+                if physical_locked:
+                    await connection.execute(
+                        text(f"SELECT pg_advisory_unlock_shared({PHYSICAL_CLEANUP_LOCK})")
+                    )
             except BaseException:
                 await connection.invalidate()
                 raise
@@ -392,6 +441,7 @@ def main():
     create.add_argument("--origin", choices=["production", "synthetic"], required=True)
     create.add_argument("--writers-frozen", action="store_true")
     create.add_argument("--pg-dump", default="pg_dump")
+    create.add_argument("--capture-deletion-checkpoint", action="store_true")
     download = sub.add_parser("download")
     download.add_argument("--backup-id", required=True)
     download.add_argument("--directory", type=Path, required=True)
@@ -399,6 +449,8 @@ def main():
     try:
         store = BackupBucket.from_config_file(args.backup_config_file)
         if args.command == "create":
+            from app.integrations.deletion_ledger import get_deletion_ledger
+
             sample = json.loads(args.sample_file.read_text())
             manifest = asyncio.run(
                 create_backup(
@@ -409,6 +461,7 @@ def main():
                     origin=args.origin,
                     writers_frozen=args.writers_frozen,
                     pg_dump=args.pg_dump,
+                    ledger=get_deletion_ledger() if args.capture_deletion_checkpoint else None,
                 )
             )
         else:

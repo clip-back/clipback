@@ -1,0 +1,15 @@
+ARG POSTGRES_MAJOR=17
+FROM postgres:${POSTGRES_MAJOR}-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/operator
+ENV PATH="/opt/operator/bin:${PATH}"
+WORKDIR /app
+COPY pyproject.toml ./
+COPY app ./app
+RUN pip install --no-cache-dir .
+COPY scripts/image_backup.py scripts/image_backup_jobs.py scripts/recovery_probe.py \
+     scripts/recovery_deletions.py scripts/check_backup_restore.py ./scripts/
+ENTRYPOINT ["python", "-m", "scripts.image_backup_jobs"]

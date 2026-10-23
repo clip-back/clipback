@@ -200,6 +200,25 @@ async def test_incomplete_backup_object_does_not_count_as_complete(recovery_stor
 
 
 @pytest.mark.asyncio
+async def test_empty_service_still_produces_verifiable_recovery_point(recovery_store, tmp_path):
+    store, _ = recovery_store
+    data = source_snapshot()
+    data.update(assets=[], sample=None)
+    dump = tmp_path / "database.dump"
+    dump.write_bytes(b"empty synthetic dump")
+    await publish_backup(
+        store, backup_id="empty", snapshot=data, database=dump,
+        storage=StorageRouter(Settings(_env_file=None, youtube_summary_enabled=False,
+                                       storage_root=tmp_path)),
+        captured_at=datetime.now(UTC).isoformat(), app_commit="a" * 40,
+        postgres_major=17, origin="synthetic",
+    )
+    manifest = materialize_backup(store, "empty", tmp_path / "empty-point")
+    assert manifest["sample"] is None
+    assert load_backup(tmp_path / "empty-point")[0]["assets"] == []
+
+
+@pytest.mark.asyncio
 async def test_backup_requires_explicit_source_write_freeze(recovery_store):
     from scripts.image_backup import create_backup
 
@@ -275,4 +294,32 @@ else:
             str(executable),
             postgres_major=16,
         )
+    assert not (tmp_path / "dump").exists()
+
+
+@pytest.mark.parametrize("query", ["ssl=require", "sslmode=verify-full"])
+def test_operator_dump_keeps_the_explicit_database_ssl_requirement(tmp_path, query):
+    from scripts.image_backup import dump_database
+
+    executable = tmp_path / "inspect-pg-dump"
+    executable.write_text(f'''#!{sys.executable}
+import os, pathlib, sys
+if sys.argv[1:] == ["--version"]:
+    print("pg_dump (PostgreSQL) 17.0")
+else:
+    pathlib.Path(sys.argv[sys.argv.index("--file")+1]).write_text(os.environ["PGSSLMODE"])
+''')
+    executable.chmod(0o700)
+    destination = tmp_path / "dump"
+    dump_database("postgresql://synthetic@localhost/synthetic?" + query, "snapshot",
+                  destination, str(executable), postgres_major=17)
+    assert destination.read_text() == query.split("=")[1]
+
+
+def test_unsupported_database_ssl_option_does_not_silently_downgrade(tmp_path):
+    from scripts.image_backup import dump_database
+
+    with pytest.raises(CheckError, match="unsupported_database_ssl"):
+        dump_database("postgresql://synthetic@localhost/synthetic?ssl=custom-context",
+                      "snapshot", tmp_path / "dump", postgres_major=17)
     assert not (tmp_path / "dump").exists()

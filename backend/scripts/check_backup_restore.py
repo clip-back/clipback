@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 PROBE = Path(__file__).with_name("recovery_probe.py").read_text()
+DELETE_PROBE = Path(__file__).with_name("recovery_deletions.py").read_text()
 OWNER_LABEL = "clipback.recovery.owner"
 REVISION_LABEL = "org.opencontainers.image.revision"
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -142,23 +143,26 @@ def load_backup(directory):
     )
     require(bool(SHA256.fullmatch(manifest["category_links_sha256"])), "invalid_manifest")
     sample = manifest["sample"]
-    require(
-        isinstance(sample, dict)
-        and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
-        "invalid_manifest",
-    )
     paths = {}
-    require(
-        set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
-        "invalid_manifest",
-    )
-    require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
-    require(
-        isinstance(sample["category_ids"], list)
-        and all(type(v) is int and v > 0 for v in sample["category_ids"]),
-        "invalid_manifest",
-    )
-    require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
+    if sample is None:
+        require(version == 2 and not manifest["assets"], "invalid_manifest")
+    else:
+        require(
+            isinstance(sample, dict)
+            and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
+            "invalid_manifest",
+        )
+        require(
+            set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
+            "invalid_manifest",
+        )
+        require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
+        require(
+            isinstance(sample["category_ids"], list)
+            and all(type(v) is int and v > 0 for v in sample["category_ids"]),
+            "invalid_manifest",
+        )
+        require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
     for role, filename in (("database", "database.dump"), ("images", "images.tar")):
         entry = manifest[role]
         require(entry["file"] == filename, "invalid_manifest")
@@ -208,7 +212,7 @@ def load_backup(directory):
             if asset["storage_backend"] == "s3":
                 prefix = "s3/"
         require(prefix + key in files, "missing_asset")
-    require(sample["asset_id"] in seen, "invalid_manifest")
+    require(sample is None or sample["asset_id"] in seen, "invalid_manifest")
     # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
     required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
     require(shutil.disk_usage(tempfile.gettempdir()).free >= required, "insufficient_disk_space")
@@ -232,10 +236,11 @@ class Docker:
 
 
 class RestoreDrill:
-    def __init__(self, docker=None):
+    def __init__(self, docker=None, *, deletion_events=None):
         self.docker = docker or Docker()
         self.owner = "clipback-recovery-" + uuid4().hex
         self.created = []
+        self.deletion_events = deletion_events
 
     def create(self, kind, name, *arguments):
         # Record only after create succeeded. Never adopt an existing resource.
@@ -446,6 +451,40 @@ class RestoreDrill:
                     "Body=p.read_bytes())) for p in root.rglob('*') if p.is_file()]",
                 )
                 self.docker("start", "-a", seed_bucket)
+            payload = {
+                "sample": ({k: manifest["sample"][k] for k in ("content_id", "asset_id")}
+                           if manifest["sample"] else None),
+                "access_token": credentials["access_token"],
+                "format_version": manifest["format_version"],
+            }
+            deleted = []
+            if self.deletion_events is not None:
+                probe = self.owner + "-before-deletions"
+                self.container(
+                    probe, "-i", "--network", network, "--env-file", str(env),
+                    "-v", f"{files}:/data", "--entrypoint", "python", app_image,
+                    "-c", PROBE,
+                )
+                with tempfile.TemporaryFile() as stream:
+                    stream.write(json.dumps({**payload, "verify_api": False}).encode())
+                    stream.seek(0)
+                    before = json.loads(self.docker("start", "-a", "-i", probe, stdin=stream))
+                require(all(before[k] == manifest[k] for k in SNAPSHOT_KEYS),
+                        "restored_data_mismatch")
+                apply = self.owner + "-apply-deletions"
+                self.container(
+                    apply, "-i", "--network", network, "--env-file", str(env),
+                    "-v", f"{files}:/data", "--entrypoint", "python", app_image,
+                    "-c", DELETE_PROBE,
+                )
+                with tempfile.TemporaryFile() as stream:
+                    stream.write(json.dumps({"events": self.deletion_events}).encode())
+                    stream.seek(0)
+                    result = self.docker("start", "-a", "-i", apply, stdin=stream)
+                    deleted = json.loads(result)["deleted"]
+                payload["deleted"] = deleted
+                # Let the probe choose a surviving image when the old sample was deleted.
+                payload["sample"] = None
             self.container(
                 api, "--network", network, "--env-file", str(env), "-v", f"{files}:/data", app_image
             )
@@ -458,25 +497,24 @@ class RestoreDrill:
                 "import urllib.request; "
                 "urllib.request.urlopen('http://127.0.0.1:8123/api/v1/health/ready', timeout=3)",
             )
-            payload = {
-                "sample": {k: manifest["sample"][k] for k in ("content_id", "asset_id")},
-                "access_token": credentials["access_token"],
-                "format_version": manifest["format_version"],
-            }
             with tempfile.TemporaryFile() as stream:
                 stream.write(json.dumps(payload).encode())
                 stream.seek(0)
                 actual = json.loads(
                     self.docker("exec", "-i", api, "python", "-c", PROBE, stdin=stream)
                 )
-            require(all(actual[k] == manifest[k] for k in SNAPSHOT_KEYS), "restored_data_mismatch")
+            if self.deletion_events is None:
+                require(all(actual[k] == manifest[k] for k in SNAPSHOT_KEYS),
+                        "restored_data_mismatch")
             return {
                 "table_count": len(actual["tables"]),
                 "asset_count": len(actual["assets"]),
                 "extra_file_count": actual["extra_file_count"],
                 "authentication_passed": True,
-                "image_bytes_passed": True,
-                "deletions_applied": False,
+                "image_bytes_passed": bool(actual["assets"]),
+                "image_get_skipped": not bool(actual["assets"]),
+                "deletions_applied": self.deletion_events is not None,
+                "deleted_content_count": len(deleted),
             }
 
 
