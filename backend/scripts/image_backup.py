@@ -268,7 +268,7 @@ async def publish_backup(
     return manifest
 
 
-def dump_database(database_url, snapshot_id, destination, pg_dump="pg_dump"):
+def dump_database(database_url, snapshot_id, destination, pg_dump="pg_dump", postgres_major=None):
     """Credentials go in the child environment, never argv or error output."""
     url = make_url(database_url)
     environment = os.environ.copy()
@@ -282,6 +282,16 @@ def dump_database(database_url, snapshot_id, destination, pg_dump="pg_dump"):
     if "sslmode" in url.query:
         environment["PGSSLMODE"] = url.query["sslmode"]
     try:
+        version = subprocess.run(
+            [pg_dump, "--version"],
+            env=environment,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        )
+        match = re.search(rb"pg_dump \(PostgreSQL\) (\d+)", version.stdout)
+        require(match is not None and int(match[1]) == postgres_major, "pg_dump_version_mismatch")
         subprocess.run(
             [
                 pg_dump,
@@ -316,19 +326,19 @@ async def create_backup(
 ):
     """Capture one paired point. The operator must first stop all source writers."""
     from app.core.config import settings
-    from app.db.session import AsyncSessionLocal
+    from app.db.session import engine
     from app.integrations.storage_client import get_storage_client
     from scripts.recovery_probe import snapshot
 
     require(writers_frozen is True, "source_write_freeze_required")
     require(bool(re.fullmatch(r"[0-9a-f]{40}", app_commit)), "invalid_manifest")
     require(origin in {"production", "synthetic"}, "invalid_manifest")
-    async with AsyncSessionLocal() as session:
-        await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
-        await session.execute(text(f"SELECT pg_advisory_lock_shared({PHYSICAL_CLEANUP_LOCK})"))
+    async with engine.connect() as connection:
+        await connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        await connection.execute(text(f"SELECT pg_advisory_lock_shared({PHYSICAL_CLEANUP_LOCK})"))
         try:
-            snapshot_id = await session.scalar(text("SELECT pg_export_snapshot()"))
-            major = int(await session.scalar(text("SHOW server_version_num"))) // 10000
+            snapshot_id = await connection.scalar(text("SELECT pg_export_snapshot()"))
+            major = int(await connection.scalar(text("SHOW server_version_num"))) // 10000
             captured_at = datetime.now(UTC).isoformat()
             data = await snapshot(
                 {
@@ -341,7 +351,7 @@ async def create_backup(
             with tempfile.TemporaryDirectory(prefix="clipback-backup-private-") as temporary:
                 path = Path(temporary) / "database.dump"
                 await asyncio.to_thread(
-                    dump_database, settings.database_url, snapshot_id, path, pg_dump
+                    dump_database, settings.database_url, snapshot_id, path, pg_dump, major
                 )
                 path.chmod(0o600)
                 return await publish_backup(
@@ -357,9 +367,16 @@ async def create_backup(
                     deletion_checkpoint=deletion_checkpoint,
                 )
         finally:
-            await session.execute(
-                text(f"SELECT pg_advisory_unlock_shared({PHYSICAL_CLEANUP_LOCK})")
-            )
+            # Keep this exact physical connection checked out through rollback/unlock.
+            # A failed SQL transaction must not return a session lock to the pool.
+            try:
+                await connection.rollback()
+                await connection.execute(
+                    text(f"SELECT pg_advisory_unlock_shared({PHYSICAL_CLEANUP_LOCK})")
+                )
+            except BaseException:
+                await connection.invalidate()
+                raise
 
 
 def main():

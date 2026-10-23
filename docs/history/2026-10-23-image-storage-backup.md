@@ -19,8 +19,10 @@
 - TDD: 완료 지점 생성·재사용의 실패(`NotImplementedError`)를 확인한 뒤 통과시켰고,
   물질화 경계도 실제 미구현 실패를 확인한 뒤 원본·dump 검증을 추가했습니다.
 - 관련 단위 검사 `tests/deployment/test_image_backup.py`와 `test_backup_restore.py`:
-  **45 passed**. 정상·원본 누락/손상·미완료 지점·별도 Bucket·0600 자격·목적지 권한 거부·
+  **46 passed**. 정상·원본 누락/손상·미완료 지점·별도 Bucket·0600 자격·목적지 권한 거부·
   기존 archive/자원 소유권/정리 실패 경로를 포함합니다.
+- 잘못된 `pg_dump` 주 버전으로도 dump가 만들어지는 재현 실패를 확인하고, source PostgreSQL
+  주 버전과 다르면 dump 전에 거부하도록 수정했습니다.
 - `RUN_DOCKER_RECOVERY_TESTS=1`로 기존 v1 PostgreSQL **16·18 실제 Docker 검사 12 passed**
   (84.56초): 정상 인증 GET·손상 dump·잘못된 건수/이미지 해시/자격/revision을 확인했습니다.
 - 신규 실제 Bucket v2 검사 **2 passed** (26.94초): 합성 PostgreSQL 16에서 exported snapshot의
@@ -32,6 +34,13 @@
 - 자원은 이번 실행의 UUID/소유 라벨에 맞는 것만 제거했고 실행 후 잔여 컨테이너가 없었습니다.
 - Ruff·`git diff --check`를 수행했습니다. 초기 앱 이미지는 API 소스
   `99375c84005f9568f9491cab9b6a11ba5d8723d7`로 빌드했으며 해당 라벨로 검사했습니다.
+- 최신 통합 #67을 병합한 `23a71e7aa7f03a4382481c0487456924a675dc91` API 이미지로
+  v2 두 지점의 원본 재사용·Bucket 복원과 v1 PostgreSQL 16·18 정상 복원 **4 passed**
+  (89.80초)를 추가 확인했습니다. DB dump 업로드·다운로드·검증은 스트리밍합니다.
+- 백업 session lock은 전용 물리 DB 연결을 유지하여 rollback 후 해제합니다. 실패한 SQL
+  transaction이 lock을 가진 채 connection pool로 반환되지 않게 했습니다.
+- 위 연결 해제와 `pg_dump` 주 버전 검사를 포함한 최종 v2 실제 Docker 재실행도
+  **2 passed** (104.90초)였습니다. 같은 `23a71e7` API 이미지와 최종 operator 코드를 사용했습니다.
 
 ## 한계
 

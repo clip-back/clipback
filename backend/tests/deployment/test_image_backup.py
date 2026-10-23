@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import sys
 from datetime import UTC, datetime
 
 import boto3
@@ -252,3 +253,26 @@ async def test_destination_access_denied_does_not_publish_completed_point(recove
             origin="synthetic",
         )
     assert store.completed_points() == []
+
+
+def test_wrong_pg_dump_major_cannot_make_a_completed_backup(tmp_path):
+    from scripts.image_backup import dump_database
+
+    executable = tmp_path / "wrong-pg-dump"
+    executable.write_text(f"""#!{sys.executable}
+import pathlib, sys
+if "--version" in sys.argv:
+    print("pg_dump (PostgreSQL) 18.0")
+else:
+    pathlib.Path(sys.argv[sys.argv.index("--file") + 1]).write_bytes(b"wrong major dump")
+""")
+    executable.chmod(0o700)
+    with pytest.raises(CheckError, match="pg_dump_version_mismatch"):
+        dump_database(
+            "postgresql://synthetic@localhost/synthetic",
+            "snapshot",
+            tmp_path / "dump",
+            str(executable),
+            postgres_major=16,
+        )
+    assert not (tmp_path / "dump").exists()

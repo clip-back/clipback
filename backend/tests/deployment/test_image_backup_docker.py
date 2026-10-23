@@ -158,6 +158,9 @@ print(json.dumps(asyncio.run(seed_bucket())))
         wrapper.write_text(f'''#!{sys.executable}
 import pathlib, subprocess, sys
 a = sys.argv[1:]
+if a == ["--version"]:
+    subprocess.run(["docker", "exec", "{db}", "pg_dump", "--version"], check=True)
+    raise SystemExit(0)
 output = pathlib.Path(a[a.index("--file") + 1])
 a = a[:a.index("--file")]
 command = ["docker", "exec", "{db}", "pg_dump", "-U", "postgres", "-d", "clipback", *a]
@@ -196,6 +199,10 @@ output.write_bytes(data)
         result = subprocess.run(command, env=process_env, capture_output=True, timeout=180)
         report = json.loads(result.stdout)
         assert result.returncode == 0 and report["passed"], report
+        command[command.index("--backup-id") + 1] = "second"
+        second = subprocess.run(command, env=process_env, capture_output=True, timeout=180)
+        second_report = json.loads(second.stdout)
+        assert second.returncode == 0 and second_report["passed"], second_report
         store = BackupBucket.from_config_file(credentials)
         materialized = directory / "materialized"
         manifest = materialize_backup(store, "first", materialized)
@@ -212,6 +219,7 @@ output.write_bytes(data)
 def test_actual_bucket_originals_and_database_restore_with_authenticated_get(bucket_backup):
     store, directory, manifest, credentials, image = bucket_backup
     assert {a["storage_backend"] for a in manifest["assets"]} == {"local", "s3"}
+    assert store.completed_points() == ["first", "second"]
     assert len([x for x in store.list_objects("originals/")]) == 1
     report = check(directory, credentials, image)
     assert report["passed"], report

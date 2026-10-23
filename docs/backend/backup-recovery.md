@@ -24,7 +24,8 @@
 원본 API·worker·배치 등 **모든 쓰기 주체를 먼저 중지**하고 source DB·원본 환경을 명시합니다.
 `--writers-frozen`은 실제 중지 사실에 대한 운영자 확인이며 명령이 서비스를 중지하지 않습니다.
 시험 계정의 `content_id`, `asset_id`만 담은 별도 sample JSON을 준비합니다.
-원본 DB와 같은 주 버전의 `pg_dump`를 사용합니다. 다음 명령은 `backend/`에서 실행합니다.
+원본 DB와 같은 주 버전의 `pg_dump`를 사용합니다. 다르면 dump 전에 거부합니다.
+다음 명령은 `backend/`에서 실행합니다.
 
 ```sh
 YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup \
