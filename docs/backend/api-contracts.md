@@ -82,6 +82,7 @@
 | `POST` | `/api/v1/recommendations/exposures` | 추천 카드 노출과 UUID 중복 방지·추천 집계 | 구현 |
 | `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 구현 |
 | `GET` | `/api/v1/uploads/assets/{id}` | 인증된 스크린샷 자산 조회 | 구현 |
+| `GET` | `/api/v1/uploads/assets/{id}/access` | 원본 권한 확인·직접 다운로드 정보 | 구현 |
 | `POST` | `/api/v1/metrics/events` | 사용자 행동 이벤트 기록 | 구현 |
 | `GET` | `/api/v1/health` | 서버 응답 확인 | 구현 |
 | `GET` | `/api/v1/health/ready` | DB·이미지 저장소 준비 상태 | 구현 |
@@ -732,10 +733,29 @@ selection remains authoritative. Keep the existing `/data` volume mounted while
 local assets remain. S3 configuration and rollout checks are described in the
 [Railway deployment guide](../railway-deployment.md#bucket-원본-보관).
 
+`GET /api/v1/uploads/assets/{id}/access` is Bearer-authenticated and checks the
+current owner's access before checking the actual file. It returns `asset_id`,
+`mode` (`proxy` or `direct`), `url`, nullable `expires_at`, `mime_type`, `size_bytes`
+and the original's hexadecimal `sha256`, with `Cache-Control: private, no-store`.
+Local assets use the existing relative authenticated asset URL and no expiry.
+Bucket assets use a GET URL signed for 120 seconds with the asset MIME override;
+Bucket credentials are never sent to the app. A signed URL is itself a temporary
+access credential: do not persist it or log its query string. Logout does not
+revoke already-issued URLs, whose remaining request-start validity is at most
+120 seconds. Expiry does not interrupt a transfer already accepted by the store.
+Unknown legacy integrity metadata is calculated from actual original bytes for
+this response; it is not treated as zero and does not change asset location.
+Unauthenticated requests return 401; foreign, deleted or missing originals return
+404; unavailable storage returns a generic 503. The app uses a separate client
+without Clipback authorization or cookies for Bucket GETs, rejects redirects,
+checks bounded length/MIME/SHA-256 before use, and reacquires access once after a
+Bucket 403. Bucket errors do not trigger app token refresh or session invalidation.
+
 Saved images are private. Use the Bearer-authenticated asset URL returned in
 `ContentRead.assets` to download an image. The existing URL, response shape and
 Bearer authentication are retained for both local and Bucket assets, so older
-apps continue to work. Bucket credentials and storage keys are never returned.
+apps continue to work. Bucket credentials are never returned; the signed URL contains
+the object path, so it must be treated as temporary access information.
 A missing or foreign asset returns 404; a Bucket outage during upload or read
 returns 503 with a generic error. The DB commit remains authoritative for cleanup:
 failed writes do not produce a successful content response, rollback cleans the

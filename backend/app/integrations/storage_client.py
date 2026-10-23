@@ -18,6 +18,8 @@ class StorageClient(Protocol):
 
     async def delete_file(self, storage_key: str) -> None: ...
 
+    async def file_size(self, storage_key: str) -> int: ...
+
 
 class LocalStorageClient:
     def __init__(self, root: Path) -> None:
@@ -34,6 +36,9 @@ class LocalStorageClient:
     async def delete_file(self, storage_key: str) -> None:
         path = self._resolve(storage_key)
         await asyncio.to_thread(path.unlink, missing_ok=True)
+
+    async def file_size(self, storage_key: str) -> int:
+        return (await asyncio.to_thread(self._resolve(storage_key).stat)).st_size
 
     def _resolve(self, storage_key: str) -> Path:
         path = (self.root / storage_key).resolve()
@@ -114,6 +119,32 @@ class S3StorageClient:
             self.client.delete_object(Bucket=self.bucket, Key=storage_key)
         except (BotoCoreError, ClientError) as exc:
             raise StorageUnavailableError("Object storage delete failed") from exc
+
+    async def file_size(self, storage_key: str) -> int:
+        return await asyncio.to_thread(self._file_size, storage_key)
+
+    def _file_size(self, storage_key: str) -> int:
+        try:
+            return self.client.head_object(Bucket=self.bucket, Key=storage_key)["ContentLength"]
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in {"NoSuchKey", "404", "NotFound"}:
+                raise FileNotFoundError("Content asset not found") from exc
+            raise StorageUnavailableError("Object storage read failed") from exc
+        except BotoCoreError as exc:
+            raise StorageUnavailableError("Object storage read failed") from exc
+
+    async def download_url(self, storage_key: str, *, mime_type: str, expires_in: int) -> str:
+        try:
+            return await asyncio.to_thread(
+                self.client.generate_presigned_url,
+                "get_object",
+                Params={
+                    "Bucket": self.bucket, "Key": storage_key, "ResponseContentType": mime_type,
+                },
+                ExpiresIn=expires_in,
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("Object storage access failed") from exc
 
     def check_ready(self) -> None:
         try:

@@ -14,7 +14,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
-from app.schemas.content import ContentRead
+from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
@@ -74,6 +74,19 @@ async def read_asset(
             "Content-Disposition": "inline",
             "X-Content-Type-Options": "nosniff",
         },
+    )
+
+
+@router.get("/assets/{asset_id}/access", response_model=ContentAssetAccess)
+async def asset_access(
+    asset_id: int,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+    response: Response,
+) -> ContentAssetAccess:
+    response.headers["Cache-Control"] = "private, no-store"
+    return await _build_upload_service(db).asset_access(
+        user_id=current_user_id, asset_id=asset_id,
     )
 
 
