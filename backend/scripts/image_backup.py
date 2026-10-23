@@ -37,15 +37,13 @@ def materialize_backup(store, backup_id, directory):
         "invalid_manifest",
     )
     directory.mkdir(mode=0o700)
-    dump = store.read(f"points/{backup_id}/database.dump")
-    require(
-        len(dump) == manifest["database"]["size_bytes"]
-        and hashlib.sha256(dump).hexdigest() == manifest["database"]["sha256"],
-        "backup_hash_mismatch",
-    )
     database = directory / "database.dump"
-    database.write_bytes(dump)
-    database.chmod(0o600)
+    store.download_verified(
+        f"points/{backup_id}/database.dump",
+        database,
+        manifest["database"]["size_bytes"],
+        manifest["database"]["sha256"],
+    )
     archive_path = directory / "images.tar"
     with tarfile.open(archive_path, "w") as archive:
         for asset in manifest["assets"]:
@@ -163,6 +161,25 @@ class BackupBucket:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=value)
         require(self.read(key) == value, "backup_hash_mismatch")
 
+    def download_verified(self, key, destination, size_bytes, digest):
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        actual, size = hashlib.sha256(), 0
+        with response["Body"] as source:
+            with destination.open("xb") as target:
+                destination.chmod(0o600)
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    target.write(block)
+                    actual.update(block)
+                    size += len(block)
+        require(size == size_bytes and actual.hexdigest() == digest, "backup_hash_mismatch")
+
+    def put_file_verified(self, key, path):
+        size, digest = path.stat().st_size, sha256_file(path)
+        with path.open("rb") as source:
+            self.client.put_object(Bucket=self.bucket, Key=key, Body=source, ContentLength=size)
+        with tempfile.TemporaryDirectory(prefix="clipback-backup-verify-") as temporary:
+            self.download_verified(key, Path(temporary) / "readback", size, digest)
+
     def list_objects(self, prefix=""):
         return [
             {"key": item["Key"], "size_bytes": item["Size"]}
@@ -224,10 +241,10 @@ async def publish_backup(
         else:
             require(existing == content, "backup_hash_mismatch")
         assets.append({**asset, "backup_key": key})
-    dump = database.read_bytes()
-    require(bool(dump), "invalid_backup_file")
+    size, digest = database.stat().st_size, sha256_file(database)
+    require(size > 0, "invalid_backup_file")
     key = f"points/{backup_id}/database.dump"
-    await asyncio.to_thread(store.put_verified, key, dump)
+    await asyncio.to_thread(store.put_file_verified, key, database)
     manifest = {
         **snapshot,
         "assets": assets,
@@ -240,8 +257,8 @@ async def publish_backup(
         "database": {
             "file": "database.dump",
             "backup_key": key,
-            "size_bytes": len(dump),
-            "sha256": hashlib.sha256(dump).hexdigest(),
+            "size_bytes": size,
+            "sha256": digest,
         },
         "deletion_checkpoint": deletion_checkpoint,
     }

@@ -45,7 +45,9 @@ def bucket_backup(tmp_path_factory):
     }
     env_args = [arg for key, value in environment.items() for arg in ("-e", f"{key}={value}")]
     try:
-        drill.create("network", network, "--internal")
+        # Synthetic producer exposes DB/S3 only on loopback for the host operator CLI.
+        # The actual restored environment remains --internal with no published ports.
+        drill.create("network", network)
         drill.create("volume", files)
         drill.container(
             db,
@@ -124,6 +126,8 @@ print(json.dumps(asyncio.run(seed_bucket())))
 """
         state = execute(drill, api, seed)
         drill.docker("stop", api)
+        source_images = directory / "source-images"
+        drill.docker("cp", f"{api}:/data/screenshots", str(source_images))
         metadata = json.loads(drill.docker("image", "inspect", image))[0]
         revision = metadata["Config"]["Labels"]["org.opencontainers.image.revision"]
         db_port = json.loads(drill.docker("inspect", db))[0]["NetworkSettings"]["Ports"][
@@ -168,6 +172,7 @@ output.write_bytes(data)
             "PYTHONPATH": str(Path(__file__).parents[2]),
             "DATABASE_URL": f"postgresql://postgres:fixture@127.0.0.1:{db_port}/clipback",
             "S3_ENDPOINT_URL": f"http://127.0.0.1:{s3_port}",
+            "STORAGE_ROOT": str(source_images),
         }
         command = [
             sys.executable,
@@ -188,10 +193,9 @@ output.write_bytes(data)
             "--pg-dump",
             str(wrapper),
         ]
-        result = subprocess.run(
-            command, env=process_env, capture_output=True, check=True, timeout=180
-        )
-        assert json.loads(result.stdout)["passed"]
+        result = subprocess.run(command, env=process_env, capture_output=True, timeout=180)
+        report = json.loads(result.stdout)
+        assert result.returncode == 0 and report["passed"], report
         store = BackupBucket.from_config_file(credentials)
         materialized = directory / "materialized"
         manifest = materialize_backup(store, "first", materialized)

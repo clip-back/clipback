@@ -212,3 +212,43 @@ async def test_backup_requires_explicit_source_write_freeze(recovery_store):
             origin="synthetic",
             writers_frozen=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_destination_access_denied_does_not_publish_completed_point(recovery_store, tmp_path):
+    from botocore.exceptions import ClientError
+
+    store, client = recovery_store
+    (tmp_path / "a.png").write_bytes(b"image")
+    dump = tmp_path / "database.dump"
+    dump.write_bytes(b"dump")
+    client.put_bucket_policy(
+        Bucket=store.bucket,
+        Policy=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Principal": "*",
+                        "Action": "s3:PutObject",
+                        "Resource": "arn:aws:s3:::private-backup/points/*",
+                    }
+                ],
+            }
+        ),
+    )
+    config = Settings(_env_file=None, youtube_summary_enabled=False, storage_root=tmp_path)
+    with pytest.raises(ClientError):
+        await publish_backup(
+            store,
+            backup_id="denied",
+            snapshot=source_snapshot(),
+            database=dump,
+            storage=StorageRouter(config),
+            captured_at=datetime.now(UTC).isoformat(),
+            app_commit="a" * 40,
+            postgres_major=17,
+            origin="synthetic",
+        )
+    assert store.completed_points() == []
