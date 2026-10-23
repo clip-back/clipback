@@ -43,13 +43,39 @@
 
 ## 실행 및 상태 확인
 
-이미지의 작업 경로는 `/app`이다. 시작 스크립트는 저장 디렉터리를 생성하고 임시 파일 쓰기·삭제가 성공해야 `uvicorn`을 exec한다. 기본 포트는 8000이며 Railway의 `PORT`가 우선한다. worker는 1개이고 reload는 사용하지 않는다.
+이미지의 작업 경로는 `/app`이다. 시작 스크립트는 선택한 신규 저장소를 확인한 뒤 `uvicorn`을 exec한다.
+로컬 저장은 디렉터리 생성·임시 파일 쓰기·삭제를, Bucket 저장은 읽기 전용 객체 목록 조회를 확인한다. 기본 포트는 8000이며 Railway의 `PORT`가 우선한다. worker는 1개이고 reload는 사용하지 않는다.
 
 DB migration은 pre-deploy에서만 실행한다. 이 단계에는 볼륨이 없으므로 이미지 파일을 생성하거나 확인하지 않는다. 실패하면 해당 배포를 중단한다. 현재 최초 배포는 빈 DB 기준이며, 향후 기존 데이터를 바꾸는 migration은 별도 배포 절차에서 이전 앱과의 호환성·쓰기 중단 여부를 검토한다.
 
 - `/api/v1/health`: 기존 liveness 응답 `200 {"status":"ok"}` 유지.
-- `/api/v1/health/ready`: DB `SELECT 1`과 저장소 파일 쓰기·삭제 성공 시 200, 실패·3초 timeout 시 `503 {"status":"unavailable"}`. 인증과 외부 공급자 호출은 없다.
+- `/api/v1/health/ready`: DB `SELECT 1`과 선택한 저장소 확인 성공 시 200, 실패·3초 timeout 시 `503 {"status":"unavailable"}`. Bucket 선택 시 S3 공급자에 읽기 전용 목록 조회를 수행한다. AI/OCR·소셜 인증 공급자는 호출하지 않는다.
 - Railway healthcheck는 배포 준비 상태 확인이다. 배포 후 계속 호출하는 장애 감시 도구가 아니다. stdout/stderr 및 Railway 리소스 지표로 로그·디스크 사용량을 확인한다.
+
+## Bucket 원본 보관
+
+이 코드는 원본 저장소 전환을 지원하지만 설정 변경이나 실제 Railway 검증을 수행하지 않는다.
+신규 Bucket은 비공개로 만들고, Credentials의 값을 서버 변수에만 연결한다.
+[Railway 공식 연결 안내](https://docs.railway.com/storage-buckets#connecting-to-your-bucket)를 기준으로 설정한다.
+
+| 변수 | 설정 |
+| --- | --- |
+| `STORAGE_BACKEND` | 신규 원본을 Bucket에 저장할 때 `s3`; 기본값 `local` |
+| `S3_ENDPOINT_URL` | Credentials의 base endpoint. 운영은 HTTPS 필수 |
+| `S3_BUCKET` | Credentials의 실제 `BUCKET` 값. 화면 표시 이름과 구분 |
+| `S3_REGION` | Credentials의 region. 기본 `auto` |
+| `S3_ADDRESSING_STYLE` | Credentials의 URL style. 신규 기본 `virtual`, 구형 Bucket이나 격리 S3 환경은 필요하면 `path` |
+| `S3_ACCESS_KEY_ID` · `S3_SECRET_ACCESS_KEY` | 해당 Bucket 전용 서버 비밀값 |
+
+먼저 추가형 DB migration과 로컬·Bucket을 함께 읽는 백엔드를 배포한다. 기존 자산은 `local`로 남고,
+신규 자산은 저장 위치·원본 크기·SHA-256을 기록한다. `STORAGE_ROOT=/data/screenshots`와 원래 볼륨은
+기존 로컬 자산이 남아 있는 동안 유지한다. 새 저장 설정만 바꿔도 기존 파일이 이관되지는 않는다.
+
+SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상한을 둔다.
+준비 상태의 읽기 전용 목록 조회는 원본 저장·다운로드·삭제 성공을 증명하지 않으므로,
+운영 전환 전 별도 테스트 계정의 합성 이미지로 업로드·동일 바이트 재조회·삭제를 확인한다.
+실제 Bucket 검증, 기존 파일 이관, Bucket을 포함한 백업·복원 확인 후에 원래 볼륨 정리를 검토한다.
+아래 로컬 볼륨 백업 절차만으로 Bucket 원본이 백업된 것으로 판단하지 않는다.
 
 ## 데이터 영속성 및 백업
 

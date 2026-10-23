@@ -142,6 +142,9 @@ class FakeContentAssetRepository:
         asset_type: AssetType,
         storage_key: str,
         mime_type: str | None,
+        storage_backend: str = "local",
+        size_bytes: int | None = None,
+        sha256: str | None = None,
     ) -> SimpleNamespace:
         asset = SimpleNamespace(
             id=len(self.content_repository.created_assets) + 1,
@@ -156,11 +159,13 @@ class FakeContentAssetRepository:
 
 
 class FakeStorageClient:
+    backend = "local"
+
     def __init__(self, *, fail_keys: set[str] | None = None) -> None:
         self.fail_keys = fail_keys or set()
         self.deleted_keys: list[str] = []
 
-    async def delete_file(self, storage_key: str) -> None:
+    async def delete_file(self, storage_key: str, *, backend: str | None = None) -> None:
         self.deleted_keys.append(storage_key)
         if storage_key in self.fail_keys:
             raise OSError("storage unavailable")
@@ -1203,8 +1208,8 @@ async def test_delete_content_removes_link_content_without_storage_access() -> N
 async def test_delete_content_removes_all_asset_files_after_database_commit() -> None:
     existing_content = content(1)
     existing_content.assets = [
-        SimpleNamespace(id=10, storage_key="screenshots/1/first.png"),
-        SimpleNamespace(id=11, storage_key="screenshots/1/second.png"),
+        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/first.png"),
+        SimpleNamespace(id=11, storage_backend="local", storage_key="screenshots/1/second.png"),
     ]
     storage_client = FakeStorageClient()
     service, content_repository, _ = build_service(
@@ -1225,7 +1230,7 @@ async def test_delete_content_removes_all_asset_files_after_database_commit() ->
 async def test_delete_content_rolls_back_without_deleting_files_when_database_fails() -> None:
     existing_content = content(1)
     existing_content.assets = [
-        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/image.png"),
     ]
     storage_client = FakeStorageClient()
     service, content_repository, _ = build_service(
@@ -1250,7 +1255,7 @@ async def test_delete_content_rolls_back_without_deleting_files_when_database_fa
 async def test_delete_content_logs_file_failure_and_keeps_successful_response(caplog) -> None:
     existing_content = content(1)
     existing_content.assets = [
-        SimpleNamespace(id=10, storage_key="screenshots/1/image.png"),
+        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/image.png"),
     ]
     storage_client = FakeStorageClient(fail_keys={"screenshots/1/image.png"})
     service, content_repository, _ = build_service(

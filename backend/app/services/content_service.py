@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
-from app.integrations.storage_client import StorageClient
+from app.integrations.storage_client import StorageRouter
 from app.models.category import Category
 from app.models.content import (
     Content,
@@ -62,6 +62,9 @@ class PendingContentAsset:
     asset_type: AssetType
     storage_key: str
     mime_type: str | None
+    storage_backend: str = "local"
+    size_bytes: int | None = None
+    sha256: str | None = None
 
 
 def content_to_read(content: Content) -> ContentRead:
@@ -107,7 +110,7 @@ class ContentService:
         content_asset_repository: ContentAssetRepository | None = None,
         category_recommendation_service: CategoryRecommendationService | None = None,
         tag_repository: TagRepository | None = None,
-        storage_client: StorageClient | None = None,
+        storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
     ) -> None:
         self.content_repository = content_repository
@@ -238,6 +241,9 @@ class ContentService:
                     asset_type=asset.asset_type,
                     storage_key=asset.storage_key,
                     mime_type=asset.mime_type,
+                    storage_backend=asset.storage_backend,
+                    size_bytes=asset.size_bytes,
+                    sha256=asset.sha256,
                 )
             await self.event_repository.create(
                 user_id=user_id,
@@ -312,7 +318,7 @@ class ContentService:
         if content is None:
             raise NotFoundError("Content not found")
 
-        assets = [(asset.id, asset.storage_key) for asset in content.assets]
+        assets = [(asset.id, asset.storage_key, asset.storage_backend) for asset in content.assets]
         if assets and self.storage_client is None:
             raise SystemConfigurationError("Storage client is not configured")
 
@@ -325,9 +331,9 @@ class ContentService:
 
         if self.storage_client is None:
             return
-        for asset_id, storage_key in assets:
+        for asset_id, storage_key, storage_backend in assets:
             try:
-                await self.storage_client.delete_file(storage_key)
+                await self.storage_client.delete_file(storage_key, backend=storage_backend)
             except Exception:
                 logger.exception(
                     "Failed to delete content asset file after database commit: asset_id=%s",

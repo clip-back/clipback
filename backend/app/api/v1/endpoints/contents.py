@@ -4,9 +4,8 @@ from fastapi import APIRouter, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
-from app.core.config import settings
 from app.integrations.ai_client import get_ai_client
-from app.integrations.storage_client import LocalStorageClient
+from app.integrations.storage_client import get_storage_client
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
@@ -169,5 +168,5 @@ def _build_content_service(db: AsyncSession) -> ContentService:
             ai_client=get_ai_client(),
         ),
         tag_repository=TagRepository(db),
-        storage_client=LocalStorageClient(settings.storage_root),
+        storage_client=get_storage_client(),
     )

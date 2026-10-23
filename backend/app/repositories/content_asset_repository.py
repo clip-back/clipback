@@ -16,12 +16,18 @@ class ContentAssetRepository:
         asset_type: AssetType,
         storage_key: str,
         mime_type: str | None,
+        storage_backend: str = "local",
+        size_bytes: int | None = None,
+        sha256: str | None = None,
     ) -> ContentAsset:
         asset = ContentAsset(
             content_id=content_id,
             asset_type=asset_type,
             storage_key=storage_key,
             mime_type=mime_type,
+            storage_backend=storage_backend,
+            size_bytes=size_bytes,
+            sha256=sha256,
         )
         self.session.add(asset)
         await self.session.flush()

@@ -90,3 +90,25 @@ def png_bytes():
     output = BytesIO()
     Image.new("RGB", (8, 8), "blue").save(output, format="PNG")
     return output.getvalue()
+
+
+@pytest.fixture
+def s3_storage(monkeypatch):
+    import boto3
+    from moto import mock_aws
+    from pydantic import SecretStr
+
+    with mock_aws():
+        client = boto3.client(
+            "s3", region_name="us-east-1",
+            aws_access_key_id="testing", aws_secret_access_key="testing",
+        )
+        client.create_bucket(Bucket="original-images")
+        for name, value in {
+            "storage_backend": "s3", "s3_bucket": "original-images",
+            "s3_region": "us-east-1", "s3_endpoint_url": "https://s3.amazonaws.com",
+            "s3_access_key_id": SecretStr("testing"),
+            "s3_secret_access_key": SecretStr("testing"),
+        }.items():
+            monkeypatch.setattr(settings, name, value)
+        yield client
