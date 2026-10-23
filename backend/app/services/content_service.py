@@ -1,5 +1,4 @@
 import json
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -48,13 +47,12 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationResult,
     CategoryRecommendationService,
 )
+from app.services.image_deletion_service import delete_image_content
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
 MAX_EVENT_METADATA_LENGTH = 1000
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -318,9 +316,14 @@ class ContentService:
         if content is None:
             raise NotFoundError("Content not found")
 
-        assets = [(asset.id, asset.storage_key, asset.storage_backend) for asset in content.assets]
-        if assets and self.storage_client is None:
-            raise SystemConfigurationError("Storage client is not configured")
+        if content.assets:
+            if self.storage_client is None:
+                raise SystemConfigurationError("Storage client is not configured")
+            await delete_image_content(
+                self.content_repository, self.storage_client,
+                user_id=user_id, content_id=content_id,
+            )
+            return
 
         try:
             await self.content_repository.delete(content)
@@ -328,17 +331,6 @@ class ContentService:
         except Exception:
             await self.content_repository.session.rollback()
             raise
-
-        if self.storage_client is None:
-            return
-        for asset_id, storage_key, storage_backend in assets:
-            try:
-                await self.storage_client.delete_file(storage_key, backend=storage_backend)
-            except Exception:
-                logger.exception(
-                    "Failed to delete content asset file after database commit: asset_id=%s",
-                    asset_id,
-                )
 
     async def update_categories(
         self,
