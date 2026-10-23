@@ -3,6 +3,7 @@ import json
 import logging
 import warnings
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -20,11 +21,17 @@ from app.integrations.ocr_client import (
     OCRClientTimeoutError,
     ScreenshotOCRResult,
 )
-from app.integrations.storage_client import StorageRouter, StorageUnavailableError
+from app.integrations.storage_client import S3StorageClient, StorageRouter, StorageUnavailableError
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.share_receipt_repository import ShareReceiptRepository
-from app.schemas.content import ContentCreate, ContentRead, ContentSource, ContentType
+from app.schemas.content import (
+    ContentAssetAccess,
+    ContentCreate,
+    ContentRead,
+    ContentSource,
+    ContentType,
+)
 from app.services.content_service import ContentService, PendingContentAsset
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
@@ -205,6 +212,35 @@ class UploadService:
             "ocr_status": ScreenshotOCRStatus.FAILED.value,
             "ocr_failure_reason": reason.value,
         }
+
+    async def asset_access(self, *, user_id: int, asset_id: int) -> ContentAssetAccess:
+        asset = await self.content_asset_repository.get_owned(user_id=user_id, asset_id=asset_id)
+        if asset is None:
+            raise NotFoundError("Content asset not found")
+        mime_type = asset.mime_type or "application/octet-stream"
+        url = f"/api/v1/uploads/assets/{asset.id}"
+        expires_at = None
+        try:
+            storage = self.storage_client.for_backend(asset.storage_backend)
+            size = await storage.file_size(asset.storage_key)
+            digest = asset.sha256
+            if digest is None:
+                original = await storage.read_file(asset.storage_key)
+                size = len(original)
+                digest = hashlib.sha256(original).hexdigest()
+            if isinstance(storage, S3StorageClient):
+                url = await storage.download_url(
+                    asset.storage_key, mime_type=mime_type, expires_in=120,
+                )
+                expires_at = datetime.now(UTC) + timedelta(seconds=120)
+        except FileNotFoundError as exc:
+            raise NotFoundError("Content asset not found") from exc
+        except OSError as exc:
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
+        return ContentAssetAccess(
+            asset_id=asset.id, mode="direct" if expires_at else "proxy", url=url,
+            expires_at=expires_at, mime_type=mime_type, size_bytes=size, sha256=digest,
+        )
 
     async def read_asset(self, *, user_id: int, asset_id: int) -> StoredAssetFile:
         asset = await self.content_asset_repository.get_owned(

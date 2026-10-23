@@ -78,6 +78,16 @@ class ContentAssetRead(BaseModel):
     download_url: str
 
 
+class ContentAssetAccess(BaseModel):
+    asset_id: int
+    mode: Literal["proxy", "direct"]
+    url: str
+    expires_at: datetime | None = None
+    mime_type: str
+    size_bytes: int
+    sha256: str
+
+
 class ContentRead(BaseModel):
     summary_status: Literal[
         "not_requested", "queued", "processing", "completed", "failed", "skipped"

@@ -30,6 +30,13 @@ flutter run -d chrome --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:8000/
 
 기기별 실행·서명·API 주소 조건은 [Android 개발 실행](../docs/frontend/development.md#android-개발-실행), [iOS 개발 실행](../docs/frontend/development.md#ios-개발-실행)을 따릅니다. 제품 빌드의 진입점은 `lib/main.dart`이며 프리뷰 진입점을 배포하지 않습니다.
 
+원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
+Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
+운영 직접 다운로드는 HTTPS이며, 합성 로컬 검증은 API 주소가 HTTP loopback일 때만
+loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나
+에뮬레이터의 `10.0.2.2` 주소를 사용합니다. 자세한 계약은
+[원본 조회 동작](../docs/frontend/behavior.md#저장된-스크린샷-원본-조회)을 따릅니다.
+
 ## 기본 검증
 
 의존성 준비 후 `frontend/`에서 실행합니다.
