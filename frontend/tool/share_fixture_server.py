@@ -119,6 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         fingerprint = hashlib.sha256(path.encode() + fingerprint_input).hexdigest()
         with LOCK:
             status = CONTROL.pop("next_save_status", 201)
+            detail = CONTROL.pop("next_save_detail", None)
             delay = CONTROL.pop("save_delay_seconds", 0)
             lose = CONTROL.pop("lose_response", False)
             if key in RECEIPTS:
@@ -126,8 +127,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(row if old_hash == fingerprint else {"detail": "공유 입력이 달라졌어요."},
                                   201 if old_hash == fingerprint else 409)
             if status != 201:
-                return self.reply({"detail": "본앱에서 로그인 상태를 확인해 주세요." if status == 401
-                                   else "테스트 저장 실패. 다시 시도해 주세요."}, status)
+                return self.reply({"detail": detail if detail is not None else (
+                    "본앱에서 로그인 상태를 확인해 주세요." if status == 401
+                    else "테스트 저장 실패. 다시 시도해 주세요.")}, status)
             row = content(1000 + len(RECEIPTS), value.get("url") or value.get("raw_text"))
             RECORDS.insert(0, row)
             if key:

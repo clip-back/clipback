@@ -34,6 +34,7 @@ from app.schemas.content import (
 )
 from app.services.content_service import ContentService, PendingContentAsset
 from app.services.image_deletion_service import cleanup_failed_upload
+from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -72,12 +73,14 @@ class UploadService:
         content_asset_repository: ContentAssetRepository,
         storage_client: StorageRouter,
         ocr_client: OCRClient,
+        image_upload_policy: ImageUploadPolicy,
         max_bytes: int = settings.screenshot_max_bytes,
     ) -> None:
         self.content_service = content_service
         self.content_asset_repository = content_asset_repository
         self.storage_client = storage_client
         self.ocr_client = ocr_client
+        self.image_upload_policy = image_upload_policy
         self.max_bytes = max_bytes
 
     async def upload_screenshot(
@@ -98,7 +101,7 @@ class UploadService:
         if len(content) > self.max_bytes:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail="Screenshot file exceeds the configured size limit",
+                detail={"code": "image_file_too_large", "limit_bytes": self.max_bytes},
             )
 
         pending = None
@@ -116,6 +119,7 @@ class UploadService:
             receipt_args["share_receipt"] = pending
 
         mime_type, extension = self._validate_image(content)
+        await self.image_upload_policy.authorize(user_id=user_id, size_bytes=len(content))
         ocr_result, ocr_metadata = await self._extract_ocr(
             content=content,
             mime_type=mime_type,

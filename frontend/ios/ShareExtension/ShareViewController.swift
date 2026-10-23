@@ -30,7 +30,7 @@ final class ShareViewController: UIViewController {
           do {
             guard error == nil, let url else { throw ShareFailure.unsupported }
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size <= ShareStore.maxImageBytes else { throw ShareFailure.unsupported }
+            guard size <= ShareStore.maxImageBytes else { throw ShareFailure.fileTooLarge }
             // Copy while NSItemProvider's temporary URL and security grant are valid.
             let draft = try store.createImage(fileURL: url)
             DispatchQueue.main.async { self?.presentComposer(store, draft: draft) }

@@ -123,6 +123,13 @@ class FakeContentAssetRepository:
         return self.assets.get((user_id, asset_id))
 
 
+class AllowedImageUploadPolicy:
+    # These existing service tests isolate encoding/OCR/file behavior; the real
+    # authorization and transaction races are covered at the authenticated API.
+    async def authorize(self, *, user_id: int, size_bytes: int) -> None:
+        pass
+
+
 def make_image(image_format: str) -> bytes:
     output = BytesIO()
     Image.new("RGB", (2, 2), color="white").save(output, format=image_format)
@@ -146,6 +153,7 @@ def build_service(
             content_asset_repository=asset_repository or FakeContentAssetRepository(),
             storage_client=storage,
             ocr_client=ocr_client,
+            image_upload_policy=AllowedImageUploadPolicy(),
             max_bytes=max_bytes,
         ),
         storage,

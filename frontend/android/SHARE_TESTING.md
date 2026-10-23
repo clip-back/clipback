@@ -56,6 +56,12 @@ emulator -avd Clipback_Share_API_33 -memory 1536 -cores 2 \
 테스트는 실제 Keystore 암호화·저장 실패·계정/환경 경계·파일 정리·Activity 재생성·
 뒤로 가기·저장 직후 닫기와 HTTP 요청 공유·401·30초 제한·응답 유실 재시도를 확인한다.
 
+이미지 한도 오류는 `ShareServiceFixtureTest#testImageQuotaUsesExistingShareErrorRegion`과
+`#testImageFileLimitUsesExistingShareErrorRegion`을 선택해 실행한다. 실제 공유 복구 Activity의
+기존 상태 문구와 초안·로그인 유지를 확인하고 앱 외부 파일 폴더에
+`android-share-image-quota.png`·`android-share-image-file-limit.png` OS 스크린샷을 남긴다.
+fixture의 `next_save_detail`은 오류 코드 전달만 대역 처리하며 실제 계정 합계는 서버 API 통합 테스트가 검증한다.
+
 ## 시스템 공유 창과 화면 증거
 
 테스트 후 본앱의 fixture 진입점을 한 번 열면 메모리 세션에서 공유 자격을 준비한다.
