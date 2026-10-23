@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/services/original_image_cache.dart';
+
 class ClipbackApiException implements Exception {
   const ClipbackApiException(this.message, {this.statusCode});
 
@@ -347,10 +349,12 @@ class ClipbackApi {
   ClipbackApi({
     http.Client? client,
     http.Client? bucketClient,
+    OriginalImageCache? originalImageCache,
     Future<void> Function(ApiSession)? onSessionChanged,
     Future<void> Function()? onSessionInvalidated,
   }) : _client = client ?? http.Client(),
        _bucketClient = bucketClient ?? http.Client(),
+       _originalImageCache = originalImageCache,
        _onSessionChanged = onSessionChanged,
        _onSessionInvalidated = onSessionInvalidated;
 
@@ -362,6 +366,9 @@ class ClipbackApi {
 
   final http.Client _client;
   final http.Client _bucketClient;
+  final OriginalImageCache? _originalImageCache;
+  int? _assetUserId;
+  int _assetGeneration = 0;
   static const assetMaxBytes = 10 * 1024 * 1024;
   final Future<void> Function(ApiSession)? _onSessionChanged;
   final Future<void> Function()? _onSessionInvalidated;
@@ -414,9 +421,16 @@ class ClipbackApi {
   void clearSession() => _replaceSession(null);
 
   void _replaceSession(ApiSession? session) {
+    if (_session != null || session == null) _invalidateAssetCache();
     _sessionGeneration++;
     _session = session;
+    _assetUserId = null;
     _refreshFuture = null;
+  }
+
+  void _invalidateAssetCache() {
+    _assetGeneration++;
+    _originalImageCache?.invalidate();
   }
 
   void _checkSessionGeneration(int generation, {bool allowLogout = false}) {
@@ -506,6 +520,7 @@ class ClipbackApi {
     _checkSessionGeneration(generation);
     if (_session == null) return;
     _logoutGeneration = generation;
+    _invalidateAssetCache();
     try {
       final refresh = _refreshFuture;
       if (refresh != null) {
@@ -619,8 +634,13 @@ class ClipbackApi {
     return session;
   }
 
-  Future<ApiUser> readMe() async =>
-      ApiUser.fromJson(await _json('GET', '/users/me'));
+  Future<ApiUser> readMe() async {
+    final generation = _sessionGeneration;
+    final user = ApiUser.fromJson(await _json('GET', '/users/me'));
+    _checkSessionGeneration(generation);
+    _assetUserId = user.id;
+    return user;
+  }
 
   Future<ApiUserStats> readStats() async =>
       ApiUserStats.fromJson(await _json('GET', '/users/me/stats'));
@@ -838,8 +858,46 @@ class ClipbackApi {
     return ApiContent.fromJson(_decodeJson(response));
   }
 
-  Future<Uint8List> readAsset(int assetId) async =>
-      downloadAsset(await readAssetAccess(assetId));
+  Future<Uint8List> readAsset(int assetId) async {
+    final generation = _sessionGeneration;
+    final assetGeneration = _assetGeneration;
+    bool current() =>
+        generation == _sessionGeneration &&
+        assetGeneration == _assetGeneration &&
+        _logoutGeneration != generation;
+    void checkCurrent() {
+      _checkSessionGeneration(generation);
+      if (!current()) {
+        throw const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.');
+      }
+    }
+
+    final access = await readAssetAccess(assetId);
+    final cache = _originalImageCache;
+    if (cache == null) return downloadAsset(access);
+    final userId = _assetUserId ?? (await readMe()).id;
+    checkCurrent();
+    final cached = await cache.read(
+      environment: _baseUrl,
+      userId: userId,
+      assetId: assetId,
+      digest: access.sha256,
+      sizeBytes: access.sizeBytes,
+    );
+    checkCurrent();
+    if (cached != null) return cached;
+    final bytes = await downloadAsset(access);
+    await cache.write(
+      environment: _baseUrl,
+      userId: userId,
+      assetId: assetId,
+      digest: access.sha256,
+      bytes: bytes,
+      isCurrent: current,
+    );
+    checkCurrent();
+    return bytes;
+  }
 
   Future<ApiAssetAccess> readAssetAccess(int assetId) async {
     final generation = _sessionGeneration;
@@ -1151,6 +1209,7 @@ class ClipbackApi {
       } catch (error) {
         _checkSessionGeneration(generation);
         if (error is ClipbackApiException && error.statusCode == 401) {
+          _invalidateAssetCache();
           await _onSessionInvalidated?.call();
         }
         rethrow;
@@ -1164,6 +1223,7 @@ class ClipbackApi {
       );
     }
     if (response.statusCode == 401 && authenticated && retryUnauthorized) {
+      _invalidateAssetCache();
       await _onSessionInvalidated?.call();
     }
     return response;

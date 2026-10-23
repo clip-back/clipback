@@ -32,6 +32,8 @@ flutter run -d chrome --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:8000/
 
 원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
 Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
+권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.
+기본 한도는 100MiB·7일 미사용이며 계정과 서버 환경을 분리합니다. 캐시 삭제는 클라우드 보관량에 영향을 주지 않습니다.
 운영 직접 다운로드는 HTTPS이며, 합성 로컬 검증은 API 주소가 HTTP loopback일 때만
 loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나
 에뮬레이터의 `10.0.2.2` 주소를 사용합니다. 자세한 계약은
