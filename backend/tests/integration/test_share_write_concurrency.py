@@ -150,11 +150,21 @@ async def test_concurrent_shares_serialize_before_external_work(
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+@pytest.mark.parametrize("storage_backend", ["local", "s3"])
 @pytest.mark.parametrize("failure", ["before_commit", "commit_rejected", "commit_ack_lost"])
 async def test_screenshot_retry_and_cleanup_follow_actual_commit(
-    independent_api, png_bytes, monkeypatch, failure,
+    independent_api, png_bytes, monkeypatch, failure, storage_backend, s3_storage,
 ):
     api, headers, user_id, sessions, _, path = independent_api
+    monkeypatch.setattr(settings, "storage_backend", storage_backend)
+
+    def original_files():
+        if storage_backend == "local":
+            return list(path.rglob("*.png"))
+        return [item["Key"] for item in s3_storage.list_objects_v2(
+            Bucket="original-images",
+        ).get("Contents", [])]
+
     headers = {**headers, "Idempotency-Key": str(uuid4())}
     payload = {"files": {"file": ("image.png", png_bytes, "image/png")}}
     armed = True
@@ -184,13 +194,13 @@ async def test_screenshot_retry_and_cleanup_follow_actual_commit(
         monkeypatch.setattr(AsyncSession, "commit", fail)
     failed = await api.post("/api/v1/uploads/screenshots", headers=headers, **payload)
     assert failed.status_code == 500
-    files = list(path.rglob("*.png"))
+    files = original_files()
     assert len(files) == (1 if failure == "commit_ack_lost" else 0)
     first = await request(api, "POST", "uploads/screenshots", status=201,
                           headers=headers, **payload)
-    assert len(list(path.rglob("*.png"))) == 1
+    assert len(original_files()) == 1
     if files:
-        assert list(path.rglob("*.png")) == files
+        assert original_files() == files
     async with sessions() as session:
         assert await session.scalar(select(func.count()).select_from(ShareReceipt).where(
             ShareReceipt.user_id == user_id,
@@ -204,7 +214,7 @@ async def test_screenshot_retry_and_cleanup_follow_actual_commit(
                   json={"url": "https://youtu.be/dQw4w9WgXcQ"})
     await request(api, "DELETE", f"contents/{first['id']}", status=204, headers=headers)
     await request(api, "POST", "uploads/screenshots", status=410, headers=headers, **payload)
-    assert not list(path.rglob("*.png"))
+    assert not original_files()
 
 
 async def test_main_refresh_does_not_deadlock_native_share(independent_api):

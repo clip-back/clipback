@@ -106,7 +106,10 @@ tests            API, service, and repository tests.
 The runtime image uses Python 3.12, one Uvicorn worker, and `${PORT:-8000}`.
 Set the Railway service root to `/backend`, attach a volume at `/data`, set
 `STORAGE_ROOT=/data/screenshots`, and run `alembic upgrade head` as the pre-deploy
-command. `/api/v1/health/ready` checks PostgreSQL and writable storage with a
+command. New originals can use a private S3-compatible Bucket by selecting
+`STORAGE_BACKEND=s3` and setting the Bucket variables in `.env.example`; existing
+local assets keep using the mounted volume. `/api/v1/health/ready` checks PostgreSQL
+and the selected writer (temporary local write or read-only Bucket listing) with a
 three-second timeout; `/api/v1/health` retains its existing liveness contract.
 
 See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)

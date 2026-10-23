@@ -714,8 +714,12 @@ No database migration or new frontend response field is required.
 ## Screenshot Storage
 
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
-10MB as multipart form data and returns the saved content with its asset metadata.
-Set `STORAGE_ROOT` to change the local filesystem storage directory.
+10MiB as multipart form data and returns the saved content with its asset metadata.
+The original bytes are preserved without resizing or recompression. `STORAGE_BACKEND`
+selects `local` (default, rooted at `STORAGE_ROOT`) or a private S3-compatible Bucket
+for new uploads. Each asset records its own storage backend, actual byte length and
+SHA-256; pre-existing assets remain `local` with nullable integrity metadata until
+an explicit migration fills it. Changing the writer never changes old asset locations.
 OpenAI OCR extracts text, title, and summary and feeds category recommendation.
 New screenshot summaries are instructed to use concise Korean informational prose
 with noun-ending sentences (for example, `성수동 카페 소개. 대표 메뉴와 영업시간 안내.`),
@@ -724,10 +728,20 @@ from the image. This prompt applies to new uploads; existing saved summaries and
 descriptions extracted from links are unchanged. Actual model adherence requires
 checking real screenshot responses; mocked tests cannot verify writing quality.
 OCR failure preserves image saving with fallback content; valid manual category
-selection remains authoritative. Railway mounts persistent storage at `/data`.
+selection remains authoritative. Keep the existing `/data` volume mounted while
+local assets remain. S3 configuration and rollout checks are described in the
+[Railway deployment guide](../railway-deployment.md#bucket-원본-보관).
 
 Saved images are private. Use the Bearer-authenticated asset URL returned in
-`ContentRead.assets` to download an image.
+`ContentRead.assets` to download an image. The existing URL, response shape and
+Bearer authentication are retained for both local and Bucket assets, so older
+apps continue to work. Bucket credentials and storage keys are never returned.
+A missing or foreign asset returns 404; a Bucket outage during upload or read
+returns 503 with a generic error. The DB commit remains authoritative for cleanup:
+failed writes do not produce a successful content response, rollback cleans the
+new file, and an uncertain acknowledged commit never deletes a committed original.
+Normal content deletion removes the file from the asset's recorded backend;
+durable delete retries and backup deletion rules are separate rollout work.
 
 <a id="9-api프론트-연결-계약"></a>
 

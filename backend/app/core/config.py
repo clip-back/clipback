@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     apple_token_encryption_key: SecretStr | None = None
     social_auth_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_root: Path = Path("storage")
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: str | None = None
+    s3_bucket: str | None = None
+    s3_region: str = "auto"
+    s3_addressing_style: Literal["virtual", "path"] = "virtual"
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     @field_validator("database_url")
@@ -80,6 +87,14 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be configured in production")
             if not self.storage_root.is_absolute():
                 raise ValueError("STORAGE_ROOT must be absolute in production")
+        if self.storage_backend == "s3":
+            for key in ("s3_endpoint_url", "s3_bucket", "s3_access_key_id", "s3_secret_access_key"):
+                value = getattr(self, key)
+                raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+                if not raw or not raw.strip():
+                    raise ValueError(f"{key.upper()} is required for S3 storage")
+            if self.app_environment == "production" and not self.s3_endpoint_url.startswith("https://"):
+                raise ValueError("S3_ENDPOINT_URL must use HTTPS in production")
         if self.youtube_summary_enabled:
             for key in ("gemini_api_key", "youtube_data_api_key"):
                 value = getattr(self, key)

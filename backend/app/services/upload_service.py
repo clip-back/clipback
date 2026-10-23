@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import warnings
@@ -10,7 +11,7 @@ from fastapi import HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceUnavailableError
 from app.integrations.ocr_client import (
     OCRClient,
     OCRClientError,
@@ -19,7 +20,7 @@ from app.integrations.ocr_client import (
     OCRClientTimeoutError,
     ScreenshotOCRResult,
 )
-from app.integrations.storage_client import StorageClient
+from app.integrations.storage_client import StorageRouter, StorageUnavailableError
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.share_receipt_repository import ShareReceiptRepository
@@ -61,7 +62,7 @@ class UploadService:
         *,
         content_service: ContentService,
         content_asset_repository: ContentAssetRepository,
-        storage_client: StorageClient,
+        storage_client: StorageRouter,
         ocr_client: OCRClient,
         max_bytes: int = settings.screenshot_max_bytes,
     ) -> None:
@@ -112,7 +113,10 @@ class UploadService:
             mime_type=mime_type,
         )
         storage_key = f"screenshots/{user_id}/{uuid4().hex}.{extension}"
-        await self.storage_client.save_file(storage_key, content)
+        try:
+            await self.storage_client.save_file(storage_key, content)
+        except StorageUnavailableError as exc:
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
         try:
             return await self.content_service.create_content(
@@ -136,6 +140,9 @@ class UploadService:
                     asset_type=AssetType.SCREENSHOT,
                     storage_key=storage_key,
                     mime_type=mime_type,
+                    storage_backend=self.storage_client.backend,
+                    size_bytes=len(content),
+                    sha256=hashlib.sha256(content).hexdigest(),
                 ),
             )
         except Exception:
@@ -208,10 +215,14 @@ class UploadService:
             raise NotFoundError("Content asset not found")
 
         try:
-            content = await self.storage_client.read_file(asset.storage_key)
+            content = await self.storage_client.read_file(
+                asset.storage_key, backend=asset.storage_backend,
+            )
         except FileNotFoundError as exc:
             logger.error("Stored content asset is missing: asset_id=%s", asset.id)
             raise NotFoundError("Content asset not found") from exc
+        except StorageUnavailableError as exc:
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
         return StoredAssetFile(
             content=content,

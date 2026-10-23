@@ -37,6 +37,8 @@ class FakeUploadFile:
 
 
 class FakeStorageClient:
+    backend = "local"
+
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
         self.deleted_keys: list[str] = []
@@ -48,12 +50,12 @@ class FakeStorageClient:
             raise OSError("storage unavailable")
         self.files[storage_key] = content
 
-    async def read_file(self, storage_key: str) -> bytes:
+    async def read_file(self, storage_key: str, *, backend: str = "local") -> bytes:
         if storage_key not in self.files:
             raise FileNotFoundError(storage_key)
         return self.files[storage_key]
 
-    async def delete_file(self, storage_key: str) -> None:
+    async def delete_file(self, storage_key: str, *, backend: str | None = None) -> None:
         self.deleted_keys.append(storage_key)
         if self.fail_delete:
             raise OSError("delete unavailable")
@@ -377,7 +379,9 @@ async def test_upload_screenshot_does_not_create_content_when_storage_fails() ->
 
 @pytest.mark.asyncio
 async def test_read_asset_returns_owned_file() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/image.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/image.png", mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     storage = FakeStorageClient()
     storage.files[asset.storage_key] = b"image"
@@ -391,7 +395,9 @@ async def test_read_asset_returns_owned_file() -> None:
 
 @pytest.mark.asyncio
 async def test_read_asset_hides_missing_or_unowned_asset() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/image.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/image.png", mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     service, _, _, _ = build_service(asset_repository=repository)
 
@@ -403,7 +409,10 @@ async def test_read_asset_hides_missing_or_unowned_asset() -> None:
 
 @pytest.mark.asyncio
 async def test_read_asset_returns_not_found_when_stored_file_is_missing() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/missing.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/missing.png",
+        mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     service, _, _, _ = build_service(asset_repository=repository)
 
