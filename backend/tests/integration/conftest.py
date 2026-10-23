@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.ai_client import AIClient, AIClientError
+from app.integrations.deletion_ledger import get_deletion_ledger
 from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.integrations.ocr_client import OCRClient, OCRClientTimeoutError, ScreenshotOCRResult
 from app.integrations.social_auth_client import SocialAuthClient, SocialProfile
@@ -57,6 +58,14 @@ def external_responses(monkeypatch):
     yield state
     # Also fail when application fallback handling catches the transport exception.
     assert state.network_calls == []
+
+
+@pytest.fixture(autouse=True)
+def deletion_ledger(monkeypatch, tmp_path_factory):
+    monkeypatch.setattr(
+        settings, "deletion_ledger_root", tmp_path_factory.mktemp("deletion-ledger"),
+    )
+    get_deletion_ledger().initialize()
 
 
 @pytest_asyncio.fixture

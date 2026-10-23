@@ -6,6 +6,7 @@ from app.models.content_asset import AssetType, ContentAsset
 from app.models.content_category import content_categories
 from app.models.content_event import ContentEvent, ContentEventType
 from app.models.content_tag import content_tags
+from app.models.image_deletion import ImageDeletion
 from app.models.recommendation import (
     RecommendationBatch,
     RecommendationBatchItem,
@@ -32,6 +33,7 @@ __all__ = [
     "ContentEventType",
     "ContentSource",
     "ContentType",
+    "ImageDeletion",
     "RecommendationBatch",
     "RecommendationBatchItem",
     "RecommendationCardType",

@@ -161,14 +161,11 @@ class FakeContentAssetRepository:
 class FakeStorageClient:
     backend = "local"
 
-    def __init__(self, *, fail_keys: set[str] | None = None) -> None:
-        self.fail_keys = fail_keys or set()
+    def __init__(self) -> None:
         self.deleted_keys: list[str] = []
 
     async def delete_file(self, storage_key: str, *, backend: str | None = None) -> None:
         self.deleted_keys.append(storage_key)
-        if storage_key in self.fail_keys:
-            raise OSError("storage unavailable")
 
 
 class FakeCategoryRepository:
@@ -1202,72 +1199,6 @@ async def test_delete_content_removes_link_content_without_storage_access() -> N
     assert content_repository.contents == {}
     assert content_repository.session.committed is True
     assert event_repository.events == []
-
-
-@pytest.mark.asyncio
-async def test_delete_content_removes_all_asset_files_after_database_commit() -> None:
-    existing_content = content(1)
-    existing_content.assets = [
-        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/first.png"),
-        SimpleNamespace(id=11, storage_backend="local", storage_key="screenshots/1/second.png"),
-    ]
-    storage_client = FakeStorageClient()
-    service, content_repository, _ = build_service(
-        contents=[existing_content],
-        storage_client=storage_client,
-    )
-
-    await service.delete_content(user_id=1, content_id=1)
-
-    assert content_repository.session.committed is True
-    assert storage_client.deleted_keys == [
-        "screenshots/1/first.png",
-        "screenshots/1/second.png",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_delete_content_rolls_back_without_deleting_files_when_database_fails() -> None:
-    existing_content = content(1)
-    existing_content.assets = [
-        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/image.png"),
-    ]
-    storage_client = FakeStorageClient()
-    service, content_repository, _ = build_service(
-        contents=[existing_content],
-        storage_client=storage_client,
-    )
-
-    async def fail_delete(content):
-        raise RuntimeError("content delete failed")
-
-    content_repository.delete = fail_delete
-
-    with pytest.raises(RuntimeError, match="content delete failed"):
-        await service.delete_content(user_id=1, content_id=1)
-
-    assert content_repository.session.rolled_back is True
-    assert content_repository.session.committed is False
-    assert storage_client.deleted_keys == []
-
-
-@pytest.mark.asyncio
-async def test_delete_content_logs_file_failure_and_keeps_successful_response(caplog) -> None:
-    existing_content = content(1)
-    existing_content.assets = [
-        SimpleNamespace(id=10, storage_backend="local", storage_key="screenshots/1/image.png"),
-    ]
-    storage_client = FakeStorageClient(fail_keys={"screenshots/1/image.png"})
-    service, content_repository, _ = build_service(
-        contents=[existing_content],
-        storage_client=storage_client,
-    )
-
-    await service.delete_content(user_id=1, content_id=1)
-
-    assert content_repository.session.committed is True
-    assert storage_client.deleted_keys == ["screenshots/1/image.png"]
-    assert "Failed to delete content asset file" in caplog.text
 
 
 @pytest.mark.asyncio
