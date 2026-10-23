@@ -218,6 +218,26 @@ final class ShareUITests: XCTestCase {
     capture("ios-share-error")
     sender.alerts.buttons["닫기"].tap()
   }
+  func testImageQuotaAndFileLimitAppearInExistingShareErrorRegion() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    main.launch()
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    for (status, code, message, artifact) in [
+      (409, "image_quota_exceeded", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", "ios-share-image-quota"),
+      (413, "image_file_too_large", "이미지는 10MiB 이하만 저장할 수 있습니다.", "ios-share-image-file-limit")
+    ] {
+      control(["next_save_status": status, "next_save_detail": ["code": code]])
+      openShare(sender, button: "스크린샷 공유")
+      let save = sender.buttons["share.save"]
+      XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+      tapReady(save)
+      XCTAssertTrue(sender.staticTexts[message].waitForExistence(timeout: 10), sender.debugDescription)
+      XCTAssertTrue(save.isEnabled)
+      capture(artifact)
+      tapReady(sender.buttons["share.close"])
+    }
+  }
   // Prepare Safari with simctl openurl and Photos with simctl addmedia before these OS-host tests.
   func testSafariSharesPreparedYouTubePage() {
     let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
