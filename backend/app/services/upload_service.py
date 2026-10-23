@@ -33,6 +33,7 @@ from app.schemas.content import (
     ContentType,
 )
 from app.services.content_service import ContentService, PendingContentAsset
+from app.services.image_deletion_service import cleanup_failed_upload
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
@@ -127,6 +128,7 @@ class UploadService:
         try:
             await self.storage_client.save_file(storage_key, content)
         except StorageUnavailableError as exc:
+            await self._cleanup_failed_original(user_id, storage_key, content)
             raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
         try:
@@ -168,11 +170,21 @@ class UploadService:
                     raise
                 if committed:
                     raise
-            try:
-                await self.storage_client.delete_file(storage_key)
-            except Exception:
-                logger.exception("Failed to delete screenshot after database rollback")
+            await self._cleanup_failed_original(user_id, storage_key, content)
             raise
+
+    async def _cleanup_failed_original(
+        self, user_id: int, storage_key: str, content: bytes,
+    ) -> None:
+        try:
+            await cleanup_failed_upload(
+                self.content_asset_repository.session, self.storage_client,
+                user_id=user_id, storage_key=storage_key, size_bytes=len(content),
+                sha256=hashlib.sha256(content).hexdigest(),
+            )
+        except Exception:
+            # Combined DB+object-store failure cannot queue here. The upload still fails.
+            logger.warning("Failed upload original cleanup could not be confirmed")
 
     async def _extract_ocr(
         self,
