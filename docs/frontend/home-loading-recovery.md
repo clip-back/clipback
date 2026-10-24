@@ -4,6 +4,9 @@
 기준은 main `5671e79a6c3451068cf053d185a9334fd9f3144c`이며,
 작업 브랜치는 `docs/home-loading-recovery`입니다. 이미지 보관 PR #75와 분리합니다.
 확정 명세는 [GitHub 이슈 #76](https://github.com/clip-back/clipback/issues/76)에서 관리합니다.
+하위 작업은 [필수 목록 준비 시 홈 진입 #77](https://github.com/clip-back/clipback/issues/77),
+[전체 15초 제한과 안전한 수동 재시도 #78](https://github.com/clip-back/clipback/issues/78)입니다.
+#78은 #77 완료 후 시작하며 두 이슈 모두 `ready-for-agent`입니다.
 
 ## 확정된 범위
 
