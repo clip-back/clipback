@@ -81,6 +81,30 @@ print(json.dumps({'content_id':detail['id'],'saved_at':detail['saved_at'],
 """
     before = execute(drill, api, probe, state)
     assert len(before["assets"]) == 3
+    # Exercise the same DB/S3 environment's operator admission gate before the
+    # paired backup, migration, user deletion and old-point restoration below.
+    command(["scripts.image_storage_admin", "pause"], fixture["env"])
+    paused = execute(drill, api, """
+import json,sys,urllib.request,urllib.error
+p=json.load(sys.stdin)
+boundary='clipback74'
+original=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/assets/'+str(p['asset_id']),
+ headers={'Authorization':'Bearer '+p['token']})
+png=urllib.request.urlopen(original,timeout=10).read()
+body=(b'--clipback74\\r\\nContent-Disposition: form-data; name="file"; filename="probe.png"'
+      b'\\r\\nContent-Type: image/png\\r\\n\\r\\n'+png+b'\\r\\n--clipback74--\\r\\n')
+r=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/screenshots',data=body,
+ headers={'Authorization':'Bearer '+p['token'],'Content-Type':'multipart/form-data; boundary='+boundary})
+try:
+ urllib.request.urlopen(r,timeout=10)
+ raise AssertionError('Paused upload was accepted')
+except urllib.error.HTTPError as error:
+ print(json.dumps({'status':error.code,'detail':json.load(error)['detail']}))
+""", state)
+    assert paused["status"] == 409
+    assert paused["detail"]["code"] == "image_uploads_paused"
+    assert execute(drill, api, probe, state) == before
+    command(["scripts.image_storage_admin", "resume"], fixture["env"])
     drill.docker("stop", api)
     command(
         [

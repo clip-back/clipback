@@ -300,6 +300,26 @@ final class ShareUITests: XCTestCase {
     capture("ios-photos-success")
     tapReady(photos.buttons["share.close"])
   }
+  // Run image_storage_live_preview.dart against 18766 and complete actual guest login first.
+  // No fixture control endpoint or manually published native credential is used.
+  func testRealBackendNativeImageWithExistingSession() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    main.activate()
+    XCTAssertTrue(main.images["홈"].waitForExistence(timeout: 15), main.debugDescription)
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    openShare(sender, button: "스크린샷 공유")
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+    capture("ios-real-image-preview")
+    tapReady(save)
+    XCTAssertTrue(sender.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), sender.debugDescription)
+    capture("ios-real-image-success")
+    tapReady(sender.buttons["share.close"])
+    XCTAssertTrue(sender.staticTexts["sender.title"].waitForExistence(timeout: 5))
+    main.activate()
+    capture("ios-real-image-return")
+  }
   // Install share_preview.dart with SHARE_PREVIEW_REAL_BACKEND=true and port 18766 before this test.
   func testRealBackendGuestLoginThenNativeSave() {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
