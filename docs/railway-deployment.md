@@ -43,15 +43,46 @@
 
 ## 실행 및 상태 확인
 
-이미지의 작업 경로는 `/app`이다. 시작 스크립트는 저장 디렉터리를 생성하고 임시 파일 쓰기·삭제가 성공해야 `uvicorn`을 exec한다. 기본 포트는 8000이며 Railway의 `PORT`가 우선한다. worker는 1개이고 reload는 사용하지 않는다.
+이미지의 작업 경로는 `/app`이다. 시작 스크립트는 선택한 신규 저장소를 확인한 뒤 `uvicorn`을 exec한다.
+로컬 저장은 디렉터리 생성·임시 파일 쓰기·삭제를, Bucket 저장은 읽기 전용 객체 목록 조회를 확인한다. 기본 포트는 8000이며 Railway의 `PORT`가 우선한다. worker는 1개이고 reload는 사용하지 않는다.
 
 DB migration은 pre-deploy에서만 실행한다. 이 단계에는 볼륨이 없으므로 이미지 파일을 생성하거나 확인하지 않는다. 실패하면 해당 배포를 중단한다. 현재 최초 배포는 빈 DB 기준이며, 향후 기존 데이터를 바꾸는 migration은 별도 배포 절차에서 이전 앱과의 호환성·쓰기 중단 여부를 검토한다.
 
 - `/api/v1/health`: 기존 liveness 응답 `200 {"status":"ok"}` 유지.
-- `/api/v1/health/ready`: DB `SELECT 1`과 저장소 파일 쓰기·삭제 성공 시 200, 실패·3초 timeout 시 `503 {"status":"unavailable"}`. 인증과 외부 공급자 호출은 없다.
+- `/api/v1/health/ready`: DB `SELECT 1`과 선택한 저장소 확인 성공 시 200, 실패·3초 timeout 시 `503 {"status":"unavailable"}`. Bucket 선택 시 S3 공급자에 읽기 전용 목록 조회를 수행한다. AI/OCR·소셜 인증 공급자는 호출하지 않는다.
 - Railway healthcheck는 배포 준비 상태 확인이다. 배포 후 계속 호출하는 장애 감시 도구가 아니다. stdout/stderr 및 Railway 리소스 지표로 로그·디스크 사용량을 확인한다.
 
+## Bucket 원본 보관
+
+이 코드는 원본 저장소 전환을 지원하지만 설정 변경이나 실제 Railway 검증을 수행하지 않는다.
+신규 Bucket은 비공개로 만들고, Credentials의 값을 서버 변수에만 연결한다.
+[Railway 공식 연결 안내](https://docs.railway.com/storage-buckets#connecting-to-your-bucket)를 기준으로 설정한다.
+
+| 변수 | 설정 |
+| --- | --- |
+| `STORAGE_BACKEND` | 신규 원본을 Bucket에 저장할 때 `s3`; 기본값 `local` |
+| `S3_ENDPOINT_URL` | Credentials의 base endpoint. 운영은 HTTPS 필수 |
+| `S3_BUCKET` | Credentials의 실제 `BUCKET` 값. 화면 표시 이름과 구분 |
+| `S3_REGION` | Credentials의 region. 기본 `auto` |
+| `S3_ADDRESSING_STYLE` | Credentials의 URL style. 신규 기본 `virtual`, 구형 Bucket이나 격리 S3 환경은 필요하면 `path` |
+| `S3_ACCESS_KEY_ID` · `S3_SECRET_ACCESS_KEY` | 해당 Bucket 전용 서버 비밀값 |
+
+먼저 추가형 DB migration과 로컬·Bucket을 함께 읽는 백엔드를 배포한다. 기존 자산은 `local`로 남고,
+신규 자산은 저장 위치·원본 크기·SHA-256을 기록한다. `STORAGE_ROOT=/data/screenshots`와 원래 볼륨은
+기존 로컬 자산이 남아 있는 동안 유지한다. 새 저장 설정만 바꿔도 기존 파일이 이관되지는 않는다.
+
+SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상한을 둔다.
+준비 상태의 읽기 전용 목록 조회는 원본 저장·다운로드·삭제 성공을 증명하지 않으므로,
+운영 전환 전 별도 테스트 계정의 합성 이미지로 업로드·동일 바이트 재조회·삭제를 확인한다.
+실제 Bucket 검증, 기존 파일 이관, Bucket을 포함한 백업·복원 확인 후에 원래 볼륨 정리를 검토한다.
+아래 로컬 볼륨 백업 절차만으로 Bucket 원본이 백업된 것으로 판단하지 않는다.
+
 ## 데이터 영속성 및 백업
+
+Bucket 원본을 사용하는 새 이미지 보관은 [전용 운영 작업의 일일 백업·7일 보존·삭제 반영 복원](backend/backup-recovery.md#일일-백업과-시간별-보존-작업)을 기준으로 한다.
+별도 operator 이미지에 source DB와 같은 pg_dump 주 버전 및 daily/시간별 maintain 일정을
+설정하고, 원본 API에는 백업 자격을 주지 않는다. 아래 Railway 볼륨 자체의 백업과 구분하며,
+코드 구현만으로 실제 일정·권한·복구 전환이 검증되거나 설정된 것은 아니다.
 
 API 서비스의 볼륨과 DB 서비스의 볼륨은 별개다. 재배포·컨테이너 재생성 시 두 볼륨을 유지한다. 볼륨이나 서비스를 삭제하는 작업은 일반적인 재배포 절차가 아니다.
 
@@ -87,14 +118,16 @@ Railway 기본 백업의 활성화·복원 성공과 구분한다.
 
 별도 로컬 Docker에서 원본을 변경하지 않고 검사하는 도구·manifest·자격 파일·검사 범위는
 [격리 복원 안내](backend/backup-recovery.md)를 따른다. 백업은 저장소 밖의 비공개 폴더에 보관하고,
-비밀값은 manifest·로그와 분리한다. 검증에 성공한 백업 세트는 유지한다.
+비밀값은 manifest·로그와 분리한다. 보관 기간은 이미지 정책을 따르며 복원 검사용 임시 다운로드는
+종료 후 제거한다. 오래된 사본을 무기한 유지하지 않는다.
 
 ### 복원과 롤백
 
 1. 원본에 덮어쓰지 말고 별도의 빈 DB·이미지 볼륨을 준비한다.
 2. 같은 백업 세트의 DB를 `pg_restore --exit-on-error`로 복원하고 archive를 이미지 볼륨의 `/data` 기준으로 푼다.
-3. 백업과 호환되는 앱 커밋 및 같은 SECRET_KEY로 시작한다. 기존 토큰을 사용한 콘텐츠 조회, 이미지 바이트, 준비 상태를 검증한다.
-4. 원래 API의 쓰기가 차단된 상태에서 연결을 검증된 복원 대상으로 전환한다. 검증 전 원본을 제거하지 않는다.
+3. 원래 API·worker·모든 쓰기를 차단한 채 live 독립 삭제 기록의 최신성을 확인하고 삭제 전 DB/원본 기준을 비교한 뒤 삭제 intent를 적용한다. 숫자 ID만으로 대상을 정하지 않는다. [삭제 반영 격리 복원](backend/backup-recovery.md#최신-삭제-기록을-반영한-격리-복원)을 따른다. 기록을 검증할 수 없으면 트래픽을 열지 않는다.
+4. 그 뒤 호환 앱 커밋·같은 SECRET_KEY로 시작하고, 기존 토큰의 콘텐츠·원본 조회와 삭제된 콘텐츠/이미지의 404, 준비 상태를 검증한다. 쓰기 차단을 전환까지 유지한다. 재개했다면 최신 삭제를 다시 반영한다.
+5. 연결을 검증된 복원 대상으로 전환한다. 검증 전 원본을 제거하지 않는다. 이 저장소의 격리 검사 도구는 운영 전환을 직접 수행하지 않는다.
 
 코드 롤백은 이전 이미지를 실행하는 것이며 DB·이미지 복원과 다르다. 개인화 migration `202609070010`은 downgrade를 거부한다. 필요하면 배포 전 DB·이미지 세트와 호환되는 앱을 함께 복원한다. 서로 다른 시점의 DB·이미지를 임의 조합하지 않는다.
 

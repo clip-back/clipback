@@ -82,6 +82,7 @@
 | `POST` | `/api/v1/recommendations/exposures` | 추천 카드 노출과 UUID 중복 방지·추천 집계 | 구현 |
 | `POST` | `/api/v1/uploads/screenshots` | 스크린샷 콘텐츠 저장 | 구현 |
 | `GET` | `/api/v1/uploads/assets/{id}` | 인증된 스크린샷 자산 조회 | 구현 |
+| `GET` | `/api/v1/uploads/assets/{id}/access` | 원본 권한 확인·직접 다운로드 정보 | 구현 |
 | `POST` | `/api/v1/metrics/events` | 사용자 행동 이벤트 기록 | 구현 |
 | `GET` | `/api/v1/health` | 서버 응답 확인 | 구현 |
 | `GET` | `/api/v1/health/ready` | DB·이미지 저장소 준비 상태 | 구현 |
@@ -713,9 +714,34 @@ No database migration or new frontend response field is required.
 
 ## Screenshot Storage
 
+Original deletion uses the existing content DELETE endpoint. It confirms an independent
+deletion receipt before committing the DB removal and a durable physical-cleanup job.
+Missing/unavailable receipts reject deletion with 503; repeated missing content remains 404.
+See [deletion, retry and recovery contracts](image-deletion.md) for partial failures,
+failed-upload cleanup, and the limits of already-issued signed URLs.
+
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
-10MB as multipart form data and returns the saved content with its asset metadata.
-Set `STORAGE_ROOT` to change the local filesystem storage directory.
+10MiB as multipart form data and returns the saved content with its asset metadata.
+The original bytes are preserved without resizing or recompression. `STORAGE_BACKEND`
+selects `local` (default, rooted at `STORAGE_ROOT`) or a private S3-compatible Bucket
+for new uploads. Each asset records its own storage backend, actual byte length and
+SHA-256; pre-existing assets remain `local` with nullable integrity metadata until
+an explicit migration fills it. Changing the writer never changes old asset locations.
+Original images share one byte quota per server user ID across the main app and
+both native share extensions: guests have 30MiB (31,457,280 bytes), connected
+accounts 300MiB (314,572,800 bytes). Exact equality is accepted. Completed
+idempotent shares replay before checking the quota; new saves check it before
+OCR and keep the same user's database lock through commit/rollback. Missing
+legacy size metadata is resolved from its original store; unverifiable sizes
+reject a new save with 503 rather than count as zero. Deleted content leaves
+the live sum immediately after deletion commits; cache and backup bytes do not
+count. Promotion preserves the user ID and existing bytes while raising the
+limit. Existing over-quota images remain readable and deletable.
+
+Quota rejection is HTTP409 with `detail.code=image_quota_exceeded` and
+`detail.limit_bytes`. One file exceeding the configured 10MiB limit is HTTP413
+with `detail.code=image_file_too_large` and `detail.limit_bytes`. Clients inspect
+the error code before treating every 409 as an idempotency conflict.
 OpenAI OCR extracts text, title, and summary and feeds category recommendation.
 New screenshot summaries are instructed to use concise Korean informational prose
 with noun-ending sentences (for example, `성수동 카페 소개. 대표 메뉴와 영업시간 안내.`),
@@ -724,10 +750,41 @@ from the image. This prompt applies to new uploads; existing saved summaries and
 descriptions extracted from links are unchanged. Actual model adherence requires
 checking real screenshot responses; mocked tests cannot verify writing quality.
 OCR failure preserves image saving with fallback content; valid manual category
-selection remains authoritative. Railway mounts persistent storage at `/data`.
+selection remains authoritative. Keep the existing `/data` volume mounted while
+local assets remain. S3 configuration and rollout checks are described in the
+[Railway deployment guide](../railway-deployment.md#bucket-원본-보관).
+
+`GET /api/v1/uploads/assets/{id}/access` is Bearer-authenticated and checks the
+current owner's access before checking the actual file. It returns `asset_id`,
+`mode` (`proxy` or `direct`), `url`, nullable `expires_at`, `mime_type`, `size_bytes`
+and the original's hexadecimal `sha256`, with `Cache-Control: private, no-store`.
+Local assets use the existing relative authenticated asset URL and no expiry.
+The relative URL follows the configured `API_V1_PREFIX`, just like the upload
+and binary routes (for example, `/api/v9/uploads/assets/{id}`).
+Bucket assets use a GET URL signed for 120 seconds with the asset MIME override;
+Bucket credentials are never sent to the app. A signed URL is itself a temporary
+access credential: do not persist it or log its query string. Logout does not
+revoke already-issued URLs, whose remaining request-start validity is at most
+120 seconds. Expiry does not interrupt a transfer already accepted by the store.
+Unknown legacy integrity metadata is calculated from actual original bytes for
+this response; it is not treated as zero and does not change asset location.
+Unauthenticated requests return 401; foreign, deleted or missing originals return
+404; unavailable storage returns a generic 503. The app uses a separate client
+without Clipback authorization or cookies for Bucket GETs, rejects redirects,
+checks bounded length/MIME/SHA-256 before use, and reacquires access once after a
+Bucket 403. Bucket errors do not trigger app token refresh or session invalidation.
 
 Saved images are private. Use the Bearer-authenticated asset URL returned in
-`ContentRead.assets` to download an image.
+`ContentRead.assets` to download an image. The existing URL, response shape and
+Bearer authentication are retained for both local and Bucket assets, so older
+apps continue to work. Bucket credentials are never returned; the signed URL contains
+the object path, so it must be treated as temporary access information.
+A missing or foreign asset returns 404; a Bucket outage during upload or read
+returns 503 with a generic error. The DB commit remains authoritative for cleanup:
+failed writes do not produce a successful content response, rollback cleans the
+new file, and an uncertain acknowledged commit never deletes a committed original.
+Normal content deletion removes the file from the asset's recorded backend;
+durable delete retries and backup deletion rules are separate rollout work.
 
 <a id="9-api프론트-연결-계약"></a>
 

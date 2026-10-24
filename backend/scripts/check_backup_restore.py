@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 PROBE = Path(__file__).with_name("recovery_probe.py").read_text()
+DELETE_PROBE = Path(__file__).with_name("recovery_deletions.py").read_text()
 OWNER_LABEL = "clipback.recovery.owner"
 REVISION_LABEL = "org.opencontainers.image.revision"
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -94,7 +95,10 @@ def validate_archive(path):
 
 def load_backup(directory):
     manifest = json.loads((directory / "manifest.json").read_text())
-    require(isinstance(manifest, dict) and manifest.get("format_version") == 1, "invalid_manifest")
+    require(
+        isinstance(manifest, dict) and manifest.get("format_version") in {1, 2}, "invalid_manifest"
+    )
+    version = manifest["format_version"]
     allowed = {
         "format_version",
         "backup_id",
@@ -111,6 +115,8 @@ def load_backup(directory):
         "images",
         "extra_file_count",
     }
+    if version == 2:
+        allowed.add("deletion_checkpoint")
     require(set(manifest).issubset(allowed), "invalid_manifest")
     require(manifest.get("origin") in {"production", "synthetic"}, "invalid_manifest")
     require(
@@ -137,23 +143,26 @@ def load_backup(directory):
     )
     require(bool(SHA256.fullmatch(manifest["category_links_sha256"])), "invalid_manifest")
     sample = manifest["sample"]
-    require(
-        isinstance(sample, dict)
-        and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
-        "invalid_manifest",
-    )
     paths = {}
-    require(
-        set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
-        "invalid_manifest",
-    )
-    require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
-    require(
-        isinstance(sample["category_ids"], list)
-        and all(type(v) is int and v > 0 for v in sample["category_ids"]),
-        "invalid_manifest",
-    )
-    require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
+    if sample is None:
+        require(version == 2 and not manifest["assets"], "invalid_manifest")
+    else:
+        require(
+            isinstance(sample, dict)
+            and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
+            "invalid_manifest",
+        )
+        require(
+            set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
+            "invalid_manifest",
+        )
+        require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
+        require(
+            isinstance(sample["category_ids"], list)
+            and all(type(v) is int and v > 0 for v in sample["category_ids"]),
+            "invalid_manifest",
+        )
+        require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
     for role, filename in (("database", "database.dump"), ("images", "images.tar")):
         entry = manifest[role]
         require(entry["file"] == filename, "invalid_manifest")
@@ -191,8 +200,19 @@ def load_backup(directory):
             and bool(SHA256.fullmatch(asset["sha256"])),
             "invalid_manifest",
         )
-        require("screenshots/" + key in files, "missing_asset")
-    require(sample["asset_id"] in seen, "invalid_manifest")
+        prefix = "screenshots/"
+        if version == 2:
+            require(asset.get("storage_backend") in {"local", "s3"}, "invalid_manifest")
+            require(
+                type(asset.get("content_id")) is int and asset["content_id"] > 0, "invalid_manifest"
+            )
+            require(
+                asset.get("backup_key") == f"originals/sha256/{asset['sha256']}", "invalid_manifest"
+            )
+            if asset["storage_backend"] == "s3":
+                prefix = "s3/"
+        require(prefix + key in files, "missing_asset")
+    require(sample is None or sample["asset_id"] in seen, "invalid_manifest")
     # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
     required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
     require(shutil.disk_usage(tempfile.gettempdir()).free >= required, "insufficient_disk_space")
@@ -216,10 +236,11 @@ class Docker:
 
 
 class RestoreDrill:
-    def __init__(self, docker=None):
+    def __init__(self, docker=None, *, deletion_events=None):
         self.docker = docker or Docker()
         self.owner = "clipback-recovery-" + uuid4().hex
         self.created = []
+        self.deletion_events = deletion_events
 
     def create(self, kind, name, *arguments):
         # Record only after create succeeded. Never adopt an existing resource.
@@ -282,6 +303,13 @@ class RestoreDrill:
         network, db, api, files, pg = [
             self.owner + suffix for suffix in ("-net", "-db", "-api", "-files", "-pg")
         ]
+        bucket_mode = manifest["format_version"] == 2 and any(
+            asset["storage_backend"] == "s3" for asset in manifest["assets"]
+        )
+        s3 = self.owner + "-s3"
+        if bucket_mode:
+            # A local, internal test double only; no source/backup endpoint can be passed in.
+            s3_image = json.loads(self.docker("image", "inspect", "motoserver/moto:5.2.4"))[0]["Id"]
         self.create("network", network, "--internal")
         self.create("volume", pg)
         self.create("volume", files)
@@ -291,7 +319,7 @@ class RestoreDrill:
             env.write_text(
                 "\n".join(
                     [
-                        "APP_ENVIRONMENT=production",
+                        "APP_ENVIRONMENT=test" if bucket_mode else "APP_ENVIRONMENT=production",
                         "YOUTUBE_SUMMARY_ENABLED=false",
                         f"SECRET_KEY={credentials['secret_key']}",
                         f"POSTGRES_PASSWORD={password}",
@@ -303,6 +331,19 @@ class RestoreDrill:
                         'GOOGLE_CLIENT_IDS=["offline-restore-placeholder"]',
                         "KAKAO_REST_API_KEY=offline-restore-placeholder",
                         "BACKEND_CORS_ORIGINS=[]",
+                        *(
+                            [
+                                "STORAGE_BACKEND=s3",
+                                f"S3_ENDPOINT_URL=http://{s3}:5000",
+                                "S3_BUCKET=restored-originals",
+                                "S3_REGION=us-east-1",
+                                "S3_ADDRESSING_STYLE=path",
+                                "S3_ACCESS_KEY_ID=synthetic-recovery",
+                                "S3_SECRET_ACCESS_KEY=synthetic-recovery",
+                            ]
+                            if bucket_mode
+                            else []
+                        ),
                     ]
                 )
                 + "\n"
@@ -324,7 +365,10 @@ class RestoreDrill:
                 pg_image,
             )
             self.docker("start", db)
-            self.wait("exec", db, "pg_isready", "-U", "postgres", "-d", "clipback")
+            # The official image's initialization server accepts only Unix
+            # sockets. Wait for the final TCP server before restoring data.
+            self.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
+                      "-U", "postgres", "-d", "clipback")
             # Reject a wrong major version before restoring any application data.
             version = (
                 self.docker(
@@ -379,6 +423,75 @@ class RestoreDrill:
             )
             with paths["images"].open("rb") as stream:
                 self.docker("start", "-a", "-i", unpack, stdin=stream)
+            if bucket_mode:
+                self.container(s3, "--network", network, s3_image)
+                self.docker("start", s3)
+                self.wait(
+                    "exec",
+                    s3,
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000')",
+                )
+                seed_bucket = self.owner + "-seed-bucket"
+                self.container(
+                    seed_bucket,
+                    "--network",
+                    network,
+                    "--env-file",
+                    str(env),
+                    "-v",
+                    f"{files}:/data:ro",
+                    "--entrypoint",
+                    "python",
+                    app_image,
+                    "-c",
+                    "from pathlib import Path; "
+                    "from app.integrations.storage_client import get_storage_client; "
+                    "s=get_storage_client().for_backend('s3'); "
+                    "s.client.create_bucket(Bucket=s.bucket); root=Path('/data/s3'); "
+                    "[(s.client.put_object(Bucket=s.bucket,Key=str(p.relative_to(root)),"
+                    "Body=p.read_bytes())) for p in root.rglob('*') if p.is_file()]",
+                )
+                self.docker("start", "-a", seed_bucket)
+            payload = {
+                "sample": ({k: manifest["sample"][k] for k in ("content_id", "asset_id")}
+                           if manifest["sample"] else None),
+                "access_token": credentials["access_token"],
+                "format_version": manifest["format_version"],
+            }
+            deleted = []
+            if self.deletion_events is not None:
+                probe = self.owner + "-before-deletions"
+                self.container(
+                    probe, "-i", "--network", network, "--env-file", str(env),
+                    "-v", f"{files}:/data", "--entrypoint", "python", app_image,
+                    "-c", PROBE,
+                )
+                with tempfile.TemporaryFile() as stream:
+                    stream.write(json.dumps({**payload, "verify_api": False}).encode())
+                    stream.seek(0)
+                    before = json.loads(self.docker("start", "-a", "-i", probe, stdin=stream))
+                require(all(before[k] == manifest[k] for k in SNAPSHOT_KEYS),
+                        "restored_data_mismatch")
+                apply = self.owner + "-apply-deletions"
+                self.container(
+                    apply, "-i", "--network", network, "--env-file", str(env),
+                    "-v", f"{files}:/data", "--entrypoint", "python", app_image,
+                    "-c", DELETE_PROBE,
+                )
+                with tempfile.TemporaryFile() as stream:
+                    stream.write(json.dumps({"events": self.deletion_events}).encode())
+                    stream.seek(0)
+                    result = self.docker("start", "-a", "-i", apply, stdin=stream)
+                    deleted = json.loads(result)["deleted"]
+                payload["deleted"] = deleted
+                # Preserve a living sample and its owner. Only a deleted sample
+                # needs a replacement from the authenticated account.
+                if payload["sample"] and any(
+                    item["content_id"] == payload["sample"]["content_id"] for item in deleted
+                ):
+                    payload["sample"] = None
             self.container(
                 api, "--network", network, "--env-file", str(env), "-v", f"{files}:/data", app_image
             )
@@ -391,23 +504,24 @@ class RestoreDrill:
                 "import urllib.request; "
                 "urllib.request.urlopen('http://127.0.0.1:8123/api/v1/health/ready', timeout=3)",
             )
-            payload = {
-                "sample": {k: manifest["sample"][k] for k in ("content_id", "asset_id")},
-                "access_token": credentials["access_token"],
-            }
             with tempfile.TemporaryFile() as stream:
                 stream.write(json.dumps(payload).encode())
                 stream.seek(0)
                 actual = json.loads(
                     self.docker("exec", "-i", api, "python", "-c", PROBE, stdin=stream)
                 )
-            require(all(actual[k] == manifest[k] for k in SNAPSHOT_KEYS), "restored_data_mismatch")
+            if self.deletion_events is None:
+                require(all(actual[k] == manifest[k] for k in SNAPSHOT_KEYS),
+                        "restored_data_mismatch")
             return {
                 "table_count": len(actual["tables"]),
                 "asset_count": len(actual["assets"]),
                 "extra_file_count": actual["extra_file_count"],
                 "authentication_passed": True,
-                "image_bytes_passed": True,
+                "image_bytes_passed": actual["sample"] is not None,
+                "image_get_skipped": actual["sample"] is None,
+                "deletions_applied": self.deletion_events is not None,
+                "deleted_content_count": len(deleted),
             }
 
 
@@ -419,6 +533,7 @@ def check(directory, credentials_file, image, drill=None):
         manifest, paths = load_backup(directory)
         credentials = private_json(credentials_file)
         report.update(backup_id=manifest["backup_id"], origin=manifest["origin"])
+        report["manifest_sha256"] = sha256_file(directory / "manifest.json")
         report.update(drill.run(manifest, paths, credentials, image))
         report["passed"] = True
     except CheckError as exc:

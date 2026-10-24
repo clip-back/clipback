@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.ai_client import AIClient, AIClientError
+from app.integrations.deletion_ledger import get_deletion_ledger
 from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.integrations.ocr_client import OCRClient, OCRClientTimeoutError, ScreenshotOCRResult
 from app.integrations.social_auth_client import SocialAuthClient, SocialProfile
@@ -59,8 +60,22 @@ def external_responses(monkeypatch):
     assert state.network_calls == []
 
 
+@pytest.fixture(autouse=True)
+def deletion_ledger(monkeypatch, tmp_path_factory):
+    monkeypatch.setattr(
+        settings, "deletion_ledger_root", tmp_path_factory.mktemp("deletion-ledger"),
+    )
+    get_deletion_ledger().initialize()
+
+
+@pytest.fixture
+def api_prefix():
+    return "/api/v1"
+
+
 @pytest_asyncio.fixture
-async def api(database_connection, external_responses, monkeypatch, tmp_path):
+async def api(database_connection, external_responses, monkeypatch, tmp_path, api_prefix):
+    monkeypatch.setattr(settings, "api_v1_prefix", api_prefix)
     monkeypatch.setattr(settings, "storage_root", tmp_path)
     monkeypatch.setattr(settings, "openai_api_key", None)
     app = create_app()
@@ -90,3 +105,25 @@ def png_bytes():
     output = BytesIO()
     Image.new("RGB", (8, 8), "blue").save(output, format="PNG")
     return output.getvalue()
+
+
+@pytest.fixture
+def s3_storage(monkeypatch):
+    import boto3
+    from moto import mock_aws
+    from pydantic import SecretStr
+
+    with mock_aws():
+        client = boto3.client(
+            "s3", region_name="us-east-1",
+            aws_access_key_id="testing", aws_secret_access_key="testing",
+        )
+        client.create_bucket(Bucket="original-images")
+        for name, value in {
+            "storage_backend": "s3", "s3_bucket": "original-images",
+            "s3_region": "us-east-1", "s3_endpoint_url": "https://s3.amazonaws.com",
+            "s3_access_key_id": SecretStr("testing"),
+            "s3_secret_access_key": SecretStr("testing"),
+        }.items():
+            monkeypatch.setattr(settings, name, value)
+        yield client

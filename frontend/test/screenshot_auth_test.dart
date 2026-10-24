@@ -751,6 +751,34 @@ void main() {
     },
   );
 
+  for (final (code, message) in [
+    ('image_quota_exceeded', '이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.'),
+    ('image_uploads_paused', '이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.'),
+  ]) {
+    testWidgets(
+      '$code uses the existing photo error toast and retains selection',
+      (tester) async {
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload
+              ? _json({
+                  'detail': {'code': code},
+                }, 409)
+              : null,
+        );
+        await _withApp(tester, server, () async {
+          await _selectPhoto(tester);
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pumpAndSettle();
+          _expectSelection(tester);
+          expect(find.text(message), findsOneWidget);
+          expect(server.calls(_upload), hasLength(1));
+          expect(server.calls(_refresh), isEmpty);
+          expect(server.calls(_guest), isEmpty);
+        });
+      },
+    );
+  }
+
   for (final failure in [
     '403',
     '413',

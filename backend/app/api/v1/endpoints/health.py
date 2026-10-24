@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.api.deps import DatabaseSession
 from app.core.config import settings
-from app.core.storage_health import check_storage
+from app.core.storage_health import check_configured_storage, check_storage
 
 READINESS_TIMEOUT_SECONDS = 3
 
@@ -27,7 +27,10 @@ async def readiness(db: DatabaseSession) -> JSONResponse:
     try:
         async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
             await db.execute(text("SELECT 1"))
-            await asyncio.to_thread(check_storage, settings.storage_root)
+            if settings.storage_backend == "local":
+                await asyncio.to_thread(check_storage, settings.storage_root)
+            else:
+                await asyncio.to_thread(check_configured_storage)
     except Exception:
         return JSONResponse(status_code=503, content={"status": "unavailable"})
     return JSONResponse(content={"status": "ok"})

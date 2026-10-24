@@ -6,7 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-const _asset = '/api/v1/uploads/assets/9';
+const _proxy = '/api/v1/uploads/assets/9';
+const _asset = '$_proxy/access';
 const _refresh = '/api/v1/auth/refresh';
 const _logout = '/api/v1/auth/logout';
 const _old = ApiSession(
@@ -55,6 +56,16 @@ http.Response _json(Object value, [int status = 200]) => http.Response(
   headers: {'content-type': 'application/json'},
 );
 
+http.Response _access() => _json({
+  'asset_id': 9,
+  'mode': 'proxy',
+  'url': _proxy,
+  'expires_at': null,
+  'mime_type': 'image/png',
+  'size_bytes': 70,
+  'sha256': 'c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77',
+});
+
 http.Response _unauthorized() => _json({'detail': 'expired'}, 401);
 http.Response _bytes() =>
     http.Response.bytes(_image, 200, headers: {'content-type': 'image/png'});
@@ -71,7 +82,8 @@ class _Server {
     final response = await respond?.call(request);
     if (response != null) return response;
     return switch (request.url.path) {
-      _asset => _bytes(),
+      _asset => _access(),
+      _proxy => _bytes(),
       _refresh => _json(_tokens(_rotated)),
       _logout => http.Response('', 204),
       '/api/v1/categories' => _json(<Object>[]),
@@ -95,7 +107,7 @@ Future<void> _turn() => Future<void>(() {});
 
 void main() {
   test(
-    'asset returns exact bytes through an authenticated image request',
+    'asset authorizes access then returns exact verified proxy bytes',
     () async {
       final server = _Server();
       addTearDown(server.client.close);
@@ -105,7 +117,11 @@ void main() {
       expect(request.method, 'GET');
       expect(request.url.query, isEmpty);
       expect(request.headers['Authorization'], 'Bearer ${_old.accessToken}');
-      expect(request.headers['Accept'], 'image/png, image/jpeg, image/webp');
+      expect(request.headers['Accept'], 'application/json');
+      expect(
+        server.calls(_proxy).single.headers['Authorization'],
+        'Bearer ${_old.accessToken}',
+      );
       expect(request.bodyBytes, isEmpty);
     },
   );
@@ -441,6 +457,13 @@ void main() {
     final body = StreamController<List<int>>();
     final client = MockClient.streaming((request, stream) async {
       await stream.drain<void>();
+      if (request.url.path == _proxy) {
+        return http.StreamedResponse(
+          Stream.value(_image),
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }
       return sent.future;
     });
     addTearDown(client.close);
@@ -456,7 +479,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 9));
     expect(settled, isFalse);
-    body.add(_image);
+    body.add(_access().bodyBytes);
     await body.close();
     await tester.pump();
     expect((await image).value, orderedEquals(_image));
@@ -586,7 +609,7 @@ void main() {
         pendingSend.complete(http.StreamedResponse(Stream.value(_image), 200));
       } else {
         pendingBody.add(_image);
-        await pendingBody.close();
+        unawaited(pendingBody.close());
       }
       await tester.pump();
       expect(timedOutBeforeLateResponse, isTrue);

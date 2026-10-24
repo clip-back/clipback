@@ -30,6 +30,19 @@ flutter run -d chrome --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:8000/
 
 기기별 실행·서명·API 주소 조건은 [Android 개발 실행](../docs/frontend/development.md#android-개발-실행), [iOS 개발 실행](../docs/frontend/development.md#ios-개발-실행)을 따릅니다. 제품 빌드의 진입점은 `lib/main.dart`이며 프리뷰 진입점을 배포하지 않습니다.
 
+원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
+Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
+권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.
+기본 한도는 100MiB·7일 미사용이며 계정과 서버 환경을 분리합니다. 캐시 삭제는 클라우드 보관량에 영향을 주지 않습니다.
+운영 직접 다운로드는 HTTPS이며, 합성 로컬 검증은 API 주소가 HTTP loopback일 때만
+loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나
+에뮬레이터의 `10.0.2.2` 주소를 사용합니다. 자세한 계약은
+[원본 조회 동작](../docs/frontend/behavior.md#저장된-스크린샷-원본-조회)을 따릅니다.
+
+운영자가 이미지 저장을 일시 중단하면 본앱·네이티브 공유의 기존 오류 영역에 재시도 사유를
+표시합니다. 선택·초안은 유지하며 기존 원본 열람·삭제와 완료된 공유의 재전송은 계속 가능합니다.
+서버 스위치·관측 사용량의 의미는 [이미지 운영 안내](../docs/backend/image-storage-operations.md)를 따릅니다.
+
 ## 기본 검증
 
 의존성 준비 후 `frontend/`에서 실행합니다.
@@ -41,6 +54,9 @@ flutter build web --no-pub
 ```
 
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
+
+원본 저장·실제 네이티브 공유·OS 프로세스 재시작·계정 전환을 한 로컬 API에서 확인하는 방법은
+[이미지 저장소 통합 검증](../docs/frontend/image-storage-validation.md)을 따릅니다.
 
 ## 코드 구조와 의존 방향
 
@@ -89,6 +105,9 @@ API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이�
 - Today·Weekly, 최근 검색어, 시스템 뒤로가기는 기준 커밋에 연결되어 있습니다. 작업별 실제 검증과 한계는 이력 목차를 확인합니다.
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
+- 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다. Dart API 오류 검사는
+  `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
+  [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서

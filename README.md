@@ -144,6 +144,7 @@ flutter run
 - [MVP 현황·범위 결정](docs/backend-mvp-plan.md)
 - [카테고리 추천 정책](docs/category-recommendation-policy.md)
 - [콘텐츠 재발견 추천 설계](docs/content-recommendation-plan.md)
+- [이미지 보관 정책·구현 범위 제안](docs/image-storage-policy.md)
 - [제품 이벤트·지표](docs/product-metrics-queries.md)
 - [YouTube 저장·요약·worker](docs/youtube-summary.md)
 - [Figma 화면 기준·디자인 확인 필요](docs/figma-ui-alignment-plan.md)
@@ -163,6 +164,7 @@ flutter run
 
 - [Git 협업 규칙](docs/git-conventions.md)
 - [에이전트 이슈 관리](docs/agents/issue-tracker.md) · [분류 라벨](docs/agents/triage-labels.md) · [도메인 문서 규칙](docs/agents/domain.md)
+- [도메인 용어집](GLOSSARY.md) · [원본 이미지 보관 결정](docs/adr/0001-preserve-account-image-originals.md)
 - [작업·검증 이력과 원문 이관 대조표](docs/history/README.md)
 - [PR 템플릿](.github/pull_request_template.md)
 - [FE 기존 경로 안내](docs/fe-merge-fixes.md)

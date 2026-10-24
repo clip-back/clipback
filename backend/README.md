@@ -1,5 +1,7 @@
 # Clipback Backend
 
+이미지 저장소의 운영 전환 순서와 확인 기준은 [이미지 보관 운영 전환](../docs/backend/image-storage-rollout.md)을 따릅니다.
+
 FastAPI backend for the Clipback MVP.
 
 Implementation status and remaining scope decisions are tracked in the
@@ -8,6 +10,9 @@ Implementation status and remaining scope decisions are tracked in the
 사용자에게 보이는 서버 변경은 같은 PR에서 [업데이트 내역](../CHANGELOG.md)에 작성합니다.
 서버 단독 배포와 앱 동반 배포의 SHA·마이그레이션·실제 검증은
 [배포 절차](../docs/release-process.md)에 따라 기록합니다.
+
+이미지 보관량·관측 전송량과 운영자의 신규 저장 중단·재개 명령은
+[이미지 운영 안내](../docs/backend/image-storage-operations.md)를 따릅니다.
 
 ## 준비 사항
 
@@ -89,13 +94,15 @@ app/repositories Data access layer.
 app/services     Business logic layer.
 app/integrations External systems such as AI, OCR, metadata, and storage.
 tests            API, service, and repository tests.
+scripts          Deployment checks and operator-only backup/recovery commands.
+Dockerfile.operator  Separate daily/hourly job image with matching-major PostgreSQL tools.
 ```
 
 ## 상세 문서
 
 - [API 목록·요청·응답·권한·재시도 계약](../docs/backend/api-contracts.md)
 - [검사·전용 테스트 DB·통합 테스트·공유 서버](../docs/backend/testing.md)
-- [운영 DB·이미지 백업의 격리 복원 검사](../docs/backend/backup-recovery.md)
+- [일일 이미지 백업·7일 보존·최신 삭제 상태의 격리 복원](../docs/backend/backup-recovery.md)
 - [MVP 범위와 남은 결정](../docs/backend-mvp-plan.md)
 - [카테고리·AI 분류 정책](../docs/category-recommendation-policy.md) · [콘텐츠 재발견 정책](../docs/content-recommendation-plan.md)
 - [YouTube 비동기 요약](../docs/youtube-summary.md) · [제품 이벤트·지표](../docs/product-metrics-queries.md)
@@ -106,8 +113,15 @@ tests            API, service, and repository tests.
 The runtime image uses Python 3.12, one Uvicorn worker, and `${PORT:-8000}`.
 Set the Railway service root to `/backend`, attach a volume at `/data`, set
 `STORAGE_ROOT=/data/screenshots`, and run `alembic upgrade head` as the pre-deploy
-command. `/api/v1/health/ready` checks PostgreSQL and writable storage with a
+command. New originals can use a private S3-compatible Bucket by selecting
+`STORAGE_BACKEND=s3` and setting the Bucket variables in `.env.example`; existing
+local assets keep using the mounted volume. `/api/v1/health/ready` checks PostgreSQL
+and the selected writer (temporary local write or read-only Bucket listing) with a
 three-second timeout; `/api/v1/health` retains its existing liveness contract.
+Initialize the separate deletion ledger before accepting image deletion requests;
+production Bucket originals require independent S3 ledger settings. See
+[durable deletion and cleanup retry](../docs/backend/image-deletion.md) for setup,
+the bounded retry command, and the recovery checkpoint contract.
 
 See [Railway deployment and paired backup/restore](../docs/railway-deployment.md)
 for all required variables, dashboard settings, Docker persistence checks, and

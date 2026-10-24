@@ -1,5 +1,4 @@
 import json
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -7,7 +6,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
-from app.integrations.storage_client import StorageClient
+from app.integrations.storage_client import StorageRouter
 from app.models.category import Category
 from app.models.content import (
     Content,
@@ -48,13 +47,12 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationResult,
     CategoryRecommendationService,
 )
+from app.services.image_deletion_service import delete_image_content
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
 MAX_EVENT_METADATA_LENGTH = 1000
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -62,6 +60,9 @@ class PendingContentAsset:
     asset_type: AssetType
     storage_key: str
     mime_type: str | None
+    storage_backend: str = "local"
+    size_bytes: int | None = None
+    sha256: str | None = None
 
 
 def content_to_read(content: Content) -> ContentRead:
@@ -107,7 +108,7 @@ class ContentService:
         content_asset_repository: ContentAssetRepository | None = None,
         category_recommendation_service: CategoryRecommendationService | None = None,
         tag_repository: TagRepository | None = None,
-        storage_client: StorageClient | None = None,
+        storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
     ) -> None:
         self.content_repository = content_repository
@@ -238,6 +239,9 @@ class ContentService:
                     asset_type=asset.asset_type,
                     storage_key=asset.storage_key,
                     mime_type=asset.mime_type,
+                    storage_backend=asset.storage_backend,
+                    size_bytes=asset.size_bytes,
+                    sha256=asset.sha256,
                 )
             await self.event_repository.create(
                 user_id=user_id,
@@ -312,9 +316,14 @@ class ContentService:
         if content is None:
             raise NotFoundError("Content not found")
 
-        assets = [(asset.id, asset.storage_key) for asset in content.assets]
-        if assets and self.storage_client is None:
-            raise SystemConfigurationError("Storage client is not configured")
+        if content.assets:
+            if self.storage_client is None:
+                raise SystemConfigurationError("Storage client is not configured")
+            await delete_image_content(
+                self.content_repository, self.storage_client,
+                user_id=user_id, content_id=content_id,
+            )
+            return
 
         try:
             await self.content_repository.delete(content)
@@ -322,17 +331,6 @@ class ContentService:
         except Exception:
             await self.content_repository.session.rollback()
             raise
-
-        if self.storage_client is None:
-            return
-        for asset_id, storage_key in assets:
-            try:
-                await self.storage_client.delete_file(storage_key)
-            except Exception:
-                logger.exception(
-                    "Failed to delete content asset file after database commit: asset_id=%s",
-                    asset_id,
-                )
 
     async def update_categories(
         self,

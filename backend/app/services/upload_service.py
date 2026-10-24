@@ -1,7 +1,9 @@
+import hashlib
 import json
 import logging
 import warnings
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -10,7 +12,7 @@ from fastapi import HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceUnavailableError
 from app.integrations.ocr_client import (
     OCRClient,
     OCRClientError,
@@ -19,12 +21,21 @@ from app.integrations.ocr_client import (
     OCRClientTimeoutError,
     ScreenshotOCRResult,
 )
-from app.integrations.storage_client import StorageClient
+from app.integrations.storage_client import S3StorageClient, StorageRouter, StorageUnavailableError
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.share_receipt_repository import ShareReceiptRepository
-from app.schemas.content import ContentCreate, ContentRead, ContentSource, ContentType
+from app.schemas.content import (
+    ContentAssetAccess,
+    ContentCreate,
+    ContentRead,
+    ContentSource,
+    ContentType,
+)
 from app.services.content_service import ContentService, PendingContentAsset
+from app.services.image_deletion_service import cleanup_failed_upload
+from app.services.image_storage_control import ImageUploadControl
+from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -61,15 +72,19 @@ class UploadService:
         *,
         content_service: ContentService,
         content_asset_repository: ContentAssetRepository,
-        storage_client: StorageClient,
+        storage_client: StorageRouter,
         ocr_client: OCRClient,
+        image_upload_policy: ImageUploadPolicy,
+        image_storage_control: ImageUploadControl | None = None,
         max_bytes: int = settings.screenshot_max_bytes,
     ) -> None:
         self.content_service = content_service
         self.content_asset_repository = content_asset_repository
         self.storage_client = storage_client
         self.ocr_client = ocr_client
+        self.image_upload_policy = image_upload_policy
         self.max_bytes = max_bytes
+        self.image_storage_control = image_storage_control
 
     async def upload_screenshot(
         self,
@@ -89,7 +104,7 @@ class UploadService:
         if len(content) > self.max_bytes:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail="Screenshot file exceeds the configured size limit",
+                detail={"code": "image_file_too_large", "limit_bytes": self.max_bytes},
             )
 
         pending = None
@@ -107,14 +122,25 @@ class UploadService:
             receipt_args["share_receipt"] = pending
 
         mime_type, extension = self._validate_image(content)
+        if self.image_storage_control is not None:
+            await self.image_storage_control.authorize()
+        await self.image_upload_policy.authorize(user_id=user_id, size_bytes=len(content))
         ocr_result, ocr_metadata = await self._extract_ocr(
             content=content,
             mime_type=mime_type,
         )
         storage_key = f"screenshots/{user_id}/{uuid4().hex}.{extension}"
-        await self.storage_client.save_file(storage_key, content)
+        try:
+            await self.storage_client.save_file(storage_key, content)
+        except StorageUnavailableError as exc:
+            await self._cleanup_failed_original(user_id, storage_key, content)
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
         try:
+            if self.image_storage_control is not None:
+                await self.image_storage_control.observe(
+                    f"original_upload_{self.storage_client.backend}", len(content),
+                )
             return await self.content_service.create_content(
                 **receipt_args,
                 user_id=user_id,
@@ -136,6 +162,9 @@ class UploadService:
                     asset_type=AssetType.SCREENSHOT,
                     storage_key=storage_key,
                     mime_type=mime_type,
+                    storage_backend=self.storage_client.backend,
+                    size_bytes=len(content),
+                    sha256=hashlib.sha256(content).hexdigest(),
                 ),
             )
         except Exception:
@@ -150,11 +179,21 @@ class UploadService:
                     raise
                 if committed:
                     raise
-            try:
-                await self.storage_client.delete_file(storage_key)
-            except Exception:
-                logger.exception("Failed to delete screenshot after database rollback")
+            await self._cleanup_failed_original(user_id, storage_key, content)
             raise
+
+    async def _cleanup_failed_original(
+        self, user_id: int, storage_key: str, content: bytes,
+    ) -> None:
+        try:
+            await cleanup_failed_upload(
+                self.content_asset_repository.session, self.storage_client,
+                user_id=user_id, storage_key=storage_key, size_bytes=len(content),
+                sha256=hashlib.sha256(content).hexdigest(),
+            )
+        except Exception:
+            # Combined DB+object-store failure cannot queue here. The upload still fails.
+            logger.warning("Failed upload original cleanup could not be confirmed")
 
     async def _extract_ocr(
         self,
@@ -199,6 +238,39 @@ class UploadService:
             "ocr_failure_reason": reason.value,
         }
 
+    async def asset_access(self, *, user_id: int, asset_id: int) -> ContentAssetAccess:
+        asset = await self.content_asset_repository.get_owned(user_id=user_id, asset_id=asset_id)
+        if asset is None:
+            raise NotFoundError("Content asset not found")
+        mime_type = asset.mime_type or "application/octet-stream"
+        url = f"{settings.api_v1_prefix}/uploads/assets/{asset.id}"
+        expires_at = None
+        try:
+            storage = self.storage_client.for_backend(asset.storage_backend)
+            size = await storage.file_size(asset.storage_key)
+            digest = asset.sha256
+            if digest is None:
+                original = await storage.read_file(asset.storage_key)
+                size = len(original)
+                digest = hashlib.sha256(original).hexdigest()
+            if isinstance(storage, S3StorageClient):
+                url = await storage.download_url(
+                    asset.storage_key, mime_type=mime_type, expires_in=120,
+                )
+                expires_at = datetime.now(UTC) + timedelta(seconds=120)
+        except FileNotFoundError as exc:
+            raise NotFoundError("Content asset not found") from exc
+        except OSError as exc:
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
+        if self.image_storage_control is not None:
+            await self.image_storage_control.observe(
+                "direct_access_grant" if expires_at else "proxy_access_grant", commit=True,
+            )
+        return ContentAssetAccess(
+            asset_id=asset.id, mode="direct" if expires_at else "proxy", url=url,
+            expires_at=expires_at, mime_type=mime_type, size_bytes=size, sha256=digest,
+        )
+
     async def read_asset(self, *, user_id: int, asset_id: int) -> StoredAssetFile:
         asset = await self.content_asset_repository.get_owned(
             user_id=user_id,
@@ -208,11 +280,17 @@ class UploadService:
             raise NotFoundError("Content asset not found")
 
         try:
-            content = await self.storage_client.read_file(asset.storage_key)
+            content = await self.storage_client.read_file(
+                asset.storage_key, backend=asset.storage_backend,
+            )
         except FileNotFoundError as exc:
             logger.error("Stored content asset is missing: asset_id=%s", asset.id)
             raise NotFoundError("Content asset not found") from exc
+        except StorageUnavailableError as exc:
+            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
 
+        if self.image_storage_control is not None:
+            await self.image_storage_control.observe("proxy_download", len(content), commit=True)
         return StoredAssetFile(
             content=content,
             mime_type=asset.mime_type or "application/octet-stream",
