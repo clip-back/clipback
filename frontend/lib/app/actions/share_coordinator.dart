@@ -21,6 +21,7 @@ class ShareCoordinator extends ViewModel {
   final UserRepository users;
   final ContentActions contentActions;
   final bool Function() canPrepare;
+  final _lifecycleZone = Zone.current;
   List<PendingShareDraft> drafts = const [];
   String? error;
   bool ready = false;
@@ -53,7 +54,9 @@ class ShareCoordinator extends ViewModel {
       return;
     }
     _retryScheduled = true;
-    scheduleMicrotask(() {
+    // Automatic preparation belongs to this app lifetime, not the HTTP request
+    // whose session persistence notification scheduled it.
+    _lifecycleZone.scheduleMicrotask(() {
       _retryScheduled = false;
       if (_eligible) unawaited(prepare());
     });

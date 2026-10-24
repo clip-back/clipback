@@ -1,4 +1,5 @@
 import '../data/services/search_history_storage.dart';
+import '../data/services/api_request_scope.dart';
 import '../data/repositories/search_history_repository.dart';
 import '../clipback_api.dart';
 import '../social_auth.dart';
@@ -39,10 +40,12 @@ class AppDependencies {
       onSessionInvalidated: () async {
         if (_disposed) return;
         try {
-          await sharing.blockForSessionChange();
+          final barrier = sharing.blockForSessionChange();
+          final scope = ApiRequestScope.current;
+          await (scope == null ? barrier : scope.wait(barrier));
         } catch (_) {
-          // A native storage error cannot make a known-invalid login usable.
-          // The coordinator retains the retryable sharing error separately.
+          // An unavailable native barrier cannot keep a known-invalid login usable.
+          // The coordinator still owns the native barrier and any storage error.
         }
         if (!_disposed) await session.invalidate();
       },

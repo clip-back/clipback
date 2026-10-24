@@ -99,7 +99,10 @@ class _Social extends SocialAuth {
 }
 
 class _Fixture {
-  _Fixture({ApiSession? stored = _stored}) : storage = _Storage(stored) {
+  _Fixture({
+    ApiSession? stored = _stored,
+    Future<void> Function()? beforeSessionChange,
+  }) : storage = _Storage(stored) {
     client = MockClient((request) async {
       final path = request.url.path;
       paths.add(path);
@@ -126,6 +129,7 @@ class _Fixture {
       session: session,
       users: users,
       initializeAccount: initialize,
+      beforeSessionChange: beforeSessionChange,
     );
   }
 
@@ -213,32 +217,26 @@ class _Fixture {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  for (final path in _bootstrapPaths) {
-    test(
-      'cold restore holds initial loading through $path in request order',
-      () async {
-        final f = _Fixture();
-        addTearDown(f.dispose);
-        f.hold(path);
-        final restore = f.model.restoreSession();
-        await f.waitFor(path);
-        expect(_loading(f.model), isTrue);
-        expect(f.model.isRestoringSession, isTrue);
-        await f.model
-            .restoreSession(); // A duplicate retry cannot replace its owner.
-        expect(
-          f.paths,
-          _bootstrapPaths.take(_bootstrapPaths.indexOf(path) + 1),
-        );
-        f.release(path);
-        await restore;
-        expect(_loading(f.model), isFalse);
-        expect(f.model.route, AppRoute.home);
-        expect(f.model.apiConnectionError, isNull);
-        expect(f.paths, _bootstrapPaths);
-        expect(f.storage.reads, 1);
-      },
-    );
+  for (final path in [_categories, _feed]) {
+    test('홈 최초 불러오기는 필수 목록 $path 준비 전까지 로딩한다', () async {
+      final f = _Fixture();
+      addTearDown(f.dispose);
+      f.hold(path);
+      final restore = f.model.restoreSession();
+      await f.waitFor(path);
+      expect(_loading(f.model), isTrue);
+      expect(f.model.isRestoringSession, isTrue);
+      await f.model
+          .restoreSession(); // A duplicate retry cannot replace its owner.
+      expect(f.paths, _bootstrapPaths.take(_bootstrapPaths.indexOf(path) + 1));
+      f.release(path);
+      await restore;
+      expect(_loading(f.model), isFalse);
+      expect(f.model.route, AppRoute.home);
+      expect(f.model.apiConnectionError, isNull);
+      expect(f.paths, _bootstrapPaths);
+      expect(f.storage.reads, 1);
+    });
   }
 
   test(
@@ -420,6 +418,31 @@ void main() {
       },
     );
   }
+
+  testWidgets('15초 전에 확인한 Apple 철회는 native 차단 대기 중에도 로컬 세션을 차단한다', (
+    tester,
+  ) async {
+    final barrier = Completer<void>();
+    final f = _Fixture(beforeSessionChange: () => barrier.future)..apple = true;
+    addTearDown(f.dispose);
+    f.social.appleGate = Completer<AppleCredentialStatus>();
+    final restore = f.model.restoreSession();
+    await tester.pump();
+    expect(f.social.appleChecks, 1);
+    await tester.pump(const Duration(seconds: 14));
+    f.social.appleGate!.complete(AppleCredentialStatus.revoked);
+    await tester.pump();
+    expect(f.model.authBusy, isTrue);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    await restore;
+    expect(f.model.route, AppRoute.login);
+    expect(f.session.hasSession, isFalse);
+    expect(f.storage.value, isNull);
+    barrier.complete();
+    await tester.pump();
+    expect(f.model.route, AppRoute.login);
+  });
 
   test(
     'Apple credential verification retains loader until its existing completion boundary',

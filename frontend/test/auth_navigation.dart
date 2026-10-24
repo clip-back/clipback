@@ -50,6 +50,13 @@ Future<void> performLoginChoice(
   Future<void> Function() choose,
 ) async {
   final attempt = await startLoginChoice(tester, choose);
+  await tester.pump();
+  if (find
+      .byKey(const ValueKey('home-initial-loading-screen'))
+      .evaluate()
+      .isNotEmpty) {
+    await tester.pump(const Duration(milliseconds: 900));
+  }
   await attempt.completion;
 }
 
