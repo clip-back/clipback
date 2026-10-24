@@ -65,6 +65,32 @@ backup manifest가 게시되지 않는 것과 수동 create도 실행 중 job을
 작은 GC receipt를 먼저 영속 저장하고 확인된 정리가 끝나야 지우도록 수정했다. 최종 60개에는
 manifest가 이미 사라진 뒤 하루가 지나 재시도해도 overdue를 놓치지 않는 검사가 포함된다.
 
+## 최종 통합 전 확인
+
+2026-10-24 재개 시 직전 실행이 완료한 최종 결과를 확인했다. 같은 검사를 새로 실행한 결과로
+바꾸어 기록하지 않는다. 최신 #66까지 반영한 소스
+`ff32842b377acee212be3d17046586427bb66d46`로 API·operator 이미지를 각각 빌드했다.
+그 이미지 기준 실제 Docker 전체 모듈은 **3 passed, 167.10초**였다.
+
+- 과거 local·NULL 메타데이터 지점을 만든 뒤 같은 key를 S3로 옮기고 size/hash를 채운 다음
+  사용자 DELETE → 과거 지점 복원 → 콘텐츠/binary/descriptor 404를 확인했다. 이관 자체는
+  fixture가 수행한 위치 변경이며 #73 이관 도구의 실행 증거와 구분한다.
+- 공유 `matches_deletion_identity`는 owner·content ID·saved_at·불변 key 집합을 사용한다.
+  위치 변경·NULL 메타데이터 보강을 새 원본으로 보지 않으며, 양쪽이 아는 hash/size 충돌은
+  다른 원본으로 보호한다. 복원·재조정은 현재 사본의 실제 backend로 물리 정리한다.
+- operator 이미지의 worker 기본값 false만 사용하도록 env-file의 해당 override를 제거했다.
+  AI 키 없이 실제 daily가 완료됐다. 기존 production 보안 검증은 그대로 유지한다.
+- 검증 보고서의 `manifest_sha256`는 실제 확인한 materialized 세트를 묶어 후속 이관 gate가
+  다른 세트의 보고서를 혼용하지 않게 한다.
+
+동일 소스의 삭제 API20·한도8·운영 도구60 검사 합계 **88 passed, 10.27초**였다. legacy NULL
+메타데이터 복원에서 재조정 후에도 GET200이 남던 문제를 먼저 재현했고 수정 후404를 확인했다.
+알려진 hash/size 충돌은200으로 보존한다. Ruff와 공백 검사도 통과했다.
+
+마지막 보완 도중 한 Docker 실행이 `docker_command_failed`로 중단됐다. 보존된 합성 입력만으로
+별도 격리 진단을 수행했고 같은 복원은 통과했다. 최초 오류의 상세 원인은 확정하지 못했으며,
+이후 정확한 최종 SHA 이미지로 위 전체3개를 다시 통과했다. 실패를 통과로 합산하지 않았다.
+
 ## 경계
 
 실제 Railway 권한·운영 cron·운영 중단/전환·공급자 장애 복구를 검증한 것은 아니다. 스케줄러와
