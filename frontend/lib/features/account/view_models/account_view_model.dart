@@ -12,8 +12,10 @@ class AccountViewModel extends ViewModel {
   AppUser get user => userFromApi(repository.user, repository.stats);
 
   String? get statsMessage => switch (repository.statsStatus) {
-    UserStatsStatus.idle || UserStatsStatus.loading => '통계를 불러오는 중이에요',
-    UserStatsStatus.failure => '통계를 불러오지 못했어요',
+    UserStatsStatus.idle || UserStatsStatus.loading =>
+      repository.stats == null ? '통계를 불러오는 중이에요' : '마지막 확인값 · 새로 불러오는 중',
+    UserStatsStatus.failure =>
+      repository.stats == null ? '통계를 불러오지 못했어요' : '마지막 확인값 · 새로 불러오지 못했어요',
     UserStatsStatus.success => null,
   };
 

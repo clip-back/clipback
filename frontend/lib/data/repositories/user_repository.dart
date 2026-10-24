@@ -15,7 +15,7 @@ abstract class UserRepository extends ChangeNotifier {
   void resetAccount(int generation);
   Future<ApiUser> loadMe();
   Future<void> verifySession();
-  Future<ApiUserStats> loadStats({bool apply = true});
+  Future<ApiUserStats> loadStats();
   Future<void> refresh({required bool Function() isCurrent});
 }
 
@@ -63,12 +63,25 @@ class RemoteUserRepository extends UserRepository {
   Future<ApiUser> loadMe() async {
     final generation = _accountVersion;
     final refreshVersion = _refreshVersion;
-    final user = await _api.readMe();
-    if (_current(generation) && refreshVersion == _refreshVersion) {
-      _user = user;
-      notifyListeners();
+    final parent = ApiRequestScope.current;
+    bool current() =>
+        _current(generation) &&
+        refreshVersion == _refreshVersion &&
+        (parent?.isActive ?? true);
+    final scope = ApiRequestScope(isCurrent: current);
+    if (parent != null) {
+      unawaited(parent.cancelled.then((_) => scope.cancel()));
     }
-    return user;
+    try {
+      final user = await scope.run(() => _api.readMe());
+      if (current()) {
+        _user = user;
+        notifyListeners();
+      }
+      return user;
+    } finally {
+      scope.cancel();
+    }
   }
 
   @override
@@ -77,7 +90,7 @@ class RemoteUserRepository extends UserRepository {
   }
 
   @override
-  Future<ApiUserStats> loadStats({bool apply = true}) {
+  Future<ApiUserStats> loadStats() {
     ApiRequestScope.current?.checkActive();
     if (_statsScope?.isActive == true && _statsRequest != null) {
       return _statsRequest!;
@@ -86,24 +99,26 @@ class RemoteUserRepository extends UserRepository {
     final refreshVersion = _refreshVersion;
     final version = ++_statsVersion;
     final parent = ApiRequestScope.current;
-    final scope = ApiRequestScope(timeout: const Duration(seconds: 10));
-    _statsScope = scope;
-    bool current() =>
+    bool sameAttempt() =>
         _current(generation) &&
         refreshVersion == _refreshVersion &&
         version == _statsVersion;
+    bool current() => sameAttempt() && (parent?.isActive ?? true);
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: current,
+    );
+    _statsScope = scope;
     if (parent != null) {
       unawaited(parent.cancelled.then((_) => scope.cancel()));
     }
-    if (apply) {
-      _statsStatus = UserStatsStatus.loading;
-      notifyListeners();
-    }
+    _statsStatus = UserStatsStatus.loading;
+    notifyListeners();
     late final Future<ApiUserStats> request;
     request = scope
         .run(() => _api.readStats())
         .then((stats) {
-          if (apply && current() && scope.isActive) {
+          if (current() && scope.isActive) {
             _stats = stats;
             _statsStatus = UserStatsStatus.success;
             notifyListeners();
@@ -111,7 +126,7 @@ class RemoteUserRepository extends UserRepository {
           return stats;
         })
         .catchError((Object error) {
-          if (apply && current()) {
+          if (sameAttempt()) {
             _statsStatus = UserStatsStatus.failure;
             notifyListeners();
           }
@@ -138,14 +153,19 @@ class RemoteUserRepository extends UserRepository {
         _current(generation) &&
         refreshVersion == _refreshVersion &&
         isCurrent();
-    final stats = await _api.readStats();
-    if (!current()) return;
-    final user = await _api.readMe();
-    if (current()) {
-      _user = user;
-      _stats = stats;
-      _statsStatus = UserStatsStatus.success;
-      notifyListeners();
+    final scope = ApiRequestScope(isCurrent: current);
+    try {
+      await scope.run(loadStats);
+      if (!current()) return;
+      final user = await scope.run(() => _api.readMe());
+      if (current()) {
+        _user = user;
+        notifyListeners();
+      }
+    } catch (_) {
+      if (current()) rethrow;
+    } finally {
+      scope.cancel();
     }
   }
 

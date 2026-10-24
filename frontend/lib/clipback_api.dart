@@ -493,6 +493,10 @@ class ClipbackApi {
       _checkSessionGeneration(generation, allowLogout: true);
       rethrow;
     }
+    if (!_refreshHasUnscopedOwner &&
+        _refreshOwners.every((owner) => !owner.isActive)) {
+      ApiRequestScope.current?.cancel();
+    }
     ApiRequestScope.current?.checkActive();
     _checkSessionGeneration(generation, allowLogout: true);
     return _setSession(
