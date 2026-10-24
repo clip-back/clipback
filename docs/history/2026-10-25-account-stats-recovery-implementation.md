@@ -56,3 +56,10 @@
 - 제품 `7616c62`에서 전체 Flutter **1819/1819 통과**(3분4초), analyze **No issues found**, 제품 `lib/main.dart`의 웹 빌드 **성공**(37.8초). 로그는 `/private/tmp/clipback-account-stats-implementation/82-83-{full-test,analyze,web-build}.log`다.
 - 이후 Android 실행에서 글자2배율의 마지막 확인값 실패 상태를 빠르게 두 번 누르면 stats 요청은1회지만 두 번째 입력이 올라온 ‘리마인드 설정’을 여는 문제를 재현했다. 원본 `native/android/after82-83/last-{error,retry-pending}-scale2.png`와 `stats-last-values.mp4`를 보존하고 #83 수정·재검증을 진행한다. 앞의 자동 검사 통과는 이 입력 문제의 해결 증거가 아니다.
 - #82 첫 네이티브 시도는9.1초에 두 탭 왕복을 시작해 실제 복귀가10.43초가 됐다. 이미 만료 후여서 새 요청이 시작된 정상 동작을 ‘기존 요청 공유’ 실패로 잘못 판정한 harness 문제다. 원시 결과를 보존하고,10초 전에 실제 복귀하도록7.2초부터 왕복해 다시 검증한다.
+
+### 재시도 입력 수정
+
+- 수정 커밋 `bf2ec9cfd2fd3bc10e65756ed343ce725270a250`. 기존 버튼 외형·상태·배치와 메뉴 흐름을 유지하며 Flutter 표준 두 번 탭 판별로 두 포인터 입력을 한 재시도 동작으로 소비한다. placeholder·전역 입력 잠금·메뉴 비활성화는 추가하지 않았다.
+- 실제 앱의 글자2배율·90ms 두 입력으로 리마인드 화면 열림을 RED 재현한 후, 메뉴를 열지 않고 stats GET1회·320/89 복구를 확인했다. 복구 후 의도적인 리마인드 메뉴 입력도 정상이다.
+- 단일 포인터는 표준 판별 약300ms 후 HTTP 요청을 시작한다. 접근성 tap·키보드 `ActivateIntent`는 기존 버튼 콜백을 유지한다. 세 경로 각각 요청 시작부터9.999초 대기·10초 실패를 검증했다. 홈 재시도 시간 정책은 변경하지 않았다.
+- 관련 **287/287**, analyze·diff 검사 통과. 통합 뒤 전체 Flutter **1823/1823 통과**(3분4초), 웹 빌드 **성공**(36.8초). 근거는 `83-input-{red,green,activation,related-final,analyze-final,full-test,web-build}.log`다. 양 플랫폼은 수정된 제품으로 새 phase에 다시 실행한다.

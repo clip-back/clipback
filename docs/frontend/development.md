@@ -97,6 +97,10 @@ ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로�
 `test/category_delete_test.dart`는 삭제 안내·진행·실패 보존·전체 분류·동시 변경·늦은 응답과 조회 재시도를 검증합니다.
 `test/app/account_stats_regression_test.dart`와 `test/data/user_repository_test.dart`는 프로필 재조회 시
 이미 받은 서버 통계를 보존하고, 계정 초기화 때만 기존 통계를 비우는 경계를 검증합니다.
+`test/session_restore_test.dart`와 `test/content_mutation_test.dart`는 실제 앱·HTTP 대역·메모리 세션 경계에서
+마이 통계의 미확인/실제0·재진입·요청 공유·전체10초·마지막 확인값·프로필 독립 반영을 확인합니다.
+재시도 입력은 단일 포인터의 표준 두 번 탭 판별 시간을 기다린 뒤 요청 시작부터10초를 측정하며,
+글자2배율 연속 입력의 아래 메뉴 오작동, 접근성·키보드 활성화도 같은 앱 경계에서 검사합니다.
 토큰 저장은 플랫폼 저장 대역과 캐시 초기화 후 읽기도 검증합니다.
 실제 PostgreSQL·Chrome 검증 결과와 미검증 범위는 [작업·검증 이력](../history/README.md)에 날짜와 환경을 구분해 기록합니다.
 
