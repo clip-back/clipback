@@ -92,13 +92,15 @@ app/repositories Data access layer.
 app/services     Business logic layer.
 app/integrations External systems such as AI, OCR, metadata, and storage.
 tests            API, service, and repository tests.
+scripts          Deployment checks and operator-only backup/recovery commands.
+Dockerfile.operator  Separate daily/hourly job image with matching-major PostgreSQL tools.
 ```
 
 ## 상세 문서
 
 - [API 목록·요청·응답·권한·재시도 계약](../docs/backend/api-contracts.md)
 - [검사·전용 테스트 DB·통합 테스트·공유 서버](../docs/backend/testing.md)
-- [운영 DB·이미지 백업의 격리 복원 검사](../docs/backend/backup-recovery.md)
+- [일일 이미지 백업·7일 보존·최신 삭제 상태의 격리 복원](../docs/backend/backup-recovery.md)
 - [MVP 범위와 남은 결정](../docs/backend-mvp-plan.md)
 - [카테고리·AI 분류 정책](../docs/category-recommendation-policy.md) · [콘텐츠 재발견 정책](../docs/content-recommendation-plan.md)
 - [YouTube 비동기 요약](../docs/youtube-summary.md) · [제품 이벤트·지표](../docs/product-metrics-queries.md)

@@ -202,6 +202,7 @@ def test_cleanup_and_redacted_report_on_every_outcome(backup, error):
     report = check(directory, credentials, "unused", drill)
     assert drill.cleaned
     assert report["passed"] is (error is None)
+    assert report["manifest_sha256"] == before["manifest.json"]
     assert "private-token" not in json.dumps(report)
     assert "private-key" not in json.dumps(report)
     assert before == {p.name: sha256_file(p) for p in directory.iterdir()}

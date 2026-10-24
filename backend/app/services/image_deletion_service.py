@@ -51,6 +51,26 @@ def deletion_job(intent: dict) -> ImageDeletion:
     )
 
 
+def matches_deletion_identity(content, intent: dict) -> bool:
+    """Location changes and filling legacy metadata do not make a new original."""
+    current = deletion_identity(content)
+    if any(current[key] != intent[key] for key in ("user_id", "content_id")):
+        return False
+    if datetime.fromisoformat(current["saved_at"]) != datetime.fromisoformat(intent["saved_at"]):
+        return False
+    current_assets = {asset["storage_key"]: asset for asset in current["assets"]}
+    intended_assets = {asset["storage_key"]: asset for asset in intent["assets"]}
+    if current_assets.keys() != intended_assets.keys():
+        return False
+    return all(
+        current_assets[key][field] is None
+        or intended_assets[key][field] is None
+        or current_assets[key][field] == intended_assets[key][field]
+        for key in current_assets
+        for field in ("sha256", "size_bytes")
+    )
+
+
 async def record_image_deletion(session: AsyncSession, content) -> str:
     """The ledger commits first. A DB failure afterwards leaves a replayable deletion intent."""
     identity = deletion_identity(content)
@@ -214,13 +234,14 @@ async def retry_image_deletions(
             content_id=intent["content_id"],
             for_update=True,
         )
+        cleanup_intent = intent
         if content is not None:
-            identity = {k: intent[k] for k in ("user_id", "content_id", "saved_at", "assets")}
-            if deletion_identity(content) != identity:
+            if not matches_deletion_identity(content, intent):
                 # IDs can be reused after restoration. Never delete the replacement content.
                 continue
+            cleanup_intent = {**intent, "assets": deletion_identity(content)["assets"]}
             await repository.delete(content)
-        session.add(deletion_job(intent))
+        session.add(deletion_job(cleanup_intent))
         reconciled += 1
         if reconciled >= limit:
             break
