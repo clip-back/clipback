@@ -123,6 +123,7 @@
 | 2026-10-23 | [원본 삭제 내구성과 정리 재시도](2026-10-23-image-deletion.md) | 저장 |
 | 2026-10-23 | [DB·원본 Bucket 백업과 격리 복원](2026-10-23-image-storage-backup.md) | 운영 |
 | 2026-10-23 | [일일 백업·7일 보존과 최신 삭제 상태 복원](2026-10-23-image-backup-retention.md) | 운영 |
+| 2026-10-23 | [이미지 사용량과 저장 중단·재개 및 모바일 안내](2026-10-23-image-storage-controls.md) | 운영 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 
