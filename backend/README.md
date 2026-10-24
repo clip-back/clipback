@@ -1,5 +1,7 @@
 # Clipback Backend
 
+이미지 저장소의 운영 전환 순서와 확인 기준은 [이미지 보관 운영 전환](../docs/backend/image-storage-rollout.md)을 따릅니다.
+
 FastAPI backend for the Clipback MVP.
 
 Implementation status and remaining scope decisions are tracked in the

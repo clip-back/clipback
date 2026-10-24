@@ -266,6 +266,8 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - 로컬 context와 이미지 revision을 확인한 뒤 UUID 이름과 소유 라벨을 붙인 새 네트워크·볼륨·컨테이너만 만듭니다.
 - PostgreSQL 주 버전을 확인하고 새 빈 DB에 `pg_restore --no-owner --no-acl --exit-on-error`로 복원합니다.
   원래 DB의 역할·소유자·ACL 재현은 이번 검사의 범위가 아닙니다.
+  공식 이미지의 초기화 임시 서버는 Unix socket만 열리므로 `pg_isready -h 127.0.0.1`로
+  최종 TCP 서버를 기다립니다. 임시 서버의 준비 완료를 복원 가능한 상태로 취급하지 않습니다.
 - 네트워크는 `--internal`, API의 외부 공개 포트는 없으며 Docker exec 안의 localhost로만 검사합니다.
   요약 worker는 꺼지고 공급자 설정은 비활성 검사용 값입니다. 실제 운영의 공급자 키를 복사하지 않습니다.
 - 테이블 건수·revision·전체 카테고리 관계 해시·모든 참조 이미지 해시와 시험 콘텐츠를 원본 기준과 대조합니다.
@@ -276,6 +278,11 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
   강제 프로세스 종료·호스트 장애 뒤에는 소유 라벨과 UUID를 대조해 남은 자원을 수동 확인해야 합니다.
 
 성공 예시는 `passed`, `cleanup_passed`, `authentication_passed`, `image_bytes_passed`가 모두 true입니다.
+최신 삭제 기록 적용 후에도 살아 있는 시험 원본은 유지합니다. 시험 원본이 삭제됐다면 실제 인증
+계정이 소유한 다른 원본만 대체 시험 대상으로 선택합니다. 그 계정에 원본이 없으면 타인의 원본이
+남아 있더라도 인증과 삭제한 경로의 404를 확인하고 `image_get_skipped: true`,
+`image_bytes_passed: false`로 보고합니다. 모든 남은 원본의 해시 검증과 특정 계정의 HTTP 원본
+재조회 성공은 별개이며, 서비스 전체 자산 수가 0보다 크다는 이유로 이미지 GET 성공을 보고하지 않습니다.
 `origin=synthetic` 결과를 운영 백업 검증으로 바꾸어 보고하지 않습니다.
 실행 시간은 측정한 로컬 복원 시간이며 운영 서비스 전환까지의 보장된 RTO가 아닙니다.
 
@@ -299,7 +306,12 @@ CLIPBACK_RECOVERY_TEST_IMAGE=clipback-backup-recovery:check \
 
 같은 환경변수로 `tests/deployment/test_image_backup_docker.py`를 실행하면 실제 PostgreSQL 16
 dump, local·Bucket 원본, 내용별 백업 재사용, 격리 Bucket 복원과 인증 GET, 누락·손상 사본을
-검사합니다. 이 합성 fixture는 두 private Bucket을 가진 로컬 moto만 사용합니다.
+검사합니다. 이 합성 fixture는 원본·백업·독립 삭제 기록용 세 private Bucket을 가진 로컬 moto만 사용합니다.
+
+`test_multiuser_image_restore_docker.py`는 먼저 생긴 타인 원본이 있는 환경에서 살아 있는 표본,
+삭제 후 동일 계정의 대체 원본, 그 계정의 원본이 모두 삭제된 경우를 실제 복원합니다.
+`test_postgres_restore_ready_docker.py`는 PostgreSQL 16·18 초기화 SQL을 지연시켜 임시 Unix 서버를
+최종 준비로 오인하지 않는지 실제 TCP 연결과 격리 복원으로 검증합니다.
 
 16·18 각각 정상 복원, 손상 dump, 잘못된 테이블 건수·이미지 해시·자격·revision을 확인합니다.
 운영 자료는 이 fixture로 사용하지 않습니다. 명시적 환경변수가 없으면 Docker 사례만 skip하므로

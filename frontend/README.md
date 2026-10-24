@@ -55,6 +55,9 @@ flutter build web --no-pub
 
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
 
+원본 저장·실제 네이티브 공유·OS 프로세스 재시작·계정 전환을 한 로컬 API에서 확인하는 방법은
+[이미지 저장소 통합 검증](../docs/frontend/image-storage-validation.md)을 따릅니다.
+
 ## 코드 구조와 의존 방향
 
 화면·루트 상태·데이터 처리를 아래 경계로 나눕니다. Flutter 기본 `ChangeNotifier`와 생성자 주입을 사용합니다.
