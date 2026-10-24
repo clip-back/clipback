@@ -3,6 +3,7 @@
 2026-10-24 사용자가 정책 질문 Q1–Q5와 최종 흐름을 확정한 설계입니다. 구현·배포 완료를 뜻하지 않습니다.
 기준은 main `5671e79a6c3451068cf053d185a9334fd9f3144c`이며,
 작업 브랜치는 `docs/home-loading-recovery`입니다. 이미지 보관 PR #75와 분리합니다.
+확정 명세는 [GitHub 이슈 #76](https://github.com/clip-back/clipback/issues/76)에서 관리합니다.
 
 ## 확정된 범위
 
