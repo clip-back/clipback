@@ -5,7 +5,7 @@
 - 요청: [스펙 #80](https://github.com/clip-back/clipback/issues/80) 전체를 구현하고 #81 → #82·#83 → #84 순서로 통합한다.
 - 통합 브랜치: `feature/account-stats-recovery`. 시작 커밋 `e96b33887ede1cb83a3b2b1ba69a6ba4eb712650`, 당시 main `00e092a59196b44013b3fadfb37e1a6cc6ee549e`.
 - 구현자는 티켓별 작업트리에서 승인된 실제 앱·HTTP 대역·메모리 세션 경계에 RED→GREEN을 적용한다. 완료 커밋은 별도 병합 담당자가 통합한다.
-- #81 구현·자동·양 플랫폼 실행 검증을 완료했고, #82·#83 제품 코드를 통합해 전체·네이티브 검증 중이다. #84와 최종 리뷰는 후속 진행한다.
+- #81~#83 구현·자동·양 플랫폼 실행 검증을 완료했다. #84 계정·공유 인증 갱신 복합 검증과 최종 리뷰는 후속 진행한다.
 - 푸시·PR·main 병합·배포는 수행하지 않는다. 실제 OAuth·운영 API·실기기 검증과 로컬 대역 검증을 구분한다.
 
 ## #81 최초 상태·수동 복구
@@ -63,3 +63,14 @@
 - 실제 앱의 글자2배율·90ms 두 입력으로 리마인드 화면 열림을 RED 재현한 후, 메뉴를 열지 않고 stats GET1회·320/89 복구를 확인했다. 복구 후 의도적인 리마인드 메뉴 입력도 정상이다.
 - 단일 포인터는 표준 판별 약300ms 후 HTTP 요청을 시작한다. 접근성 tap·키보드 `ActivateIntent`는 기존 버튼 콜백을 유지한다. 세 경로 각각 요청 시작부터9.999초 대기·10초 실패를 검증했다. 홈 재시도 시간 정책은 변경하지 않았다.
 - 관련 **287/287**, analyze·diff 검사 통과. 통합 뒤 전체 Flutter **1823/1823 통과**(3분4초), 웹 빌드 **성공**(36.8초). 근거는 `83-input-{red,green,activation,related-final,analyze-final,full-test,web-build}.log`다. 양 플랫폼은 수정된 제품으로 새 phase에 다시 실행한다.
+
+### 수정 후 양 플랫폼 검증
+
+- 제품 `bf2ec9c`를 같은 Android13/API33와 iPhone16Pro/iOS18.6에서 새로 빌드·설치했다. Android→해당 AVD 종료→iOS 순서로 실행했고, 루트 문서 커밋은 제품 소스에 영향을 주지 않았다.
+- 플랫폼별 #82 **13/13**, #83 **22/22** 기능·승인 통계 범위 검사가 통과했다. 실제 탭·계정·공지 복귀·스크롤, 진행 중 이탈/복귀와 원래10초 마감, 마지막값218/72와0/0의 대기·실패·복구·1/2배율, 콘텐츠 bookmark 후 통계321/90 성공과 프로필503 독립성을 확인했다.
+- 글자2배율·90ms 두 입력 뒤에도 마이를 유지하고 stats GET1회이며320/89로 복구했다. 이후 의도적 리마인드 입력은 정상이다. 실패를 먼저 재현했던 원본은 덮어쓰지 않았다.
+- Android의 같은 기존 프로필1px 오류가 마이 두 번 mount로2회 기록된 것은 원시 로그에 보존하고 통계 범위와 구분했다. iOS의 새 시각·입력 오류는 없었다.
+- 원시·범위 판정과 소스/바이너리 해시: `/private/tmp/clipback-account-stats-implementation/native/after83-input-fix-native-receipt.md`, `after83-input-fix-manifest.json`, `source-after83-input-fix.json`, `after83-input-fix-binaries.json`.
+- 비교는 `native/comparison-after83-input-fix.html`, 대표는 `{ios,android}/after83-input-fix/last-error-scale1.png`와 `last-error-scale2.png`, 전체 전환 영상은 `stats-last-values.mp4`·`stats-entry-sharing.mp4`다. `stats-retry-highlight.mp4`는 원본 앞18초를 재인코딩·크롭 없이 복사한 짧은 전달용이다.
+- 정상·최초 상태는 같은 장치·데이터·배율·스크롤의 BEFORE와 비교한다. 새 ‘마지막 확인값 재조회 대기·실패’의 엄밀한 BEFORE 장면은 미촬영으로 누락했고, 일반 정상 사진을 해당 상태로 대신하지 않았다. 새 상태의 게시 Figma도 없어 승인 시안을 근거로 명시했다. iOS·Android 안전 영역과 Figma 프레임 차이를 보존했다.
+- BEFORE50개·after81 135개·수정 전 실패98개 해시가 그대로다. 이번 새 원본156개·영상8개를 보존했다. HTTP·메모리 세션·소셜 대역 검증이며 실제 OAuth·운영 서버·실기기는 검증하지 않았다.
