@@ -1304,6 +1304,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           bucket: _myNoticePageStorageBucket,
           child: MyScreen(
             user: _d.account.user,
+            statsMessage: _d.account.statsMessage,
+            onRetryStats: _d.account.canRetryStats
+                ? _d.account.retryStats
+                : null,
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),

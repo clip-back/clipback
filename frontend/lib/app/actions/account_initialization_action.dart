@@ -76,23 +76,26 @@ class AccountInitializationAction {
     bool Function() current,
     Future<void> Function()? onUserLoaded,
   ) async {
-    var loadedUser = false;
-    Future<void>? userCheck;
-    try {
-      await users.loadMe();
-      loadedUser = true;
-      if (current()) userCheck = onUserLoaded?.call();
-    } catch (error) {
-      if (!current()) return;
-      if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+    Future<void> loadUser() async {
+      try {
+        await users.loadMe();
+      } catch (error) {
+        if (!current()) return;
+        if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+        return;
+      }
+      if (current()) await onUserLoaded?.call();
     }
-    if (!current()) return;
-    try {
-      await users.loadStats(apply: loadedUser);
-    } catch (error) {
-      if (!current()) return;
-      if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+
+    Future<void> loadStats() async {
+      try {
+        await users.loadStats();
+      } catch (error) {
+        if (!current()) return;
+        if (error is ClipbackApiException && error.statusCode == 401) rethrow;
+      }
     }
-    await userCheck;
+
+    await Future.wait([loadUser(), loadStats()]);
   }
 }

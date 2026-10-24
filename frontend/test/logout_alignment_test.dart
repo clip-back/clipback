@@ -395,7 +395,7 @@ void main() {
     expect(result['bytes'], greaterThan(1000));
     expect(
       account.accountMember.revisitedContentCount,
-      greaterThan(account.accountMember.savedContentCount),
+      greaterThan(account.accountMember.savedContentCount!),
     );
   });
 }

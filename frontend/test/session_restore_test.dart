@@ -696,6 +696,155 @@ void main() {
     }
   }
 
+  for (final failure in ['503', 'network', 'invalid JSON', 'invalid stats']) {
+    testWidgets('최초 마이 통계 $failure 실패는 통계만 재시도하고 실제0으로 복구한다', (tester) async {
+      final retried = Completer<http.Response?>();
+      var attempts = 0;
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path != _stats) return null;
+          if (++attempts == 1) {
+            return failure == 'invalid stats'
+                ? _json({'saved_count': 99})
+                : _failure(failure);
+          }
+          return retried.future;
+        },
+      );
+      await _runApp(tester, server, (storage) async {
+        _expectLoaded(tester);
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        expect(find.text('—'), findsNWidgets(2));
+        expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
+        expect(find.text('다시 시도'), findsOneWidget);
+        expect(find.text('계정 정보 확인 중'), findsNothing);
+        expect(find.text('카테고리 관리'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 30));
+        expect(server.calls(_stats), hasLength(1));
+        final profileRequests = server.calls(_me).length;
+        await tester.tap(find.text('다시 시도'));
+        await tester.tap(find.text('다시 시도'));
+        await tester.pump();
+        expect(find.text('—'), findsNWidgets(2));
+        expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+        expect(find.text('다시 시도'), findsNothing);
+        expect(server.calls(_stats), hasLength(2));
+        expect(server.calls(_me), hasLength(profileRequests));
+        retried.complete(_json({'saved_count': 0, 'reopened_count': 0}));
+        await tester.pumpAndSettle();
+        expect(find.text('0'), findsNWidgets(2));
+        expect(find.text('—'), findsNothing);
+        expect(find.text('통계를 불러오는 중이에요'), findsNothing);
+        expect(find.text('통계를 불러오지 못했어요'), findsNothing);
+        expect(find.text('다시 시도'), findsNothing);
+        expect(storage.clears, 0);
+        expect(server.calls(_guest), isEmpty);
+      });
+    });
+  }
+
+  for (final completeRefresh in [false, true]) {
+    testWidgets(
+      '통계 재시도는 인증 갱신과 재요청을 합쳐 전체10초를 지킨다 (refresh=$completeRefresh)',
+      (tester) async {
+        final unauthorized = Completer<http.Response?>();
+        final refreshResponse = Completer<http.Response?>();
+        final delayed = Completer<http.Response?>();
+        final recovered = Completer<http.Response?>();
+        var attempts = 0;
+        final server = _Server(
+          respond: (request) async {
+            if (request.url.path == _refresh) return refreshResponse.future;
+            if (request.url.path != _stats) return null;
+            return switch (++attempts) {
+              1 => _failure('503'),
+              2 => unauthorized.future,
+              3 => completeRefresh ? delayed.future : recovered.future,
+              _ => recovered.future,
+            };
+          },
+        );
+        await _runApp(tester, server, (storage) async {
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 4));
+          unauthorized.complete(_failure('401'));
+          await tester.pump();
+          expect(server.calls(_refresh), hasLength(1));
+          await tester.pump(const Duration(seconds: 4));
+          if (completeRefresh) {
+            refreshResponse.complete(_tokens('current'));
+            await tester.pump();
+            expect(server.calls(_stats), hasLength(3));
+          }
+          await tester.pump(const Duration(milliseconds: 1999));
+          expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+          expect(find.text('다시 시도'), findsNothing);
+          await tester.pump(const Duration(milliseconds: 1));
+          await tester.pump();
+          expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
+          expect(find.text('—'), findsNWidgets(2));
+          final writes = storage.writes;
+          if (completeRefresh) {
+            delayed.complete(_failure('401'));
+          } else {
+            refreshResponse.complete(_tokens('obsolete'));
+          }
+          await tester.pumpAndSettle();
+          expect(storage.writes, writes);
+          expect(storage.clears, 0);
+          expect(server.calls(_refresh), hasLength(1));
+          expect(server.calls(_guest), isEmpty);
+          final profileRequests = server.calls(_me).length;
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 9999));
+          expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+          recovered.complete(_json({'saved_count': 8, 'reopened_count': 4}));
+          await tester.pumpAndSettle();
+          expect(find.text('8'), findsOneWidget);
+          expect(find.text('4'), findsOneWidget);
+          expect(find.text('다시 시도'), findsNothing);
+          expect(server.calls(_me), hasLength(profileRequests));
+        });
+      },
+    );
+  }
+
+  testWidgets('사용자 정보 대기와 실패가 성공한 마이 통계를 가리지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _me) return profile.future;
+        if (request.url.path == _stats) {
+          return _json({'saved_count': 9, 'reopened_count': 3});
+        }
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('계정 정보 확인 중'), findsNWidgets(2));
+      expect(find.text('9'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('통계를 불러오는 중이에요'), findsNothing);
+      profile.complete(_failure('503'));
+      await tester.pumpAndSettle();
+      expect(find.text('9'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('통계를 불러오지 못했어요'), findsNothing);
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+    }, settle: false);
+  });
+
   for (final path in [_me, _stats]) {
     testWidgets('$path 지연 중에도 홈 최초 불러오기를 마치고 유효한 후속 정보를 반영한다', (tester) async {
       final metadata = Completer<http.Response?>();
@@ -714,7 +863,9 @@ void main() {
           expect(before.name, '계정 정보 확인 중');
         } else {
           expect(before.name, '테스트 계정');
-          expect(before.savedContentCount, 0);
+          expect(before.savedContentCount, isNull);
+          expect(find.text('—'), findsNWidgets(2));
+          expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
         }
         metadata.complete(
           path == _me ? null : _json({'saved_count': 9, 'reopened_count': 3}),
