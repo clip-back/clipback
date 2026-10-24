@@ -76,6 +76,9 @@ tar에는 local 원본은 `screenshots/<key>`, Bucket 원본은 `s3/<key>`로 �
 전환하지 않습니다. 이번 실제 합성 검증과 한계는
 [Bucket 백업 작업 이력](../history/2026-10-23-image-storage-backup.md)에 기록합니다.
 
+기존 local 원본을 Bucket으로 옮길 때에는 실제 최신 삭제 반영 복원 검사를 먼저 완료하고
+[원본 이관 절차](image-migration.md)의 manifest SHA로 묶인 성공 보고서를 사용합니다.
+
 ## 일일 백업과 시간별 보존 작업
 
 `scripts.image_backup_jobs`는 운영자 전용입니다. 원본 API와 동일한 DB·원본 저장소 및 독립된
