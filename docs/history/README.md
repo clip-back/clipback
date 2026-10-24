@@ -117,7 +117,9 @@
 | 2026-10-23 | [이미지 보관 정책 설계 인터뷰·명세 발행](2026-10-23-image-storage-design.md) | 설계 |
 | 2026-10-23 | [이미지 보관 명세 통합 구현](2026-10-23-image-storage-implementation.md) | 통합 |
 | 2026-10-23 | [비공개 Bucket 원본 보관과 기존 API 호환](2026-10-23-image-storage-bucket.md) | 저장 |
+| 2026-10-23 | [계정별 이미지 한도와 양쪽 모바일 오류 안내](2026-10-23-image-storage-quota.md) | 저장 |
 | 2026-10-23 | [원본 접근 확인과 직접 다운로드](2026-10-23-image-direct-download.md) | 조회 |
+| 2026-10-23 | [계정별 기기 캐시와 양쪽 모바일 재시작 검증](2026-10-23-image-original-cache.md) | 조회 |
 | 2026-10-23 | [원본 삭제 내구성과 정리 재시도](2026-10-23-image-deletion.md) | 저장 |
 | 2026-10-23 | [DB·원본 Bucket 백업과 격리 복원](2026-10-23-image-storage-backup.md) | 운영 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |

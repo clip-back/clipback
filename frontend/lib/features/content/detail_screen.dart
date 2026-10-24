@@ -536,7 +536,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 }
 
-/// Only the open detail owns these bytes; its two image surfaces share one load.
+/// Only the open detail owns display bytes; a new open rechecks access.
 class _ScreenshotAssetController extends ChangeNotifier {
   _ScreenshotAssetController(this.assetId, this._read);
 
@@ -548,10 +548,9 @@ class _ScreenshotAssetController extends ChangeNotifier {
   bool _disposed = false;
   Future<void>? _pending;
 
-  Future<void> load({bool retry = false}) {
+  Future<void> load() {
     if (_disposed || assetId == null) return Future.value();
     if (_pending != null) return _pending!;
-    if (!retry && (bytes != null || error != null)) return Future.value();
     return _pending = _download();
   }
 
@@ -616,10 +615,7 @@ class _ScreenshotAssetView extends StatelessWidget {
       children: [
         Text(message, textAlign: TextAlign.center),
         if (retry)
-          TextButton(
-            onPressed: () => controller.load(retry: true),
-            child: const Text('다시 시도'),
-          ),
+          TextButton(onPressed: controller.load, child: const Text('다시 시도')),
       ],
     ),
   );
