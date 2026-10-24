@@ -282,6 +282,23 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
   }
 
+  VoidCallback _statsRetryAction() {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_canUseAccountActions ||
+          _d.app.route != AppRoute.my ||
+          generation != _d.app.accountGeneration ||
+          epoch != _d.app.authEpoch ||
+          !_d.session.hasSession ||
+          _d.session.pendingSessionClear ||
+          !_d.account.canRetryStats) {
+        return;
+      }
+      unawaited(_d.account.retryStats());
+    };
+  }
+
   // Only the My -> notices -> My pair restores My's scroll position. Other
   // routes and security/restore boundaries discard the old bucket entirely.
   void _syncMyNoticeStorage() {
@@ -1319,9 +1336,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           child: MyScreen(
             user: _d.account.user,
             statsMessage: _d.account.statsMessage,
-            onRetryStats: _d.account.canRetryStats
-                ? _d.account.retryStats
-                : null,
+            onRetryStats: _d.account.canRetryStats ? _statsRetryAction() : null,
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),
