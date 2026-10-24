@@ -45,8 +45,9 @@ class RemoteUserRepository extends UserRepository {
   @override
   Future<ApiUser> loadMe() async {
     final generation = _accountVersion;
+    final refreshVersion = _refreshVersion;
     final user = await _api.readMe();
-    if (_current(generation)) {
+    if (_current(generation) && refreshVersion == _refreshVersion) {
       _user = user;
       notifyListeners();
     }
@@ -61,8 +62,9 @@ class RemoteUserRepository extends UserRepository {
   @override
   Future<ApiUserStats> loadStats({bool apply = true}) async {
     final generation = _accountVersion;
+    final refreshVersion = _refreshVersion;
     final stats = await _api.readStats();
-    if (apply && _current(generation)) {
+    if (apply && _current(generation) && refreshVersion == _refreshVersion) {
       _stats = stats;
       notifyListeners();
     }

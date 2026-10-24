@@ -488,6 +488,93 @@ void main() {
     });
   });
 
+  for (final bootstrapPath in [_me, _stats]) {
+    testWidgets('$bootstrapPath 늦은 최초 홈 응답은 콘텐츠 변경 뒤 최신 계정과 집계 값을 되돌리지 않는다', (
+      tester,
+    ) async {
+      final bootstrapResponse = Completer<http.Response?>();
+      var statsReads = 0;
+      var changed = false;
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == _stats) {
+            if (bootstrapPath == _stats && ++statsReads == 1) {
+              return bootstrapResponse.future;
+            }
+            return _json({'saved_count': 9, 'reopened_count': 3});
+          }
+          if (request.url.path == '/api/v1/contents/7/favorite') {
+            changed = true;
+            return _json({
+              'id': 7,
+              'categories': [_category],
+              'tags': <Object>[],
+              'assets': <Object>[],
+              'content_type': 'link',
+              'source': 'web',
+              'title': '사용자가 저장한 링크',
+              'summary': '서버에서 조회한 콘텐츠',
+              'original_url': 'https://example.com/saved',
+              'is_favorite': true,
+              'saved_at': '2026-10-05T00:00:00Z',
+              'last_viewed_at': null,
+            });
+          }
+          if (request.url.path == _me && bootstrapPath == _me && !changed) {
+            return bootstrapResponse.future;
+          }
+          if (request.url.path == _me && changed) {
+            return _json({
+              'id': 1,
+              'email': null,
+              'display_name': '최신 계정',
+              'is_guest': true,
+              'created_at': '2026-10-05T00:00:00Z',
+              'linked_providers': <String>[],
+            });
+          }
+          return null;
+        },
+      );
+      await _runApp(tester, server, (storage) async {
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pump();
+        _expectLoaded(tester);
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        home.onToggleBookmark(home.contents.single);
+        await tester.pumpAndSettle();
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        final updated = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+        expect(updated.name, '최신 계정');
+        expect(updated.savedContentCount, 9);
+        expect(updated.revisitedContentCount, 3);
+        bootstrapResponse.complete(
+          _json(
+            bootstrapPath == _me
+                ? {
+                    'id': 1,
+                    'email': null,
+                    'display_name': '예전 계정',
+                    'is_guest': true,
+                    'created_at': '2026-10-05T00:00:00Z',
+                    'linked_providers': <String>[],
+                  }
+                : {'saved_count': 1, 'reopened_count': 0},
+          ),
+        );
+        await tester.pumpAndSettle();
+        final afterLateBootstrap = tester
+            .widget<MyScreen>(find.byType(MyScreen))
+            .user;
+        expect(afterLateBootstrap.name, '최신 계정');
+        expect(afterLateBootstrap.savedContentCount, 9);
+        expect(afterLateBootstrap.revisitedContentCount, 3);
+        expect(storage.clears, 0);
+      }, settle: false);
+    });
+  }
+
   testWidgets('종료된 홈 부가 조회의 늦은 사용자 정보는 현재 계정에 반영하지 않는다', (tester) async {
     final profile = Completer<http.Response?>();
     final server = _Server(
