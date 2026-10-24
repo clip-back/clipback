@@ -2,9 +2,10 @@ import asyncio
 import hashlib
 import json
 import threading
+from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import text, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -62,29 +63,71 @@ async def test_preflight_reports_original_problems_without_changing_legacy_metad
     ).content == png_bytes
 
 
-async def prepared_backup(client, headers, contents, s3, directory):
-    """A real paired dump+object set; the report is a trusted operator boundary fixture."""
-    from app.db.session import engine
+async def prepared_backup(sessions, contents, s3, directory):
+    """Real test-DB asset records/bytes; synthetic dump and trusted restore-report fixtures.
+
+    Actual pg_dump and isolated restore are exercised by test_image_migration_docker.py.
+    This API fixture must never connect to the default application/developer database.
+    """
     from app.integrations.deletion_ledger import get_deletion_ledger
-    from scripts.image_backup import BackupBucket, create_backup, materialize_backup
+    from scripts.image_backup import BackupBucket, materialize_backup, publish_backup
 
     s3.create_bucket(Bucket="migration-backups")
     store = BackupBucket(s3, "migration-backups")
     first = contents[0]
-    await create_backup(
+    storage = StorageRouter(settings)
+    async with sessions() as session:
+        records = list(
+            await session.scalars(
+                select(ContentAsset)
+                .where(
+                    ContentAsset.content_id.in_([content["id"] for content in contents]),
+                )
+                .order_by(ContentAsset.id)
+            )
+        )
+        revisions = list(await session.scalars(text("SELECT version_num FROM alembic_version")))
+        postgres_major = int(await session.scalar(text("SHOW server_version_num"))) // 10000
+    assets = []
+    for asset in records:
+        original = await storage.read_file(asset.storage_key, backend=asset.storage_backend)
+        assets.append(
+            {
+                "id": asset.id,
+                "content_id": asset.content_id,
+                "storage_backend": asset.storage_backend,
+                "storage_key": asset.storage_key,
+                "size_bytes": len(original),
+                "sha256": hashlib.sha256(original).hexdigest(),
+            }
+        )
+    database = directory.parent / "synthetic-database.dump"
+    database.write_bytes(b"Synthetic migration API fixture; not a PostgreSQL dump")
+    await publish_backup(
         store,
         backup_id="before-migration",
-        sample={
-            "content_id": first["id"],
-            "asset_id": first["assets"][0]["id"],
+        snapshot={
+            "migration_revisions": revisions,
+            "tables": {"content_assets": len(assets)},
+            "category_links_sha256": "c" * 64,
+            "assets": assets,
+            "sample": {
+                "content_id": first["id"],
+                "asset_id": first["assets"][0]["id"],
+                "saved_at": first["saved_at"],
+                "category_ids": [],
+                "content_sha256": "d" * 64,
+            },
+            "extra_file_count": 0,
         },
+        database=database,
+        storage=storage,
+        captured_at=datetime.now(UTC).isoformat(),
         app_commit="a" * 40,
+        postgres_major=postgres_major,
         origin="synthetic",
-        writers_frozen=True,
-        pg_dump="/opt/homebrew/opt/postgresql@17/bin/pg_dump",
         deletion_checkpoint=get_deletion_ledger().read_verified_checkpoint(),
     )
-    await engine.dispose()
     materialize_backup(store, "before-migration", directory)
     report = {
         "backup_id": "before-migration",
@@ -115,7 +158,7 @@ async def test_verified_migration_can_stop_resume_and_keep_old_api_bytes_and_loc
     monkeypatch.setattr(settings, "storage_backend", "local")
     originals = [await upload(client, headers, png_bytes) for _ in range(2)]
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, originals, s3_storage, directory)
+    report = await prepared_backup(sessions, originals, s3_storage, directory)
     storage = StorageRouter(settings)
     first = await migrate_originals(
         sessions.kw["bind"],
@@ -170,7 +213,7 @@ async def test_unverified_or_replaced_backup_report_never_starts_copy(
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
     original = json.loads(report.read_text())
     for changed in ({"live_deletion_ledger_verified": False}, {"manifest_sha256": "0" * 64}):
         report.write_text(json.dumps({**original, **changed}))
@@ -215,7 +258,7 @@ async def test_interrupted_copy_is_durably_cleaned_without_removing_local_source
             )
             await session.commit()
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
     original_call = BaseClient._make_api_call
 
     def interrupted(client, operation_name, parameters):
@@ -276,7 +319,7 @@ async def test_delete_during_copy_never_reconnects_content_and_both_locations_ar
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
     ready, resume = asyncio.Event(), threading.Event()
     loop = asyncio.get_running_loop()
     original_call = BaseClient._make_api_call
@@ -336,7 +379,7 @@ async def test_uncertain_flip_commit_never_cleans_a_committed_original(
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
     original_commit = AsyncSession.commit
 
     async def acknowledgement_lost(session):
@@ -386,7 +429,7 @@ async def test_active_backup_defers_migration_flip_without_holding_the_global_de
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
     async with sessions.kw["bind"].connect() as backup:
         await backup.execute(
             text("SELECT pg_advisory_lock_shared(:key)"),
@@ -433,7 +476,8 @@ async def test_durable_delete_with_failed_database_commit_is_not_reconnected_by_
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
     directory = tmp_path / "verified-backup"
-    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
+
     async def reject_delete_commit(session):
         raise ConnectionError("synthetic rejected deletion transaction")
 
