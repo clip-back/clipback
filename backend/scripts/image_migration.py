@@ -24,6 +24,7 @@ from app.models.image_deletion import ImageDeletion  # noqa: E402
 from app.repositories.content_repository import ContentRepository  # noqa: E402
 from app.services.image_deletion_service import (  # noqa: E402
     deletion_identity,
+    matches_deletion_identity,
     migration_operation_id,
 )
 from scripts.check_backup_restore import load_backup, require, sha256_file  # noqa: E402
@@ -142,9 +143,15 @@ async def migrate_originals(
             )
             return report
         finally:
-            await locks.rollback()
-            await locks.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_LOCK})
-            await locks.commit()
+            try:
+                await locks.rollback()
+                await locks.execute(
+                    text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_LOCK}
+                )
+                await locks.commit()
+            except BaseException:
+                await locks.invalidate()
+                raise
 
 
 async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest):
@@ -196,7 +203,10 @@ async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest)
                 return "target_original_conflict"
             operation_id = migration_operation_id(asset.storage_key)
             job = await session.get(ImageDeletion, operation_id)
-            if job is not None and job.intent.get("source_identity") != identity:
+            if job is not None and (
+                "source_identity" not in job.intent
+                or not matches_deletion_identity(content, job.intent["source_identity"])
+            ):
                 return "migration_identity_changed"
             if job is None:
                 job = ImageDeletion(
@@ -226,12 +236,20 @@ async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest)
             if await target.read_file(key) != original:
                 return "target_verification_failed"
     finally:
-        await locks.rollback()
-        await locks.execute(
-            text("SELECT pg_advisory_unlock_shared(:key)"),
-            {"key": IMAGE_CLEANUP_LOCK},
-        )
-        await locks.commit()
+        try:
+            await locks.rollback()
+            await locks.execute(
+                text("SELECT pg_advisory_unlock_shared(:key)"),
+                {"key": IMAGE_CLEANUP_LOCK},
+            )
+            await locks.commit()
+        except BaseException:
+            await locks.invalidate()
+            raise
+    # Full immutable-prefix verification runs outside the deletion writer lock.
+    # Its bounded tip is checked again under the lock before publishing the location.
+    checkpoint = await asyncio.to_thread(ledger.read_checkpoint_tip)
+    events = await asyncio.to_thread(ledger.read_verified_events, checkpoint)
     async with sessions() as session:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(:key)"),
@@ -243,6 +261,8 @@ async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest)
         )
         if not acquired:
             return "backup_or_cleanup_busy"
+        if await asyncio.to_thread(ledger.read_checkpoint_tip) != checkpoint:
+            return "deletion_ledger_changed"
         content = await ContentRepository(session).get_owned(
             user_id=user_id,
             content_id=content_id,
@@ -250,22 +270,10 @@ async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest)
         )
         if content is None:
             return "content_deleted"
-        if deletion_identity(content) != identity:
+        if not matches_deletion_identity(content, identity):
             return "migration_identity_changed"
-        events = await asyncio.to_thread(ledger.read_verified_events)
-        if any(
-            all(
-                event[field] == identity[field]
-                for field in (
-                    "user_id",
-                    "content_id",
-                    "saved_at",
-                    "assets",
-                )
-            )
-            for event in events
-        ):
-            return "content_deleted"
+        if any(matches_deletion_identity(content, event) for event in events):
+            return "deletion_pending"
         # Cleanup may have run in the intentional gap between copy and the final
         # ordered lock acquisition; re-read the target before publishing its location.
         if await storage.read_file(key, backend="s3") != original:

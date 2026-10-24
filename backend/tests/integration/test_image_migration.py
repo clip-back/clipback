@@ -187,12 +187,14 @@ async def test_unverified_or_replaced_backup_report_never_starts_copy(
         ).content == png_bytes
 
 
+@pytest.mark.parametrize("legacy", [False, True])
 async def test_interrupted_copy_is_durably_cleaned_without_removing_local_source_then_resumes(
     committed_api,
     s3_storage,
     png_bytes,
     monkeypatch,
     tmp_path,
+    legacy,
 ):
     from botocore.client import BaseClient
 
@@ -202,6 +204,16 @@ async def test_interrupted_copy_is_durably_cleaned_without_removing_local_source
     client, headers, sessions = committed_api
     monkeypatch.setattr(settings, "storage_backend", "local")
     content = await upload(client, headers, png_bytes)
+    if legacy:
+        async with sessions() as session:
+            await session.execute(
+                update(ContentAsset)
+                .where(
+                    ContentAsset.id == content["assets"][0]["id"],
+                )
+                .values(size_bytes=None, sha256=None)
+            )
+            await session.commit()
     directory = tmp_path / "verified-backup"
     report = await prepared_backup(client, headers, [content], s3_storage, directory)
     original_call = BaseClient._make_api_call
@@ -229,11 +241,21 @@ async def test_interrupted_copy_is_durably_cleaned_without_removing_local_source
     assert (
         await client.get(content["assets"][0]["download_url"], headers=headers)
     ).content == png_bytes
+    if legacy:
+        # A normal successful upload fills the old row's unknown size while a
+        # migration worker was interrupted; this remains the same original.
+        await upload(client, headers, png_bytes)
+        access = await client.get(
+            f"/api/v1/uploads/assets/{content['assets'][0]['id']}/access",
+            headers=headers,
+        )
+        assert access.json()["size_bytes"] == len(png_bytes)
     resumed = await migrate_originals(
         sessions.kw["bind"],
         StorageRouter(settings),
         backup_directory=directory,
         restore_report_file=report,
+        limit=1,
     )
     assert resumed["migrated"] == 1 and resumed["passed"]
 
@@ -395,3 +417,41 @@ async def test_active_backup_defers_migration_flip_without_holding_the_global_de
                 text("SELECT pg_advisory_unlock_shared(:key)"),
                 {"key": IMAGE_CLEANUP_LOCK},
             )
+
+
+async def test_durable_delete_with_failed_database_commit_is_not_reconnected_by_migration(
+    committed_api,
+    s3_storage,
+    png_bytes,
+    monkeypatch,
+    tmp_path,
+):
+    from app.services.image_deletion_service import retry_image_deletions
+    from scripts.image_migration import migrate_originals
+
+    client, headers, sessions = committed_api
+    monkeypatch.setattr(settings, "storage_backend", "local")
+    content = await upload(client, headers, png_bytes)
+    directory = tmp_path / "verified-backup"
+    report = await prepared_backup(client, headers, [content], s3_storage, directory)
+    async def reject_delete_commit(session):
+        raise ConnectionError("synthetic rejected deletion transaction")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(AsyncSession, "commit", reject_delete_commit)
+        response = await client.delete(f"/api/v1/contents/{content['id']}", headers=headers)
+    assert response.status_code == 500
+    result = await migrate_originals(
+        sessions.kw["bind"],
+        StorageRouter(settings),
+        backup_directory=directory,
+        restore_report_file=report,
+    )
+    assert not result["passed"] and result["migrated"] == 0
+    assert result["results"][0]["status"] == "deletion_pending"
+    async with sessions() as restarted_worker:
+        assert (await retry_image_deletions(restarted_worker))["pending"] == 0
+    assert not list(tmp_path.glob("screenshots/**/*.png"))
+    assert not s3_storage.list_objects_v2(Bucket="original-images").get("Contents")
+    downloaded = await client.get(content["assets"][0]["download_url"], headers=headers)
+    assert downloaded.status_code == 404
