@@ -3,7 +3,7 @@
 2026-10-24 사용자 최종 확인으로 첫 구현의 정책과 화면 디자인을 확정했습니다.
 현재는 제품 구현 전입니다. 이 문서는 확정한 정책을 관리하며, 구현 명세나 구현 완료 보고가 아닙니다.
 조사 기준과 근거는 [설계 이력](../history/2026-10-24-account-stats-recovery-design.md)을 참고합니다.
-구현 계약은 [구현 스펙 초안](account-stats-recovery-spec.md)에 정리했습니다. GitHub 게시 상태와 검증 경계 확인은 [명세 작성 이력](../history/2026-10-24-account-stats-recovery-spec.md)을 참고합니다.
+구현 계약은 [구현 스펙 #80](https://github.com/clip-back/clipback/issues/80)에 게시했으며 [본문 사본](account-stats-recovery-spec.md)을 보존합니다. 게시·검증 경계 확인은 [명세 작성 이력](../history/2026-10-24-account-stats-recovery-spec.md)을 참고합니다.
 
 ## 합의한 범위
 
