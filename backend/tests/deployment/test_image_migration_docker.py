@@ -18,6 +18,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def command(arguments, environment, timeout=180):
+    __tracebackhide__ = True  # Environment and private fixture paths are not diagnostics.
     result = subprocess.run(
         [sys.executable, "-m", *arguments],
         env=environment,
@@ -27,6 +28,15 @@ def command(arguments, environment, timeout=180):
     report = json.loads(result.stdout)
     assert result.returncode == 0 and report["passed"], report
     return report
+
+
+def admission_control(operation, environment):
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.image_storage_admin", operation],
+        env=environment, capture_output=True, timeout=30,
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"uploads_paused": operation == "pause"}
 
 
 def test_actual_migration_cli_stops_resumes_preserves_bytes_and_old_restore_keeps_user_deletion(
@@ -81,6 +91,32 @@ print(json.dumps({'content_id':detail['id'],'saved_at':detail['saved_at'],
 """
     before = execute(drill, api, probe, state)
     assert len(before["assets"]) == 3
+    # Exercise the same DB/S3 environment's operator admission gate before the
+    # paired backup, migration, user deletion and old-point restoration below.
+    admission_control("pause", fixture["env"])
+    paused = execute(drill, api, """
+import io,json,sys,urllib.request,urllib.error
+from PIL import Image
+p=json.load(sys.stdin)
+boundary='clipback74'
+output=io.BytesIO()
+Image.new('RGB',(8,8),'blue').save(output,format='PNG')
+png=output.getvalue()
+body=(b'--clipback74\\r\\nContent-Disposition: form-data; name="file"; filename="probe.png"'
+      b'\\r\\nContent-Type: image/png\\r\\n\\r\\n'+png+b'\\r\\n--clipback74--\\r\\n')
+r=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/screenshots',data=body,
+ headers={'Authorization':'Bearer '+p['token'],
+          'Content-Type':'multipart/form-data; boundary='+boundary})
+try:
+ urllib.request.urlopen(r,timeout=10)
+ raise AssertionError('Paused upload was accepted')
+except urllib.error.HTTPError as error:
+ print(json.dumps({'status':error.code,'detail':json.load(error)['detail']}))
+""", state)
+    assert paused["status"] == 409
+    assert paused["detail"]["code"] == "image_uploads_paused"
+    assert execute(drill, api, probe, state) == before
+    admission_control("resume", fixture["env"])
     drill.docker("stop", api)
     command(
         [

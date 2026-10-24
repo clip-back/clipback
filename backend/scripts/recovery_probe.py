@@ -46,6 +46,10 @@ def get(path, token):
 
 async def snapshot(payload):
     root = settings.storage_root.resolve()
+    version = payload.get("format_version", 1)
+    authenticated_user = None
+    if version == 2 and payload.get("verify_api", True):
+        authenticated_user = json.loads(get("users/me", payload["access_token"]))["id"]
     async with AsyncSessionLocal() as session:
         # Caller freezes writers or provides a protected, exported DB snapshot.
         await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
@@ -87,7 +91,6 @@ async def snapshot(payload):
             )
         ]
         assets = []
-        version = payload.get("format_version", 1)
         columns = "id, content_id, storage_key"
         if version == 2:
             columns += ", storage_backend, size_bytes, sha256"
@@ -125,8 +128,15 @@ async def snapshot(payload):
             a["id"] == sample.get("asset_id") and a["content_id"] == sample.get("content_id")
             for a in assets
         )):
-            sample = ({"content_id": assets[0]["content_id"], "asset_id": assets[0]["id"]}
-                      if assets else None)
+            candidates = assets
+            if authenticated_user is not None:
+                owned = set((await session.execute(
+                    text("SELECT id FROM contents WHERE user_id=:user_id"),
+                    {"user_id": authenticated_user},
+                )).scalars())
+                candidates = [asset for asset in assets if asset["content_id"] in owned]
+            sample = ({"content_id": candidates[0]["content_id"], "asset_id": candidates[0]["id"]}
+                      if candidates else None)
         content = None
         if sample:
             content = await session.scalar(
@@ -186,7 +196,7 @@ async def snapshot(payload):
                 or hashlib.sha256(image).hexdigest() != expected["sha256"]
             ):
                 raise ValueError("Authenticated API data differs")
-        else:
+        elif authenticated_user is None:
             # A real authenticated request still proves the restored account/session.
             get("users/me", token)
     referenced = {
