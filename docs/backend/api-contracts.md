@@ -759,6 +759,8 @@ current owner's access before checking the actual file. It returns `asset_id`,
 `mode` (`proxy` or `direct`), `url`, nullable `expires_at`, `mime_type`, `size_bytes`
 and the original's hexadecimal `sha256`, with `Cache-Control: private, no-store`.
 Local assets use the existing relative authenticated asset URL and no expiry.
+The relative URL follows the configured `API_V1_PREFIX`, just like the upload
+and binary routes (for example, `/api/v9/uploads/assets/{id}`).
 Bucket assets use a GET URL signed for 120 seconds with the asset MIME override;
 Bucket credentials are never sent to the app. A signed URL is itself a temporary
 access credential: do not persist it or log its query string. Logout does not

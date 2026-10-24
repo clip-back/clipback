@@ -307,6 +307,10 @@ CLIPBACK_RECOVERY_TEST_IMAGE=clipback-backup-recovery:check \
 같은 환경변수로 `tests/deployment/test_image_backup_docker.py`를 실행하면 실제 PostgreSQL 16
 dump, local·Bucket 원본, 내용별 백업 재사용, 격리 Bucket 복원과 인증 GET, 누락·손상 사본을
 검사합니다. 이 합성 fixture는 원본·백업·독립 삭제 기록용 세 private Bucket을 가진 로컬 moto만 사용합니다.
+전용 일일 작업 이미지도 검사하려면 source DB와 같은 `POSTGRES_MAJOR=16`으로
+`Dockerfile.operator`를 빌드하고 그 이미지를 `CLIPBACK_RECOVERY_OPERATOR_IMAGE`에 지정합니다.
+기본 주 버전 17 이미지를 이 fixture에 지정하면 `pg_dump_version_mismatch`로 의도적으로 실패합니다.
+실제 운영 이미지는 fixture 버전이 아니라 실제 source DB 주 버전과 맞춥니다.
 
 `test_multiuser_image_restore_docker.py`는 먼저 생긴 타인 원본이 있는 환경에서 살아 있는 표본,
 삭제 후 동일 계정의 대체 원본, 그 계정의 원본이 모두 삭제된 경우를 실제 복원합니다.
