@@ -1,8 +1,8 @@
 # 마이 통계의 조회 상태와 복구 정책
 
 2026-10-24 사용자 최종 확인으로 첫 구현의 정책과 화면 디자인을 확정했습니다.
-이 문서는 확정한 정책을 관리합니다. 통합 브랜치에서 단계별로 구현 중이며,
-현재 적용·검증 범위는 [구현 이력](../history/2026-10-25-account-stats-recovery-implementation.md)을 따릅니다. 운영 배포를 의미하지 않습니다.
+이 문서는 확정한 정책을 관리합니다. `feature/account-stats-recovery`에서 첫 구현과 로컬 검증을 완료했으며,
+적용·검증 범위와 남은 비교 한계는 [구현 이력](../history/2026-10-25-account-stats-recovery-implementation.md)을 따릅니다. 운영 배포를 의미하지 않습니다.
 조사 기준과 근거는 [설계 이력](../history/2026-10-24-account-stats-recovery-design.md)을 참고합니다.
 구현 계약은 [구현 스펙 #80](https://github.com/clip-back/clipback/issues/80)에 게시했으며 [본문 사본](account-stats-recovery-spec.md)을 보존합니다. 게시·검증 경계 확인은 [명세 작성 이력](../history/2026-10-24-account-stats-recovery-spec.md)을 참고합니다.
 구현 티켓은 #80의 하위 이슈로 관리합니다. 승인한 분할과 선행 관계의 검증 결과는 [티켓 작성 이력](../history/2026-10-24-account-stats-recovery-tickets.md)을 참고합니다.
