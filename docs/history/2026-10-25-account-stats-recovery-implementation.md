@@ -50,3 +50,9 @@
 - 요청 수명 도우미에 선택적 현재 소유권 조건을 연결하고, 토큰 저장 전에 유효한 인증 갱신 소비자를 다시 확인한다. 플랫폼 계정 확인용 `verifySession`은 유지했다. 사용처가 없어진 `loadStats(apply:false)` 옵션은 제거했다.
 - 실제0/0 지연·실패·재시도와 새9.999초 성공, 늦은9999/9999 무시, 새 앱 실행의 미확인 상태, 콘텐츠 삭제 성공과 프로필503의 독립성을 확인했다. 실제 공유 구성의 프로필503에서도 통계7/3은 표시되고 receipt는 보류되며 정상 재시도 후 같은 receipt를 확인했다.
 - 최신 #82를 포함한 관련 검사 **273/273 통과**, analyze·diff 검사 통과. 상세 RED·GREEN·기존 공유/Repository 회귀: `/private/tmp/clipback-account-stats-implementation/83-notes.md`, `83-*.log`.
+
+## #82·#83 통합 검사와 네이티브 입력 재현
+
+- 제품 `7616c62`에서 전체 Flutter **1819/1819 통과**(3분4초), analyze **No issues found**, 제품 `lib/main.dart`의 웹 빌드 **성공**(37.8초). 로그는 `/private/tmp/clipback-account-stats-implementation/82-83-{full-test,analyze,web-build}.log`다.
+- 이후 Android 실행에서 글자2배율의 마지막 확인값 실패 상태를 빠르게 두 번 누르면 stats 요청은1회지만 두 번째 입력이 올라온 ‘리마인드 설정’을 여는 문제를 재현했다. 원본 `native/android/after82-83/last-{error,retry-pending}-scale2.png`와 `stats-last-values.mp4`를 보존하고 #83 수정·재검증을 진행한다. 앞의 자동 검사 통과는 이 입력 문제의 해결 증거가 아니다.
+- #82 첫 네이티브 시도는9.1초에 두 탭 왕복을 시작해 실제 복귀가10.43초가 됐다. 이미 만료 후여서 새 요청이 시작된 정상 동작을 ‘기존 요청 공유’ 실패로 잘못 판정한 harness 문제다. 원시 결과를 보존하고,10초 전에 실제 복귀하도록7.2초부터 왕복해 다시 검증한다.
