@@ -5,7 +5,7 @@
 - 요청: [스펙 #80](https://github.com/clip-back/clipback/issues/80) 전체를 구현하고 #81 → #82·#83 → #84 순서로 통합한다.
 - 통합 브랜치: `feature/account-stats-recovery`. 시작 커밋 `e96b33887ede1cb83a3b2b1ba69a6ba4eb712650`, 당시 main `00e092a59196b44013b3fadfb37e1a6cc6ee549e`.
 - 구현자는 티켓별 작업트리에서 승인된 실제 앱·HTTP 대역·메모리 세션 경계에 RED→GREEN을 적용한다. 완료 커밋은 별도 병합 담당자가 통합한다.
-- 현재 #81 구현 커밋은 통합했으며 네이티브 검증 중이다. #82~#84와 최종 리뷰·전체 검증은 아직 진행 전이다.
+- #81 구현·자동·양 플랫폼 실행 검증을 완료했다. #82~#84와 최종 리뷰·전체 검증은 후속 진행한다.
 - 푸시·PR·main 병합·배포는 수행하지 않는다. 실제 OAuth·운영 API·실기기 검증과 로컬 대역 검증을 구분한다.
 
 ## #81 최초 상태·수동 복구
@@ -25,3 +25,12 @@
 - 두 플랫폼 모두 기존 글자2배율에서 `MyMetric` 두 Column의 bottom overflow37px을 재현했다. 원본 경고띠와 패널 밖 숫자를 보정하지 않았다. 1배율 장면에는 framework 오류가 없었다.
 - Figma J01 `111:4707`과 패널 `111:4727`을 이번 작업에서 새로 조회했다. 정상 원본375×842·패널343×80이며 새 대기·실패·버튼 상태는 [사용자 승인 디자인](../frontend/account-stats-recovery.md#디자인-기준)을 따른다. 없는 Figma 상태를 만들어 채우지 않는다.
 - 원본·환경·해시 manifest: `/private/tmp/clipback-account-stats-implementation/native/before-manifest.json`. 이후 변경 후 실행·비교는 이 기록에 추가한다.
+
+## #81 양 플랫폼 실행
+
+- iOS Simulator iPhone16Pro/iOS18.6과 Android Emulator `Clipback_Share_API_33`/Android13(API33)에서 새로 빌드·설치·실행했다. 실제 앱 루트와 HTTP·메모리 세션·소셜 대역을 사용하고, native share는 위임0으로 격리했다.
+- 정상218/72·실제0·통계 지연·503·프로필503/지연을 글자1/2배율로 각각 캡처했다. 최초실패→실제 pointer 재시도→성공, 중복입력 HTTP1회, 프로필 독립, 잘못된 응답, 전체10초와 새 재시도 예산, 인증 갱신 포함 제한, 다른 설정 메뉴 이동, 현재401 인증 복구를 확인했다.
+- iOS 원시 검사 **26/26 통과**. Android 원시 검사 **25/26 통과**이며 나머지1개는 변경 전과 같은 프로필 영역의 글자2배율1px overflow다. 통계 영역의 기존37px×2 overflow는 두 플랫폼 모두 해소됐다. 프로필·하단 탭의 확대 전용 디자인은 이번 통계 범위 밖으로 남긴다.
+- 변경 전·후·Figma를 같은 플랫폼·기종·데이터·배율·스크롤 조건으로 표시한 비교: `/private/tmp/clipback-account-stats-implementation/native/comparison-after81.html`. 정상의 셋째 열은 새로 조회한 J01 원본이며, 새 실패 상태는 채택한 Figma가 없다는 이유와 승인 시안을 표시한다. 원본 이미지는 자르거나 보정하지 않았다.
+- 원시 판정·해시·관측 시각: 같은 디렉터리의 `after81-native-receipt.md`, `after81-manifest.json`. 대표 이미지는 `{ios,android}/after81/first-error-scale1.png`, 확대는 `first-error-scale2.png`, 실제 재시도·이동 영상은 `stats-retry-menus.mp4`다.
+- 기존 BEFORE 원본50개의 해시를 유지했다. 실행 후 이번 AVD·fixture 앱만 종료했으며 기존 iOS Simulator boot는 유지했다. 실제 OAuth·운영 서버·실기기 증거는 아니다.
