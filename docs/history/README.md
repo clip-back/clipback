@@ -115,6 +115,7 @@
 | 2026-10-22 | [일반 문서 README·상세 기준 정리와 보존 검증](2026-10-22-general-docs-structure.md) | 문서 |
 | 2026-10-23 | [에이전트 스킬 저장소 설정과 GitHub 라벨 확인](2026-10-23-agent-skills-setup.md) | 문서 |
 | 2026-10-24 | [홈 최초 불러오기 복구 설계 인터뷰](2026-10-24-home-loading-recovery-design.md) | 설계 |
+| 2026-10-24 | [홈 최초 불러오기 복구 구현](2026-10-24-home-loading-recovery-implementation.md) | 프론트 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 

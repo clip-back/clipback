@@ -53,6 +53,7 @@ flutter build web --no-pub
 | `lib/app/` | 의존성 조립·화면 연결·UI 효과를 처리하는 앱 View와 인증·화면 흐름을 조정하는 AppViewModel |
 | `lib/app/actions/` | 여러 Repository를 사용하는 계정 초기화·콘텐츠 변경 후 갱신 순서 |
 | `lib/data/repositories/` | 세션, 콘텐츠·카테고리·피드, 사용자·서버 통계, 계정별 최근 검색어, 네이티브 공유 Repository의 계약과 구현 |
+| `lib/data/services/api_request_scope.dart` | 최초 홈·부가 조회의 요청 수명과 공통 인증 갱신의 늦은 응답 차단 |
 | `lib/data/models/` | 읽기 전용 피드 스냅샷, 요청 세대와 변경 핸들 등 데이터 처리 계약 |
 | `lib/shared/models/` | 여러 기능에서 사용하는 화면 모델 |
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |
@@ -89,12 +90,13 @@ API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이�
 - Today·Weekly, 최근 검색어, 시스템 뒤로가기는 기준 커밋에 연결되어 있습니다. 작업별 실제 검증과 한계는 이력 목차를 확인합니다.
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
+- 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서
 
 - [세션·저장·탐색·실패 복구와 화면 동작](../docs/frontend/behavior.md)
-- [홈 최초 불러오기 복구 설계 — 확정·미구현](../docs/frontend/home-loading-recovery.md) · [구현 명세 #76](https://github.com/clip-back/clipback/issues/76)
+- [홈 최초 불러오기 복구 정책과 구현 범위](../docs/frontend/home-loading-recovery.md) · [구현 명세 #76](https://github.com/clip-back/clipback/issues/76)
 - [소셜·플랫폼 설정과 실행·검증·TestFlight](../docs/frontend/development.md)
 - [백엔드 API 계약](../docs/backend/api-contracts.md)
 - [iOS 네이티브 공유 검증](ios/ShareVerification/README.md) · [Android 공유 검증](android/SHARE_TESTING.md)
