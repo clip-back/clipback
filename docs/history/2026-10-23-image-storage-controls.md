@@ -40,6 +40,8 @@
   재실행해 통과했다. 운영 이미지 `clipback-image-operator72:check`를 PostgreSQL 16 기반으로 실제 빌드하고
   컨테이너에서 `python -m scripts.image_storage_admin --help`가 세 명령을 제공함을 확인했다.
   이는 패키징 검증이며 실제 운영 DB나 청구 서비스에 접속한 결과가 아니다.
+- 최종 이관 구현 병합 후 운영 제어·계정 한도 검사 11개가 2.65초에 통과했다. 운영 이미지를
+  다시 빌드해 관리 명령과 `scripts.image_migration --help`가 함께 실행됨을 확인했다.
 
 ## 모바일 실행 경계
 
