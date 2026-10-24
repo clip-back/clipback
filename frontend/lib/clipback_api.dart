@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/services/api_request_scope.dart';
+
 class ClipbackApiException implements Exception {
   const ClipbackApiException(this.message, {this.statusCode});
 
@@ -324,6 +326,9 @@ class ClipbackApi {
   ApiSession? _session;
   int _sessionGeneration = 0;
   Future<ApiSession>? _refreshFuture;
+  ApiRequestScope? _refreshScope;
+  final _refreshOwners = <ApiRequestScope>{};
+  bool _refreshHasUnscopedOwner = false;
   int? _logoutGeneration;
 
   bool get hasSession => _session != null;
@@ -345,10 +350,7 @@ class ClipbackApi {
       if (error.statusCode != 401) rethrow;
       _checkSessionGeneration(generation);
       // Share preparation may refresh, but its failure does not clear login.
-      final activeRefresh = _refreshFuture;
-      if (activeRefresh != null) {
-        await activeRefresh;
-      } else if (identical(issuedFor, _session)) {
+      if (_refreshFuture != null || identical(issuedFor, _session)) {
         await refreshSession();
       }
       _checkSessionGeneration(generation);
@@ -373,6 +375,10 @@ class ClipbackApi {
     _sessionGeneration++;
     _session = session;
     _refreshFuture = null;
+    _refreshScope?.cancel();
+    _refreshScope = null;
+    _refreshOwners.clear();
+    _refreshHasUnscopedOwner = false;
   }
 
   void _checkSessionGeneration(int generation, {bool allowLogout = false}) {
@@ -387,6 +393,7 @@ class ClipbackApi {
     required int generation,
     bool isRefresh = false,
   }) async {
+    ApiRequestScope.current?.checkActive();
     _checkSessionGeneration(generation, allowLogout: isRefresh);
     if (isRefresh) {
       _session = session;
@@ -422,15 +429,52 @@ class ClipbackApi {
     if (session == null) {
       return Future.error(const ClipbackApiException('로그인이 필요합니다.'));
     }
+    ApiRequestScope.current?.checkActive();
     final activeRefresh = _refreshFuture;
-    if (activeRefresh != null) return activeRefresh;
+    if (activeRefresh != null) return _joinRefresh(activeRefresh);
 
+    final scope = ApiRequestScope();
+    _refreshScope = scope;
+    _refreshOwners.clear();
+    _refreshHasUnscopedOwner = false;
     late final Future<ApiSession> refresh;
-    refresh = _refreshSession(session, generation).whenComplete(() {
-      if (identical(_refreshFuture, refresh)) _refreshFuture = null;
-    });
+    refresh = scope
+        .run(() => _refreshSession(session, generation))
+        .whenComplete(() {
+          scope.cancel();
+          if (identical(_refreshFuture, refresh)) {
+            _refreshFuture = null;
+            _refreshScope = null;
+            _refreshOwners.clear();
+            _refreshHasUnscopedOwner = false;
+          }
+        });
     _refreshFuture = refresh;
-    return refresh;
+    return _joinRefresh(refresh);
+  }
+
+  Future<ApiSession> _joinRefresh(Future<ApiSession> refresh) {
+    final scope = _refreshScope!;
+    final owner = ApiRequestScope.current;
+    if (owner == null) {
+      _refreshHasUnscopedOwner = true;
+    } else if (_refreshOwners.add(owner)) {
+      unawaited(
+        owner.cancelled.then((_) {
+          if (identical(_refreshScope, scope) &&
+              !_refreshHasUnscopedOwner &&
+              _refreshOwners.every((owner) => !owner.isActive)) {
+            // An obsolete request cannot update tokens later. A refresh shared by
+            // another live request retains that request's ownership instead.
+            _refreshFuture = null;
+            _refreshScope = null;
+            _refreshOwners.clear();
+            scope.cancel();
+          }
+        }),
+      );
+    }
+    return owner?.wait(refresh) ?? refresh;
   }
 
   Future<ApiSession> _refreshSession(ApiSession session, int generation) async {
@@ -449,6 +493,7 @@ class ClipbackApi {
       _checkSessionGeneration(generation, allowLogout: true);
       rethrow;
     }
+    ApiRequestScope.current?.checkActive();
     _checkSessionGeneration(generation, allowLogout: true);
     return _setSession(
       ApiSession.fromJson(response),
@@ -895,7 +940,13 @@ class ClipbackApi {
     bool retryUnauthorized = true,
   }) => _sendWithSessionRetry(
     (session) async {
-      final request = http.Request(method, Uri.parse('$_baseUrl$path'));
+      final scope = ApiRequestScope.current;
+      scope?.checkActive();
+      final request = http.AbortableRequest(
+        method,
+        Uri.parse('$_baseUrl$path'),
+        abortTrigger: scope?.cancelled,
+      );
       request.headers['Accept'] = 'application/json';
       if (authenticated) {
         request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
@@ -916,6 +967,8 @@ class ClipbackApi {
     bool retried = false,
     bool retryUnauthorized = true,
   }) async {
+    final scope = ApiRequestScope.current;
+    scope?.checkActive();
     final generation = _sessionGeneration;
     final session = _session;
     if (authenticated) {
@@ -924,31 +977,34 @@ class ClipbackApi {
     }
     late final http.Response response;
     try {
-      response = await send(session);
+      final pending = send(session);
+      response = await (scope?.wait(pending) ?? pending);
     } catch (_) {
+      scope?.checkActive();
       if (authenticated) _checkSessionGeneration(generation);
       rethrow;
     }
+    scope?.checkActive();
     if (authenticated) _checkSessionGeneration(generation);
     if (response.statusCode == 401 &&
         authenticated &&
         !retried &&
         retryUnauthorized) {
       try {
-        final activeRefresh = _refreshFuture;
-        if (activeRefresh != null) {
-          // Memory can change before the persistence callback finishes.
-          await activeRefresh;
-        } else if (session!.accessToken == _session!.accessToken) {
+        // Memory can change before the persistence callback finishes.
+        if (_refreshFuture != null ||
+            session!.accessToken == _session!.accessToken) {
           await refreshSession();
         }
       } catch (error) {
+        scope?.checkActive();
         _checkSessionGeneration(generation);
         if (error is ClipbackApiException && error.statusCode == 401) {
           await _onSessionInvalidated?.call();
         }
         rethrow;
       }
+      scope?.checkActive();
       _checkSessionGeneration(generation);
       return _sendWithSessionRetry(
         send,

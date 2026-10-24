@@ -213,32 +213,26 @@ class _Fixture {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  for (final path in _bootstrapPaths) {
-    test(
-      'cold restore holds initial loading through $path in request order',
-      () async {
-        final f = _Fixture();
-        addTearDown(f.dispose);
-        f.hold(path);
-        final restore = f.model.restoreSession();
-        await f.waitFor(path);
-        expect(_loading(f.model), isTrue);
-        expect(f.model.isRestoringSession, isTrue);
-        await f.model
-            .restoreSession(); // A duplicate retry cannot replace its owner.
-        expect(
-          f.paths,
-          _bootstrapPaths.take(_bootstrapPaths.indexOf(path) + 1),
-        );
-        f.release(path);
-        await restore;
-        expect(_loading(f.model), isFalse);
-        expect(f.model.route, AppRoute.home);
-        expect(f.model.apiConnectionError, isNull);
-        expect(f.paths, _bootstrapPaths);
-        expect(f.storage.reads, 1);
-      },
-    );
+  for (final path in [_categories, _feed]) {
+    test('홈 최초 불러오기는 필수 목록 $path 준비 전까지 로딩한다', () async {
+      final f = _Fixture();
+      addTearDown(f.dispose);
+      f.hold(path);
+      final restore = f.model.restoreSession();
+      await f.waitFor(path);
+      expect(_loading(f.model), isTrue);
+      expect(f.model.isRestoringSession, isTrue);
+      await f.model
+          .restoreSession(); // A duplicate retry cannot replace its owner.
+      expect(f.paths, _bootstrapPaths.take(_bootstrapPaths.indexOf(path) + 1));
+      f.release(path);
+      await restore;
+      expect(_loading(f.model), isFalse);
+      expect(f.model.route, AppRoute.home);
+      expect(f.model.apiConnectionError, isNull);
+      expect(f.paths, _bootstrapPaths);
+      expect(f.storage.reads, 1);
+    });
   }
 
   test(

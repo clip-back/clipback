@@ -6,11 +6,14 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -222,6 +225,8 @@ void _expectLoaded(WidgetTester tester) {
 
 Future<void> _retry(WidgetTester tester) async {
   await tester.tap(find.text('다시 시도'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 900));
   await tester.pumpAndSettle();
 }
 
@@ -407,6 +412,203 @@ void main() {
       );
     }
   }
+
+  for (final path in [_me, _stats]) {
+    testWidgets('$path 지연 중에도 홈 최초 불러오기를 마치고 유효한 후속 정보를 반영한다', (tester) async {
+      final metadata = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request) async =>
+            request.url.path == path ? metadata.future : null,
+      );
+      await _runApp(tester, server, (storage) async {
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pump();
+        _expectLoaded(tester);
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        final before = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+        if (path == _me) {
+          expect(before.name, '계정 정보 확인 중');
+        } else {
+          expect(before.name, '테스트 계정');
+          expect(before.savedContentCount, 0);
+        }
+        metadata.complete(
+          path == _me ? null : _json({'saved_count': 9, 'reopened_count': 3}),
+        );
+        await tester.pumpAndSettle();
+        final after = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+        expect(after.name, '테스트 계정');
+        expect(after.savedContentCount, path == _me ? 1 : 9);
+        expect(storage.clears, 0);
+        expect(server.calls(_guest), isEmpty);
+      }, settle: false);
+    });
+  }
+
+  testWidgets('홈 최초 불러오기는 정상적인 빈 첫 목록도 준비 완료로 본다', (tester) async {
+    final server = _Server(
+      respond: (request) async => request.url.path == _feed
+          ? _json({'items': <Object>[], 'next_cursor': null})
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).contents,
+        isEmpty,
+      );
+      expect(server.calls(_feed), hasLength(1));
+      expect(storage.clears, 0);
+    });
+  });
+
+  testWidgets('홈 불러오기 재시도는 필수 목록이 즉시 와도 최소900ms 표시한다', (tester) async {
+    var fail = true;
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _categories && fail) return _failure('503');
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      _expectError();
+      fail = false;
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 899));
+      expect(
+        find.byKey(const ValueKey('home-initial-loading-screen')),
+        findsOneWidget,
+      );
+      expect(find.byType(HomeScreen), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      _expectLoaded(tester);
+    });
+  });
+
+  testWidgets('종료된 홈 부가 조회의 늦은 사용자 정보는 현재 계정에 반영하지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async =>
+          request.url.path == _me ? profile.future : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(const Duration(seconds: 11));
+      profile.complete(
+        _json({
+          'id': 1,
+          'email': null,
+          'display_name': '종료 뒤 도착한 계정',
+          'is_guest': true,
+          'created_at': '2026-10-05T00:00:00Z',
+          'linked_providers': <String>[],
+        }),
+      );
+      await tester.pumpAndSettle();
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MyScreen>(find.byType(MyScreen)).user.name,
+        '계정 정보 확인 중',
+      );
+      expect(storage.clears, 0);
+    }, settle: false);
+  });
+
+  testWidgets('종료된 부가 조회의 늦은401은 세션을 갱신하거나 삭제하지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async =>
+          request.url.path == _me ? profile.future : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(const Duration(seconds: 11));
+      profile.complete(_failure('401'));
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(server.calls(_refresh), isEmpty);
+      expect(storage.clears, 0);
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    }, settle: false);
+  });
+
+  testWidgets('종료된 부가 조회가 단독 시작한 늦은 갱신은 토큰을 저장하지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final refresh = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _me) return profile.future;
+        if (request.url.path == _refresh) return refresh.future;
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(const Duration(seconds: 7));
+      profile.complete(_failure('401'));
+      await tester.pump();
+      expect(server.calls(_refresh), hasLength(1));
+      await tester.pump(const Duration(seconds: 2));
+      refresh.complete(_tokens('expired'));
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(storage.writes, 0);
+      expect(storage.clears, 0);
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    }, settle: false);
+  });
+
+  testWidgets('부가 조회가 종료돼도 현재 검색이 공유한 인증 갱신은 완료한다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final refresh = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _me &&
+            request.headers['Authorization'] == 'Bearer test-access') {
+          return profile.future;
+        }
+        if (request.url.path == _refresh) return refresh.future;
+        if (request.url.path == _feed &&
+            request.url.queryParameters['q'] != null &&
+            request.headers['Authorization'] == 'Bearer test-access') {
+          return _failure('401');
+        }
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(const Duration(seconds: 7));
+      profile.complete(_failure('401'));
+      await tester.pump();
+      expect(server.calls(_refresh), hasLength(1));
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onSearch();
+      await tester.pumpAndSettle();
+      final search = tester
+          .widget<SearchScreen>(find.byType(SearchScreen))
+          .onSearch('현재 검색');
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      refresh.complete(_tokens('shared'));
+      await tester.pumpAndSettle();
+      expect((await search).map((item) => item.apiId), [7]);
+      expect(storage.clears, 0);
+      expect(server.calls(_refresh), hasLength(1));
+      expect((await ApiSessionStorage().read())?.accessToken, 'shared-access');
+    }, settle: false);
+  });
 
   for (final path in [_me, _stats]) {
     testWidgets(
@@ -663,6 +865,7 @@ void main() {
         expect(find.byType(HomeScreen), findsNothing);
         expect(categoryCalls, 2);
         retry.complete(_json([_category]));
+        await tester.pump(const Duration(milliseconds: 900));
         await tester.pumpAndSettle();
         _expectLoaded(tester);
         expect(storage.reads, 1);

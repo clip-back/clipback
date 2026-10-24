@@ -332,7 +332,7 @@ class AppViewModel extends ChangeNotifier {
         final epoch = _authEpoch;
         final generation = _accountGeneration;
         initialHomeLoading = _beginInitialHomeLoading();
-        await _loadRemoteData();
+        await _loadRemoteData(initialHome: initialHomeLoading != null);
         if (_disposed ||
             epoch != _authEpoch ||
             generation != _accountGeneration ||
@@ -341,7 +341,7 @@ class AppViewModel extends ChangeNotifier {
         }
         _route = _postAuthRoute ?? AppRoute.home;
         _postAuthRoute = null;
-        await checkAppleCredential();
+        if (initialHomeLoading == null) await checkAppleCredential();
         if (!_disposed &&
             epoch == _authEpoch &&
             generation == _accountGeneration &&
@@ -370,15 +370,40 @@ class AppViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadRemoteData() async {
+  Future<void> _loadRemoteData({bool initialHome = false}) async {
     final epoch = _authEpoch;
     final generation = _accountGeneration;
     final initialization = Object();
     _initialization = initialization;
     _initializationGeneration = generation;
     _initializationEpoch = epoch;
+    final minimum = initialHome
+        ? Future<void>.delayed(const Duration(milliseconds: 900))
+        : null;
+    Future<void>? appleCheck;
     try {
-      await _initializeAccount.load();
+      await _initializeAccount.load(
+        waitForMetadata: !initialHome,
+        onUserLoaded: initialHome
+            ? () {
+                if (_disposed ||
+                    epoch != _authEpoch ||
+                    generation != _accountGeneration) {
+                  return;
+                }
+                _authenticatedUser = _users.user;
+                _notify();
+                if (!_authBusy) appleCheck = checkAppleCredential();
+              }
+            : null,
+      );
+      await minimum;
+      if (initialHome &&
+          !_disposed &&
+          epoch == _authEpoch &&
+          generation == _accountGeneration) {
+        await (appleCheck ?? checkAppleCredential());
+      }
       if (_disposed ||
           epoch != _authEpoch ||
           generation != _accountGeneration) {
@@ -453,7 +478,7 @@ class AppViewModel extends ChangeNotifier {
         !_disposed && epoch == _authEpoch && generation == _accountGeneration;
     final initialHomeLoading = _beginInitialHomeLoading();
     try {
-      await _loadRemoteData();
+      await _loadRemoteData(initialHome: initialHomeLoading != null);
       if (!current() || !_session.hasSession) return;
       _firstAccountInitializationComplete = true;
       _route = _postAuthRoute ?? AppRoute.home;

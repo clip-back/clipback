@@ -338,6 +338,8 @@ void main() {
           storage.failRead = false;
           server.failCategories = false;
           await tester.tap(find.text('다시 시도'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 900));
           await tester.pumpAndSettle();
           expect(find.byType(HomeScreen), findsOneWidget);
           expect(find.byType(SplashScreen), findsNothing);
