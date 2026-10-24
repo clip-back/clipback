@@ -99,7 +99,10 @@ class _Social extends SocialAuth {
 }
 
 class _Fixture {
-  _Fixture({ApiSession? stored = _stored}) : storage = _Storage(stored) {
+  _Fixture({
+    ApiSession? stored = _stored,
+    Future<void> Function()? beforeSessionChange,
+  }) : storage = _Storage(stored) {
     client = MockClient((request) async {
       final path = request.url.path;
       paths.add(path);
@@ -126,6 +129,7 @@ class _Fixture {
       session: session,
       users: users,
       initializeAccount: initialize,
+      beforeSessionChange: beforeSessionChange,
     );
   }
 
@@ -414,6 +418,31 @@ void main() {
       },
     );
   }
+
+  testWidgets('15초 전에 확인한 Apple 철회는 native 차단 대기 중에도 로컬 세션을 차단한다', (
+    tester,
+  ) async {
+    final barrier = Completer<void>();
+    final f = _Fixture(beforeSessionChange: () => barrier.future)..apple = true;
+    addTearDown(f.dispose);
+    f.social.appleGate = Completer<AppleCredentialStatus>();
+    final restore = f.model.restoreSession();
+    await tester.pump();
+    expect(f.social.appleChecks, 1);
+    await tester.pump(const Duration(seconds: 14));
+    f.social.appleGate!.complete(AppleCredentialStatus.revoked);
+    await tester.pump();
+    expect(f.model.authBusy, isTrue);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    await restore;
+    expect(f.model.route, AppRoute.login);
+    expect(f.session.hasSession, isFalse);
+    expect(f.storage.value, isNull);
+    barrier.complete();
+    await tester.pump();
+    expect(f.model.route, AppRoute.login);
+  });
 
   test(
     'Apple credential verification retains loader until its existing completion boundary',

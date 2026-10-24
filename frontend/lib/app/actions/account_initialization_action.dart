@@ -14,24 +14,29 @@ class AccountInitializationAction {
   bool _disposed = false;
   ApiRequestScope? _metadataScope;
 
+  void cancelMetadata() {
+    _metadataScope?.cancel();
+    _metadataScope = null;
+  }
+
   void dispose() {
     _disposed = true;
-    _metadataScope?.cancel();
+    cancelMetadata();
   }
 
   void reset(int generation) {
     if (_disposed) return;
-    _metadataScope?.cancel();
+    cancelMetadata();
     content.resetAccount(generation);
     users.resetAccount(generation);
   }
 
   Future<void> load({
     bool waitForMetadata = true,
-    void Function()? onUserLoaded,
+    Future<void> Function()? onUserLoaded,
   }) async {
     if (_disposed) return;
-    _metadataScope?.cancel();
+    cancelMetadata();
     final generation = content.accountVersion;
     bool current() => !_disposed && generation == content.accountVersion;
     await content.loadCategories();
@@ -69,13 +74,14 @@ class AccountInitializationAction {
 
   Future<void> _loadMetadata(
     bool Function() current,
-    void Function()? onUserLoaded,
+    Future<void> Function()? onUserLoaded,
   ) async {
     var loadedUser = false;
+    Future<void>? userCheck;
     try {
       await users.loadMe();
       loadedUser = true;
-      if (current()) onUserLoaded?.call();
+      if (current()) userCheck = onUserLoaded?.call();
     } catch (error) {
       if (!current()) return;
       if (error is ClipbackApiException && error.statusCode == 401) rethrow;
@@ -87,5 +93,6 @@ class AccountInitializationAction {
       if (!current()) return;
       if (error is ClipbackApiException && error.statusCode == 401) rethrow;
     }
+    await userCheck;
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../clipback_api.dart';
 import '../data/repositories/session_repository.dart';
 import '../data/repositories/user_repository.dart';
+import '../data/services/api_request_scope.dart';
 import '../shared/contracts/app_route.dart';
 import '../shared/contracts/ui_effect.dart';
 import '../social_auth.dart';
@@ -86,13 +87,14 @@ class AppViewModel extends ChangeNotifier {
   int? _initializationGeneration;
   int? _initializationEpoch;
   Object? _initialHomeLoading;
+  ApiRequestScope? _initialHomeScope;
   int? _initialHomeLoadingEpoch;
   int? _initialHomeLoadingGeneration;
   bool _firstAccountInitializationComplete = false;
   ApiUser? _authenticatedUser;
   bool _authBusy = false;
   bool _linkingGuest = false;
-  bool _checkingAppleCredential = false;
+  Object? _appleCredentialCheck;
   bool _isRestoringSession = false;
   bool _disposed = false;
   bool _started = false;
@@ -250,6 +252,8 @@ class AppViewModel extends ChangeNotifier {
   }
 
   void _clearInitialHomeLoading() {
+    _initialHomeScope?.cancel();
+    _initialHomeScope = null;
     _initialHomeLoading = null;
     _initialHomeLoadingEpoch = null;
     _initialHomeLoadingGeneration = null;
@@ -275,6 +279,7 @@ class AppViewModel extends ChangeNotifier {
     if (_disposed) return;
     switch (event) {
       case SessionInvalidation.started:
+        _initializeAccount.cancelMetadata();
         _authEpoch++;
         _ordinaryLoginFailure = null;
         _ordinaryLoginStatus = null;
@@ -296,6 +301,7 @@ class AppViewModel extends ChangeNotifier {
     _resetAccount();
     _linkingGuest = false;
     _postAuthRoute = null;
+    _apiConnectionError = null;
     _previousRoute = AppRoute.login;
     _route = AppRoute.login;
     _notify();
@@ -308,6 +314,7 @@ class AppViewModel extends ChangeNotifier {
     _ordinaryLoginStatus = null;
     _accountLinkConflict = null;
     Object? initialHomeLoading;
+    var restoreEpoch = _authEpoch;
     _apiConnectionError = null;
     _notify();
     try {
@@ -330,6 +337,7 @@ class AppViewModel extends ChangeNotifier {
       }
       try {
         final epoch = _authEpoch;
+        restoreEpoch = epoch;
         final generation = _accountGeneration;
         initialHomeLoading = _beginInitialHomeLoading();
         await _loadRemoteData(initialHome: initialHomeLoading != null);
@@ -355,6 +363,7 @@ class AppViewModel extends ChangeNotifier {
       }
     } catch (_) {
       if (!_disposed &&
+          restoreEpoch == _authEpoch &&
           (_session.hasSession ||
               _session.pendingSessionClear ||
               _route != AppRoute.login)) {
@@ -377,15 +386,25 @@ class AppViewModel extends ChangeNotifier {
     _initialization = initialization;
     _initializationGeneration = generation;
     _initializationEpoch = epoch;
+    final scope = initialHome
+        ? ApiRequestScope(timeout: const Duration(seconds: 15))
+        : null;
+    if (scope != null) _initialHomeScope = scope;
+    bool current() =>
+        !_disposed &&
+        epoch == _authEpoch &&
+        generation == _accountGeneration &&
+        identical(_initialization, initialization) &&
+        (scope?.isActive ?? true);
     final minimum = initialHome
         ? Future<void>.delayed(const Duration(milliseconds: 900))
         : null;
     Future<void>? appleCheck;
-    try {
+    Future<void> load() async {
       await _initializeAccount.load(
         waitForMetadata: !initialHome,
         onUserLoaded: initialHome
-            ? () {
+            ? () async {
                 if (_disposed ||
                     epoch != _authEpoch ||
                     generation != _accountGeneration) {
@@ -393,26 +412,39 @@ class AppViewModel extends ChangeNotifier {
                 }
                 _authenticatedUser = _users.user;
                 _notify();
-                if (!_authBusy) appleCheck = checkAppleCredential();
+                if (!_authBusy) {
+                  appleCheck = scope?.isActive == true
+                      ? scope!.run(checkAppleCredential)
+                      : checkAppleCredential();
+                  await appleCheck;
+                }
               }
             : null,
       );
       await minimum;
-      if (initialHome &&
-          !_disposed &&
-          epoch == _authEpoch &&
-          generation == _accountGeneration) {
+      if (initialHome && current()) {
         await (appleCheck ?? checkAppleCredential());
       }
-      if (_disposed ||
-          epoch != _authEpoch ||
-          generation != _accountGeneration) {
-        return;
-      }
+      if (!current()) return;
       _authenticatedUser = _users.user;
       _apiConnectionError = null;
       _notify();
+    }
+
+    try {
+      if (scope == null) {
+        await load();
+      } else {
+        await scope.run(() => scope.wait(load()));
+      }
+    } catch (_) {
+      if (identical(_initialization, initialization)) {
+        _initializeAccount.cancelMetadata();
+      }
+      rethrow;
     } finally {
+      scope?.cancel();
+      if (identical(_initialHomeScope, scope)) _initialHomeScope = null;
       if (identical(_initialization, initialization)) {
         _initialization = null;
         _initializationGeneration = null;
@@ -745,33 +777,49 @@ class AppViewModel extends ChangeNotifier {
 
   Future<void> checkAppleCredential() async {
     if (_disposed ||
-        _checkingAppleCredential ||
+        _appleCredentialCheck != null ||
         _authBusy ||
         !(_authenticatedUser?.linkedProviders.contains('apple') ?? false)) {
       return;
     }
     final epoch = _authEpoch;
-    _checkingAppleCredential = true;
+    final generation = _accountGeneration;
+    final scope = ApiRequestScope.current;
+    final owner = Object();
+    _appleCredentialCheck = owner;
+    bool current() =>
+        !_disposed &&
+        epoch == _authEpoch &&
+        generation == _accountGeneration &&
+        identical(_appleCredentialCheck, owner);
     try {
-      final state = await _session.checkAppleCredential();
-      if (_disposed || epoch != _authEpoch) return;
+      final check = _session.checkAppleCredential();
+      final state = await (scope == null ? check : scope.wait(check));
+      if (!current() || !(scope?.isActive ?? true)) return;
       if (state == AppleCredentialStatus.revoked ||
           state == AppleCredentialStatus.notFound) {
         _setAuthBusy(true);
         try {
-          await _beforeSessionChange?.call();
+          final barrier = _beforeSessionChange?.call();
+          if (barrier != null) {
+            await (scope == null ? barrier : scope.wait(barrier));
+          }
         } catch (_) {
           _showError('공유 인증 차단을 다시 확인해야 해요. 기기에서 철회한 로그인은 종료합니다.');
         }
-        if (_disposed || epoch != _authEpoch) return;
+        // Revocation was confirmed while this check was current. Even if the
+        // home deadline expires during cleanup, local access must be blocked.
+        if (!current()) return;
         await _session.revokeAppleSession();
-        if (!_disposed && epoch == _authEpoch) await _session.invalidate();
+        if (current()) await _session.invalidate();
       }
     } catch (_) {
       // An unavailable provider check cannot invalidate a server session.
     } finally {
-      _checkingAppleCredential = false;
-      if (!_disposed && epoch == _authEpoch) _setAuthBusy(false);
+      if (identical(_appleCredentialCheck, owner)) {
+        _appleCredentialCheck = null;
+        if (!_disposed && epoch == _authEpoch) _setAuthBusy(false);
+      }
     }
   }
 

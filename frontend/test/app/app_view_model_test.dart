@@ -60,11 +60,13 @@ class _Initialization implements AccountInitializationAction {
   @override
   void dispose() {}
   @override
+  void cancelMetadata() {}
+  @override
   void reset(int generation) => users.resetAccount(generation);
   @override
   Future<void> load({
     bool waitForMetadata = true,
-    void Function()? onUserLoaded,
+    Future<void> Function()? onUserLoaded,
   }) async {
     loads++;
     await loadData?.call();

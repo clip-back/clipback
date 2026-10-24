@@ -81,12 +81,14 @@ class _Storage extends ApiSessionStorage {
   int writes = 0;
   int clears = 0;
   int failingReads = 0;
+  Completer<void>? readGate;
   bool failWrite = false;
   bool failClear = false;
 
   @override
   Future<ApiSession?> read() async {
     reads++;
+    await readGate?.future;
     if (failingReads > 0) {
       failingReads--;
       throw StateError('Storage read unavailable');
@@ -241,6 +243,287 @@ void main() {
     await fonts.load();
   });
   setUp(_seedSession);
+
+  for (final refresh in [false, true]) {
+    testWidgets('홈 최초 불러오기는 조회 단계와 인증 갱신 시간을 합산한다 (refresh=$refresh)', (
+      tester,
+    ) async {
+      final category = Completer<http.Response?>();
+      final refreshResponse = Completer<http.Response?>();
+      final feed = Completer<http.Response?>();
+      var first = true;
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == _categories && first) {
+            first = false;
+            return category.future;
+          }
+          if (request.url.path == _refresh) return refreshResponse.future;
+          if (request.url.path == _feed) return feed.future;
+          return null;
+        },
+      );
+      await _runApp(tester, server, (storage) async {
+        await tester.pump(const Duration(milliseconds: 7100));
+        category.complete(refresh ? _failure('401') : _json([_category]));
+        await tester.pump();
+        if (refresh) {
+          await tester.pump(const Duration(seconds: 4));
+          refreshResponse.complete(_tokens('current'));
+          await tester.pump();
+        }
+        expect(server.calls(_feed), hasLength(1));
+        await tester.pump(Duration(milliseconds: refresh ? 2999 : 6999));
+        expect(find.text('다시 시도'), findsNothing);
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump();
+        _expectError();
+        expect(storage.clears, 0);
+        expect(server.calls(_guest), isEmpty);
+        feed.complete(_json({'items': <Object>[], 'next_cursor': null}));
+        await tester.pumpAndSettle();
+        _expectError();
+        expect(
+          (await ApiSessionStorage().read())?.accessToken,
+          refresh ? 'current-access' : 'test-access',
+        );
+      }, settle: false);
+    });
+  }
+
+  testWidgets('홈 불러오기 재시도는 연속 입력에도 하나의 새로운15초를 사용한다', (tester) async {
+    final pending = [Completer<http.Response?>(), Completer<http.Response?>()];
+    var categories = 0;
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _categories && categories++ < 2) {
+          return pending[categories - 1].future;
+        }
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 14100));
+      await tester.pump();
+      _expectError();
+      await tester.tap(find.text('다시 시도'));
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump();
+      expect(server.calls(_categories), hasLength(2));
+      await tester.pump(const Duration(milliseconds: 14999));
+      expect(
+        find.byKey(const ValueKey('home-initial-loading-screen')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      _expectError();
+      await _retry(tester);
+      _expectLoaded(tester);
+      for (final response in pending) {
+        response.complete(_failure('401'));
+      }
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(server.calls(_categories), hasLength(3));
+      expect(server.calls(_refresh), isEmpty);
+      expect(storage.clears, 0);
+    }, settle: false);
+  });
+
+  for (final path in [_categories, _feed]) {
+    for (final status in [200, 503, 401]) {
+      testWidgets('끝난 홈 시도의 $path 늦은$status 응답은 새 홈과 계정을 바꾸지 않는다', (
+        tester,
+      ) async {
+        final old = Completer<http.Response?>();
+        var first = true;
+        final server = _Server(
+          respond: (request) async {
+            if (request.url.path == path && first) {
+              first = false;
+              return old.future;
+            }
+            return null;
+          },
+        );
+        await _runApp(tester, server, (storage) async {
+          await tester.pump(const Duration(milliseconds: 14100));
+          await tester.pump();
+          _expectError();
+          await _retry(tester);
+          _expectLoaded(tester);
+          old.complete(
+            status == 200
+                ? _json(
+                    path == _categories
+                        ? [_category]
+                        : {'items': <Object>[], 'next_cursor': null},
+                  )
+                : _failure('$status'),
+          );
+          await tester.pumpAndSettle();
+          _expectLoaded(tester);
+          expect(server.calls(path), hasLength(2));
+          expect(server.calls(_refresh), isEmpty);
+          expect(server.calls(_guest), isEmpty);
+          expect(storage.clears, 0);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'test-access',
+          );
+        }, settle: false);
+      });
+    }
+  }
+
+  for (final status in [200, 401]) {
+    testWidgets('끝난 홈 시도의 늦은refresh$status 응답은 새 인증을 되돌리지 않는다', (tester) async {
+      final category = Completer<http.Response?>();
+      final oldRefresh = Completer<http.Response?>();
+      var first = true;
+      var refreshes = 0;
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == _categories) {
+            if (first) {
+              first = false;
+              return category.future;
+            }
+            if (request.headers['Authorization'] == 'Bearer test-access') {
+              return _failure('401');
+            }
+          }
+          if (request.url.path == _refresh) {
+            return ++refreshes == 1 ? oldRefresh.future : _tokens('retry');
+          }
+          return null;
+        },
+      );
+      await _runApp(tester, server, (storage) async {
+        await tester.pump(const Duration(milliseconds: 7100));
+        category.complete(_failure('401'));
+        await tester.pump();
+        expect(server.calls(_refresh), hasLength(1));
+        await tester.pump(const Duration(seconds: 7));
+        await tester.pump();
+        _expectError();
+        await _retry(tester);
+        _expectLoaded(tester);
+        expect(server.calls(_refresh), hasLength(2));
+        expect((await ApiSessionStorage().read())?.accessToken, 'retry-access');
+        oldRefresh.complete(status == 200 ? _tokens('old') : _failure('401'));
+        await tester.pumpAndSettle();
+        _expectLoaded(tester);
+        expect((await ApiSessionStorage().read())?.accessToken, 'retry-access');
+        expect(storage.writes, 1);
+        expect(storage.clears, 0);
+      }, settle: false);
+    });
+  }
+
+  testWidgets('14초에 열린 홈의 부가 조회는 최초15초 제한 뒤에도 유효하다', (tester) async {
+    final categories = Completer<http.Response?>();
+    final profile = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _categories) return categories.future;
+        if (request.url.path == _me) return profile.future;
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 13100));
+      categories.complete(_json([_category]));
+      await tester.pump();
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(const Duration(seconds: 2));
+      profile.complete(
+        _json({
+          'id': 1,
+          'email': null,
+          'display_name': '나중에 확인된 계정',
+          'is_guest': true,
+          'created_at': '2026-10-05T00:00:00Z',
+          'linked_providers': <String>[],
+        }),
+      );
+      await tester.pumpAndSettle();
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MyScreen>(find.byType(MyScreen)).user.name,
+        '나중에 확인된 계정',
+      );
+      expect(storage.clears, 0);
+    }, settle: false);
+  });
+
+  testWidgets('토큰 저장소를 기다린 시간은 홈 최초 불러오기15초에 포함하지 않는다', (tester) async {
+    final read = Completer<void>();
+    final storage = _Storage()..readGate = read;
+    final categories = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async =>
+          request.url.path == _categories ? categories.future : null,
+    );
+    await _runApp(
+      tester,
+      server,
+      (_) async {
+        await tester.pump(const Duration(seconds: 20));
+        expect(server.requests, isEmpty);
+        expect(find.text('다시 시도'), findsNothing);
+        read.complete();
+        await tester.pump();
+        expect(server.calls(_categories), hasLength(1));
+        await tester.pump(const Duration(milliseconds: 14999));
+        expect(find.text('다시 시도'), findsNothing);
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump();
+        _expectError();
+        expect(storage.clears, 0);
+      },
+      storage: storage,
+      settle: false,
+    );
+  });
+
+  testWidgets('홈 최초 불러오기는 전체15초에 복구하고 수동 재시도만 새 시도를 연다', (tester) async {
+    final first = Completer<http.Response?>();
+    var categories = 0;
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path == _categories && ++categories == 1) {
+          return first.future;
+        }
+        return null;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 14099));
+      expect(find.text('다시 시도'), findsNothing);
+      expect(find.byType(HomeScreen), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      _expectError();
+      await tester.pump(const Duration(seconds: 20));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      _expectError();
+      expect(server.calls(_categories), hasLength(1));
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+      await _retry(tester);
+      _expectLoaded(tester);
+      first.complete(_json([_category]));
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(server.calls(_feed), hasLength(1));
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    }, settle: false);
+  });
 
   for (final path in [_categories, _feed]) {
     for (final failure in ['503', '403', 'network', 'invalid JSON']) {

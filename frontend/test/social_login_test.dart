@@ -39,6 +39,8 @@ class _Social extends SocialAuth {
   );
   Future<SocialCredential?> Function()? respond;
   AppleCredentialStatus state = AppleCredentialStatus.authorized;
+  Future<AppleCredentialStatus> Function()? checkCredential;
+  int appleChecks = 0;
   String? remembered;
   @override
   Stream<void> get appleCredentialRevocations => revocations.stream;
@@ -60,7 +62,10 @@ class _Social extends SocialAuth {
   }
 
   @override
-  Future<AppleCredentialStatus> appleCredentialState() async => state;
+  Future<AppleCredentialStatus> appleCredentialState() async {
+    appleChecks++;
+    return checkCredential != null ? checkCredential!() : state;
+  }
 }
 
 class _Storage extends ApiSessionStorage {
@@ -160,6 +165,7 @@ Future<void> _app(
   _Social social,
   Future<void> Function() check, {
   bool stored = false,
+  bool settle = true,
   _Storage? storage,
 }) async {
   SharedPreferences.setMockInitialValues({});
@@ -175,7 +181,7 @@ Future<void> _app(
       await tester.pumpWidget(
         ClipbackApp(sessionStorage: storage, socialAuth: social),
       );
-      await completeAppStartup(tester);
+      await completeAppStartup(tester, settle: settle);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -435,6 +441,204 @@ void main() {
       );
     }, stored: true);
   });
+
+  testWidgets('15초 전에 확인한 Apple 철회는 서버 종료가 지연돼도 로컬 세션을 차단한다', (tester) async {
+    final check = Completer<AppleCredentialStatus>();
+    final logout = Completer<http.Response?>();
+    final social = _Social()..checkCredential = () => check.future;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async =>
+          request.url.path.endsWith('/logout') ? logout.future : null;
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        await tester.pump(const Duration(milliseconds: 13100));
+        check.complete(AppleCredentialStatus.revoked);
+        await tester.pump();
+        expect(server.at('/auth/logout'), hasLength(1));
+        expect(find.byType(HomeScreen), findsNothing);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(await ApiSessionStorage().read(), isNull);
+        expect(find.text('저장한 콘텐츠를 불러오지 못했어요.'), findsNothing);
+        expect(find.byType(LoginScreen), findsOneWidget);
+        logout.complete(http.Response('', 204));
+        await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(server.at('/auth/guest'), isEmpty);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('홈이 열린 뒤 늦게 확인된 Apple 계정도 철회 확인을 생략하지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final check = Completer<AppleCredentialStatus>();
+    final social = _Social()..checkCredential = () => check.future;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async =>
+          request.url.path == '/api/v1/users/me' ? profile.future : null;
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(social.appleChecks, 0);
+        profile.complete(
+          _json({
+            'id': 2,
+            'email': null,
+            'display_name': '늦게 확인된 Apple 계정',
+            'is_guest': false,
+            'created_at': '2026-10-10T00:00:00Z',
+            'linked_providers': ['apple'],
+          }),
+        );
+        await tester.pump();
+        expect(social.appleChecks, 1);
+        await tester.pump(const Duration(seconds: 2));
+        check.complete(AppleCredentialStatus.notFound);
+        await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(await ApiSessionStorage().read(), isNull);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('Apple 확인 때문에 실패한 시도의 늦은 통계는 재시도 홈에 반영하지 않는다', (tester) async {
+    final oldCheck = Completer<AppleCredentialStatus>();
+    final oldStats = Completer<http.Response?>();
+    final social = _Social();
+    social.checkCredential = () => social.appleChecks == 1
+        ? oldCheck.future
+        : Future.value(AppleCredentialStatus.authorized);
+    var stats = 0;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async {
+        if (request.url.path.endsWith('/stats') && stats++ == 0) {
+          return oldStats.future;
+        }
+        return null;
+      };
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        await tester.pump(const Duration(milliseconds: 14100));
+        await tester.pump();
+        expect(find.text('다시 시도'), findsOneWidget);
+        await tester.tap(find.text('다시 시도'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsOneWidget);
+        oldStats.complete(_json({'saved_count': 999, 'reopened_count': 999}));
+        oldCheck.complete(AppleCredentialStatus.notFound);
+        await tester.pumpAndSettle();
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        final user = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+        expect(user.savedContentCount, 0);
+        expect(user.revisitedContentCount, 0);
+        expect((await ApiSessionStorage().read())?.accessToken, 'guest-access');
+        expect(server.at('/auth/logout'), isEmpty);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('소셜 인증 대기는 홈 최초 불러오기15초를 소모하지 않는다', (tester) async {
+    final credential = Completer<SocialCredential?>();
+    final category = Completer<http.Response?>();
+    final social = _Social()..respond = () => credential.future;
+    final server = _Server()
+      ..respond = (request) async =>
+          request.url.path.endsWith('/categories') ? category.future : null;
+    await _app(tester, server, social, () async {
+      final attempt = await startLoginChoice(
+        tester,
+        () => tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onSocialLogin(SocialLoginProvider.google),
+      );
+      await tester.pump(const Duration(seconds: 20));
+      expect(server.at('/categories'), isEmpty);
+      expect(find.text('다시 시도'), findsNothing);
+      credential.complete(const SocialCredential(token: 'provider-token'));
+      await tester.pump();
+      expect(server.at('/categories'), hasLength(1));
+      await tester.pump(const Duration(milliseconds: 14999));
+      expect(
+        find.byKey(const ValueKey('home-initial-loading-screen')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      await attempt.completion;
+      expect(find.text('다시 시도'), findsOneWidget);
+      expect((await ApiSessionStorage().read())?.accessToken, 'social-access');
+      expect(social.calls, [SocialLoginProvider.google]);
+    });
+  });
+
+  for (final lateState in [
+    AppleCredentialStatus.revoked,
+    AppleCredentialStatus.notFound,
+  ]) {
+    testWidgets('홈 불러오기 재시도는 이전 Apple 확인을 기다리지 않고 늦은$lateState 무시한다', (
+      tester,
+    ) async {
+      final oldCheck = Completer<AppleCredentialStatus>();
+      final social = _Social();
+      social.checkCredential = () => social.appleChecks == 1
+          ? oldCheck.future
+          : Future.value(AppleCredentialStatus.authorized);
+      final server = _Server()
+        ..guest = false
+        ..provider = 'apple';
+      await _app(
+        tester,
+        server,
+        social,
+        () async {
+          expect(social.appleChecks, 1);
+          await tester.pump(const Duration(milliseconds: 14100));
+          await tester.pump();
+          expect(find.text('다시 시도'), findsOneWidget);
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 900));
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          expect(social.appleChecks, 2);
+          oldCheck.complete(lateState);
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          expect(server.at('/auth/logout'), isEmpty);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'guest-access',
+          );
+        },
+        stored: true,
+        settle: false,
+      );
+    });
+  }
 
   testWidgets(
     'confirmed Apple revocation returns to login despite logout network failure',
