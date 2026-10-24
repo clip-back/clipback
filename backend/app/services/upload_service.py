@@ -243,7 +243,7 @@ class UploadService:
         if asset is None:
             raise NotFoundError("Content asset not found")
         mime_type = asset.mime_type or "application/octet-stream"
-        url = f"/api/v1/uploads/assets/{asset.id}"
+        url = f"{settings.api_v1_prefix}/uploads/assets/{asset.id}"
         expires_at = None
         try:
             storage = self.storage_client.for_backend(asset.storage_backend)

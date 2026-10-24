@@ -251,3 +251,35 @@ async def test_bucket_readiness_checks_selected_store_without_writing_local_volu
     s3_storage.delete_bucket(Bucket="original-images")
     failed = await api.get("/api/v1/health/ready")
     assert failed.status_code == 503 and failed.json() == {"status": "unavailable"}
+
+
+@pytest.mark.parametrize("api_prefix", ["/api/v1", "/api/v9"])
+async def test_local_original_access_round_trip_uses_configured_api_prefix(
+    api, png_bytes, api_prefix,
+):
+    import hashlib
+
+    tokens = await api.post(f"{api_prefix}/auth/guest")
+    assert tokens.status_code == 201
+    headers = {"Authorization": f"Bearer {tokens.json()['access_token']}"}
+    saved = await api.post(
+        f"{api_prefix}/uploads/screenshots", headers=headers,
+        files={"file": ("original.png", png_bytes, "image/png")},
+    )
+    assert saved.status_code == 201, saved.text
+    asset = saved.json()["assets"][0]
+    original_url = f"{api_prefix}/uploads/assets/{asset['id']}"
+    assert asset["download_url"] == original_url
+    access = await api.get(f"{original_url}/access", headers=headers)
+    assert access.status_code == 200, access.text
+    descriptor = access.json()
+    assert descriptor["mode"] == "proxy" and descriptor["url"] == original_url
+    assert descriptor["sha256"] == hashlib.sha256(png_bytes).hexdigest()
+    assert descriptor["size_bytes"] == len(png_bytes)
+    reopened = await api.get(descriptor["url"], headers=headers)
+    assert reopened.status_code == 200 and reopened.content == png_bytes
+    assert reopened.headers["content-type"] == "image/png"
+    assert (await api.get(descriptor["url"])).status_code == 401
+    outsider = await api.post(f"{api_prefix}/auth/guest")
+    other = {"Authorization": f"Bearer {outsider.json()['access_token']}"}
+    assert (await api.get(f"{original_url}/access", headers=other)).status_code == 404

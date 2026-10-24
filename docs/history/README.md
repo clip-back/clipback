@@ -126,6 +126,7 @@
 | 2026-10-23 | [이미지 사용량과 저장 중단·재개 및 모바일 안내](2026-10-23-image-storage-controls.md) | 운영 |
 | 2026-10-23 | [기존 원본 이관과 실제 CLI·이전 백업 복원 검증](2026-10-23-image-storage-migration.md) | 운영 |
 | 2026-10-24 | [이미지 보관 전체 회귀·실제 모바일·다중 계정 복원 검증](2026-10-24-image-storage-integration.md) | 통합 |
+| 2026-10-24 | [이미지 보관 두 축 리뷰와 최종 수정 검증](2026-10-24-image-storage-review.md) | 리뷰 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 

@@ -22,8 +22,6 @@ from sqlalchemy.engine import make_url
 
 from scripts.check_backup_restore import CheckError, load_backup, require, sha256_file
 
-PHYSICAL_CLEANUP_LOCK = 74264001
-
 
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
@@ -356,6 +354,7 @@ async def create_backup(
     """Capture a frozen source or an online snapshot coordinated with its live ledger."""
     from app.core.config import settings
     from app.db.session import engine
+    from app.integrations.deletion_ledger import IMAGE_CLEANUP_LOCK, LEDGER_WRITE_LOCK
     from app.integrations.storage_client import get_storage_client
     from scripts.recovery_probe import snapshot
 
@@ -376,10 +375,12 @@ async def create_backup(
         ledger_locked = physical_locked = False
         try:
             if ledger is not None:
-                await connection.execute(text("SELECT pg_advisory_lock_shared(74264002)"))
+                await connection.execute(
+                    text("SELECT pg_advisory_lock_shared(:key)"), {"key": LEDGER_WRITE_LOCK}
+                )
                 ledger_locked = True
             await connection.execute(
-                text(f"SELECT pg_advisory_lock_shared({PHYSICAL_CLEANUP_LOCK})")
+                text("SELECT pg_advisory_lock_shared(:key)"), {"key": IMAGE_CLEANUP_LOCK}
             )
             physical_locked = True
             snapshot_id = await connection.scalar(text("SELECT pg_export_snapshot()"))
@@ -387,7 +388,9 @@ async def create_backup(
                 deletion_checkpoint = await asyncio.to_thread(ledger.read_checkpoint_tip)
                 # Exported DB snapshot + immutable originals remain protected by the physical lock.
                 # New deletion acknowledgements need not wait for the dump and object copies.
-                await connection.execute(text("SELECT pg_advisory_unlock_shared(74264002)"))
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock_shared(:key)"), {"key": LEDGER_WRITE_LOCK}
+                )
                 ledger_locked = False
                 await asyncio.to_thread(ledger.read_verified_events, deletion_checkpoint)
             major = int(await connection.scalar(text("SHOW server_version_num"))) // 10000
@@ -424,10 +427,12 @@ async def create_backup(
             try:
                 await connection.rollback()
                 if ledger_locked:
-                    await connection.execute(text("SELECT pg_advisory_unlock_shared(74264002)"))
+                    await connection.execute(
+                        text("SELECT pg_advisory_unlock_shared(:key)"), {"key": LEDGER_WRITE_LOCK}
+                    )
                 if physical_locked:
                     await connection.execute(
-                        text(f"SELECT pg_advisory_unlock_shared({PHYSICAL_CLEANUP_LOCK})")
+                        text("SELECT pg_advisory_unlock_shared(:key)"), {"key": IMAGE_CLEANUP_LOCK}
                     )
             except BaseException:
                 await connection.invalidate()

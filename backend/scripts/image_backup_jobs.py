@@ -187,11 +187,11 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
 
 async def check_latest_restore(directory, credentials_file, image, *, writers_frozen):
     """No traffic is opened. Keep the operator's writer freeze through any later cutover."""
-    from app.integrations.deletion_ledger import get_deletion_ledger
+    from app.integrations.deletion_ledger import LEDGER_WRITE_LOCK, get_deletion_ledger
 
     require(writers_frozen is True, "source_write_freeze_required")
     manifest, _ = load_backup(directory)
-    async with source_lock(74264002, shared=True):
+    async with source_lock(LEDGER_WRITE_LOCK, shared=True):
         _, events = await asyncio.to_thread(
             latest_deletions, get_deletion_ledger(), manifest.get("deletion_checkpoint"),
         )
