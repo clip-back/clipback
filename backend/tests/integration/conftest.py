@@ -68,8 +68,14 @@ def deletion_ledger(monkeypatch, tmp_path_factory):
     get_deletion_ledger().initialize()
 
 
+@pytest.fixture
+def api_prefix():
+    return "/api/v1"
+
+
 @pytest_asyncio.fixture
-async def api(database_connection, external_responses, monkeypatch, tmp_path):
+async def api(database_connection, external_responses, monkeypatch, tmp_path, api_prefix):
+    monkeypatch.setattr(settings, "api_v1_prefix", api_prefix)
     monkeypatch.setattr(settings, "storage_root", tmp_path)
     monkeypatch.setattr(settings, "openai_api_key", None)
     app = create_app()

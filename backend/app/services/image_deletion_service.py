@@ -94,6 +94,20 @@ def matches_deletion_identity(content, intent: dict) -> bool:
     )
 
 
+async def apply_deletion_intent(repository: ContentRepository, content, intent: dict) -> bool:
+    """Apply an already verified intent; the caller owns locking and transaction policy."""
+    cleanup_intent = intent
+    if content is not None:
+        if not matches_deletion_identity(content, intent):
+            # Restored numeric IDs may belong to a different immutable original.
+            return False
+        cleanup_intent = {**intent, "assets": deletion_identity(content)["assets"]}
+        await repository.delete(content)
+    if await repository.session.get(ImageDeletion, intent["operation_id"]) is None:
+        repository.session.add(deletion_job(cleanup_intent))
+    return True
+
+
 async def record_image_deletion(session: AsyncSession, content) -> str:
     """The ledger commits first. A DB failure afterwards leaves a replayable deletion intent."""
     identity = deletion_identity(content)
@@ -261,14 +275,8 @@ async def retry_image_deletions(
             content_id=intent["content_id"],
             for_update=True,
         )
-        cleanup_intent = intent
-        if content is not None:
-            if not matches_deletion_identity(content, intent):
-                # IDs can be reused after restoration. Never delete the replacement content.
-                continue
-            cleanup_intent = {**intent, "assets": deletion_identity(content)["assets"]}
-            await repository.delete(content)
-        session.add(deletion_job(cleanup_intent))
+        if not await apply_deletion_intent(repository, content, intent):
+            continue
         reconciled += 1
         if reconciled >= limit:
             break
