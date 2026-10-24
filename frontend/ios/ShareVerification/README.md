@@ -70,10 +70,10 @@ Safari가 같은 URL을 여러 `NSItemProvider`로 제공하면 단일 링크로
 영상 ID나 나머지 query가 다른 입력은 합치지 않는다.
 서로 다른 URL, 여러 이미지, 별도 URL과 이미지가 섞인 입력은 지원하지 않는다.
 
-이미지 계정 한도와 파일 크기 오류는 같은 fixture 서버에서
+이미지 계정 한도·운영 중단·파일 크기 오류는 같은 fixture 서버에서
 `testImageQuotaAndFileLimitAppearInExistingShareErrorRegion`을 선택해 검사한다.
 `next_save_status`와 `next_save_detail`을 제어해 실제 Share Extension의 기존 상태 영역을 확인하고
-`ios-share-image-quota`·`ios-share-image-file-limit` OS 스크린샷을 첨부한다.
+`ios-share-image-quota`·`ios-share-image-paused`·`ios-share-image-file-limit` OS 스크린샷을 첨부한다.
 이는 네이티브 오류 전달 검증이며 서버의 실제 한도 계산은 PostgreSQL API 통합 테스트가 검증한다.
 
 실제 FastAPI·전용 PostgreSQL 검증은 테스트 백엔드를 18766 포트에서 실행한 뒤

@@ -10,6 +10,11 @@ void main() {
   for (final error in [
     (
       409,
+      {'code': 'image_uploads_paused'},
+      '이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.',
+    ),
+    (
+      409,
       {'code': 'image_quota_exceeded'},
       '이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.',
     ),
@@ -20,7 +25,7 @@ void main() {
     ),
   ]) {
     test(
-      'upload ${error.$1} shows the specific reason and keeps the session',
+      'upload ${error.$1} ${error.$2} shows the specific reason and keeps the session',
       () async {
         final client = MockClient(
           (request) async => http.Response(

@@ -10,7 +10,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir .
-COPY scripts/image_backup.py scripts/image_backup_jobs.py scripts/image_migration.py \
-     scripts/recovery_probe.py \
+COPY scripts/image_backup.py scripts/image_backup_jobs.py scripts/image_storage_admin.py \
+     scripts/image_migration.py scripts/recovery_probe.py \
      scripts/recovery_deletions.py scripts/check_backup_restore.py ./scripts/
 ENTRYPOINT ["python", "-m", "scripts.image_backup_jobs"]

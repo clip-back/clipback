@@ -141,6 +141,14 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
     public void testImageQuotaUsesExistingShareErrorRegion() throws Exception {
         imageError(409,"image_quota_exceeded","이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.","android-share-image-quota");
     }
+    public void testImagePauseUsesExistingShareErrorRegion() throws Exception {
+        int before=saved();
+        imageError(409,"image_uploads_paused","이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.","android-share-image-paused");
+        assertEquals(before,saved());
+        String id=store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");
+        assertTrue(save(id));assertEquals(before+1,saved());
+        assertNull(store.draft(id));assertFalse(store.imageFile(id).exists());
+    }
     public void testImageFileLimitUsesExistingShareErrorRegion() throws Exception {
         imageError(413,"image_file_too_large","이미지는 10MiB 이하만 저장할 수 있습니다.","android-share-image-file-limit");
     }

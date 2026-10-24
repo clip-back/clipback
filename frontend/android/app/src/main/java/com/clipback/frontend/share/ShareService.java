@@ -71,6 +71,8 @@ final class ShareService {
     private static String errorMessage(int status, InputStream body) {
         try {
             JSONObject detail = new JSONObject(read(body)).optJSONObject("detail");
+            if (detail != null && "image_uploads_paused".equals(detail.optString("code")))
+                return "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.";
             if (detail != null && "image_quota_exceeded".equals(detail.optString("code")))
                 return "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.";
         } catch (Exception ignored) { /* Preserve the status-specific fallback for non-JSON errors. */ }
