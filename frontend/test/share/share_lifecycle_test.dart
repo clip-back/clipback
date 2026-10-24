@@ -139,6 +139,75 @@ void main() {
     }, () => client);
   });
 
+  testWidgets('확인된 최종401은 native 차단 지연 중에도15초에 로컬 세션을 폐기한다', (tester) async {
+    final block = Completer<int>();
+    var guest = 0;
+    final authorizations = <String?>[];
+    final client = MockClient((request) async {
+      if (request.url.path.endsWith('/auth/guest')) {
+        final prefix = ++guest == 1 ? 'expired' : 'replacement';
+        return http.Response(
+          jsonEncode({
+            'access_token': '$prefix-access',
+            'refresh_token': '$prefix-refresh',
+            'expires_in': 3600,
+            'refresh_expires_in': 86400,
+          }),
+          201,
+        );
+      }
+      if (request.url.path.endsWith('/categories')) {
+        authorizations.add(request.headers['Authorization']);
+        if (guest > 1) return http.Response('[]', 200);
+      }
+      return http.Response('{"detail":"expired"}', 401);
+    });
+    const channel = MethodChannel('com.huturu.app/share');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'blockCredential') return block.future;
+          throw StateError('Unexpected native action: ${call.method}');
+        });
+    addTearDown(() {
+      client.close();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    await http.runWithClient(() async {
+      final storage = Storage();
+      final dependencies = AppDependencies(
+        storage: storage,
+        socialAuth: Social(),
+        nativeShare: NativeShareService(enabled: true),
+      );
+      addTearDown(dependencies.dispose);
+      await dependencies.session.createGuestSession();
+      final restore = dependencies.app.restoreSession();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pump();
+      await restore;
+      final blockedAtDeadline = !dependencies.session.hasSession;
+      final routeAtDeadline = dependencies.app.route;
+      final errorAtDeadline = dependencies.app.apiConnectionError;
+      await dependencies.session.createGuestSession();
+      block.complete(1);
+      await tester.pump();
+      expect(
+        dependencies.session.hasSession,
+        isTrue,
+        reason: 'Earlier invalidation must not clear replacement tokens',
+      );
+      expect(blockedAtDeadline, isTrue);
+      expect(routeAtDeadline, AppRoute.login);
+      expect(errorAtDeadline, isNull);
+      await dependencies.content.loadCategories();
+      expect(authorizations.last, 'Bearer replacement-access');
+      expect(dependencies.session.hasSession, isTrue);
+      expect(storage.clears, 1);
+    }, () => client);
+  });
+
   for (final disposeEarly in [false, true]) {
     test(
       'late 401 ${disposeEarly ? "after disposal cannot alter native or persistent state" : "still clears invalid login when native block fails"}',
