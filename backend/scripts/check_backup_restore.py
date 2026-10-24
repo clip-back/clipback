@@ -365,7 +365,10 @@ class RestoreDrill:
                 pg_image,
             )
             self.docker("start", db)
-            self.wait("exec", db, "pg_isready", "-U", "postgres", "-d", "clipback")
+            # The official image's initialization server accepts only Unix
+            # sockets. Wait for the final TCP server before restoring data.
+            self.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
+                      "-U", "postgres", "-d", "clipback")
             # Reject a wrong major version before restoring any application data.
             version = (
                 self.docker(

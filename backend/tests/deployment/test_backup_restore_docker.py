@@ -69,7 +69,8 @@ def real_backup(tmp_path_factory, request):
             f"postgres:{major}",
         )
         drill.docker("start", db)
-        drill.wait("exec", db, "pg_isready", "-U", "postgres", "-d", "clipback")
+        drill.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
+                   "-U", "postgres", "-d", "clipback")
         migrate = drill.owner + "-migrate"
         drill.container(
             migrate, "--network", network, *env_args, image, "alembic", "upgrade", "head"

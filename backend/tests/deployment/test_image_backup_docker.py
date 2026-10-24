@@ -70,7 +70,8 @@ def bucket_backup(tmp_path_factory):
             "postgres:16",
         )
         drill.docker("start", db)
-        drill.wait("exec", db, "pg_isready", "-U", "postgres", "-d", "clipback")
+        drill.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
+                   "-U", "postgres", "-d", "clipback")
         drill.container(s3, "--network", network, "-p", "127.0.0.1::5000", "motoserver/moto:5.2.4")
         drill.docker("start", s3)
         drill.wait(
