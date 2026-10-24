@@ -6,7 +6,9 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
@@ -696,6 +698,207 @@ void main() {
     }
   }
 
+  testWidgets('마이의 실제 진입마다 통계를 갱신하고 재선택과 재빌드는 중복 조회하지 않는다', (tester) async {
+    var attempts = 0;
+    final server = _Server(
+      respond: (request) async => request.url.path == _stats
+          ? _json({'saved_count': ++attempts, 'reopened_count': 0})
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      expect(server.calls(_stats), hasLength(1));
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(2));
+      expect(find.text('2'), findsOneWidget);
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 30));
+      expect(server.calls(_stats), hasLength(2));
+
+      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenNotices!();
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(2));
+      tester.widget<NoticeListScreen>(find.byType(NoticeListScreen)).onBack();
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(3));
+      expect(find.text('3'), findsOneWidget);
+
+      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(3));
+      tester
+          .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
+          .onBack();
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(4));
+      expect(find.text('4'), findsOneWidget);
+
+      for (final notices in [true, false]) {
+        final my = tester.widget<MyScreen>(find.byType(MyScreen));
+        (notices ? my.onOpenNotices! : my.onOpenAccount)();
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.byType(MyScreen), findsOneWidget);
+      }
+      expect(server.calls(_stats), hasLength(6));
+      expect(find.text('6'), findsOneWidget);
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+    });
+  });
+
+  testWidgets('늦은 마이 진입과 이탈 후 복귀는 최초 통계 조회의 남은10초만 공유한다', (tester) async {
+    final pending = Completer<http.Response?>();
+    final retry = Completer<http.Response?>();
+    DateTime? started;
+    var attempts = 0;
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path != _stats) return null;
+        started ??= tester.binding.clock.now();
+        return ++attempts == 1 ? pending.future : retry.future;
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump();
+      _expectLoaded(tester);
+      await tester.pump(
+        const Duration(seconds: 8) -
+            tester.binding.clock.now().difference(started!),
+      );
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(1));
+      expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(1));
+      await tester.pump(
+        const Duration(milliseconds: 9999) -
+            tester.binding.clock.now().difference(started!),
+      );
+      expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
+      expect(find.text('—'), findsNWidgets(2));
+      expect(server.calls(_stats), hasLength(1));
+
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(2));
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pump();
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(2));
+      pending.complete(_json({'saved_count': 90, 'reopened_count': 60}));
+      retry.complete(_json({'saved_count': 8, 'reopened_count': 4}));
+      await tester.pumpAndSettle();
+      expect(find.text('8'), findsOneWidget);
+      expect(find.text('4'), findsOneWidget);
+      expect(find.text('다시 시도'), findsNothing);
+      expect(storage.clears, 0);
+    }, settle: false);
+  });
+
+  testWidgets('마이 이탈 중 통계 완료는 반영하고 완료 전 복귀는 공유하며 완료 후 진입은 새로 조회한다', (
+    tester,
+  ) async {
+    final away = Completer<http.Response?>();
+    final returned = Completer<http.Response?>();
+    var attempts = 0;
+    final server = _Server(
+      respond: (request) async {
+        if (request.url.path != _stats) return null;
+        return switch (++attempts) {
+          2 => away.future,
+          3 => returned.future,
+          _ => _json({'saved_count': attempts, 'reopened_count': 0}),
+        };
+      },
+    );
+    await _runApp(tester, server, (storage) async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(2));
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pumpAndSettle();
+      away.complete(_json({'saved_count': 12, 'reopened_count': 6}));
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(server.calls(_stats), hasLength(2));
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(3));
+      expect(find.text('12'), findsOneWidget);
+      expect(find.text('6'), findsOneWidget);
+      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+      await tester.pump();
+      tester
+          .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
+          .onBack();
+      await tester.pump();
+      expect(server.calls(_stats), hasLength(3));
+      returned.complete(_json({'saved_count': 13, 'reopened_count': 7}));
+      await tester.pumpAndSettle();
+      expect(find.text('13'), findsOneWidget);
+      expect(find.text('7'), findsOneWidget);
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pumpAndSettle();
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(4));
+      expect(find.text('4'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 30));
+      expect(server.calls(_stats), hasLength(4));
+      expect(storage.clears, 0);
+    });
+  });
+
+  testWidgets('마이 이탈 중 통계 실패는 다른 화면과 앱 복귀에 전역 오류나 자동 재시도를 만들지 않는다', (
+    tester,
+  ) async {
+    final pending = Completer<http.Response?>();
+    var attempts = 0;
+    final server = _Server(
+      respond: (request) async =>
+          request.url.path == _stats && ++attempts > 1 ? pending.future : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pump();
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pumpAndSettle();
+      pending.complete(_failure('503'));
+      await tester.pumpAndSettle();
+      _expectLoaded(tester);
+      expect(find.textContaining('통계를 불러오'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 30));
+      expect(server.calls(_stats), hasLength(2));
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(3));
+      expect(find.text('다시 시도'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 30));
+      expect(server.calls(_stats), hasLength(3));
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+    });
+  });
+
   for (final failure in ['503', 'network', 'invalid JSON', 'invalid stats']) {
     testWidgets('최초 마이 통계 $failure 실패는 통계만 재시도하고 실제0으로 복구한다', (tester) async {
       final retried = Completer<http.Response?>();
@@ -703,7 +906,7 @@ void main() {
       final server = _Server(
         respond: (request) async {
           if (request.url.path != _stats) return null;
-          if (++attempts == 1) {
+          if (++attempts <= 2) {
             return failure == 'invalid stats'
                 ? _json({'saved_count': 99})
                 : _failure(failure);
@@ -721,7 +924,7 @@ void main() {
         expect(find.text('계정 정보 확인 중'), findsNothing);
         expect(find.text('카테고리 관리'), findsOneWidget);
         await tester.pump(const Duration(seconds: 30));
-        expect(server.calls(_stats), hasLength(1));
+        expect(server.calls(_stats), hasLength(2));
         final profileRequests = server.calls(_me).length;
         await tester.tap(find.text('다시 시도'));
         await tester.tap(find.text('다시 시도'));
@@ -729,7 +932,7 @@ void main() {
         expect(find.text('—'), findsNWidgets(2));
         expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
         expect(find.text('다시 시도'), findsNothing);
-        expect(server.calls(_stats), hasLength(2));
+        expect(server.calls(_stats), hasLength(3));
         expect(server.calls(_me), hasLength(profileRequests));
         retried.complete(_json({'saved_count': 0, 'reopened_count': 0}));
         await tester.pumpAndSettle();
@@ -758,9 +961,9 @@ void main() {
             if (request.url.path == _refresh) return refreshResponse.future;
             if (request.url.path != _stats) return null;
             return switch (++attempts) {
-              1 => _failure('503'),
-              2 => unauthorized.future,
-              3 => completeRefresh ? delayed.future : recovered.future,
+              1 || 2 => _failure('503'),
+              3 => unauthorized.future,
+              4 => completeRefresh ? delayed.future : recovered.future,
               _ => recovered.future,
             };
           },
@@ -778,7 +981,7 @@ void main() {
           if (completeRefresh) {
             refreshResponse.complete(_tokens('current'));
             await tester.pump();
-            expect(server.calls(_stats), hasLength(3));
+            expect(server.calls(_stats), hasLength(4));
           }
           await tester.pump(const Duration(milliseconds: 1999));
           expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);

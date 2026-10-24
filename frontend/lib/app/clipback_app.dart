@@ -83,6 +83,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _myNoticeStorageAuthEpoch = 0;
   bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
+  AppRoute _statsRoute = AppRoute.splash;
   Object? _weeklyVisit, _weeklyRequest, _pendingWeeklyFailure;
   int _weeklyGeneration = -1;
   bool _weeklyForeground = true;
@@ -259,6 +260,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _syncWeeklyHome();
     _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
+    _syncMyStatsEntry();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
       _archiveStorageAccountGeneration = _d.app.accountGeneration;
       _archivePageStorageBucket = PageStorageBucket();
@@ -266,6 +268,18 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
     setState(() {});
     _flushUiEffects();
+  }
+
+  void _syncMyStatsEntry() {
+    final route = _d.app.route;
+    final entering = route == AppRoute.my && _statsRoute != AppRoute.my;
+    _statsRoute = route;
+    if (entering &&
+        _canUseAccountActions &&
+        _d.session.hasSession &&
+        !_d.session.pendingSessionClear) {
+      unawaited(_d.account.retryStats());
+    }
   }
 
   // Only the My -> notices -> My pair restores My's scroll position. Other
