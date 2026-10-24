@@ -213,6 +213,10 @@ class DeletionLedger:
         self.read_verified_events(checkpoint)
         return checkpoint
 
+    def read_checkpoint_tip(self) -> dict:
+        """Bounded capture only. Verify its full immutable prefix before publishing a backup."""
+        return self._read_tip()
+
     def read_verified_events(self, checkpoint: dict | None = None) -> list[dict]:
         checkpoint = checkpoint if checkpoint is not None else self._read("head.json")
         try:
