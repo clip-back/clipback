@@ -92,7 +92,7 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
 - 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.
-- 마이 통계는 사용자 Repository가 조회 상태를 소유하고 계정 ViewModel이 화면에 투영합니다. 미확인 값은 `—`이며, 통계만 전체 10초 안에 다시 시도할 수 있습니다. 프로필 조회와 성공한 통계 표시는 독립적입니다. 확정 정책과 적용 범위는 [마이 통계 정책](../docs/frontend/account-stats-recovery.md)을 따릅니다.
+- 마이 통계는 사용자 Repository가 조회 상태를 소유하고 계정 ViewModel이 화면에 투영합니다. 미확인 값은 `—`이며, 실제 마이 진입 때 갱신하고 실패하면 통계만 다시 시도합니다. 같은 계정의 진행 중 조회는 전체10초의 남은 시간을 공유하고, 마지막 확인값은 이번 앱 실행 동안 유지합니다. 프로필 조회와 통계 표시는 독립적입니다. 자세한 동작은 [마이 통계 정책](../docs/frontend/account-stats-recovery.md)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서
