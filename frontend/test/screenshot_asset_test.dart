@@ -109,6 +109,7 @@ class _Server {
 
   final Future<http.Response?> Function(http.BaseRequest)? respond;
   final calls = <http.BaseRequest>[];
+  int accessStatus = 200;
   bool saved;
   final contents = [_content()];
   late final client = MockClient.streaming((request, stream) async {
@@ -118,6 +119,14 @@ class _Server {
       r'^/api/v1/uploads/assets/(\d+)/access$',
     ).firstMatch(request.url.path);
     if (access != null) {
+      if (accessStatus != 200) {
+        final response = _json({'detail': 'unavailable'}, accessStatus);
+        return http.StreamedResponse(
+          Stream.value(response.bodyBytes),
+          accessStatus,
+          headers: response.headers,
+        );
+      }
       final id = int.parse(access.group(1)!);
       final value = originals[id] ?? (bytes: _png, mime: 'image/png');
       final response = originalAccessFixture(
@@ -471,7 +480,44 @@ void main() {
   });
 
   testWidgets(
-    'detail and original sheet share one lazy authenticated download',
+    'a reopened original discards old display bytes when access is deleted',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        server.accessStatus = 404;
+        await _openOriginalSheet(tester);
+        expect(_memoryImages, findsNothing);
+        expect(find.text('원본 이미지를 찾을 수 없어요.'), findsOneWidget);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(1));
+      });
+    },
+  );
+
+  testWidgets(
+    'reopening the original sheet checks current access even after a successful display',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        await _openOriginalSheet(tester);
+        _expectOriginalBytes(tester, _png);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+      });
+    },
+  );
+
+  testWidgets(
+    'each completed original surface opening authorizes again when disk cache is unavailable',
     (tester) async {
       final server = _Server();
       await _withApp(tester, server, () async {
@@ -484,10 +530,11 @@ void main() {
         _expectOriginalBytes(tester, _png);
         await _openOriginalSheet(tester);
         expect(find.text('원본 이미지'), findsOneWidget);
-        expect(server.at(_assetPath), hasLength(1));
-        expect(server.at(_assetPath).single.method, 'GET');
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
+        expect(server.at(_assetPath).last.method, 'GET');
         expect(
-          server.at(_assetPath).single.headers['Authorization'],
+          server.at(_assetPath).last.headers['Authorization'],
           'Bearer test-access',
         );
         _expectOriginalBytes(tester, _png, count: 2);
@@ -500,22 +547,24 @@ void main() {
     },
   );
 
-  testWidgets('sheet first also shares its download with the detail toggle', (
-    tester,
-  ) async {
-    final server = _Server();
-    await _withApp(tester, server, () async {
-      await _openFirst(tester);
-      await _openOriginalSheet(tester);
-      expect(find.text('원본 이미지'), findsOneWidget);
-      _expectOriginalBytes(tester, _png);
-      Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
-      await tester.pumpAndSettle();
-      await _expandOriginal(tester);
-      _expectOriginalBytes(tester, _png);
-      expect(server.at(_assetPath), hasLength(1));
-    });
-  });
+  testWidgets(
+    'detail toggle authorizes again after closing a completed sheet',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _openFirst(tester);
+        await _openOriginalSheet(tester);
+        expect(find.text('원본 이미지'), findsOneWidget);
+        _expectOriginalBytes(tester, _png);
+        Navigator.of(tester.element(find.byType(OriginalContentSheet))).pop();
+        await tester.pumpAndSettle();
+        await _expandOriginal(tester);
+        _expectOriginalBytes(tester, _png);
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
+      });
+    },
+  );
 
   testWidgets(
     'restarted app lazily retrieves the saved original without a new guest',
@@ -978,7 +1027,7 @@ void main() {
   );
 
   testWidgets(
-    'collapsing and reopening keeps the original cached only in its detail',
+    'collapsing and reopening checks access instead of retaining display bytes',
     (tester) async {
       final server = _Server();
       await _withApp(tester, server, () async {
@@ -989,13 +1038,15 @@ void main() {
         expect(_memoryImages, findsNothing);
         await _expandOriginal(tester);
         _expectOriginalBytes(tester, _png);
-        expect(server.at(_assetPath), hasLength(1));
+        expect(server.at('$_assetPath/access'), hasLength(2));
+        expect(server.at(_assetPath), hasLength(2));
         tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
         await tester.pumpAndSettle();
         await _openFirst(tester);
         expect(_memoryImages, findsNothing);
         await _expandOriginal(tester);
-        expect(server.at(_assetPath), hasLength(2));
+        expect(server.at('$_assetPath/access'), hasLength(3));
+        expect(server.at(_assetPath), hasLength(3));
       });
     },
   );
