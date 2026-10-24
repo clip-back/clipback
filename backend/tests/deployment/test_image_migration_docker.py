@@ -29,6 +29,15 @@ def command(arguments, environment, timeout=180):
     return report
 
 
+def admission_control(operation, environment):
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.image_storage_admin", operation],
+        env=environment, capture_output=True, timeout=30,
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"uploads_paused": operation == "pause"}
+
+
 def test_actual_migration_cli_stops_resumes_preserves_bytes_and_old_restore_keeps_user_deletion(
     bucket_backup,
 ):
@@ -83,14 +92,15 @@ print(json.dumps({'content_id':detail['id'],'saved_at':detail['saved_at'],
     assert len(before["assets"]) == 3
     # Exercise the same DB/S3 environment's operator admission gate before the
     # paired backup, migration, user deletion and old-point restoration below.
-    command(["scripts.image_storage_admin", "pause"], fixture["env"])
+    admission_control("pause", fixture["env"])
     paused = execute(drill, api, """
-import json,sys,urllib.request,urllib.error
+import io,json,sys,urllib.request,urllib.error
+from PIL import Image
 p=json.load(sys.stdin)
 boundary='clipback74'
-original=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/assets/'+str(p['asset_id']),
- headers={'Authorization':'Bearer '+p['token']})
-png=urllib.request.urlopen(original,timeout=10).read()
+output=io.BytesIO()
+Image.new('RGB',(8,8),'blue').save(output,format='PNG')
+png=output.getvalue()
 body=(b'--clipback74\\r\\nContent-Disposition: form-data; name="file"; filename="probe.png"'
       b'\\r\\nContent-Type: image/png\\r\\n\\r\\n'+png+b'\\r\\n--clipback74--\\r\\n')
 r=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/screenshots',data=body,
@@ -104,7 +114,7 @@ except urllib.error.HTTPError as error:
     assert paused["status"] == 409
     assert paused["detail"]["code"] == "image_uploads_paused"
     assert execute(drill, api, probe, state) == before
-    command(["scripts.image_storage_admin", "resume"], fixture["env"])
+    admission_control("resume", fixture["env"])
     drill.docker("stop", api)
     command(
         [

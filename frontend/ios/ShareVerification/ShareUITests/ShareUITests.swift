@@ -320,6 +320,25 @@ final class ShareUITests: XCTestCase {
     main.activate()
     capture("ios-real-image-return")
   }
+  private func realImageError(_ message: String, artifact: String) {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    openShare(sender, button: "스크린샷 공유")
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+    tapReady(save)
+    XCTAssertTrue(sender.staticTexts[message].waitForExistence(timeout: 15), sender.debugDescription)
+    XCTAssertTrue(save.isEnabled)
+    capture(artifact)
+    tapReady(sender.buttons["share.close"])
+    XCUIApplication(bundleIdentifier: "com.huturu.app").activate()
+  }
+  func testRealBackendImagePauseWithExistingSession() {
+    realImageError("이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", artifact: "ios-real-share-pause")
+  }
+  func testRealBackendImageQuotaWithExistingSession() {
+    realImageError("이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", artifact: "ios-real-share-quota")
+  }
   // Install share_preview.dart with SHARE_PREVIEW_REAL_BACKEND=true and port 18766 before this test.
   func testRealBackendGuestLoginThenNativeSave() {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")

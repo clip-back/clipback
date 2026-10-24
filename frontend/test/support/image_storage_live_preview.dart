@@ -218,6 +218,10 @@ Future<void> _login() async {
 }
 
 Future<void> _normalSave() async {
+  if (_find<AddContentSheet>() != null) {
+    await _tap(_find<SaveFlowButton>()!);
+    return;
+  }
   final nav = _elements(
     _root,
   ).firstWhere((e) => e.widget.runtimeType.toString() == 'NavAddButton');
@@ -236,7 +240,10 @@ Future<void> _home() async {
   final detail = _find<DetailScreen>();
   if (detail != null) (detail.widget as DetailScreen).onBack();
   final result = _find<SavedContentConfirmation>();
-  if (result != null) await _tap(_text('완료')!);
+  if (result != null) {
+    (_find<SaveContentTopBar>()!.widget as SaveContentTopBar).onClose();
+    await _settle();
+  }
   await _wait(() => _find<HomeScreen>() != null, 'Home missing');
 }
 
@@ -313,6 +320,9 @@ Future<void> _control(HttpRequest request) async {
         await _normalSave();
       case '/home':
         await _home();
+      case '/close-save':
+        (_find<SaveContentTopBar>()!.widget as SaveContentTopBar).onClose();
+        await _settle();
       case '/original':
         await _home();
         final home = _find<HomeScreen>()!.widget as HomeScreen;
@@ -372,33 +382,29 @@ Future<void> _control(HttpRequest request) async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  if (!['127.0.0.1', '10.0.2.2'].contains(Uri.parse(_base).host) ||
-      Uri.parse(_base).port != 18766) {
-    throw StateError('An explicit local image validation API is required');
-  }
-  _preferences = await SharedPreferences.getInstance();
-  final data = await rootBundle.load(Assets.savedPhotoPreview);
-  FilePicker.platform = PendingPhotoPicker([
-    PendingPhoto('image74.png', data.buffer.asUint8List()),
-  ]);
-  FlutterError.onError = (details) {
-    _errors.add(details.exceptionAsString());
-    FlutterError.presentError(details);
-  };
   _wire = IOClient(HttpClient());
-  http.runWithClient(
-    () => runApp(
+  await http.runWithClient(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    if (!['127.0.0.1', '10.0.2.2'].contains(Uri.parse(_base).host) ||
+        Uri.parse(_base).port != 18766) {
+      throw StateError('An explicit local image validation API is required');
+    }
+    _preferences = await SharedPreferences.getInstance();
+    final data = await rootBundle.load(Assets.savedPhotoPreview);
+    FilePicker.platform = PendingPhotoPicker([
+      PendingPhoto('image74.png', data.buffer.asUint8List()),
+    ]);
+    FlutterError.onError = (details) {
+      _errors.add(details.exceptionAsString());
+      FlutterError.presentError(details);
+    };
+    runApp(
       SizedBox(
         key: _rootKey,
         child: ClipbackApp(socialAuth: _Social()),
       ),
-    ),
-    _Observer.new,
-  );
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 8767);
-  // Requests enter the same real-client zone as widget event callbacks.
-  server.listen(
-    (request) => http.runWithClient(() => _control(request), _Observer.new),
-  );
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 8767);
+    server.listen(_control);
+  }, _Observer.new);
 }
