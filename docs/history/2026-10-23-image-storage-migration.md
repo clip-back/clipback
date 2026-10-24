@@ -101,3 +101,26 @@ RUN_DOCKER_RECOVERY_TESTS=1 CLIPBACK_RECOVERY_TEST_IMAGE=clipback-migration-api:
 검증된 local 사본을 일괄 제거하는 기능은 포함하지 않습니다. 실패는 개별 상태·nonzero로 남기고,
 일반 삭제 worker 및 명시적인 새 백업·복원 검증 후 재개합니다. Bucket 미지원 과거 버전으로의
 단순 rollback은 금지한다는 현재 운영 안내를 남겼습니다.
+
+## 후속 테스트 격리·CI 이식성 수정 (2026-10-24)
+
+통합 뒤 검사는 API fixture가 `TEST_DATABASE_URL`을 사용하면서 백업 준비 helper만 전역
+`app.db.session.engine`과 Mac 전용 `pg_dump` 경로를 사용하는 문제를 발견했습니다.
+위 최초 97개 검사에서는 두 DB URL을 같은 합성 DB로 명시했기 때문에 이 문제가 드러나지
+않았습니다. 기본 `DATABASE_URL`을 접근 불가능한 loopback 포트로 바꾸자 **8 failed, 1 passed**로
+전역 개발 DB 접속 시도를 재현했습니다.
+
+API fixture는 명시적으로 전달받은 실제 테스트 DB session factory에서 자산·revision·PostgreSQL
+major를 읽고 실제 원본 바이트를 `publish_backup`·`materialize_backup`으로 준비하도록 바꿨습니다.
+이 API fixture의 dump·사용하지 않는 범용 snapshot fingerprint·신뢰된 복원 성공 보고서는
+명시적 합성 데이터입니다. 호스트 `pg_dump`나 기본 개발 DB에 의존하지 않습니다. 따라서 이
+API 회귀를 실제 dump·복원 증거로 해석하지 않습니다. 실제 dump·복원·CLI gate 증거는 위의
+별도 Docker 검사이며 제품 코드와 해당 검사 소스를 바꾸지 않아 다시 실행하지 않았습니다.
+
+접근 불가능한 `DATABASE_URL=postgresql+asyncpg://unreachable@127.0.0.1:1/should_never_connect`와
+합성 DB의 `TEST_DATABASE_URL`만 분리해 지정한 같은 조건에서 이관 API **9 passed, 2.67초**를
+확인했습니다. 기존 테스트의 서비스 결과 검증은 유지했고 기본 DB 접속을 허용하거나 검사를
+skip하는 방식으로 우회하지 않았습니다. 수정된 현재 검증 경계는
+[백엔드 테스트 안내](../backend/testing.md)에 반영했습니다.
+같은 격리 조건에서 이관·삭제·한도 관련 검사는 **37 passed, 9.58초**였고, Ruff·공백 검사를
+통과했습니다. 변경은 API 테스트 준비와 검증 경계 설명에 한정했습니다.

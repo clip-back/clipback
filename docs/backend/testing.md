@@ -32,10 +32,17 @@ pytest -q tests/repositories
 ## MVP API integration tests
 
 `tests/integration` exercises HTTP routes, real authentication, services, PostgreSQL
-repositories, and local image storage together. Only social-provider verification,
+repositories, and local image storage together. Social-provider verification,
 web metadata, AI recommendations, and OCR responses are replaced with deterministic
 results. Unexpected external HTTP requests fail the test, even when caught by an
 application fallback. No external credentials are required.
+
+Migration API tests read actual asset rows from the same dedicated `TEST_DATABASE_URL`
+session factory and use actual original bytes with the public backup publish/materialize
+boundary. Their dump and trusted restore report are explicitly synthetic fixtures; they
+do not use the default `DATABASE_URL` or require a host `pg_dump` executable. Actual paired
+PostgreSQL dump, isolated restoration and the operator CLI gate are covered separately by
+`tests/deployment/test_image_migration_docker.py` with the Docker opt-in below.
 
 Use a dedicated test database, never an application database:
 
