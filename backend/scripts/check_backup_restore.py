@@ -483,8 +483,12 @@ class RestoreDrill:
                     result = self.docker("start", "-a", "-i", apply, stdin=stream)
                     deleted = json.loads(result)["deleted"]
                 payload["deleted"] = deleted
-                # Let the probe choose a surviving image when the old sample was deleted.
-                payload["sample"] = None
+                # Preserve a living sample and its owner. Only a deleted sample
+                # needs a replacement from the authenticated account.
+                if payload["sample"] and any(
+                    item["content_id"] == payload["sample"]["content_id"] for item in deleted
+                ):
+                    payload["sample"] = None
             self.container(
                 api, "--network", network, "--env-file", str(env), "-v", f"{files}:/data", app_image
             )
@@ -511,8 +515,8 @@ class RestoreDrill:
                 "asset_count": len(actual["assets"]),
                 "extra_file_count": actual["extra_file_count"],
                 "authentication_passed": True,
-                "image_bytes_passed": bool(actual["assets"]),
-                "image_get_skipped": not bool(actual["assets"]),
+                "image_bytes_passed": actual["sample"] is not None,
+                "image_get_skipped": actual["sample"] is None,
                 "deletions_applied": self.deletion_events is not None,
                 "deleted_content_count": len(deleted),
             }

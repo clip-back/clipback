@@ -18,6 +18,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def command(arguments, environment, timeout=180):
+    __tracebackhide__ = True  # Environment and private fixture paths are not diagnostics.
     result = subprocess.run(
         [sys.executable, "-m", *arguments],
         env=environment,
@@ -104,7 +105,8 @@ png=output.getvalue()
 body=(b'--clipback74\\r\\nContent-Disposition: form-data; name="file"; filename="probe.png"'
       b'\\r\\nContent-Type: image/png\\r\\n\\r\\n'+png+b'\\r\\n--clipback74--\\r\\n')
 r=urllib.request.Request('http://127.0.0.1:8123/api/v1/uploads/screenshots',data=body,
- headers={'Authorization':'Bearer '+p['token'],'Content-Type':'multipart/form-data; boundary='+boundary})
+ headers={'Authorization':'Bearer '+p['token'],
+          'Content-Type':'multipart/form-data; boundary='+boundary})
 try:
  urllib.request.urlopen(r,timeout=10)
  raise AssertionError('Paused upload was accepted')
