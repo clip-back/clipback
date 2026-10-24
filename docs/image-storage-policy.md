@@ -81,7 +81,9 @@
 
 보관 정책과 기존 인증 API 통합 테스트 중심의 검증 경계를 합의했으며,
 [GitHub 이슈 #64](https://github.com/clip-back/clipback/issues/64)에 명세를 게시하고 `ready-for-agent`로 분류했다.
-제품 코드와 로컬 통합 검증을 `feature/image-storage-integration` 브랜치에 모았으며 최종 코드 리뷰를 진행한다.
+제품 코드와 로컬 통합 검증을 `feature/image-storage-integration` 브랜치에 모았으며,
+두 축 코드 리뷰와 지적 사항 수정을 완료했다. 최종 수정·검증과 소스 이력 대응은
+[최종 리뷰 기록](history/2026-10-24-image-storage-review.md)에서 확인한다.
 양쪽 모바일 실제 API 실행과 합성 DB·원본의 격리 복원 결과는
 [전체 통합 검증](history/2026-10-24-image-storage-integration.md)에서 확인한다.
 실제 Railway의 Bucket·권한·백업 일정 검증과 운영 전환은 아직 실행하지 않았다. 티켓별 기록은

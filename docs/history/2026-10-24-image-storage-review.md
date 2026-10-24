@@ -130,14 +130,49 @@ Spec 리뷰는 새 명세 지적 0건으로 초기 0건 결론을 유지했습�
   reset·stash·force-push·원격·사용자 ref 조작은 없습니다. 교정 전 검증 SHA는 backup과 기존 ticket
   브랜치로 계속 조회할 수 있습니다. tree가 동일한 메타데이터 작업에 제품 검사를 반복할 필요는 없습니다.
 
+## 실제 통합과 제목 교정 완료
+
+2026-10-24 최종 수정 브랜치를 `--no-ff`로 병합한 뒤 관련 API·삭제·백업 smoke **47 passed**,
+전체 backend Ruff·공백 검사·단일 Alembic head `202610230018`을 확인했다.
+이후 위 절차를 실제 통합 브랜치에 적용했다. 교정 전 HEAD `1d83f99d1a169a83a7367b3ace796fbd2576d963`은
+`backup/image-storage-review-before-title`에 보존했다. 교정 후 HEAD는
+`935c5eab63175ebb75edf8f8053b047dc92c2205`다.
+
+대상과 후손 25개 객체의 tree·작성자·시간·부모 순서·병합 구조를 보존하면서 대상 제목 하나만
+`chore: 이미지 보관 이관 브랜치 통합 기준 반영`으로 바꿨다. 전체 tip tree는 전후 모두
+`e6db897f815878fb67e6bed863f27070db347d37`이며, 다른 기존 ref는 모두 그대로다(전체 ref 148→149).
+main 조상과 깨끗한 작업 트리를 확인했다. 원래 대상은 현재 통합 조상에서 빠졌으며 원래 검증 SHA들은
+보존 브랜치와 기존 티켓 브랜치로 계속 조회할 수 있다. 파일 내용이 같은 메타데이터 작업이므로
+전체 검사를 반복하지 않았다. 이후 완료 문서만 추가한다.
+
+| 원래 검증·작업 SHA | 현재 통합 이력의 대응 SHA |
+| --- | --- |
+| `a7ebda6f5607c29030ea0e9cb4d2931a563d4cc8` 제목 대상 | `40ca10e92a5123173f8b71ec17fca73a2e1ea444` |
+| `80ec2200d81b548e9691e553eb2b49d26715f6b0` #74 최종 검사 소스 | `d1ce5af44e32008e16ed689ad15ce42154a2a924` |
+| `d5db19fd7b71b9aa5b47e50458f16e972d772dc8` #74 최종 문서 | `9d59ee94ce16f63c8df66fc752da645b300b0cde` |
+| `df680d0a40a8c7f07b5121d7a54c6ab765f33b95` #74 병합 | `1c49270cc2c559e4324f40ba420f363c5b70a15b` |
+| `fc638da5449efb2117741f3999d593e0f7f3ecb8` 초기 리뷰 기준 | `d564e3eae5a745e9234ab6b0d7bc2c35952e42e2` |
+| `f300fd8bc1c4e895ec6f753cb029eefdc267ba94` 최종 제품·테스트 수정 | `7af2b6630fe3a1b7e7805aa49e913f071ad66759` |
+
+Standards의 명시 위반 1건·판단 사항 2건과 root 추가 확인 1건을 모두 해결했다.
+Spec의 확정 위반은 초기·수정 후 검토 모두 0건이다. 아래 발견 수는 해결 전 독립 보고서의 수를 유지한다.
+
 private 증거: `review-prefix-red.log`, `review-prefix-green.log`, `review-focused-green.log`,
 `review-full-backend.log`, `review-docker.log`, `review-docker-focused-diagnostic.log`,
 `review-operator-diagnostic-failure.json`, `review-docker-operator16-green.log`,
 `review-ruff.log`, `review-docker-images.txt`,
 `reword-live-dry-run.json`, `reword-final-copy-apply.json`, `reword-negative-guards.json`,
-`review-private-script-sha256.json`. 경로 루트는 `/private/tmp/clipback-image-implementation`입니다.
-원시 자격 증명·덤프·개인 설정은 Git에 포함하지 않았습니다. 워크트리와 기존 전용 PG/S3는 후속 리뷰를 위해
-보존하며 운영 자원·이슈·PR·원격 ref는 변경하지 않았습니다.
+`review-private-script-sha256.json`, `reword-merger-post-review-applied.json`,
+`reword-merger-post-review-verification.json`. 경로 루트는 `/private/tmp/clipback-image-implementation`입니다.
+원시 자격 증명·덤프·개인 설정은 Git에 포함하지 않았습니다. 검증용 원본 이력과 화면 증거를 보존한 뒤
+구현자 작업 트리를 일반 `git worktree remove`로 정리했습니다. 사용자 프론트 작업 트리는 유지했습니다.
+운영 자원·PR·원격 ref는 변경하지 않았습니다.
+
+마지막 문서 확인에서 변경 문서의 로컬 링크 605개와 공개 JSON·HTML 증거 96개를 점검했고,
+끊긴 링크·JWT·서명 쿼리 후보는 없었습니다. main 대비 추가 파일에 로컬 환경·DB·화면 생성물·
+`AGENTS.md`가 포함되지 않았고, 커밋 메시지 형식·공백 검사도 확인했습니다.
+작업 소유권을 확인한 합성 S3·PostgreSQL과 이번에 실행한 Android 에뮬레이터는 종료했습니다.
+클러스터·AVD 데이터와 화면·영상은 보존했고, 이미 앱이 종료된 iOS Simulator는 그대로 뒀습니다.
 
 축별 발견 수: **Standards 3건(명시 1·판단 2), 축 내 가장 큰 항목은 커밋 제목 규칙 위반**;
 **Spec 0건, 축 내 가장 큰 항목 없음**. Root의 구성 prefix 1건은 별도로 해결했습니다.
