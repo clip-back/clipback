@@ -94,6 +94,7 @@ API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이�
 ## 상세 문서
 
 - [세션·저장·탐색·실패 복구와 화면 동작](../docs/frontend/behavior.md)
+- [홈 최초 불러오기 복구 설계 — 정책 합의·미구현](../docs/frontend/home-loading-recovery.md)
 - [소셜·플랫폼 설정과 실행·검증·TestFlight](../docs/frontend/development.md)
 - [백엔드 API 계약](../docs/backend/api-contracts.md)
 - [iOS 네이티브 공유 검증](ios/ShareVerification/README.md) · [Android 공유 검증](android/SHARE_TESTING.md)
