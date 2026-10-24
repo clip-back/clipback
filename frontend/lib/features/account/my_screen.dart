@@ -145,20 +145,25 @@ class MyScreen extends StatelessWidget {
                             ),
                             if (onRetryStats != null) ...[
                               const SizedBox(height: 8),
-                              OutlinedButton(
-                                onPressed: onRetryStats,
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size(88, 44),
-                                  foregroundColor: AppColors.text,
-                                  side: const BorderSide(
-                                    color: AppColors.subtle,
+                              // Consume a rapid second tap before retry moves the menus.
+                              GestureDetector(
+                                onDoubleTap: onRetryStats,
+                                excludeFromSemantics: true,
+                                child: OutlinedButton(
+                                  onPressed: onRetryStats,
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(88, 44),
+                                    foregroundColor: AppColors.text,
+                                    side: const BorderSide(
+                                      color: AppColors.subtle,
+                                    ),
+                                    textStyle: const TextStyle(fontSize: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
                                   ),
-                                  textStyle: const TextStyle(fontSize: 14),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
+                                  child: const Text('다시 시도'),
                                 ),
-                                child: const Text('다시 시도'),
                               ),
                             ],
                           ],

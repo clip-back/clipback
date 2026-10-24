@@ -7,6 +7,7 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -234,8 +235,9 @@ class _Server {
 Future<void> _withApp(
   WidgetTester tester,
   _Server server,
-  Future<void> Function() check,
-) async {
+  Future<void> Function() check, {
+  double textScale = 1,
+}) async {
   SharedPreferences.setMockInitialValues({
     'clipback.session': jsonEncode({
       'access_token': 'test-access',
@@ -246,6 +248,8 @@ Future<void> _withApp(
   });
   tester.view.physicalSize = const Size(428, 1000);
   tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(server.client.close);
@@ -325,6 +329,101 @@ Future<void> _loadMore(WidgetTester tester) async {
 }
 
 void main() {
+  for (final activation in ['single pointer', 'semantics', 'keyboard action']) {
+    testWidgets('마이 통계 재시도 $activation 활성화는 요청 시작부터10초를 지킨다', (tester) async {
+      final pending = Completer<http.Response?>();
+      var statsReads = 0;
+      final server = _Server(
+        respond: (request, _) {
+          if (request.url.path != '/api/v1/users/me/stats') return null;
+          return switch (++statsReads) {
+            1 => _json({'saved_count': 218, 'reopened_count': 72}),
+            2 => _failure('503'),
+            _ => pending.future,
+          };
+        },
+      );
+      await _withApp(tester, server, () async {
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        switch (activation) {
+          case 'single pointer':
+            await tester.tap(find.text('다시 시도'));
+            await tester.pump(const Duration(milliseconds: 300));
+          case 'semantics':
+            final semantics = tester.ensureSemantics();
+            tester.semantics.tap(find.semantics.byLabel('다시 시도'));
+            semantics.dispose();
+          case 'keyboard action':
+            Actions.invoke(
+              tester.element(find.text('다시 시도')),
+              const ActivateIntent(),
+            );
+        }
+        await tester.pump();
+        expect(statsReads, 3);
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        expect(find.text('다시 시도'), findsNothing);
+        await tester.pump(const Duration(milliseconds: 9999));
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump();
+        expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+        expect(find.text('218'), findsOneWidget);
+        expect(find.text('72'), findsOneWidget);
+        pending.complete(_json({'saved_count': 1, 'reopened_count': 1}));
+        await tester.pumpAndSettle();
+      });
+    });
+  }
+
+  testWidgets('마이 통계 재시도 연속 입력은 이동한 관리 메뉴를 열지 않는다', (tester) async {
+    final fonts = FontLoader('Pretendard');
+    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
+      fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
+    }
+    await fonts.load();
+    final pending = Completer<http.Response?>();
+    var statsReads = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/users/me/stats') return null;
+        return switch (++statsReads) {
+          1 => _json({'saved_count': 218, 'reopened_count': 72}),
+          2 => _failure('503'),
+          _ => pending.future,
+        };
+      },
+    );
+    await _withApp(tester, server, () async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+      final retryPosition = tester.getCenter(find.text('다시 시도'));
+      final first = await tester.startGesture(retryPosition);
+      await tester.pump(const Duration(milliseconds: 45));
+      await first.up();
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 15));
+      }
+      final second = await tester.startGesture(retryPosition);
+      await tester.pump(const Duration(milliseconds: 45));
+      await second.up();
+      await tester.pump(const Duration(milliseconds: 350));
+      final unintendedSheet = find.byType(ReminderSheet).evaluate().isNotEmpty;
+      expect(server.calls('/api/v1/users/me/stats'), hasLength(3));
+      pending.complete(_json({'saved_count': 320, 'reopened_count': 89}));
+      await tester.pumpAndSettle();
+      expect(unintendedSheet, isFalse);
+      expect(find.byType(ReminderSheet), findsNothing);
+      expect(find.text('320'), findsOneWidget);
+      expect(find.text('89'), findsOneWidget);
+      await tester.tap(find.text('리마인드 설정'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReminderSheet), findsOneWidget);
+    }, textScale: 2);
+  });
+
   testWidgets('콘텐츠 갱신 뒤 늦은 최초 프로필401은 현재 통계와 인증을 바꾸지 않는다', (tester) async {
     final oldProfile = Completer<http.Response?>();
     var profileReads = 0;
@@ -443,7 +542,7 @@ void main() {
       expect(find.text('0'), findsNWidgets(2));
       expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
       await tester.tap(find.text('다시 시도'));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 9999));
       expect(find.text('0'), findsNWidgets(2));
       expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
@@ -643,7 +742,7 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
       final profiles = server.calls('/api/v1/users/me').length;
       await tester.tap(find.text('다시 시도'));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('70'), findsOneWidget);
       expect(find.text('30'), findsOneWidget);
       expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);

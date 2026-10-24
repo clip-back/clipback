@@ -794,7 +794,7 @@ void main() {
       expect(server.calls(_stats), hasLength(1));
 
       await tester.tap(find.text('다시 시도'));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(server.calls(_stats), hasLength(2));
       tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
       await tester.pump();
@@ -927,6 +927,7 @@ void main() {
         expect(server.calls(_stats), hasLength(2));
         final profileRequests = server.calls(_me).length;
         await tester.tap(find.text('다시 시도'));
+        await tester.pump(const Duration(milliseconds: 50));
         await tester.tap(find.text('다시 시도'));
         await tester.pump();
         expect(find.text('—'), findsNWidgets(2));
@@ -972,7 +973,7 @@ void main() {
           tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
           await tester.pumpAndSettle();
           await tester.tap(find.text('다시 시도'));
-          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
           await tester.pump(const Duration(seconds: 4));
           unauthorized.complete(_failure('401'));
           await tester.pump();
@@ -1003,7 +1004,7 @@ void main() {
           expect(server.calls(_guest), isEmpty);
           final profileRequests = server.calls(_me).length;
           await tester.tap(find.text('다시 시도'));
-          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
           await tester.pump(const Duration(milliseconds: 9999));
           expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
           recovered.complete(_json({'saved_count': 8, 'reopened_count': 4}));
