@@ -11,6 +11,7 @@
 !scripts/start.sh
 !scripts/image_backup.py
 !scripts/image_backup_jobs.py
+!scripts/image_storage_admin.py
 !scripts/image_migration.py
 !scripts/recovery_probe.py
 !scripts/recovery_deletions.py

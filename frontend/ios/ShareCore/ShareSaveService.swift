@@ -54,6 +54,10 @@ final class ShareSaveService: NSObject, URLSessionTaskDelegate {
               }
               let errorJSON = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
               if let detail = errorJSON?["detail"] as? [String: Any],
+                 detail["code"] as? String == "image_uploads_paused" {
+                throw ShareFailure.message("이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.")
+              }
+              if let detail = errorJSON?["detail"] as? [String: Any],
                  detail["code"] as? String == "image_quota_exceeded" {
                 throw ShareFailure.message("이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.")
               }
