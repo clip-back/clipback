@@ -34,6 +34,7 @@ python -m scripts.image_storage_admin resume
 | `observed_transfers.proxy_download` | API가 원본 응답을 준비한 횟수·payload 크기. 수신 완료 보장은 아님 |
 | `observed_transfers.direct_access_grant/proxy_access_grant` | 접근 정보 발급 건수. 이미지 다운로드 횟수·전송 바이트로 환산하지 않음 |
 | `provider_transfer_bytes`, `backup_transfer_bytes`, `actual_cost_krw` | 이 계측으로 알 수 없어 `null`. 공급자 자료로 별도 확인 |
+| `deletion_ledger_storage_bytes`, `deletion_ledger_transfer_bytes` | 독립 삭제 기록 저장소의 보관·전송량은 이 보고에서 계측하지 않아 `null` |
 
 크기는 바이트로 출력한다. 파일 시스템·Bucket 순회와 DB 조회가 원자적인 스냅샷은 아니므로
 동시 저장·삭제에 따라 시점 차이가 생길 수 있다. 로컬 디렉터리가 없거나 Bucket이 설정되지 않으면
@@ -43,6 +44,8 @@ python -m scripts.image_storage_admin resume
 전송 집계는 UTC 일별 익명 카운터를 월 단위로 합산한다. 파일명·저장 키·해시·계정별 전송 이력은
 기록하지 않는다. 실패 후 롤백된 쓰기, 공급자 재시도, HTTP·TLS 오버헤드, 직접 Bucket 다운로드는
 포함하지 않는다. 따라서 실제 네트워크 전송량의 완전한 측정이나 청구 금액 추정으로 보고하지 않는다.
+별도 삭제 기록 Bucket·로컬 삭제 기록의 보관·전송량도 계측하지 않는다. 위 물리 보관량 세 항목을
+이미지 시스템 전체 사용량·비용의 합계로 해석하지 않으며, 삭제 기록 비용은 공급자 자료로 함께 확인한다.
 
 ## 중단과 재개
 

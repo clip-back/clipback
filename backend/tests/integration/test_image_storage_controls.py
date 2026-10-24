@@ -124,6 +124,8 @@ async def test_operator_report_separates_logical_physical_backup_and_observed_tr
         "payload_bytes": 0,
     }
     assert report["provider_transfer_bytes"] is None
+    assert report["deletion_ledger_storage_bytes"] is None
+    assert report["deletion_ledger_transfer_bytes"] is None
     assert report["actual_cost_krw"] is None
     assert report["monthly_design_goal_krw"] == 10_000
     import json

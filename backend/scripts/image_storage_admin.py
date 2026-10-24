@@ -107,6 +107,8 @@ async def usage_report(
         "observed_transfers": counters,
         "provider_transfer_bytes": None,
         "backup_transfer_bytes": None,
+        "deletion_ledger_storage_bytes": None,
+        "deletion_ledger_transfer_bytes": None,
         "actual_cost_krw": None,
         "monthly_design_goal_krw": 10_000,
         "limitations": [
@@ -115,6 +117,8 @@ async def usage_report(
             "Proxy payloads are prepared response bytes, not proof the client received them.",
             "Access grants are not downloads. Direct Bucket downloads are unobserved.",
             "Network overhead, backup transfers and provider billing require provider records.",
+            "Independent deletion-ledger storage and transfers are unmeasured; listed storage "
+            "fields are not total image-system storage or cost.",
             "KRW 10000 is an image storage/transfer/backup design goal, not a bill or hard cap; "
             "server, database and AI costs are separate.",
         ],
