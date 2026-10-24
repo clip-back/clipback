@@ -51,6 +51,29 @@ def deletion_job(intent: dict) -> ImageDeletion:
     )
 
 
+def migration_operation_id(storage_key: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"migration-target:s3:{storage_key}"))
+
+
+async def migrated_local_alias(session: AsyncSession, job: ImageDeletion, asset: dict) -> bool:
+    # Only an actual user deletion retires a deliberately retained migration source.
+    # A failed target upload/flip must keep the local original available.
+    if job.content_id == 0 or asset["storage_backend"] != "s3":
+        return False
+    migration = await session.get(ImageDeletion, migration_operation_id(asset["storage_key"]))
+    source = migration.intent.get("source_identity") if migration is not None else None
+    if not source or any(source[field] != job.intent[field] for field in ("user_id", "content_id")):
+        return False
+    if datetime.fromisoformat(source["saved_at"]) != datetime.fromisoformat(job.intent["saved_at"]):
+        return False
+    return any(
+        item["storage_key"] == asset["storage_key"]
+        and all(item.get(field) is None or asset.get(field) is None
+                or item[field] == asset[field] for field in ("sha256", "size_bytes"))
+        for item in source["assets"]
+    )
+
+
 def matches_deletion_identity(content, intent: dict) -> bool:
     """Location changes and filling legacy metadata do not make a new original."""
     current = deletion_identity(content)
@@ -149,7 +172,11 @@ async def cleanup_image_deletion(
         return
     job.attempts += 1
     try:
+        physical_assets = list(job.intent["assets"])
         for asset in job.intent["assets"]:
+            if await migrated_local_alias(session, job, asset):
+                physical_assets.append({**asset, "storage_backend": "local"})
+        for asset in physical_assets:
             referenced = await session.scalar(
                 select(ContentAsset.id)
                 .where(
