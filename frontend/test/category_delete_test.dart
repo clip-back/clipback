@@ -730,8 +730,9 @@ void main() {
     final server = _Server(
       respond: (request, _) {
         if (request.url.path == '/api/v1/auth/refresh') return refresh.future;
-        if (request.method == 'PATCH')
+        if (request.method == 'PATCH') {
           return ++writes == 1 ? denied.future : retried.future;
+        }
         return null;
       },
     );

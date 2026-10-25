@@ -62,6 +62,20 @@
 - Flutter 관련 카테고리67개·전체1,860개가 통과했고, 이후 추가한 수정 인증 누적10초 검사1개도 통과했습니다.
   `flutter analyze --no-pub`는 문제 없음입니다. 후속 통합 뒤의 추가 검증은 아래에 이어 기록합니다.
 
+### #89 통합과 추가 검증
+
+- 통합 `7c05075`를 자체 브랜치의 `0587ef9`로 병합했습니다. 수정 성공도 `refreshCategoriesAfterSave`를 사용하며,
+  콘텐츠 후속 조회는 `refresh(..., includeCategories: false)`의 독립 수명으로 유지합니다.
+  신규 수정의 확인값 적용은 기존 카테고리 조회 세대를 무효화해 오래된 GET의 덮어쓰기를 막습니다.
+- 실제 앱의 후속 GET 실패에서 콘텐츠 수7이0으로 바뀌는 실패를 재현했습니다. `CategoryRead`에는 목록 집계가 없으므로
+  확인된 이름·색상만 기존 `CategorySummaryRead`에 적용하도록 고쳤습니다. 과거 성공 재확인은 값 대입을 하지 않습니다.
+- 저장 성공 뒤 목록 실패 안내가 없던 재현도 공통 후속 조회 연결로 통과했습니다. 시트는 먼저 닫고 콘텐츠 수7을 유지하며,
+  스낵바의 수동 재시도는 카테고리 GET만 실행합니다.
+- 통합 후 `flutter test --no-pub --concurrency=1`로 카테고리·목록 복구·배치·Action·Repository 관련242개를 통과했습니다.
+- 통합 전 추가 단일 검사의 한 실행은 compiler `output.dill` 쓰기에서 `OS Error 28`로 중단됐습니다.
+  이는 제품 assertion 실패와 구분한 환경 실패이며 통과로 집계하지 않았습니다. 해당 프로세스를 종료하고 이번 worktree의
+  재생성 가능한 build145MB와 실패한 compiler의 명시된 임시 폴더만 정리했습니다. 위 통합 재검사는 정리 후 결과입니다.
+
 ### 실행 증거와 남은 검증
 
 이 단계의 실행 증거는 로컬 실제 앱·HTTP 대역과 전용 PostgreSQL입니다. iOS Simulator·Android Emulator의

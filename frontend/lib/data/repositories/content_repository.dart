@@ -986,7 +986,9 @@ class RemoteContentRepository extends ContentRepository {
     ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
     _categoryReadVersion++;
-    final current = _categories.where((item) => item.id == categoryId).firstOrNull;
+    final current = _categories
+        .where((item) => item.id == categoryId)
+        .firstOrNull;
     if (!saved.submissionReplayed && current != null) {
       _replaceCategoryLocally(
         categoryId,
