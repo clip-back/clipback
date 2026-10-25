@@ -111,6 +111,10 @@
 
 `202610250015`는 기존 테이블을 바꾸지 않고 `category_submissions`를 추가한다. 신규 앱 배포 전에 migration과
 이 서버 계약을 먼저 적용한다. 생성·수정 복구의 후속 목록 조회는 저장 트랜잭션과 별개다.
+앱은 `GET /api/v1/categories`의 정상 배열·항목과 정상 빈 배열을 현재 목록으로 반영한다.
+각 항목의 `content_count: int`, `last_saved_at: datetime | null`은 목록의 필수 요약 필드다.
+빈 HTTP 본문·JSON null·잘못된 배열/항목을 빈 목록으로 보정하지 않으며 마지막 확인 목록을 유지한다.
+저장 후 이 조회의 실패는 저장 성공을 바꾸지 않고 카테고리 GET만 재시도한다.
 
 ## Guest Authentication
 

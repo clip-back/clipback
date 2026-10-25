@@ -20,8 +20,13 @@ class ContentActions {
   final UserRepository users;
   final SessionRepository session;
   bool _disposed = false;
+  Object? _categoryReadAttempt;
+  ApiRequestScope? _categoryReadScope;
 
-  void dispose() => _disposed = true;
+  void dispose() {
+    _disposed = true;
+    _categoryReadScope?.cancel();
+  }
 
   bool _current(int generation) =>
       !_disposed && generation == content.accountVersion;
@@ -135,10 +140,68 @@ class ContentActions {
     }
   }
 
+  /// Start after the result can close its sheet; this read never extends saving.
+  void refreshCategoriesAfterSave({
+    required int accountVersion,
+    required ContentFeedback feedback,
+  }) {
+    unawaited(
+      Future<void>(() async {
+        if (_current(accountVersion)) {
+          await reloadCategories(feedback: feedback, afterSave: true);
+        }
+      }),
+    );
+  }
+
+  Future<bool> reloadCategories({
+    required ContentFeedback feedback,
+    bool afterSave = false,
+  }) async {
+    if (_disposed) return false;
+    final account = content.accountVersion;
+    final attempt = Object();
+    _categoryReadScope?.cancel();
+    _categoryReadAttempt = attempt;
+    bool current() =>
+        _current(account) && identical(_categoryReadAttempt, attempt);
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: current,
+    );
+    _categoryReadScope = scope;
+    try {
+      await scope.run(() => scope.wait(content.loadCategories()));
+      scope.checkActive();
+      return current();
+    } catch (_) {
+      if (current()) {
+        feedback(
+          MessageEffect(
+            afterSave ? '저장은 완료됐지만 카테고리 목록을 새로 불러오지 못했어요' : '최신 정보를 불러오지 못했어요.',
+            retryLabel: '다시 불러오기',
+            retry: () {
+              if (current()) {
+                unawaited(
+                  reloadCategories(feedback: feedback, afterSave: afterSave),
+                );
+              }
+            },
+          ),
+        );
+      }
+      return false;
+    } finally {
+      scope.cancel();
+      if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+    }
+  }
+
   Future<CategorySaveResult> submitCategoryCreate({
     required String name,
     required String color,
     required String submissionKey,
+    required ContentFeedback feedback,
   }) async {
     final generation = content.accountVersion;
     final scope = ApiRequestScope(
@@ -158,21 +221,9 @@ class ContentActions {
       if (!_current(generation) || created == null) {
         return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
       }
-      unawaited(
-        Future<void>(() async {
-          if (!_current(generation)) return;
-          final read = ApiRequestScope(
-            timeout: const Duration(seconds: 10),
-            isCurrent: () => _current(generation),
-          );
-          try {
-            await read.run(() => read.wait(content.loadCategories()));
-          } catch (_) {
-            // A committed submission stays successful if the later read fails.
-          } finally {
-            read.cancel();
-          }
-        }),
+      refreshCategoriesAfterSave(
+        accountVersion: generation,
+        feedback: feedback,
       );
       return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
     } on CategorySubmissionRejected catch (error) {
@@ -227,21 +278,9 @@ class ContentActions {
       if (!_current(generation) || saved == null) {
         return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
       }
-      unawaited(
-        Future<void>(() async {
-          if (!_current(generation)) return;
-          final read = ApiRequestScope(
-            timeout: const Duration(seconds: 10),
-            isCurrent: () => _current(generation),
-          );
-          try {
-            await read.run(() => read.wait(content.loadCategories()));
-          } catch (_) {
-            // #89 connects this separate read to the category-only retry feedback.
-          } finally {
-            read.cancel();
-          }
-        }),
+      refreshCategoriesAfterSave(
+        accountVersion: generation,
+        feedback: feedback,
       );
       unawaited(
         Future<void>(() async {

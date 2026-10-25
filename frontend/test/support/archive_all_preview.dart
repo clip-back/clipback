@@ -137,6 +137,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#5BD89D',
     'is_default': false,
     'content_count': 37,
+    'last_saved_at': null,
   },
   {
     'id': 102,
@@ -144,6 +145,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#FF6277',
     'is_default': false,
     'content_count': 19,
+    'last_saved_at': null,
   },
   {
     'id': 103,
@@ -151,6 +153,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#64B5F6',
     'is_default': false,
     'content_count': 8,
+    'last_saved_at': null,
   },
   {
     'id': 104,
@@ -158,6 +161,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#B9AAFF',
     'is_default': false,
     'content_count': 11,
+    'last_saved_at': null,
   },
   {
     'id': 105,
@@ -165,6 +169,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#FFA24B',
     'is_default': false,
     'content_count': 9,
+    'last_saved_at': null,
   },
   {
     'id': 106,
@@ -172,6 +177,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#1F5E24',
     'is_default': false,
     'content_count': 4,
+    'last_saved_at': null,
   },
   {
     'id': 99,
@@ -179,6 +185,7 @@ const archiveAllCategoryMaps = <Map<String, Object?>>[
     'color': '#B5BDC3',
     'is_default': true,
     'content_count': 2,
+    'last_saved_at': null,
   },
 ];
 List<Map<String, Object?>> archiveAllRecords() {

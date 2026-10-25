@@ -29,6 +29,7 @@ class CategoryManagementViewModel extends ContentViewModel {
     name: name,
     color: hexFromColor(color),
     submissionKey: submissionKey ?? newEventUuid(),
+    feedback: emitEffect,
   );
 
   Future<CategorySaveResult> submitUpdate(

@@ -174,6 +174,8 @@ class RemoteContentRepository extends ContentRepository {
   bool _categoryRefreshRequired = false;
   int _accountVersion = 0;
   int _refreshVersion = 0;
+  int _categoryReadVersion = 0;
+  ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
   ApiContent? _selectedContent;
@@ -224,6 +226,7 @@ class RemoteContentRepository extends ContentRepository {
   @override
   void dispose() {
     _disposed = true;
+    _categoryReadScope?.cancel();
     _detailHandle = null;
     super.dispose();
   }
@@ -246,6 +249,8 @@ class RemoteContentRepository extends ContentRepository {
     _categoryMutations.clear();
     _deletedCategoryIds.clear();
     _categoryRefreshRequired = false;
+    _categoryReadScope?.cancel();
+    _categoryReadVersion++;
     _refreshVersion++;
     _detailVersion++;
     _detailHandle = null;
@@ -261,14 +266,40 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
-  Future<void> loadCategories() async {
+  Future<void> loadCategories() => _loadCategories();
+
+  Future<void> _loadCategories({bool Function()? isCurrent}) async {
     final account = _accountVersion;
-    final response = await _api.listCategories();
-    if (_disposed || account != _accountVersion) return;
-    _categories
-      ..clear()
-      ..addAll(_reconcileCategoryList(response));
-    _notify();
+    final read = ++_categoryReadVersion;
+    final owner = ApiRequestScope.current;
+    _categoryReadScope?.cancel();
+    bool current() =>
+        !_disposed &&
+        account == _accountVersion &&
+        read == _categoryReadVersion &&
+        (isCurrent?.call() ?? true);
+    final scope = ApiRequestScope(
+      isCurrent: () => current() && (owner?.isActive ?? true),
+    );
+    _categoryReadScope = scope;
+    if (owner != null) {
+      unawaited(owner.cancelled.then((_) => scope.cancel()));
+    }
+    try {
+      final response = await scope.run(() => scope.wait(_api.listCategories()));
+      ApiRequestScope.current?.checkActive();
+      if (!current()) return;
+      _categories
+        ..clear()
+        ..addAll(_reconcileCategoryList(response));
+      _notify();
+    } catch (_) {
+      if (!current()) return;
+      rethrow;
+    } finally {
+      scope.cancel();
+      if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+    }
   }
 
   /// Replaces the whole filter; loading/resetting remains an explicit command.
@@ -435,12 +466,7 @@ class RemoteContentRepository extends ContentRepository {
     if (!isCurrentRefresh(ticket)) return result();
     if (includeCategories) {
       try {
-        final response = await _api.listCategories();
-        if (!isCurrentRefresh(ticket)) return result();
-        _categories
-          ..clear()
-          ..addAll(_reconcileCategoryList(response));
-        _notify();
+        await _loadCategories(isCurrent: () => isCurrentRefresh(ticket));
       } catch (_) {
         metadataFailed = true;
         // Category metadata failure does not prevent the list refresh.
@@ -807,6 +833,7 @@ class RemoteContentRepository extends ContentRepository {
       name: handle.name,
       color: handle.color,
     );
+    _categoryReadVersion++;
     _categoryMutations[id] = _CategoryChange(handle, value);
     _replaceCategoryLocally(id, value);
     return handle;
@@ -868,6 +895,7 @@ class RemoteContentRepository extends ContentRepository {
         if (!_isCurrentCategoryMutation(handle)) {
           return const MutationResult.stale();
         }
+        _categoryReadVersion++;
         _deletedCategoryIds.add(id);
         _categories.removeWhere((item) => item.id == id);
         _normalizeLoadedCategories();
@@ -885,6 +913,7 @@ class RemoteContentRepository extends ContentRepository {
         if (!_isCurrentCategoryMutation(handle)) {
           return const MutationResult.stale();
         }
+        _categoryReadVersion++;
         final change = _categoryMutations[id]!;
         change.value = _copyCategory(
           change.value,
@@ -924,6 +953,7 @@ class RemoteContentRepository extends ContentRepository {
     String? submissionKey,
   }) async {
     final account = _accountVersion;
+    _categoryReadVersion++;
     final created = await _api.createCategory(
       name: name,
       color: color,
@@ -931,6 +961,7 @@ class RemoteContentRepository extends ContentRepository {
     );
     ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
+    _categoryReadVersion++;
     if (!created.submissionReplayed) {
       _categories.insert(0, created);
       _notify();
@@ -954,6 +985,7 @@ class RemoteContentRepository extends ContentRepository {
     );
     ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
+    _categoryReadVersion++;
     final current = _categories.where((item) => item.id == categoryId).firstOrNull;
     if (!saved.submissionReplayed && current != null) {
       _replaceCategoryLocally(
