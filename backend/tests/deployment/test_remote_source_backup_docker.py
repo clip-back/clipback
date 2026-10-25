@@ -81,8 +81,9 @@ CREATE TABLE content_categories(content_id int, category_id int);
 CREATE TABLE image_deletions(operation_id text, completed bool, attempts int);
 INSERT INTO image_deletions VALUES('pending98',false,0);
 """.replace("DIGEST", hashlib.sha256(b"original98").hexdigest())
+        from tests.support.maintenance import control_schema_sql
         docker("exec", db, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
-               "-c", seed)
+               "-c", seed + control_schema_sql())
         # API owns the only source mount. Operator intentionally has no originals mount.
         registration = docker("run", "--rm", "-v", f"{originals}:/originals",
                               "--entrypoint", "python", api_image, "-m", "scripts.image_source",
@@ -98,7 +99,7 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
                "-e", "OPERATOR_HOST=0.0.0.0", "-e", "PORT=8000", api_image)
         for _ in range(100):
             ready = docker("exec", api, "python", "-c",
-                           "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/')",
+                           "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
                            check=False)
             if ready.returncode == 0:
                 break
@@ -230,7 +231,7 @@ def test_supervisor_stops_both_listeners_and_reports_private_startup_failure():
         docker("run", "-d", "--name", good, *env, "-e", "OPERATOR_HOST=0.0.0.0", image)
         for _ in range(100):
             ready = docker("exec", good, "python", "-c",
-                           "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/')",
+                           "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
                            check=False)
             if ready.returncode == 0:
                 break

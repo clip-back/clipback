@@ -170,7 +170,9 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
         raise CheckError("operator_configuration_invalid") from exc
     try:
         ledger = get_deletion_ledger(runtime.config)
-        async with source_lock(BACKUP_JOB_LOCK, try_only=True, engine=runtime.engine):
+        from app.services.maintenance import MaintenanceGate
+        async with MaintenanceGate(runtime.sessions).operation("backup_" + command), \
+                source_lock(BACKUP_JOB_LOCK, try_only=True, engine=runtime.engine):
             if command == "maintain":
                 return await asyncio.to_thread(maintain_backups, store, ledger)
             identifier = backup_id or "daily-" + datetime.now(UTC).date().isoformat()

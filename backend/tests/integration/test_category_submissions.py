@@ -25,7 +25,8 @@ async def independent_category_api(external_responses):
         pytest.skip("TEST_DATABASE_URL is required for PostgreSQL tests")
     engine = create_async_engine(url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    app = create_app()
+    from app.services.maintenance import MaintenanceGate
+    app = create_app(maintenance=MaintenanceGate(sessions))
     user_ids, pids = [], []
 
     async def db():

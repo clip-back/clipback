@@ -361,3 +361,8 @@ dump, local·Bucket 원본, 내용별 백업 재사용, 격리 Bucket 복원과 
 일반 pytest 통과를 실제 Docker 검사 실행으로 보고하지 않습니다.
 
 기존 API Volume의 원격 백업은 [운영 원본의 비공개 읽기](image-operator-source.md)를 따른다. 원격 원본 경로 준비와 실제 Railway 연결 증거를 분리한다.
+
+
+## 격리 복원 전 전체 점검
+
+신규 이미지 저장 중단만으로 전체 쓰기가 멈추지는 않습니다. 새 [영속 점검 제어](image-maintenance.md)의 실행·종료 대기·명시적 재개를 사용하며 실제 운영 검증은 별도 단계입니다.

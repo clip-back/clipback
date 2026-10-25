@@ -65,7 +65,11 @@ async def test_worker_logs_safe_provider_diagnostics(provider, status):
     logger.addHandler(handler_log)
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            worker = SummaryWorker(None, YouTubeSummaryClient(config(), http), config())
+            from tests.support.maintenance import OpenUnitGate
+
+            worker = SummaryWorker(
+                None, YouTubeSummaryClient(config(), http), config(), maintenance=OpenUnitGate()
+            )
             worker.claim = AsyncMock(return_value=(12, 7, "dQw4w9WgXcQ", "model", "token", []))
             worker.finish = AsyncMock()
             await worker.run_once()

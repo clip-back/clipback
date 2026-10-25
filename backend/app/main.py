@@ -34,7 +34,7 @@ async def lifespan(_: FastAPI):
             await close_social_auth_client()
 
 
-def create_app() -> FastAPI:
+def create_app(*, maintenance=None) -> FastAPI:
     app = FastAPI(
         title=settings.project_name,
         version="0.1.0",
@@ -42,6 +42,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from app.middleware.maintenance import MaintenanceMiddleware
+    from app.services.maintenance import default_gate
+
+    app.state.maintenance = maintenance or default_gate()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.backend_cors_origins,
@@ -50,6 +54,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.add_middleware(MaintenanceMiddleware, state=app.state, prefix=settings.api_v1_prefix)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     @app.get("/", tags=["root"])

@@ -78,8 +78,9 @@ CREATE TABLE content_categories(content_id int, category_id int);
 CREATE TABLE image_deletions(operation_id text, completed bool, attempts int);
 INSERT INTO image_deletions VALUES('pending98',false,0);
 """.replace("DIGEST", hashlib.sha256(b"original98").hexdigest())
+        from tests.support.maintenance import control_schema_sql
         docker("exec", db, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
-               "-c", seed)
+               "-c", seed + control_schema_sql())
         setup = run(*args, "--entrypoint", "python", image, "-c",
                     "import boto3,time; from app.integrations.deletion_ledger import "
                     "get_deletion_ledger; from app.core.deletion_ledger_config import "

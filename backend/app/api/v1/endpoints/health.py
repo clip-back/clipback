@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -23,11 +23,23 @@ async def health_check() -> dict[str, str]:
     response_model=dict[str, str],
     responses={503: {"description": "Database or storage unavailable"}},
 )
-async def readiness(db: DatabaseSession) -> JSONResponse:
+async def readiness(request: Request, db: DatabaseSession) -> JSONResponse:
     try:
         async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
             await db.execute(text("SELECT 1"))
-            if settings.storage_backend == "local":
+            state = await request.app.state.maintenance.status()
+            if state["phase"] != "open":
+                if settings.storage_backend == "local":
+                    if not settings.storage_root.is_dir():
+                        raise OSError("Original root unavailable")
+                else:
+                    from app.integrations.storage_client import S3StorageClient
+                    client = S3StorageClient(settings)
+                    try:
+                        await asyncio.to_thread(client.check_ready)
+                    finally:
+                        client.client.close()
+            elif settings.storage_backend == "local":
                 await asyncio.to_thread(check_storage, settings.storage_root)
             else:
                 await asyncio.to_thread(check_configured_storage)

@@ -33,7 +33,12 @@ def worker(database_connection, monkeypatch, api):
     factory = async_sessionmaker(
         bind=database_connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
     )
-    return SummaryWorker(factory, SimpleNamespace(summarize=summarize), settings), state
+    from app.services.maintenance import MaintenanceGate
+
+    gate = MaintenanceGate(async_sessionmaker(database_connection.engine, expire_on_commit=False))
+    return SummaryWorker(
+        factory, SimpleNamespace(summarize=summarize), settings, maintenance=gate
+    ), state
 
 
 async def save(api, headers, *, shared=False, **extra):

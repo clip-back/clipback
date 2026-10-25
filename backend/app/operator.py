@@ -15,7 +15,7 @@ class OriginalRead(BaseModel):
     storage_key: str = Field(min_length=1, max_length=1024)
 
 
-def create_operator_app(config=None):
+def create_operator_app(config=None, *, maintenance=None):
     config = config or SourceSettings()
     reader = SourceReader(config)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -48,4 +48,6 @@ def create_operator_app(config=None):
             "Cache-Control": "no-store",
         })
 
+    from app.api.operator_maintenance import install_control
+    install_control(app, config, maintenance)
     return app

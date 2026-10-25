@@ -9,6 +9,7 @@ from app.models.content_event import ContentEvent, ContentEventType
 from app.models.content_tag import content_tags
 from app.models.image_deletion import ImageDeletion
 from app.models.image_storage_control import ImageStorageControl, ImageTransferCounter
+from app.models.maintenance import MaintenanceEvent, MaintenanceOperation, MaintenanceState
 from app.models.recommendation import (
     RecommendationBatch,
     RecommendationBatchItem,
@@ -36,6 +37,9 @@ __all__ = [
     "ContentEventType",
     "ContentSource",
     "ContentType",
+    "MaintenanceEvent",
+    "MaintenanceOperation",
+    "MaintenanceState",
     "ImageDeletion",
     "ImageStorageControl",
     "ImageTransferCounter",

@@ -403,6 +403,13 @@ class RestoreDrill:
                     "--exit-on-error",
                     stdin=stream,
                 )
+            self.docker(
+                "exec", db, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
+                "-c", "DO $$ BEGIN IF to_regclass('public.maintenance_state') IS NOT NULL THEN "
+                "DELETE FROM maintenance_operations; DELETE FROM maintenance_events; "
+                "UPDATE maintenance_state SET phase='open',run_id=NULL,generation=0,"
+                "drain_deadline=NULL,result=NULL WHERE id=1; END IF; END $$;",
+            )
             unpack = self.owner + "-unpack"
             self.container(
                 unpack,

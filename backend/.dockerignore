@@ -22,3 +22,5 @@
 !scripts/check_backup_restore.py
 **/__pycache__/
 **/*.pyc
+
+!scripts/maintenance.py

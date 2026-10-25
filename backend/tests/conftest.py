@@ -13,7 +13,9 @@ from app.main import app  # noqa: E402
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client(monkeypatch) -> Iterator[TestClient]:
+    from tests.support.maintenance import OpenUnitGate
+    monkeypatch.setattr(app.state, "maintenance", OpenUnitGate())
     with TestClient(app) as test_client:
         yield test_client
 

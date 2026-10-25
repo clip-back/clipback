@@ -22,9 +22,11 @@ async def run(args) -> dict:
     # Retry touches application data and originals, so keep the full API configuration contract.
     from app.db.session import AsyncSessionLocal, engine
     from app.services.image_deletion_service import retry_image_deletions
+    from app.services.maintenance import MaintenanceGate
 
     try:
-        async with AsyncSessionLocal() as session:
+        async with MaintenanceGate(AsyncSessionLocal).operation("deletion_retry"), \
+                AsyncSessionLocal() as session:
             return await retry_image_deletions(session, limit=args.limit)
     finally:
         await engine.dispose()

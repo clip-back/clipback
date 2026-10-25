@@ -80,7 +80,10 @@ async def snapshot(payload, *, runtime=None):
             .all()
         )
         tables = {}
+        from app.services.maintenance import CONTROL_TABLES
         for name in names:
+            if name in CONTROL_TABLES:
+                continue
             quoted = '"' + name.replace('"', '""') + '"'
             tables[name] = await session.scalar(text(f"SELECT count(*) FROM public.{quoted}"))
         revisions = list(

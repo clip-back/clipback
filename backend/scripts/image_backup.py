@@ -479,18 +479,20 @@ def main():
             async def capture():
                 runtime = OperatorRuntime()
                 try:
-                    return await create_backup(
-                        store,
-                        backup_id=args.backup_id,
-                        sample=json.loads(args.sample_file.read_text()),
-                        app_commit=args.app_commit,
-                        origin=args.origin,
-                        writers_frozen=args.writers_frozen,
-                        pg_dump=args.pg_dump,
-                        ledger=get_deletion_ledger(runtime.config)
-                        if args.capture_deletion_checkpoint else None,
-                        runtime=runtime,
-                    )
+                    from app.services.maintenance import MaintenanceGate
+                    async with MaintenanceGate(runtime.sessions).operation("backup_create"):
+                        return await create_backup(
+                            store,
+                            backup_id=args.backup_id,
+                            sample=json.loads(args.sample_file.read_text()),
+                            app_commit=args.app_commit,
+                            origin=args.origin,
+                            writers_frozen=args.writers_frozen,
+                            pg_dump=args.pg_dump,
+                            ledger=get_deletion_ledger(runtime.config)
+                            if args.capture_deletion_checkpoint else None,
+                            runtime=runtime,
+                        )
                 finally:
                     await runtime.close()
 
