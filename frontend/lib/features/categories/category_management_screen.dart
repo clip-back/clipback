@@ -9,6 +9,7 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 
 class CategoryManagementScreen extends StatelessWidget {
   const CategoryManagementScreen({
@@ -16,6 +17,7 @@ class CategoryManagementScreen extends StatelessWidget {
     required this.contents,
     required this.onBack,
     required this.onAddCategory,
+    this.onSubmitCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     super.key,
@@ -25,6 +27,7 @@ class CategoryManagementScreen extends StatelessWidget {
   final List<ContentItem> contents;
   final VoidCallback onBack;
   final ValueChanged<CategoryItem> onAddCategory;
+  final CategorySubmitCallback? onSubmitCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -132,9 +135,12 @@ class CategoryManagementScreen extends StatelessWidget {
                             context: context,
                             useSafeArea: true,
                             isScrollControlled: true,
+                            enableDrag: onSubmitCategory == null,
                             backgroundColor: Colors.transparent,
-                            builder: (context) =>
-                                CategoryCreateSheet(onCreate: onAddCategory),
+                            builder: (context) => CategoryCreateSheet(
+                              onCreate: onAddCategory,
+                              onSubmit: onSubmitCategory,
+                            ),
                           ),
                           icon: SvgPicture.asset(
                             Assets.archiveFolderPlus,

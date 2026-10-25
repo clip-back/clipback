@@ -17,6 +17,15 @@ class ClipbackApiException implements Exception {
   String toString() => message;
 }
 
+class CategorySubmissionRejected extends ClipbackApiException {
+  const CategorySubmissionRejected(
+    super.message, {
+    required this.code,
+    super.statusCode,
+  });
+  final String code;
+}
+
 class ApiSession {
   const ApiSession({
     required this.accessToken,
@@ -158,6 +167,7 @@ class ApiCategory {
     required this.isDefault,
     this.contentCount = 0,
     this.lastSavedAt,
+    this.submissionReplayed = false,
   });
 
   final int id;
@@ -166,6 +176,7 @@ class ApiCategory {
   final bool isDefault;
   final int contentCount;
   final DateTime? lastSavedAt;
+  final bool submissionReplayed;
 
   factory ApiCategory.fromJson(Map<String, dynamic> json) {
     return ApiCategory(
@@ -175,6 +186,8 @@ class ApiCategory {
       isDefault: json['is_default'] as bool? ?? false,
       contentCount: json['content_count'] as int? ?? 0,
       lastSavedAt: _dateTime(json['last_saved_at']),
+      submissionReplayed:
+          (json['submission'] as Map?)?['replayed'] as bool? ?? false,
     );
   }
 }
@@ -779,9 +792,61 @@ class ClipbackApi {
   Future<ApiCategory> createCategory({
     required String name,
     String? color,
-  }) async => ApiCategory.fromJson(
-    await _json('POST', '/categories', body: {'name': name, 'color': color}),
-  );
+    String? submissionKey,
+  }) async {
+    if (submissionKey == null) {
+      return ApiCategory.fromJson(
+        await _json(
+          'POST',
+          '/categories',
+          body: {'name': name, 'color': color},
+        ),
+      );
+    }
+    final response = await _request(
+      'POST',
+      '/categories',
+      body: {'name': name, 'color': color},
+      headers: {'Idempotency-Key': submissionKey},
+    );
+    final data = _decodeJson(response);
+    if (response.statusCode == 422 && data['detail'] is List) {
+      throw const CategorySubmissionRejected(
+        'Invalid category input',
+        code: 'category_input_invalid',
+        statusCode: 422,
+      );
+    }
+    final submission = data['submission'];
+    if (submission is! Map ||
+        submission['key'] != submissionKey ||
+        submission['replayed'] is! bool) {
+      throw const FormatException('Category submission result is unconfirmed');
+    }
+    if (submission['status'] == 'rejected' &&
+        response.statusCode >= 400 &&
+        response.statusCode < 500 &&
+        data['code'] is String &&
+        data['code'] != 'category_submission_conflict') {
+      throw CategorySubmissionRejected(
+        data['detail'] as String? ?? 'Category rejected',
+        code: data['code'] as String,
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 201 ||
+        submission['status'] != 'succeeded' ||
+        data['name'] != name ||
+        data['color'] != color ||
+        data['is_default'] is! bool) {
+      throw const FormatException('Category submission result is unconfirmed');
+    }
+    final category = ApiCategory.fromJson(data);
+    if (category.id <= 0) {
+      throw const FormatException('Invalid category result');
+    }
+    return category;
+  }
 
   Future<ApiCategory> updateCategory({
     required int categoryId,
@@ -942,6 +1007,7 @@ class ClipbackApi {
     bool authenticated = true,
     Map<String, dynamic>? body,
     bool retryUnauthorized = true,
+    Map<String, String>? headers,
   }) => _sendWithSessionRetry(
     (session) async {
       final scope = ApiRequestScope.current;
@@ -952,6 +1018,7 @@ class ClipbackApi {
         abortTrigger: scope?.cancelled,
       );
       request.headers['Accept'] = 'application/json';
+      if (headers != null) request.headers.addAll(headers);
       if (authenticated) {
         request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
       }

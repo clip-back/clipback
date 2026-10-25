@@ -1,13 +1,33 @@
 import json
+from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
+from app.models.category_submission import CategorySubmission
 from app.models.content_event import ContentEventType
 from app.repositories.category_repository import CategoryRepository
+from app.repositories.category_submission_repository import (
+    CategorySubmissionRepository,
+    category_fingerprint,
+)
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.category import CategoryCreate, CategoryRead, CategorySummaryRead, CategoryUpdate
+
+
+@dataclass(frozen=True)
+class CategorySubmissionResult:
+    status_code: int
+    body: dict
+
+
+def submission_result(record: CategorySubmission, *, replayed: bool) -> CategorySubmissionResult:
+    return CategorySubmissionResult(record.status_code, {
+        **record.result,
+        "submission": {"key": str(record.key), "status": record.status, "replayed": replayed},
+    })
 
 
 class CategoryService:
@@ -38,6 +58,45 @@ class CategoryService:
             await self.category_repository.session.rollback()
             raise
         return CategoryRead.model_validate(category)
+
+    async def create_submission(
+        self, user_id: int, key: UUID, payload: CategoryCreate,
+    ) -> CategorySubmissionResult:
+        session = self.category_repository.session
+        submissions = CategorySubmissionRepository(session)
+        fingerprint = category_fingerprint("create", None, payload.model_dump(mode="json"))
+        try:
+            await submissions.lock(user_id, key)
+            existing = await submissions.find(user_id, key)
+            if existing is not None:
+                if existing.kind != "create" or existing.fingerprint != fingerprint:
+                    return CategorySubmissionResult(409, {
+                        "detail": "Idempotency key belongs to another input",
+                        "code": "category_submission_conflict",
+                    })
+                return submission_result(existing, replayed=True)
+            try:
+                async with session.begin_nested():
+                    await self.category_repository.lock_user(user_id)
+                    await self._check_name(user_id, payload.name)
+                    category = await self.category_repository.create(
+                        user_id=user_id, payload=payload,
+                    )
+                    body = CategoryRead.model_validate(category).model_dump(mode="json")
+                status_code, outcome = 201, "succeeded"
+            except (InvalidStateError, IntegrityError):
+                body = {"detail": "Category already exists", "code": "category_name_exists"}
+                status_code, outcome = 409, "rejected"
+            record = CategorySubmission(
+                user_id=user_id, key=key, kind="create", target_id=None,
+                fingerprint=fingerprint, status=outcome, status_code=status_code, result=body,
+            )
+            await submissions.save(record)
+            await session.commit()
+            return submission_result(record, replayed=False)
+        except Exception:
+            await session.rollback()
+            raise
 
     async def _check_name(self, user_id: int, name: str, category_id: int | None = None) -> None:
         existing = await self.category_repository.find_available_by_name(

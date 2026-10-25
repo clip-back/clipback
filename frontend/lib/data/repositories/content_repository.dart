@@ -5,6 +5,7 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:flutter/foundation.dart';
 import '../services/event_uuid.dart';
+import '../services/api_request_scope.dart';
 
 abstract class ContentRepository extends ChangeNotifier {
   int get accountVersion;
@@ -49,7 +50,11 @@ abstract class ContentRepository extends ChangeNotifier {
   CategoryMutationHandle? beginCategoryDelete(int id);
   Future<MutationResult> executeCategoryMutation(CategoryMutationHandle handle);
   void finishCategoryMutation(CategoryMutationHandle handle);
-  Future<ApiCategory?> createCategory({required String name, String? color});
+  Future<ApiCategory?> createCategory({
+    required String name,
+    String? color,
+    String? submissionKey,
+  });
   Future<ApiContent> saveLink({required String url, int? categoryId});
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
@@ -902,12 +907,20 @@ class RemoteContentRepository extends ContentRepository {
   Future<ApiCategory?> createCategory({
     required String name,
     String? color,
+    String? submissionKey,
   }) async {
     final account = _accountVersion;
-    final created = await _api.createCategory(name: name, color: color);
+    final created = await _api.createCategory(
+      name: name,
+      color: color,
+      submissionKey: submissionKey,
+    );
+    ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
-    _categories.insert(0, created);
-    _notify();
+    if (!created.submissionReplayed) {
+      _categories.insert(0, created);
+      _notify();
+    }
     return created;
   }
 

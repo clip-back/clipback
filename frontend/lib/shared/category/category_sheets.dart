@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:clipback_frontend/shared/category/category_colors.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:clipback_frontend/shared/content/mutation_status.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
@@ -423,13 +424,15 @@ class CategoryDeleteDialog extends StatelessWidget {
 }
 
 class CategoryCreateSheet extends StatelessWidget {
-  const CategoryCreateSheet({required this.onCreate, super.key});
+  const CategoryCreateSheet({required this.onCreate, this.onSubmit, super.key});
 
   final ValueChanged<CategoryItem> onCreate;
+  final CategorySubmitCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) => CategoryFormSheet(
     actionLabel: '생성하기',
+    onSubmit: onSubmit,
     onSave: (name, color) => onCreate(
       CategoryItem(
         name: name,
@@ -473,6 +476,7 @@ class CategoryFormSheet extends StatefulWidget {
     required this.onSave,
     this.initialName = '',
     this.initialColor,
+    this.onSubmit,
     super.key,
   });
 
@@ -480,6 +484,7 @@ class CategoryFormSheet extends StatefulWidget {
   final void Function(String name, Color color) onSave;
   final String initialName;
   final Color? initialColor;
+  final CategorySubmitCallback? onSubmit;
 
   @override
   State<CategoryFormSheet> createState() => _CategoryFormSheetState();
@@ -489,6 +494,45 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   late final TextEditingController _controller;
   late Color _selectedColor;
   bool _submitted = false;
+  bool _busy = false;
+  bool _unconfirmed = false;
+  bool _edited = false;
+  bool _confirmingClose = false;
+  int _attempt = 0;
+  double _dragDistance = 0;
+  CategorySaveRejection? _rejection;
+  String? _rejectedName;
+  ({String name, Color color, String? key})? _submission;
+
+  bool get _async => widget.onSubmit != null;
+  bool get _locked => _busy || _unconfirmed;
+  String? get _fieldError {
+    final name = _controller.text.trim();
+    if (_edited && name.isEmpty) return '카테고리 이름을 입력해 주세요.';
+    if (name.runes.length > 40) return '이름은 40자 이내로 입력해 주세요.';
+    if (_rejection == CategorySaveRejection.nameExists &&
+        name == _rejectedName) {
+      return '같은 이름의 카테고리가 있어요. 다른 이름을 입력해 주세요.';
+    }
+    return null;
+  }
+
+  String? get _resultMessage {
+    if (_busy) return _unconfirmed ? '저장 결과를 확인하고 있어요.' : '저장하고 있어요.';
+    if (_unconfirmed) {
+      return '저장 결과를 확인하지 못했어요.\n이미 저장됐을 수 있어요. 결과를 다시 확인해 주세요.';
+    }
+    if (_rejection != null && _rejection != CategorySaveRejection.nameExists) {
+      return '카테고리를 저장하지 못했어요.\n입력은 그대로예요. 다시 시도해 주세요.';
+    }
+    return null;
+  }
+
+  bool get _canSave => _async
+      ? !_busy &&
+            (_unconfirmed ||
+                (_controller.text.trim().isNotEmpty && _fieldError == null))
+      : !_submitted && _controller.text.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -499,11 +543,16 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
 
   @override
   void dispose() {
+    _attempt++;
     _controller.dispose();
     super.dispose();
   }
 
   void _save() {
+    if (_async) {
+      if (_canSave) _submit();
+      return;
+    }
     if (_submitted || !mounted) return;
     final name = _controller.text.trim();
     if (name.isEmpty) return;
@@ -512,17 +561,306 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
     if (mounted) Navigator.pop(context);
   }
 
+  Future<void> _submit() async {
+    final submission =
+        _submission ??
+        (name: _controller.text.trim(), color: _selectedColor, key: null);
+    _submission = submission;
+    final attempt = ++_attempt;
+    setState(() => _busy = true);
+    final result = await widget.onSubmit!(
+      name: submission.name,
+      color: submission.color,
+      submissionKey: submission.key,
+    );
+    if (!mounted || attempt != _attempt) return;
+    if (result.status == CategorySaveStatus.succeeded ||
+        result.status == CategorySaveStatus.stale) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _busy = false;
+      _unconfirmed = result.status == CategorySaveStatus.unconfirmed;
+      _rejection = result.rejection;
+      _rejectedName = submission.name;
+      _submission = _unconfirmed
+          ? (
+              name: submission.name,
+              color: submission.color,
+              key: result.submissionKey,
+            )
+          : null;
+    });
+  }
+
+  Future<void> _close() async {
+    if (_busy || _confirmingClose) return;
+    if (_unconfirmed) {
+      _confirmingClose = true;
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (context) => Dialog(
+          backgroundColor: AppColors.surface,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '입력 창을 닫을까요?',
+                    style: _CategorySheetText.deleteTitle,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '닫아도 서버 저장은 완료될 수 있어요.\n작성한 내용은 이 창에서 사라져요.',
+                    style: _CategorySheetText.deleteBody,
+                  ),
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('계속 확인하기'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('닫기'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      _confirmingClose = false;
+      if (!mounted || discard != true) return;
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  Widget _fields() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      SvgPicture.asset(
+        Assets.folderCreatePreview,
+        key: const ValueKey('category-form-folder'),
+        width: 121,
+        height: 103,
+        colorFilter: ColorFilter.mode(_selectedColor, BlendMode.srcIn),
+      ),
+      const SizedBox(height: 32),
+      TextField(
+        key: const ValueKey('category-form-input'),
+        controller: _controller,
+        autofocus: true,
+        textAlign: TextAlign.center,
+        textInputAction: TextInputAction.done,
+        maxLines: 1,
+        readOnly: _async && _locked,
+        onChanged: (_) => setState(() {
+          _edited = true;
+        }),
+        onSubmitted: (_) {
+          if (_canSave) _save();
+        },
+        style: _CategorySheetText.formInput,
+        decoration: const InputDecoration(
+          hintText: '카테고리명을 입력해주세요',
+          hintStyle: _CategorySheetText.formHint,
+          isDense: true,
+          isCollapsed: true,
+          contentPadding: EdgeInsets.zero,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+        ),
+      ),
+      const SizedBox(height: 8),
+      SizedBox(
+        key: const ValueKey('category-form-underline'),
+        width: double.infinity,
+        height: 1,
+        child: SvgPicture.asset(
+          Assets.categorySheetUnderline,
+          width: 327,
+          height: 1,
+          fit: BoxFit.fill,
+        ),
+      ),
+      if (_async && _fieldError != null) ...[
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            _fieldError!,
+            key: const ValueKey('category-form-error'),
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: Color(0xFFBD263B),
+            ),
+          ),
+        ),
+      ],
+      const SizedBox(height: 32),
+      AbsorbPointer(
+        absorbing: _async && _locked,
+        child: FolderColorPicker(
+          key: const ValueKey('category-form-palette'),
+          selectedColor: _selectedColor,
+          onChanged: (color) => setState(() => _selectedColor = color),
+        ),
+      ),
+      if (_async && _resultMessage != null) ...[
+        const SizedBox(height: 16),
+        Semantics(
+          liveRegion: true,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _resultMessage!,
+              key: const ValueKey('category-form-status'),
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: AppColors.subtle,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ],
+  );
+
+  Widget _button() => FilledButton(
+    onPressed: _canSave ? _save : null,
+    style: FilledButton.styleFrom(
+      padding: _async
+          ? const EdgeInsets.symmetric(vertical: 14, horizontal: 12)
+          : EdgeInsets.zero,
+      minimumSize: _async ? const Size(0, 48) : Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      backgroundColor: AppColors.text,
+      disabledBackgroundColor: AppColors.subtler,
+      foregroundColor: AppColors.main,
+      disabledForegroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      textStyle: _CategorySheetText.formButton,
+    ),
+    child: Text(
+      _busy
+          ? (_unconfirmed ? '확인 중…' : '저장 중…')
+          : _unconfirmed
+          ? '결과 다시 확인'
+          : widget.actionLabel,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final inset = math.max(media.viewInsets.bottom, media.viewPadding.bottom);
-    final canCreate = !_submitted && _controller.text.trim().isNotEmpty;
     return LayoutBuilder(
       builder: (context, constraints) {
         final available = constraints.hasBoundedHeight
             ? constraints.maxHeight
             : media.size.height - media.padding.top;
         final sheetHeight = math.min(428 + inset, available);
+        if (_async) {
+          final extra =
+              (_resultMessage == null ? 0 : 78) +
+              (_fieldError == null ? 0 : 44);
+          final scale = media.textScaler.scale(12) / 12;
+          return PopScope<void>(
+            canPop: !_locked,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              if (media.viewInsets.bottom > 0) {
+                FocusScope.of(context).unfocus();
+              } else {
+                _close();
+              }
+            },
+            child: SizedBox(
+              key: const ValueKey('category-form-sheet'),
+              height: math.min(
+                428 + inset + extra * scale + (scale - 1) * 90,
+                available,
+              ),
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: SingleChildScrollView(
+                  key: const ValueKey('category-form-body-scroll'),
+                  padding: EdgeInsets.only(bottom: 32 + inset),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onVerticalDragStart: (_) => _dragDistance = 0,
+                        onVerticalDragUpdate: (details) =>
+                            _dragDistance += details.delta.dy,
+                        onVerticalDragEnd: (_) {
+                          if (_dragDistance > 40) _close();
+                        },
+                        child: const SizedBox(
+                          height: 29,
+                          child: Stack(
+                            children: [
+                              Positioned(
+                                top: 8,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: _CategorySheetHandle(
+                                    key: ValueKey('category-form-handle'),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 31, 24, 0),
+                        child: _fields(),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          _resultMessage == null ? 56 : 24,
+                          16,
+                          0,
+                        ),
+                        child: SizedBox(
+                          key: const ValueKey('category-form-button'),
+                          width: double.infinity,
+                          child: _button(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
         return SizedBox(
           key: const ValueKey('category-form-sheet'),
           height: sheetHeight,
@@ -555,64 +893,7 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
                     key: const ValueKey('category-form-body-scroll'),
                     clipBehavior: Clip.hardEdge,
                     padding: const EdgeInsets.fromLTRB(24, 31, 24, 0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SvgPicture.asset(
-                          Assets.folderCreatePreview,
-                          key: const ValueKey('category-form-folder'),
-                          width: 121,
-                          height: 103,
-                          colorFilter: ColorFilter.mode(
-                            _selectedColor,
-                            BlendMode.srcIn,
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        TextField(
-                          key: const ValueKey('category-form-input'),
-                          controller: _controller,
-                          autofocus: true,
-                          textAlign: TextAlign.center,
-                          textInputAction: TextInputAction.done,
-                          maxLines: 1,
-                          onChanged: (_) => setState(() {}),
-                          onSubmitted: (_) {
-                            if (canCreate) _save();
-                          },
-                          style: _CategorySheetText.formInput,
-                          decoration: const InputDecoration(
-                            hintText: '카테고리명을 입력해주세요',
-                            hintStyle: _CategorySheetText.formHint,
-                            isDense: true,
-                            isCollapsed: true,
-                            contentPadding: EdgeInsets.zero,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          key: const ValueKey('category-form-underline'),
-                          width: double.infinity,
-                          height: 1,
-                          child: SvgPicture.asset(
-                            Assets.categorySheetUnderline,
-                            width: 327,
-                            height: 1,
-                            fit: BoxFit.fill,
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        FolderColorPicker(
-                          key: const ValueKey('category-form-palette'),
-                          selectedColor: _selectedColor,
-                          onChanged: (color) =>
-                              setState(() => _selectedColor = color),
-                        ),
-                      ],
-                    ),
+                    child: _fields(),
                   ),
                 ),
                 Padding(
@@ -621,24 +902,7 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
                     key: const ValueKey('category-form-button'),
                     height: 48,
                     width: double.infinity,
-                    child: FilledButton(
-                      onPressed: canCreate ? _save : null,
-                      style: FilledButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.standard,
-                        backgroundColor: AppColors.text,
-                        disabledBackgroundColor: AppColors.subtler,
-                        foregroundColor: AppColors.main,
-                        disabledForegroundColor: AppColors.surface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        textStyle: _CategorySheetText.formButton,
-                      ),
-                      child: Text(widget.actionLabel),
-                    ),
+                    child: _button(),
                   ),
                 ),
               ],

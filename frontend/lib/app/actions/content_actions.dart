@@ -6,6 +6,8 @@ import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/data/repositories/content_repository.dart';
 import 'package:clipback_frontend/data/repositories/session_repository.dart';
 import 'package:clipback_frontend/data/repositories/user_repository.dart';
+import 'package:clipback_frontend/data/services/api_request_scope.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
 
 typedef ContentFeedback = void Function(UiEffect effect);
@@ -130,6 +132,72 @@ class ContentActions {
       if (_current(generation)) {
         feedback(MessageEffect(_message(error, '카테고리를 만들지 못했어요. 다시 시도해 주세요.')));
       }
+    }
+  }
+
+  Future<CategorySaveResult> submitCategoryCreate({
+    required String name,
+    required String color,
+    required String submissionKey,
+  }) async {
+    final generation = content.accountVersion;
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: () => _current(generation),
+    );
+    try {
+      final created = await scope.run(
+        () => scope.wait(
+          content.createCategory(
+            name: name,
+            color: color,
+            submissionKey: submissionKey,
+          ),
+        ),
+      );
+      if (!_current(generation) || created == null) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      unawaited(
+        Future<void>(() async {
+          if (!_current(generation)) return;
+          final read = ApiRequestScope(
+            timeout: const Duration(seconds: 10),
+            isCurrent: () => _current(generation),
+          );
+          try {
+            await read.run(() => read.wait(content.loadCategories()));
+          } catch (_) {
+            // A committed submission stays successful if the later read fails.
+          } finally {
+            read.cancel();
+          }
+        }),
+      );
+      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
+    } on CategorySubmissionRejected catch (error) {
+      if (!_current(generation)) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      return CategorySaveResult(
+        CategorySaveStatus.rejected,
+        submissionKey,
+        rejection: switch (error.code) {
+          'category_name_exists' => CategorySaveRejection.nameExists,
+          'category_input_invalid' => CategorySaveRejection.inputInvalid,
+          'category_target_missing' => CategorySaveRejection.targetMissing,
+          _ => CategorySaveRejection.other,
+        },
+      );
+    } catch (_) {
+      return CategorySaveResult(
+        _current(generation)
+            ? CategorySaveStatus.unconfirmed
+            : CategorySaveStatus.stale,
+        submissionKey,
+      );
+    } finally {
+      scope.cancel();
     }
   }
 
