@@ -190,12 +190,15 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
         await runtime.close()
 
 
-async def check_latest_restore(directory, credentials_file, image, *, writers_frozen):
+async def check_latest_restore(directory, credentials_file, image, *, writers_frozen,
+                               synthetic_offline=False):
     """No traffic is opened. Keep the operator's writer freeze through any later cutover."""
     from app.integrations.deletion_ledger import LEDGER_WRITE_LOCK, get_deletion_ledger
 
+    require(synthetic_offline is True, "authoritative_restore_required")
     require(writers_frozen is True, "source_write_freeze_required")
     manifest, _ = load_backup(directory)
+    require(manifest["origin"] == "synthetic", "synthetic_backup_required")
     async with source_lock(LEDGER_WRITE_LOCK, shared=True):
         _, events = await asyncio.to_thread(
             latest_deletions, get_deletion_ledger(), manifest.get("deletion_checkpoint"),
@@ -204,6 +207,8 @@ async def check_latest_restore(directory, credentials_file, image, *, writers_fr
             check, directory, credentials_file, image, RestoreDrill(deletion_events=events),
         )
         report["live_deletion_ledger_verified"] = report["passed"]
+        report["maintenance_verified"] = False
+        report["synthetic_only"] = True
         return report
 
 
@@ -223,17 +228,23 @@ def main():
         if command == "manual":
             task.add_argument("--backup-id", required=True)
     restore = sub.add_parser("restore-check")
-    restore.add_argument("--backup-dir", type=Path, required=True)
-    restore.add_argument("--credentials-file", type=Path, required=True)
-    restore.add_argument("--image", required=True)
+    restore.add_argument("--workspace", type=Path)
+    restore.add_argument("--backup-dir", type=Path)
+    restore.add_argument("--credentials-file", type=Path)
+    restore.add_argument("--image")
+    restore.add_argument("--synthetic-offline", action="store_true")
     restore.add_argument("--writers-frozen", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "restore-check":
-            report = asyncio.run(check_latest_restore(
-                args.backup_dir, args.credentials_file, args.image,
-                writers_frozen=args.writers_frozen,
-            ))
+            if args.workspace:
+                from scripts.restore_execution import run_restore
+                report = asyncio.run(run_restore(args.workspace))
+            else:
+                report = asyncio.run(check_latest_restore(
+                    args.backup_dir, args.credentials_file, args.image,
+                    writers_frozen=args.writers_frozen, synthetic_offline=args.synthetic_offline,
+                ))
         else:
             store = BackupBucket.from_config_file(args.backup_config_file)
             kwargs = {}

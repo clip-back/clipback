@@ -12,5 +12,5 @@ COPY app ./app
 RUN pip install --no-cache-dir .
 COPY scripts/image_backup.py scripts/image_backup_jobs.py scripts/image_storage_admin.py \
      scripts/image_migration.py scripts/image_deletions.py scripts/recovery_probe.py \
-     scripts/recovery_deletions.py scripts/check_backup_restore.py scripts/operator_runtime.py scripts/image_source.py scripts/maintenance.py ./scripts/
+     scripts/recovery_deletions.py scripts/check_backup_restore.py scripts/operator_runtime.py scripts/image_source.py scripts/maintenance.py scripts/restore_execution.py ./scripts/
 ENTRYPOINT ["python", "-m", "scripts.image_backup_jobs"]

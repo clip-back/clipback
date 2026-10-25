@@ -166,3 +166,5 @@ recovery instructions. Record deployment status and verification evidence using 
 기존 Volume의 별도 운영자 백업과 비공개 리스너 준비는 [운영 원본의 비공개 읽기](../docs/backend/image-operator-source.md)를 따릅니다. 실제 공급자 검증과 로컬 실행 증거를 구분합니다.
 
 운영 복원을 위한 전체 업무 쓰기 중단과 서버 측 명시적 재개는 [점검 제어 안내](../docs/backend/image-maintenance.md)를 따릅니다.
+
+실제 점검을 확인한 Mac Docker 복원은 [격리 복원 실행](../docs/backend/isolated-restore-execution.md)의 준비·실행·연결 상실 복구·명시적 재개 절차를 따릅니다.

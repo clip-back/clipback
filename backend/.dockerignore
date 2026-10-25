@@ -24,3 +24,5 @@
 **/*.pyc
 
 !scripts/maintenance.py
+
+!scripts/restore_execution.py

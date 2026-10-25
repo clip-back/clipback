@@ -236,9 +236,11 @@ class Docker:
 
 
 class RestoreDrill:
-    def __init__(self, docker=None, *, deletion_events=None):
+    def __init__(self, docker=None, *, deletion_events=None, owner=None):
         self.docker = docker or Docker()
-        self.owner = "clipback-recovery-" + uuid4().hex
+        self.owner = owner or "clipback-recovery-" + uuid4().hex
+        require(bool(re.fullmatch(r"clipback-recovery-[0-9a-f]{32}", self.owner)),
+                "invalid_restore_owner")
         self.created = []
         self.deletion_events = deletion_events
 
@@ -535,7 +537,8 @@ class RestoreDrill:
 def check(directory, credentials_file, image, drill=None):
     started = time.monotonic()
     drill = drill or RestoreDrill()
-    report = {"passed": False, "cleanup_passed": False}
+    report = {"passed": False, "cleanup_passed": False, "maintenance_verified": False,
+              "live_deletion_ledger_verified": False}
     try:
         manifest, paths = load_backup(directory)
         credentials = private_json(credentials_file)

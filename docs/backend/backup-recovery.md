@@ -194,16 +194,15 @@ docker build -f backend/Dockerfile.operator --build-arg POSTGRES_MAJOR=18 \
 
 ## 최신 삭제 기록을 반영한 격리 복원
 
-원본 API·worker·다른 쓰기 작업을 실제로 중지한 뒤 최신 독립 삭제 기록에 접속 가능한 운영자
-환경에서 실행합니다. `--writers-frozen`은 운영자의 중지 확인이며 도구가 서비스 중지를 검증하거나
-자동 수행하지 않습니다. 기존 다운로드 명령으로 새 `0700` 임시 폴더에 지점을 받습니다.
+운영 복원은 [Mac 점검 확인·제한 시간 내 격리 복원](isolated-restore-execution.md)의
+`prepare → 점검 확인 → run → 명시적 재개` 절차를 사용합니다. 실제 점검 상태·실행 ID·세대를
+검증하고 최신 삭제 기록 lock을 유지하며 전체 검증을 최대 30분으로 제한합니다. 자식과 Docker
+데몬 자원의 종료가 확인되기 전에는 복원 작업을 종료하거나 재개 성공으로 표시하지 않습니다.
 
-```sh
-YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup_jobs restore-check \
-  --backup-dir /absolute/private/TEMPORARY_POINT \
-  --credentials-file /absolute/private/restore-credentials.json \
-  --image clipback-recovery:BACKUP_SHA --writers-frozen
-```
+`--writers-frozen`만으로 운영 복원을 실행할 수 없습니다. 기존 호출 형식은
+`--synthetic-offline`을 함께 지정한 합성 백업 시험에만 허용합니다. 해당 모드는
+`maintenance_verified: false`, `synthetic_only: true`이며 실제 점검의 증거가 아닙니다.
+저수준 오프라인 복원 도구 역시 실제 점검이나 최신 삭제 기록을 확인했다고 표시하지 않습니다.
 
 원본 DB의 shared SESSION lock `74264002`를 검사 전체에 유지한 채 live head와 연결된 모든 기록을
 직접 검증합니다. 같은 namespace, backup checkpoint 이후로 후퇴하지 않은 sequence와 유효한

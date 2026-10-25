@@ -67,7 +67,7 @@ def bucket_backup(tmp_path_factory):
             "POSTGRES_PASSWORD=fixture",
             "-e",
             "POSTGRES_DB=clipback",
-            "postgres:16",
+            f"postgres:{os.environ.get('CLIPBACK_RECOVERY_POSTGRES_MAJOR', '16')}",
         )
         drill.docker("start", db)
         drill.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
@@ -279,7 +279,8 @@ def test_old_point_restores_latest_deletions_before_api_and_copies_expire(bucket
               if k.lower() in Settings.model_fields}
     values["backend_cors_origins"] = []
     ledger = get_deletion_ledger(Settings(_env_file=None, **values))
-    command = [sys.executable, "-m", "scripts.image_backup_jobs", "restore-check",
+    command = [sys.executable, "-m", "scripts.image_backup_jobs",
+               "restore-check", "--synthetic-offline",
                "--backup-dir", str(directory), "--credentials-file", str(credentials),
                "--image", image, "--writers-frozen"]
     # IDs from an old DB incarnation must not erase a replacement original.
