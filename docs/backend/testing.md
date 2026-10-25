@@ -131,3 +131,26 @@ explicitly disposable; they are not application backups.
 무작위 이름의 격리 DB를 만들고 검사 종료 시 제거합니다. 운영 DB 자격증명으로 실행하지 않습니다.
 기존 API 통합 검사는 초기화한 합성 삭제 기록 저장소와 local 원본을 사용하며,
 실제 Railway 설정·이전 이미지 호환·삭제 기록 확인은 별도 배포 체크리스트로 남깁니다.
+
+## Compatible local deployment handoff
+
+The deployment CI job builds API and operator images from the same revision label and runs
+`test_deletion_bootstrap_docker.py` plus `test_image_handoff_docker.py`. The handoff uses real
+PostgreSQL, an isolated TLS S3 substitute, the packaged operator CLI, and the actual API upload,
+read and delete routes with local original storage. OCR is intentionally unconfigured and follows
+the existing fallback; no paid provider or operating database is used. A broken ledger must fail
+checkpoint and image deletion even when ordinary readiness remains healthy.
+
+To repeat locally after building both images from the same clean commit:
+
+```bash
+RUN_DOCKER_RECOVERY_TESTS=1 \
+CLIPBACK_HANDOFF_API_IMAGE=clipback-compatible-api:validated \
+CLIPBACK_LEDGER_OPERATOR_IMAGE=clipback-ledger-operator:validated \
+CLIPBACK_HANDOFF_REVISION="$(git rev-parse HEAD)" \
+pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/test_image_handoff_docker.py
+```
+
+Tests fail before creating resources if either image revision differs from the expected source.
+Image IDs and revision labels are build provenance, not evidence of actual Railway configuration.
+Use the [compatible deployment checklist](image-storage-compatible-deployment.md) for that evidence.
