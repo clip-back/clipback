@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
@@ -21,6 +20,7 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/app_startup.dart';
+import 'support/memory_api_session_storage.dart';
 import 'auth_navigation.dart';
 
 const _categories = '/api/v1/categories';
@@ -46,31 +46,6 @@ http.Response _tokens(String prefix) => _json({
   'expires_in': 3600,
   'refresh_expires_in': 86400,
 });
-
-class _Storage extends ApiSessionStorage {
-  ApiSession? session = const ApiSession(
-    accessToken: 'test-access',
-    refreshToken: 'test-refresh',
-    expiresIn: 3600,
-    refreshExpiresIn: 86400,
-  );
-  int writes = 0, clears = 0;
-  Completer<void>? writeGate;
-  @override
-  Future<ApiSession?> read() async => session;
-  @override
-  Future<void> write(ApiSession value) async {
-    writes++;
-    await writeGate?.future;
-    session = value;
-  }
-
-  @override
-  Future<void> clear() async {
-    clears++;
-    session = null;
-  }
-}
 
 class _Server {
   _Server({this.respond});
@@ -172,10 +147,10 @@ ArchiveScreen _archive(WidgetTester tester) =>
 Future<void> _withApp(
   WidgetTester tester,
   _Server server,
-  Future<void> Function(_Storage storage) check,
+  Future<void> Function(MemoryApiSessionStorage storage) check,
 ) async {
   SharedPreferences.setMockInitialValues({});
-  final storage = _Storage();
+  final storage = MemoryApiSessionStorage();
   tester.view.physicalSize = const Size(428, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
