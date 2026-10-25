@@ -216,10 +216,12 @@ async def snapshot(payload, *, runtime=None):
     referenced = {
         asset["storage_key"] for asset in assets if asset.get("storage_backend", "local") == "local"
     }
+    # Remote source inventory is not exposed; zero is not proof of no extra source files.
     extra = sum(
         1
         for path in root.rglob("*")
-        if path.is_file() and str(path.relative_to(root)) not in referenced
+        if path.is_file() and path.name != ".clipback-source-id"
+        and str(path.relative_to(root)) not in referenced
     )
     return {
         "migration_revisions": revisions,

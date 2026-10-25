@@ -157,10 +157,12 @@ class S3StorageClient:
 
 
 class StorageRouter:
-    def __init__(self, config: Settings) -> None:
+    def __init__(self, config: Settings, *, local_client=None) -> None:
         self.config = config
         self.backend = config.storage_backend
-        self._clients: dict[str, StorageClient] = {"local": LocalStorageClient(config.storage_root)}
+        self._clients: dict[str, StorageClient] = {
+            "local": local_client or LocalStorageClient(config.storage_root)
+        }
 
     def for_backend(self, backend: str) -> StorageClient:
         if backend == "s3" and backend not in self._clients:

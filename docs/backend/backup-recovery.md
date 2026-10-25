@@ -359,3 +359,5 @@ dump, local·Bucket 원본, 내용별 백업 재사용, 격리 Bucket 복원과 
 16·18 각각 정상 복원, 손상 dump, 잘못된 테이블 건수·이미지 해시·자격·revision을 확인합니다.
 운영 자료는 이 fixture로 사용하지 않습니다. 명시적 환경변수가 없으면 Docker 사례만 skip하므로
 일반 pytest 통과를 실제 Docker 검사 실행으로 보고하지 않습니다.
+
+기존 API Volume의 원격 백업은 [운영 원본의 비공개 읽기](image-operator-source.md)를 따른다. 원격 원본 경로 준비와 실제 Railway 연결 증거를 분리한다.

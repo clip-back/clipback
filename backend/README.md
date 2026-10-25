@@ -162,3 +162,5 @@ recovery instructions. Record deployment status and verification evidence using 
 - <a id="native-share-local-backend-harness"></a>[Native Share Local Backend Harness](../docs/backend/testing.md#native-share-local-backend-harness)
 
 </details>
+
+기존 Volume의 별도 운영자 백업과 비공개 리스너 준비는 [운영 원본의 비공개 읽기](../docs/backend/image-operator-source.md)를 따릅니다. 실제 공급자 검증과 로컬 실행 증거를 구분합니다.

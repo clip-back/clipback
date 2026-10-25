@@ -356,6 +356,8 @@ async def create_backup(
     from app.integrations.deletion_ledger import IMAGE_CLEANUP_LOCK, LEDGER_WRITE_LOCK
     from scripts.recovery_probe import snapshot
 
+    if runtime is not None:
+        await runtime.preflight_source()
     if runtime is None:
         from app.core.config import settings
         from app.db.session import engine

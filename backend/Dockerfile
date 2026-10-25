@@ -7,5 +7,5 @@ COPY app ./app
 RUN pip install --no-cache-dir .
 COPY alembic.ini ./
 COPY alembic ./alembic
-COPY scripts/start.sh ./scripts/start.sh
+COPY scripts/start.sh scripts/serve.py scripts/image_source.py ./scripts/
 CMD ["sh", "scripts/start.sh"]

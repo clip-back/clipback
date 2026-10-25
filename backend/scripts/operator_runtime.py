@@ -3,12 +3,13 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.deletion_ledger_config import DeletionLedgerSettings
+from app.integrations.operator_source import RemoteSourceClient
 from app.integrations.storage_client import StorageRouter
 
 
@@ -16,6 +17,10 @@ class OperatorSettings(DeletionLedgerSettings):
     database_url: str
     storage_root: Path
     storage_backend: Literal["local", "s3"] = "local"
+    operator_source_url: str | None = None
+    operator_source_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    operator_read_key: SecretStr | None = None
+    screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     s3_endpoint_url: str | None = None
     s3_bucket: str | None = None
     s3_region: str = "auto"
@@ -36,6 +41,19 @@ class OperatorSettings(DeletionLedgerSettings):
 
     @model_validator(mode="after")
     def source_configuration(self):
+        if any((self.operator_source_url, self.operator_source_id, self.operator_read_key)):
+            from urllib.parse import urlsplit
+
+            if not all((self.operator_source_url, self.operator_source_id, self.operator_read_key)):
+                raise ValueError("Complete remote source configuration is required")
+            url = urlsplit(self.operator_source_url)
+            if (url.scheme not in {"http", "https"} or not url.hostname or url.username
+                    or url.password or url.query or url.fragment or url.path not in {"", "/"}
+                    or len(self.operator_read_key.get_secret_value()) < 16
+                    or not self.operator_read_key.get_secret_value().strip()
+                    or "\r" in self.operator_read_key.get_secret_value()
+                    or "\n" in self.operator_read_key.get_secret_value()):
+                raise ValueError("Remote source configuration is invalid")
         if not self.storage_root.is_absolute():
             raise ValueError("STORAGE_ROOT must be absolute")
         if self.storage_backend == "s3":
@@ -62,7 +80,12 @@ class OperatorRuntime:
         self.config = config or OperatorSettings()
         self.engine = create_async_engine(self.config.database_url)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
-        self.storage = StorageRouter(self.config)
+        local = RemoteSourceClient(self.config) if self.config.operator_source_url else None
+        self.storage = StorageRouter(self.config, local_client=local)
+
+    async def preflight_source(self):
+        if self.config.operator_source_url:
+            await self.storage.for_backend("local").preflight()
 
     async def close(self):
         await self.engine.dispose()
