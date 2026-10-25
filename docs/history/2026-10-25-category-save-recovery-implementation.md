@@ -173,6 +173,14 @@ iOS Simulator·Android Emulator의 변경 전/후/Figma 비교·스크린샷·�
 - 프론트 전체 suite/web 빌드는 #90/#91 통합 뒤 root의 공유 최종 실행으로 수행한다. 이 시점의 관련 검사를 전체 검사로 보고하지 않는다.
   실제 OAuth·운영 서버·실기기·원격 CI·push/PR/issue 변경은 수행하지 않았다.
 
+### #91 통합 뒤 재검증
+
+- 최신 통합 `60fe05cdc8a1138f5117418ac8a88ff8a073c585`를 merge `c108f97c857d370da019edf57368673073816258`로 포함했다.
+  README·중앙 이력은 양쪽 추가 내용을 보존했고, 공통 opener/원본 snapshot과 #91 stale 무시·현재 form route만 닫기를 확인했다.
+- #90의 최종 관련7개 파일에 `test/category_auth_recovery_test.dart`를 더한8개 파일 **226 passed**(46초),
+  `flutter analyze --no-pub` **No issues**(3.1초). 로그 `ticket-90-91-related.log`, `ticket-90-91-analyze.log`.
+  backend 제품/테스트는 통합 전1040개 실행과 동일하며 재실행하지 않았다. 전체 Flutter/web·native는 root 공유 최종 검증을 따른다.
+
 ## #91 공유 인증 갱신과 계정 전환의 카테고리 수명 보호
 
 ### 변경과 red → green
