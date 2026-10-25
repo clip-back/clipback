@@ -505,6 +505,49 @@ void main() {
     });
   });
 
+  testWidgets('수정 성공 뒤 목록 갱신 실패는 시트를 닫고 카테고리만 재조회한다', (tester) async {
+    var stored = false;
+    var retry = false;
+    final server = _Server(
+      respond: (request, server) {
+        if (request.method == 'PATCH') {
+          stored = true;
+          server.categories[0] = {
+            ...server.categories[0],
+            ...jsonDecode(request.body) as Map<String, dynamic>,
+          };
+          return _updateResult(request);
+        }
+        if (stored && !retry && request.url.path == '/api/v1/categories') {
+          return _json({'detail': 'metadata failed'}, 500);
+        }
+        return null;
+      },
+    );
+    server.categories.first['content_count'] = 7;
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester);
+      await tester.enterText(find.byType(TextField), '저장한 수정');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_categoryItem(_archive(tester)).contentCount, 7);
+      expect(find.text('저장은 완료됐지만 카테고리 목록을 새로 불러오지 못했어요'), findsOneWidget);
+      expect(_updates(server), hasLength(1));
+      final beforeRetry = server.requests.length;
+      retry = true;
+      await tester.tap(find.widgetWithText(SnackBarAction, '다시 불러오기'));
+      await tester.pumpAndSettle();
+      expect(
+        server.requests
+            .skip(beforeRetry)
+            .map((request) => '${request.method} ${request.url.path}'),
+        ['GET /api/v1/categories'],
+      );
+      expect(_categoryItem(_archive(tester)).name, '저장한 수정');
+    });
+  });
+
   testWidgets('삭제된 수정 대상은 초안과 안내를 남기고 목록으로 돌아간다', (tester) async {
     final server = _Server(
       respond: (request, _) {

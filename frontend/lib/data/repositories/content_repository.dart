@@ -954,7 +954,13 @@ class RemoteContentRepository extends ContentRepository {
     );
     ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
-    if (!saved.submissionReplayed) _replaceCategoryLocally(categoryId, saved);
+    final current = _categories.where((item) => item.id == categoryId).firstOrNull;
+    if (!saved.submissionReplayed && current != null) {
+      _replaceCategoryLocally(
+        categoryId,
+        _copyCategory(current, name: saved.name, color: saved.color),
+      );
+    }
     return saved;
   }
 
