@@ -122,6 +122,7 @@
 | 2026-10-25 | [마이 통계 조회 상태·복구 구현](2026-10-25-account-stats-recovery-implementation.md) | 프론트 |
 | 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 설계](2026-10-25-category-save-recovery-design.md) | 설계 |
 | 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 명세 작성](2026-10-25-category-save-recovery-spec.md) | 명세 |
+| 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 티켓 분할](2026-10-25-category-save-recovery-tickets.md) | 티켓 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 
