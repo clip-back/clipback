@@ -95,7 +95,7 @@ app/services     Business logic layer.
 app/integrations External systems such as AI, OCR, metadata, and storage.
 tests            API, service, and repository tests.
 scripts          Deployment checks and operator-only backup/recovery commands.
-Dockerfile.operator  Separate daily/hourly job image with matching-major PostgreSQL tools.
+Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQL 18 default).
 ```
 
 ## 상세 문서

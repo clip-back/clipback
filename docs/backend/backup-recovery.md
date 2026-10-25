@@ -5,6 +5,48 @@
 운영 절차는 [Railway 안내](../railway-deployment.md), 실제 결과는
 [작업 이력](../history/2026-10-22-production-recovery.md)을 따릅니다.
 
+## 첫 수동 백업: 삭제·보존 정리 없는 종료형 명령
+
+운영자 이미지는 기본 PostgreSQL 18 도구를 사용합니다. 실제 source DB major와 다르면
+빌드 인자로 맞추며 버전 불일치 시 덤프를 시작하지 않습니다.
+
+```sh
+docker build -f backend/Dockerfile.operator -t clipback-image-operator:SOURCE_SHA backend
+docker run --rm --env-file /absolute/private/operator.env \
+  -v /absolute/private/backup-bucket.json:/run/backup.json:ro \
+  -v /actual/source/originals:/data/screenshots:ro \
+  clipback-image-operator:SOURCE_SHA manual \
+  --backup-config-file /run/backup.json --backup-id UNIQUE_BACKUP_ID \
+  --app-commit FULL_40_CHARACTER_SOURCE_SHA --origin production
+```
+
+위 mount 예시는 실제 원본이 해당 실행 호스트에 있는 경우에만 사용합니다. 별도 Railway 서비스에
+같은 경로를 지정해도 API Volume을 공유하지 않습니다. 원격 원본 실행 경로가 준비되기 전까지
+이 예시를 운영 Railway Volume 접근 방법으로 사용하지 않습니다.
+
+`operator.env`에는 `DATABASE_URL`, 절대 경로 `STORAGE_ROOT`, `STORAGE_BACKEND`와 사용 중인
+원본/독립 삭제 기록 저장소의 설정만 공급합니다. 실제 DB·원본·삭제 기록의 접속 요건은 유지하되
+`manual`·`daily`·`maintain`은 `SECRET_KEY`, AI·소셜 로그인 설정을 요구하지 않습니다.
+앱 API는 기존 전체 설정 검증을 유지합니다. 비밀값을 argv·Git·보고서에 넣지 않습니다.
+백업 Bucket 자격 파일은 기존 `0600`·실행 사용자 소유 규칙을 따릅니다.
+
+`manual`은 live 삭제 기록과 연동한 exported DB snapshot 및 원본 물리 삭제 보호를 유지하며
+복구 지점만 생성하고 종료합니다. `daily`도 백업 생성만 하며 같은 UTC 날짜의 완료 지점은 다시
+생성하지 않습니다. `maintain`은 백업 보존 정리만 수행합니다. 원본 삭제 재처리는 별도
+`python -m scripts.image_deletions retry`로 명시적으로 실행하며 이 명령의 기존 전체 설정
+요건을 유지합니다. 백업을 시작했다는 이유로 삭제 재처리·보존 정리가 실행되지 않습니다.
+
+종료형 Railway 서비스는 위 이미지의 start 인자로 `manual --backup-config-file ...`을
+지정하고 자동 재시작 없이 종료 상태와 JSON 결과를 확인합니다. 공개 도메인·Cron은 추가하지
+않습니다. API에는 백업 자격을 주지 않습니다. 이 문서는 서비스를 생성하거나 실행하지 않습니다.
+
+성공 보고의 `passed`, `backup_id`, `asset_count`, `backup_created`는 생성 결과이며
+`restore_verified: false`입니다. 격리 복원 성공을 의미하지 않습니다. 실패는 0이 아닌 종료
+코드와 비밀값 없는 오류 분류를 남깁니다. `original_missing`, `original_read_failed`,
+`original_hash_mismatch`, `database_dump_failed`, `operator_configuration_invalid` 등으로
+구분하고, 실패한 지점의 완료 manifest는 게시하지 않습니다. 중간 보관본은 별도 정리 전까지
+남을 수 있으며 수동 백업이 이를 지우지 않습니다.
+
 ## Bucket 원본의 수동 백업과 v2 복구 지점
 
 `backend/scripts/image_backup.py`는 DB와 `local`·`s3` 원본을 함께 백업하는 **운영자 전용**
@@ -113,11 +155,10 @@ YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.image_backup_jobs main
 확인한 뒤 운영 일정을 켭니다. 성공 시 최근 완료 snapshot 이후 최대 하루치 손실을 목표로 합니다.
 최근 지점이 24시간보다 오래되면 `freshness_met: false`, 전체 `passed: false`입니다.
 
-두 작업은 기존의 독립 삭제 기록 재조정과 영속 원본 정리 재시도도 먼저 실행합니다. 미처리 원본
-정리 작업이 남으면 전체 성공으로 표시하지 않습니다. 일일 백업이 실패해도 시간별 정리는 별도로
-실행해야 합니다. 백업/정리 장애가 계속되면 하루 복구 목표와 7일 제거 목표는 충족하지 못합니다.
-따라서 작업 서비스의 원본 자격·local 공유 경로에는 이 정리에 필요한 삭제 권한도 있어야 합니다.
-백업 자격과 별개이며 API에 백업 Bucket 삭제 권한을 주는 설정은 아닙니다.
+백업 생성(`daily`)·백업 보존 정리(`maintain`)·원본 삭제 재처리(`image_deletions retry`)는
+각각 별도 명령입니다. 백업 생성에 원본 삭제 권한을 부여할 필요는 없습니다. 백업 실패와 별개로
+보존 정리·원본 재처리 실행 경로를 준비해야 하며, 실제 정기 일정·실패 알림·복원 검증 전에는
+일일 복구 및 7일 제거 목표를 운영 중이라고 표시하지 않습니다.
 
 완료 시각 기준 7일 이상인 복구 지점을 만료시키고, 사용자 삭제 intent 이후 **6일**이 지난 원본을
 참조하는 지점도 만료시킵니다. DB commit이 불확실해 삭제 intent 이후에 생성된 지점에 그 원본이
@@ -137,10 +178,10 @@ receipt를 검증해 보관하고, 완료 manifest를 내린 뒤 지점 dump와 
 과거 복구 참조는 제거됩니다. 다른 계정의 유효한 원본을 함께 지우지는 않습니다.
 
 API 이미지는 operator 스크립트·pg_dump를 포함하지 않습니다. 스케줄용 전용 이미지는 source DB와
-같은 주 버전으로 빌드합니다. 기본값은 17이며 실제 버전이 다르면 바꿉니다.
+같은 주 버전으로 빌드합니다. 기본값은 18이며 실제 버전이 다르면 바꿉니다.
 
 ```sh
-docker build -f backend/Dockerfile.operator --build-arg POSTGRES_MAJOR=17 \
+docker build -f backend/Dockerfile.operator --build-arg POSTGRES_MAJOR=18 \
   -t clipback-image-operator:SOURCE_SHA backend
 ```
 
@@ -148,10 +189,8 @@ docker build -f backend/Dockerfile.operator --build-arg POSTGRES_MAJOR=17 \
 위 `daily` 또는 `maintain` 인자들을 지정합니다. 원본 DB·Bucket·삭제 기록 환경은 작업 서비스에,
 `0600` 백업 자격은 작업 사용자 소유의 별도 파일로만 공급합니다. API 서비스에는 백업 자격을
 주지 않습니다. 전용 이미지는 백업 작업용이며 Docker socket/CLI를 운영 서비스에 연결하지 않습니다.
-이미지는 `YOUTUBE_SUMMARY_ENABLED=false`를 기본 제공해 AI worker와 해당 API 키를 요구하지
-않습니다. `APP_ENVIRONMENT=production`의 기존 SECRET_KEY·저장 경로·소셜 인증 등 보안 검증은
-그대로 적용됩니다. OPENAI_API_KEY를 포함한 기존 production 검증도 유지됩니다. source API의
-필요한 운영 설정을 명시적으로 공급하고 검증을 우회하지 않습니다. 백업은 AI API를 호출하지 않습니다.
+이미지는 `YOUTUBE_SUMMARY_ENABLED=false`를 기본 제공합니다. 백업·보존 명령의 최소 설정은
+위 수동 백업 안내를 따릅니다. API와 실제 원본 삭제 재처리의 기존 전체 설정 요건은 유지합니다.
 
 ## 최신 삭제 기록을 반영한 격리 복원
 

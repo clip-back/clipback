@@ -1,4 +1,4 @@
-"""Operator-only daily backup, hourly retention and deletion-aware restore checks."""
+"""Separate backup creation, retention and deletion-aware restore commands."""
 
 import asyncio
 import json
@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from scripts.check_backup_restore import CheckError, RestoreDrill, check, load_backup, require
@@ -132,9 +133,10 @@ def maintain_backups(store, ledger, *, now=None):
 
 
 @asynccontextmanager
-async def source_lock(key, *, shared=False, try_only=False):
+async def source_lock(key, *, shared=False, try_only=False, engine=None):
     """Pin the exact PostgreSQL session until its advisory lock is released."""
-    from app.db.session import engine
+    if engine is None:
+        from app.db.session import engine
 
     suffix = "_shared" if shared else ""
     function = "pg_try_advisory_lock" if try_only else "pg_advisory_lock"
@@ -157,32 +159,33 @@ async def source_lock(key, *, shared=False, try_only=False):
 
 
 async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
-                  pg_dump="pg_dump"):
-    """The scheduler may retry: one complete UTC-day point and serialized maintenance."""
-    from app.db.session import AsyncSessionLocal
+                  pg_dump="pg_dump", backup_id=None):
+    """Backup-only commands never perform source cleanup or retention."""
     from app.integrations.deletion_ledger import get_deletion_ledger
-    from app.services.image_deletion_service import retry_image_deletions
+    from scripts.operator_runtime import OperatorRuntime
 
-    ledger = get_deletion_ledger()
-    async with source_lock(BACKUP_JOB_LOCK, try_only=True):
-        # Existing durable source cleanup also runs hourly; a failed cleanup remains observable.
-        async with AsyncSessionLocal() as session:
-            cleanup = await retry_image_deletions(session)
-        identifier = "daily-" + datetime.now(UTC).date().isoformat()
-        created = False
-        if command == "daily" and identifier not in store.completed_points():
-            await create_backup(
+    try:
+        runtime = OperatorRuntime()
+    except ValidationError as exc:
+        raise CheckError("operator_configuration_invalid") from exc
+    try:
+        ledger = get_deletion_ledger(runtime.config)
+        async with source_lock(BACKUP_JOB_LOCK, try_only=True, engine=runtime.engine):
+            if command == "maintain":
+                return await asyncio.to_thread(maintain_backups, store, ledger)
+            identifier = backup_id or "daily-" + datetime.now(UTC).date().isoformat()
+            if command == "daily" and identifier in store.completed_points():
+                return {"passed": True, "backup_id": identifier, "backup_created": False,
+                        "restore_verified": False}
+            manifest = await create_backup(
                 store, backup_id=identifier, sample=sample, app_commit=app_commit,
                 origin=origin, writers_frozen=False, pg_dump=pg_dump, ledger=ledger,
-                _job_locked=True,
+                _job_locked=True, runtime=runtime,
             )
-            created = True
-        # An immutable prefix read is enough for GC: a new deletion is not due for six days.
-        # Do not hold the deletion-writer lock through every HEAD/delete operation.
-        report = await asyncio.to_thread(maintain_backups, store, ledger)
-        report.update(backup_created=created, source_cleanup_pending=cleanup["pending"])
-        report["passed"] = report["passed"] and cleanup["pending"] == 0
-        return report
+            return {"passed": True, "backup_id": identifier, "backup_created": True,
+                    "asset_count": len(manifest["assets"]), "restore_verified": False}
+    finally:
+        await runtime.close()
 
 
 async def check_latest_restore(directory, credentials_file, image, *, writers_frozen):
@@ -207,14 +210,16 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("daily", "maintain"):
+    for command in ("manual", "daily", "maintain"):
         task = sub.add_parser(command)
         task.add_argument("--backup-config-file", type=Path, required=True)
-        if command == "daily":
+        if command in {"manual", "daily"}:
             task.add_argument("--app-commit", required=True)
             task.add_argument("--origin", choices=["production", "synthetic"], required=True)
             task.add_argument("--sample-file", type=Path)
             task.add_argument("--pg-dump", default="pg_dump")
+        if command == "manual":
+            task.add_argument("--backup-id", required=True)
     restore = sub.add_parser("restore-check")
     restore.add_argument("--backup-dir", type=Path, required=True)
     restore.add_argument("--credentials-file", type=Path, required=True)
@@ -230,10 +235,12 @@ def main():
         else:
             store = BackupBucket.from_config_file(args.backup_config_file)
             kwargs = {}
-            if args.command == "daily":
+            if args.command in {"manual", "daily"}:
                 kwargs = dict(app_commit=args.app_commit, origin=args.origin, pg_dump=args.pg_dump,
                               sample=json.loads(args.sample_file.read_text())
                               if args.sample_file else None)
+            if args.command == "manual":
+                kwargs["backup_id"] = args.backup_id
             report = asyncio.run(run_job(store, command=args.command, **kwargs))
         print(json.dumps(report, sort_keys=True))
         return 0 if report["passed"] else 1

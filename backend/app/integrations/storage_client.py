@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import tempfile
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.config import Settings, settings
+if TYPE_CHECKING:
+    from app.core.config import Settings
 
 
 class StorageClient(Protocol):
@@ -177,4 +180,6 @@ class StorageRouter:
 
 
 def get_storage_client() -> StorageRouter:
+    from app.core.config import settings
+
     return StorageRouter(settings)
