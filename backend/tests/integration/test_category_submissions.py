@@ -345,3 +345,59 @@ async def test_update_retry_recovers_commit_outcome(
     recovered = await request(api, "PATCH", path, headers=writes, json=payload)
     assert recovered["submission"]["replayed"] is committed
     assert recovered["name"] == "커밋 결과 복구"
+
+
+@pytest.mark.parametrize("kind", ["create", "update"])
+async def test_replayed_submission_keeps_current_state_and_receipts_until_account_deletion(
+    independent_category_api, kind,
+):
+    api, headers, user_id, sessions, pids = independent_category_api
+    payload = {"name": "원래 제출", "color": "#68B5FF"}
+    writes = {**headers, "Idempotency-Key": str(uuid4())}
+    if kind == "update":
+        target = await request(api, "POST", "categories", headers=headers,
+                               json={"name": "수정 전"}, status=201)
+        method, path, status = "PATCH", f"categories/{target['id']}", 200
+    else:
+        method, path, status = "POST", "categories", 201
+    first = await request(api, method, path, headers=writes, json=payload, status=status)
+    target_path = f"categories/{first['id']}"
+    later_headers = {**headers, "Idempotency-Key": str(uuid4())}
+    await request(api, "PATCH", target_path, headers=later_headers,
+                  json={"name": "이후 저장값", "color": "#FF6277"})
+    expected = {**first, "submission": {**first["submission"], "replayed": True}}
+    assert await request(api, method, path, headers=writes,
+                         json=payload, status=status) == expected
+    listed, _ = await asyncio.gather(*[
+        request(api, "GET", "categories", headers=headers) for _ in range(2)
+    ])
+    current = next(item for item in listed if item["id"] == first["id"])
+    assert (current["name"], current["color"]) == ("이후 저장값", "#FF6277")
+    await request(api, "DELETE", target_path, headers=headers, status=204)
+    # A different id with the old name cannot become the original submission's target.
+    replacement = await request(api, "POST", "categories", headers=headers,
+                                json=payload, status=201)
+    assert replacement["id"] != first["id"]
+    assert await request(api, method, path, headers=writes,
+                         json=payload, status=status) == expected
+    listed = await request(api, "GET", "categories", headers=headers)
+    assert not any(item["id"] == first["id"] for item in listed)
+    assert [item["id"] for item in listed if item["name"] == payload["name"]] == [replacement["id"]]
+    missing = await request(api, "PATCH", target_path, headers={
+        **headers, "Idempotency-Key": str(uuid4()),
+    }, json=payload, status=404)
+    assert missing["code"] == "category_target_missing"
+    assert missing["submission"]["status"] == "rejected"
+    async with sessions() as session:
+        # Original success, later update and definitive missing-target rejection remain.
+        assert await session.scalar(select(func.count()).select_from(CategorySubmission).where(
+            CategorySubmission.user_id == user_id,
+        )) == 3
+        await session.execute(delete(Category).where(Category.user_id == user_id))
+        await session.execute(delete(User).where(User.id == user_id))
+        await session.commit()
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(CategorySubmission).where(
+            CategorySubmission.user_id == user_id,
+        )) == 0
+    assert len(set(pids)) >= 2

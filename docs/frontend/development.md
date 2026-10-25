@@ -99,6 +99,10 @@ ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로�
 분리하고, 마지막 목록 보존·GET만 재시도·정상 빈 배열/잘못된 본문·필수 요약 필드·각 조회의 전체10초·공유 인증 갱신·
 이전 조회/계정/스낵바의 늦은 결과와 과거 성공 스냅샷을 검증합니다. 생성·수정 재실행이나 프로필·통계·
 콘텐츠의 공통 refresh가 카테고리 재조회에 섞이지 않는지는 외부 HTTP 요청으로 확인합니다.
+`test/category_reentry_test.dart`는 실제 앱·HTTP 대역·메모리 세션 경계에서 아카이브/관리의 생성·수정 직접 닫기,
+미확인 닫기 확인·같은 키 유지/새 키 시작·현재 서버 값 준비·GET만 재시도 뒤 열기·새 앱 자동 재전송 없음·늦은 결과를 검증합니다.
+낙관적 표시와 원본의 구분, 수정 대상 ID 부재와 같은 이름의 다른 ID, 공통 조회가 준비 조회를 대체하는 경쟁도 포함합니다.
+관련 묶음은 `flutter test --no-pub --concurrency=1 test/category_reentry_test.dart test/category_list_recovery_test.dart test/category_delete_test.dart`로 실행합니다.
 `test/app/account_stats_regression_test.dart`와 `test/data/user_repository_test.dart`는 프로필 재조회 시
 이미 받은 서버 통계를 보존하고, 계정 초기화 때만 기존 통계를 비우는 경계를 검증합니다.
 `test/session_restore_test.dart`와 `test/content_mutation_test.dart`는 실제 앱·HTTP 대역·메모리 세션 경계에서

@@ -42,6 +42,7 @@ class ArchiveScreen extends StatelessWidget {
     required this.onAddCategory,
     this.onSubmitCategory,
     this.onSubmitCategoryUpdate,
+    this.onPrepareCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     required this.onAddLink,
@@ -76,6 +77,7 @@ class ArchiveScreen extends StatelessWidget {
   final ValueChanged<CategoryItem> onAddCategory;
   final CategorySubmitCallback? onSubmitCategory;
   final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
+  final CategoryPrepareCallback? onPrepareCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -213,6 +215,7 @@ class ArchiveScreen extends StatelessWidget {
                         onAddCategory: onAddCategory,
                         onSubmitCategory: onSubmitCategory,
                         onSubmitCategoryUpdate: onSubmitCategoryUpdate,
+                        onPrepareCategory: onPrepareCategory,
                         onUpdateCategory: onUpdateCategory,
                         onDeleteCategory: onDeleteCategory,
                         onOpenCategory: onOpenCategory,

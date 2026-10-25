@@ -697,11 +697,14 @@ void main() {
     tester,
   ) async {
     final first = Completer<http.Response?>();
+    var holdFirst = true;
     final server = _Server(
       respond: (request, server) {
         if (request.url.path == _categories &&
             request.method == 'GET' &&
-            server.calls(_categories, 'POST').length == 1) {
+            server.calls(_categories, 'POST').length == 1 &&
+            holdFirst) {
+          holdFirst = false;
           return first.future;
         }
         return null;
