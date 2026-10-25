@@ -29,6 +29,7 @@ class CategoryManagementViewModel extends ContentViewModel {
     name: name,
     color: hexFromColor(color),
     submissionKey: submissionKey ?? newEventUuid(),
+    feedback: emitEffect,
   );
   Future<void> update(CategoryItem original, CategoryItem updated) async {
     if (isDisposed || original.id == null) return;

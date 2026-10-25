@@ -779,7 +779,27 @@ class ClipbackApi {
   Future<List<ApiCategory>> listCategories() async {
     final response = await _request('GET', '/categories');
     _throwForError(response);
-    return _decodeJsonList(response).map(ApiCategory.fromJson).toList();
+    final body = jsonDecode(response.body);
+    if (body is! List) throw const FormatException('Invalid category list');
+    return body.map((value) {
+      if (value is! Map) throw const FormatException('Invalid category item');
+      final item = Map<String, dynamic>.from(value);
+      final id = item['id'];
+      final timestamp = item['last_saved_at'];
+      final count = item['content_count'];
+      if (id is! int ||
+          id <= 0 ||
+          item['name'] is! String ||
+          (item.containsKey('is_default') && item['is_default'] is! bool) ||
+          count is! int ||
+          count < 0 ||
+          !item.containsKey('last_saved_at') ||
+          (timestamp != null &&
+              (timestamp is! String || DateTime.tryParse(timestamp) == null))) {
+        throw const FormatException('Invalid category item');
+      }
+      return ApiCategory.fromJson(item);
+    }).toList();
   }
 
   Future<List<ApiCategory>> listRecentCategories({int limit = 2}) async {
