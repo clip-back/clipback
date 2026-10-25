@@ -226,3 +226,51 @@ iOS Simulator·Android Emulator의 변경 전/후/Figma 비교·스크린샷·�
 iOS Simulator·Android Emulator의 기종·OS·시나리오와 변경 전/후/Figma·스크린샷·영상은 별도 네이티브 담당의 기록을 따릅니다.
 이 구현 담당은 기기를 실행하지 않았으며, 이 자동 검사로 네이티브 실행을 대신하지 않습니다.
 운영 배포·운영 서버·실기기·원격 CI는 수행하지 않았습니다.
+
+## 최종 통합 리뷰와 최소 정리
+
+리뷰 기준은 `d98d2b32f276d271efd613f4d0447168304a88cd...23ece30e1180d0a6de796d110c9c28040698de2c`의
+31개 커밋·46개 변경 파일입니다. 반영 작업은 깨끗한 `23ece30`에서 시작한
+`feature/category-review-fixes`에서 수행했습니다.
+
+### 두 검토 축과 반영
+
+- Standards 검토는 문서 규칙 위반1건과 선택적 중복 판단2건을 남겼습니다.
+  Figma 계획의 카테고리 생성·수정 복구 상태를 ‘제품 미적용’에서 ‘구현 적용·통합 검증 진행 중’으로 맞추고,
+  승인 시안인 디자인 기준과 실제 실행 결과를 구분하며 이 구현 이력을 연결했습니다.
+- 생성·수정의 동일한 서버 거절 코드 해석만 작은 private 변환 함수로 추출했습니다.
+  생성의 카테고리 후속 조회와 수정의 별도 콘텐츠 후속 조회는 각각의 기존 흐름을 유지합니다.
+- 재진입·목록 복구·인증 복구 세 테스트 파일의 메모리 세션 저장 대역만 `test/support/`에 공유했습니다.
+  초기 합성 세션, 쓰기·삭제 횟수, 삭제 시 세션 제거를 유지하고, 인증 검사의 쓰기 대기는
+  횟수 증가 후 gate를 기다린 다음 세션에 적용하는 순서를 유지합니다. HTTP 서버 대역은 각 파일에 그대로 둡니다.
+- Spec 검토는 누락·부분 구현0개, 요청 밖 동작0개, 명세와 다른 동작0개였습니다.
+  이는 소스·기존 통합 테스트·기록의 읽기 전용 대조이며 실제 실행 완료 판정과 구분합니다.
+- 이번 변경은 동작 변화 없는 추출과 문서 상태 정정이므로 새 private 구현 검사를 만들지 않았습니다.
+  기존 실제 `ClipbackApp`·HTTP 대역·메모리 세션 경계의 기대값을 바꾸지 않고 재실행해 동등성을 확인합니다.
+
+### 자동 검증과 실행 경계
+
+- 리뷰 전 `23ece30`에서 통합 담당이 실행한 `flutter test --no-pub --concurrency=2`는
+  **1,951 passed**(3분04초)였습니다. 반영 담당이 `final-flutter.log`의 종료 결과를 확인했습니다.
+- 반영 뒤 `frontend/`에서 `flutter test --no-pub --concurrency=1 test/category_reentry_test.dart test/category_list_recovery_test.dart test/category_auth_recovery_test.dart test/app/content_actions_test.dart`는
+  **91 passed**(27초)였습니다. 로그는 `review-fixes-related.log`입니다.
+- 미사용 import까지 정리한 최종 파일에서 `flutter test --no-pub --concurrency=2`는
+  **1,951 passed**(3분02초), `flutter analyze --no-pub`는 **No issues**(2.4초)였습니다.
+  리뷰 전후 테스트 수와 기존 기대값을 유지했습니다. 로그는 `review-fixes-flutter-full.log`, `review-fixes-analyze.log`입니다.
+- 첫 정적 분석에서 저장 대역 추출로 미사용이 된 API import3개를 찾아 제거했습니다.
+  정리 후 위 전체 검사를 다시 실행했고 변경 Dart5개 파일의 format은 추가 변경이 없었습니다.
+- 같은 최종 코드의 `flutter build web --no-pub`는 **성공**(31.3초)했고 Wasm dry run도 통과했습니다.
+  기존 CupertinoIcons 폰트 누락 안내와 Wasm 빌드·테스트 권고가 있었으며, 웹 브라우저 실행이나 Wasm 제품 배포를
+  확인한 결과로 보지 않습니다. 로그는 `review-fixes-web.log`입니다.
+- 두 변경 문서의 로컬 링크177개 존재, 변경 Dart5개 format, 최종 diff와 `git diff --check`,
+  민감 정보·생성 파일 제외를 확인했습니다. 이번 정리는 새 사용자 동작이 없어 별도 CHANGELOG 항목을 추가하지 않았습니다.
+- 새 작업 트리에 의존성 설정이 없어 첫 `--no-pub`는 테스트 시작 전에 중단됐습니다.
+  `flutter pub get --enforce-lockfile`로 기존 잠금 파일 그대로 준비한 뒤 위 검사를 통과했습니다.
+  이 환경 준비 실패는 제품 assertion 실패나 통과 수치에 포함하지 않았습니다.
+- backend tree는 선행 전체 **1,040 passed / 12 skipped**와 같은
+  `9257a0fc8e3581a3fd4ff1bed5de60271e7109a7`임을 확인했습니다. 이번 정리에서는 backend 소스·테스트·migration을
+  변경하지 않아 DB 전체 검사를 중복 실행하지 않았습니다.
+- 이 단계에서 네이티브 빌드·시뮬레이터·에뮬레이터를 실행하지 않았습니다.
+  #90/#91 통합 후 양 플랫폼의 최종 실행과 변경 전/후/Figma·화면·영상 증거는 별도 완료 검증을 기다립니다.
+  앞 단계 네이티브 결과를 이번 최종 코드의 실행 결과로 바꾸어 적지 않습니다.
+- 실제 OAuth·운영 서버·운영 배포·실기기·원격 CI는 실행하지 않았으며 push·PR·이슈 변경도 수행하지 않았습니다.

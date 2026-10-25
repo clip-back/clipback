@@ -248,12 +248,7 @@ class ContentActions {
       return CategorySaveResult(
         CategorySaveStatus.rejected,
         submissionKey,
-        rejection: switch (error.code) {
-          'category_name_exists' => CategorySaveRejection.nameExists,
-          'category_input_invalid' => CategorySaveRejection.inputInvalid,
-          'category_target_missing' => CategorySaveRejection.targetMissing,
-          _ => CategorySaveRejection.other,
-        },
+        rejection: _categorySaveRejection(error.code),
       );
     } catch (_) {
       return CategorySaveResult(
@@ -326,12 +321,7 @@ class ContentActions {
       return CategorySaveResult(
         CategorySaveStatus.rejected,
         submissionKey,
-        rejection: switch (error.code) {
-          'category_name_exists' => CategorySaveRejection.nameExists,
-          'category_input_invalid' => CategorySaveRejection.inputInvalid,
-          'category_target_missing' => CategorySaveRejection.targetMissing,
-          _ => CategorySaveRejection.other,
-        },
+        rejection: _categorySaveRejection(error.code),
       );
     } catch (_) {
       return CategorySaveResult(
@@ -447,6 +437,13 @@ class ContentActions {
     if (_current(generation)) await refresh(feedback);
     return item;
   }
+
+  CategorySaveRejection _categorySaveRejection(String code) => switch (code) {
+    'category_name_exists' => CategorySaveRejection.nameExists,
+    'category_input_invalid' => CategorySaveRejection.inputInvalid,
+    'category_target_missing' => CategorySaveRejection.targetMissing,
+    _ => CategorySaveRejection.other,
+  };
 
   String _message(Object? error, String fallback) =>
       error is ClipbackApiException ? error.message : fallback;
