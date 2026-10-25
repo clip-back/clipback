@@ -281,7 +281,8 @@ class RemoteContentRepository extends ContentRepository {
       unawaited(owner.cancelled.then((_) => scope.cancel()));
     }
     try {
-      final response = await scope.run(() => scope.wait(_api.listCategories()));
+      final response = await scope.run(_api.listCategories);
+      if (_disposed || account != _accountVersion) return;
       scope.checkActive();
       _categories
         ..clear()
