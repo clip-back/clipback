@@ -474,20 +474,27 @@ def main():
         store = BackupBucket.from_config_file(args.backup_config_file)
         if args.command == "create":
             from app.integrations.deletion_ledger import get_deletion_ledger
+            from scripts.operator_runtime import OperatorRuntime
 
-            sample = json.loads(args.sample_file.read_text())
-            manifest = asyncio.run(
-                create_backup(
-                    store,
-                    backup_id=args.backup_id,
-                    sample=sample,
-                    app_commit=args.app_commit,
-                    origin=args.origin,
-                    writers_frozen=args.writers_frozen,
-                    pg_dump=args.pg_dump,
-                    ledger=get_deletion_ledger() if args.capture_deletion_checkpoint else None,
-                )
-            )
+            async def capture():
+                runtime = OperatorRuntime()
+                try:
+                    return await create_backup(
+                        store,
+                        backup_id=args.backup_id,
+                        sample=json.loads(args.sample_file.read_text()),
+                        app_commit=args.app_commit,
+                        origin=args.origin,
+                        writers_frozen=args.writers_frozen,
+                        pg_dump=args.pg_dump,
+                        ledger=get_deletion_ledger(runtime.config)
+                        if args.capture_deletion_checkpoint else None,
+                        runtime=runtime,
+                    )
+                finally:
+                    await runtime.close()
+
+            manifest = asyncio.run(capture())
         else:
             manifest = materialize_backup(store, args.backup_id, args.directory)
         print(

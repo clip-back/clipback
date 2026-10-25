@@ -133,6 +133,13 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
                      "assert s.read(m['assets'][0]['backup_key'])==b'original98';"
                      "assert len(s.read('points/first/database.dump'))>0")
         assert verify.returncode == 0, verify.stdout + verify.stderr
+        sample = tmp_path / "sample.json"
+        sample.write_text(json.dumps({"content_id": 1, "asset_id": 1}))
+        direct = run(*args, "-v", f"{sample}:/sample.json:ro", "--entrypoint", "python", image,
+                     "-m", "scripts.image_backup", "--backup-config-file", "/backup.json", "create",
+                     "--backup-id", "direct", "--sample-file", "/sample.json", "--app-commit",
+                     "a" * 40, "--origin", "synthetic", "--capture-deletion-checkpoint")
+        assert direct.returncode == 0, direct.stdout + direct.stderr
         assert (originals / "pending.png").read_bytes() == b"pending cleanup remains"
         status = docker("exec", db, "psql", "-U", "postgres", "-d", "clipback", "-Atc",
                         "SELECT completed,attempts FROM image_deletions")
@@ -195,7 +202,7 @@ for port,path in [(8000,'/source'),(9001,'/source')]:
         final = run(*args, "--entrypoint", "python", image, "-c",
                     "from scripts.image_backup import BackupBucket;from pathlib import Path;"
                     "s=BackupBucket.from_config_file(Path('/backup.json'));"
-                    "assert s.completed_points()==['first','old']")
+                    "assert s.completed_points()==['direct','first','old']")
         assert final.returncode == 0, final.stdout + final.stderr
     finally:
         for name in reversed(containers):
