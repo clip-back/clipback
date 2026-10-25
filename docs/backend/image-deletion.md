@@ -18,12 +18,60 @@
 원본에서 로컬 기록으로 자동 대체하지 않는다. S3 설정은 `.env.example`의 `DELETION_LEDGER_S3_*`를
 사용하며 실제 공급자의 endpoint·region·addressing style·독립 자격 증명을 지정한다.
 
-전용 저장소를 준비한 뒤 백엔드 디렉터리에서 한 번 초기화한다.
+### Mac Docker에서 운영 초기화
+
+먼저 검증된 커밋의 운영자 이미지를 준비한다. 코드 준비가 끝난 뒤 실제 이미지 식별자와
+해당 커밋을 운영 기록에 남기고, 초기화와 checkpoint에 같은 이미지를 사용한다. 원본 Bucket,
+백업 Bucket, 운영 DB 연결이나 기존 Volume 마운트는 초기화에 필요 없다. 일반 API 이미지는
+운영자 명령을 포함하지 않는다.
 
 ```bash
-python scripts/image_deletions.py init --confirm-new-namespace
-python scripts/image_deletions.py checkpoint
+docker info
+docker build -f Dockerfile.operator -t clipback-ledger-operator:validated .
 ```
+
+빌드는 백엔드 디렉터리에서 실행한다. Docker 구동 확인과 빌드 성공은 실제 Railway 연결·권한
+확인이 아니다. 이 초기화는 PostgreSQL 도구를 사용하지 않으며, 같은 이미지를 나중에 백업에
+사용하려면 운영 DB major와 이미지의 PostgreSQL 도구 버전을 별도로 맞춰야 한다.
+
+사용자가 저장소 밖의 보호된 환경 파일을 만들고 다음 항목을 직접 입력한다. 파일 권한은
+소유자만 읽고 쓸 수 있는 0600으로 두며, 실제 값은 채팅·Git·명령 인자·실행 로그에 넣지 않는다.
+endpoint·region·주소 방식·Bucket 이름은 실제 Bucket Credentials의 값을 사용한다.
+
+| 환경 변수 | 값 |
+| --- | --- |
+| `APP_ENVIRONMENT` | `production` (초기화 도구의 기본값도 production) |
+| `DELETION_LEDGER_BACKEND` | `s3` (초기화 도구의 기본값도 s3) |
+| `DELETION_LEDGER_S3_ENDPOINT_URL` | 삭제 기록 Bucket의 HTTPS endpoint |
+| `DELETION_LEDGER_S3_BUCKET` | 삭제 기록 Bucket의 실제 이름 |
+| `DELETION_LEDGER_S3_REGION` | 공급자의 region |
+| `DELETION_LEDGER_S3_ADDRESSING_STYLE` | 공급자의 `virtual` 또는 `path` |
+| `DELETION_LEDGER_S3_ACCESS_KEY_ID` | 삭제 기록 Bucket 전용 키 |
+| `DELETION_LEDGER_S3_SECRET_ACCESS_KEY` | 해당 비밀 키 |
+
+초기화·checkpoint 명령은 프로세스 환경 변수만 읽으며 작업 디렉터리의 `.env`를 자동으로 읽지
+않는다. API의 기존 `.env` 처리와 전체 운영 설정 검증은 유지된다. DB·로그인·AI 설정을 채워
+넣거나 가짜 값으로 우회할 필요가 없다. 아래 파일 경로는 실제 보호된 파일 경로로 바꾼다.
+
+```bash
+docker run --rm --env-file /absolute/private/ledger-bootstrap.env \
+  --entrypoint python clipback-ledger-operator:validated \
+  -m scripts.image_deletions init --confirm-new-namespace
+
+docker run --rm --env-file /absolute/private/ledger-bootstrap.env \
+  --entrypoint python clipback-ledger-operator:validated \
+  -m scripts.image_deletions checkpoint
+```
+
+첫 명령은 새 전용 저장소에만 실행한다. 두 명령 모두 종료 코드 0과 JSON의 namespace·sequence·digest를
+확인하며, 새 저장소는 sequence 0이다. checkpoint 결과는 초기화 결과와 일치해야 한다.
+이미 사용 중인 기록은 초기화하지 않고 checkpoint로 확인한다. 연결·권한·손상 오류는 종료 코드 1과
+고정된 실패 안내를 반환하며 성공 JSON을 출력하지 않는다. 실패 원인을 해결하기 전에 배포를 진행하거나
+새 namespace로 덮어쓰지 않는다. 실제 공급자 연결은 이 단계에서 별도로 확인한다.
+
+로컬 개발용 초기화는 `APP_ENVIRONMENT=local`, `DELETION_LEDGER_BACKEND=local`,
+`DELETION_LEDGER_ROOT`를 명시적으로 프로세스 환경에 제공한 뒤 기존 Python 명령을 사용할 수 있다.
+API의 `STORAGE_ROOT` 밖에 있고 재시작 후 유지되는 경로를 사용한다.
 
 `init`은 빈 저장소에 UUID namespace와 sequence 0인 head를 만든다. 이미 namespace가 있는
 저장소의 head가 없으면 초기화로 덮어쓰지 않고 실패한다. 데이터 손실 뒤 새 namespace를
@@ -51,8 +99,9 @@ python scripts/image_deletions.py retry --limit 100
 한 번의 명령은 최신 독립 기록을 검증하고, DB에 반영되지 않은 삭제 의도를 최대 지정 개수만큼
 반영한 뒤 영속 정리 작업을 최대 지정 개수만큼 시도한다. 결과의 `reconciled`, `attempted`,
 `pending`은 작업 수다. `pending > 0` 또는 작업 실패는 종료 코드 1이며 다음 실행에서 재시도한다.
-스케줄러에서 반복 실행하거나 장애 해소 후 수동 실행한다. 명령 구현만으로 운영 스케줄을
-생성하지는 않는다. 처리량보다 빠르게 쌓이는 큐와 마지막 성공 실행은 운영 점검 대상이다.
+재처리는 초기화와 달리 전체 API 설정 검증 및 DB·원본 접근이 필요하다. 초기화용 Mac 컨테이너에는
+이 접근이 없으므로 그대로 재처리 실행 환경으로 간주하지 않는다. 스케줄러에서 반복 실행하거나
+장애 해소 후 수동 실행한다. 명령 구현만으로 운영 스케줄을 생성하지는 않는다. 처리량보다 빠르게 쌓이는 큐와 마지막 성공 실행은 운영 점검 대상이다.
 
 물리 정리는 DB advisory lock `74264001`의 exclusive transaction lock을 얻은 경우에만 수행한다.
 백업의 shared session lock이 유지되는 동안에는 정리를 연기하여 스냅샷 원본을 보존한다.

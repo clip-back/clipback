@@ -8,17 +8,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.db.session import AsyncSessionLocal, engine  # noqa: E402
+from app.core.deletion_ledger_config import DeletionLedgerSettings  # noqa: E402
 from app.integrations.deletion_ledger import get_deletion_ledger  # noqa: E402
-from app.services.image_deletion_service import retry_image_deletions  # noqa: E402
 
 
 async def run(args) -> dict:
-    try:
+    if args.command in {"init", "checkpoint"}:
+        ledger = get_deletion_ledger(DeletionLedgerSettings())
         if args.command == "init":
-            return await asyncio.to_thread(get_deletion_ledger().initialize)
-        if args.command == "checkpoint":
-            return await asyncio.to_thread(get_deletion_ledger().read_verified_checkpoint)
+            return await asyncio.to_thread(ledger.initialize)
+        return await asyncio.to_thread(ledger.read_verified_checkpoint)
+
+    # Retry touches application data and originals, so keep the full API configuration contract.
+    from app.db.session import AsyncSessionLocal, engine
+    from app.services.image_deletion_service import retry_image_deletions
+
+    try:
         async with AsyncSessionLocal() as session:
             return await retry_image_deletions(session, limit=args.limit)
     finally:

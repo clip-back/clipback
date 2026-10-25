@@ -13,7 +13,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.config import Settings, settings
+from app.core.deletion_ledger_config import DeletionLedgerSettings
 
 LEDGER_WRITE_LOCK = 74264002
 IMAGE_CLEANUP_LOCK = 74264001
@@ -81,7 +81,7 @@ class LocalLedgerStore:
 
 
 class S3LedgerStore:
-    def __init__(self, config: Settings):
+    def __init__(self, config: DeletionLedgerSettings):
         self.bucket = config.deletion_ledger_s3_bucket
         self.client = boto3.client(
             "s3",
@@ -315,7 +315,12 @@ class DeletionLedger:
         )
 
 
-def get_deletion_ledger(config: Settings = settings) -> DeletionLedger:
+def get_deletion_ledger(config: DeletionLedgerSettings | None = None) -> DeletionLedger:
+    if config is None:
+        # API callers retain full settings validation; standalone operators supply ledger settings.
+        from app.core.config import settings
+
+        config = settings
     store = (
         S3LedgerStore(config)
         if config.deletion_ledger_backend == "s3"
