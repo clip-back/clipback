@@ -109,6 +109,7 @@ void showCategoryActionSheet({
   required int contentCount,
   required void Function(CategoryItem original, CategoryItem updated) onUpdate,
   required ValueChanged<CategoryItem> onDelete,
+  CategoryUpdateSubmitCallback? onSubmitUpdate,
 }) {
   if (category.mutationLabel != null) return;
   showModalBottomSheet<void>(
@@ -126,10 +127,20 @@ void showCategoryActionSheet({
             context: context,
             useSafeArea: true,
             isScrollControlled: true,
+            enableDrag: onSubmitUpdate == null,
             backgroundColor: Colors.transparent,
             builder: (context) => CategoryEditSheet(
               category: category,
               onSave: (updated) => onUpdate(category, updated),
+              onSubmit: onSubmitUpdate == null
+                  ? null
+                  : ({required name, required color, submissionKey}) =>
+                        onSubmitUpdate(
+                          category,
+                          name: name,
+                          color: color,
+                          submissionKey: submissionKey,
+                        ),
             ),
           );
         });
@@ -448,17 +459,20 @@ class CategoryEditSheet extends StatelessWidget {
   const CategoryEditSheet({
     required this.category,
     required this.onSave,
+    this.onSubmit,
     super.key,
   });
 
   final CategoryItem category;
   final ValueChanged<CategoryItem> onSave;
+  final CategorySubmitCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) => CategoryFormSheet(
     initialName: category.name,
     initialColor: category.color,
     actionLabel: '수정하기',
+    onSubmit: onSubmit,
     onSave: (name, color) => onSave(
       category.copyWith(
         name: name,
@@ -505,7 +519,8 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   ({String name, Color color, String? key})? _submission;
 
   bool get _async => widget.onSubmit != null;
-  bool get _locked => _busy || _unconfirmed;
+  bool get _targetMissing => _rejection == CategorySaveRejection.targetMissing;
+  bool get _locked => _busy || _unconfirmed || _targetMissing;
   String? get _fieldError {
     final name = _controller.text.trim();
     if (_edited && name.isEmpty) return '카테고리 이름을 입력해 주세요.';
@@ -522,6 +537,7 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
     if (_unconfirmed) {
       return '저장 결과를 확인하지 못했어요.\n이미 저장됐을 수 있어요. 결과를 다시 확인해 주세요.';
     }
+    if (_targetMissing) return '이 카테고리가 삭제되어 수정할 수 없어요.';
     if (_rejection != null && _rejection != CategorySaveRejection.nameExists) {
       return '카테고리를 저장하지 못했어요.\n입력은 그대로예요. 다시 시도해 주세요.';
     }
@@ -531,6 +547,7 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   bool get _canSave => _async
       ? !_busy &&
             (_unconfirmed ||
+                _targetMissing ||
                 (_controller.text.trim().isNotEmpty && _fieldError == null))
       : !_submitted && _controller.text.trim().isNotEmpty;
 
@@ -549,6 +566,10 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   }
 
   void _save() {
+    if (_targetMissing) {
+      Navigator.pop(context);
+      return;
+    }
     if (_async) {
       if (_canSave) _submit();
       return;
@@ -765,6 +786,8 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
           ? (_unconfirmed ? '확인 중…' : '저장 중…')
           : _unconfirmed
           ? '결과 다시 확인'
+          : _targetMissing
+          ? '목록으로 돌아가기'
           : widget.actionLabel,
     ),
   );

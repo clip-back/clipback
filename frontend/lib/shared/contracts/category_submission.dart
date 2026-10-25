@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:clipback_frontend/shared/models/category_item.dart';
 
 enum CategorySaveStatus { succeeded, rejected, unconfirmed, stale }
 
@@ -14,6 +15,14 @@ class CategorySaveResult {
 
 typedef CategorySubmitCallback =
     Future<CategorySaveResult> Function({
+      required String name,
+      required Color color,
+      String? submissionKey,
+    });
+
+typedef CategoryUpdateSubmitCallback =
+    Future<CategorySaveResult> Function(
+      CategoryItem category, {
       required String name,
       required Color color,
       String? submissionKey,

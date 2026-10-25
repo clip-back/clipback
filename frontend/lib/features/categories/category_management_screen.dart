@@ -18,6 +18,7 @@ class CategoryManagementScreen extends StatelessWidget {
     required this.onBack,
     required this.onAddCategory,
     this.onSubmitCategory,
+    this.onSubmitCategoryUpdate,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     super.key,
@@ -28,6 +29,7 @@ class CategoryManagementScreen extends StatelessWidget {
   final VoidCallback onBack;
   final ValueChanged<CategoryItem> onAddCategory;
   final CategorySubmitCallback? onSubmitCategory;
+  final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -173,6 +175,7 @@ class CategoryManagementScreen extends StatelessWidget {
                         category: category,
                         contentCount: category.contentCount,
                         onUpdate: onUpdateCategory,
+                        onSubmitUpdate: onSubmitCategoryUpdate,
                         onDelete: onDeleteCategory,
                       ),
                     );

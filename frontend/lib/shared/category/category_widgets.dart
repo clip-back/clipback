@@ -290,6 +290,7 @@ class CategoryArchiveView extends StatelessWidget {
     required this.onSortChanged,
     required this.onAddCategory,
     this.onSubmitCategory,
+    this.onSubmitCategoryUpdate,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     required this.onOpenCategory,
@@ -303,6 +304,7 @@ class CategoryArchiveView extends StatelessWidget {
   final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
   final CategorySubmitCallback? onSubmitCategory;
+  final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -377,6 +379,7 @@ class CategoryArchiveView extends StatelessWidget {
                   category: category,
                   contentCount: category.contentCount,
                   onUpdate: onUpdateCategory,
+                  onSubmitUpdate: onSubmitCategoryUpdate,
                   onDelete: onDeleteCategory,
                 ),
               );

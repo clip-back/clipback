@@ -32,7 +32,10 @@ abstract class ContentRepository extends ChangeNotifier {
   Future<void> loadNext(FeedKey key, {bool reset = false});
   void ensureFeed(FeedKey key);
   RefreshTicket beginRefresh({bool preserveViewport = false});
-  Future<RefreshResult> refresh(RefreshTicket ticket);
+  Future<RefreshResult> refresh(
+    RefreshTicket ticket, {
+    bool includeCategories = true,
+  });
   bool isCurrentRefresh(RefreshTicket ticket);
   ContentMutationHandle? beginBookmark(int contentId);
   ContentMutationHandle? beginContentCategoryChange(
@@ -54,6 +57,12 @@ abstract class ContentRepository extends ChangeNotifier {
     required String name,
     String? color,
     String? submissionKey,
+  });
+  Future<ApiCategory?> updateCategorySubmission({
+    required int categoryId,
+    required String name,
+    required String color,
+    required String submissionKey,
   });
   Future<ApiContent> saveLink({required String url, int? categoryId});
   Future<ApiContent> saveScreenshot({
@@ -413,7 +422,10 @@ class RemoteContentRepository extends ContentRepository {
       ticket.version == _refreshVersion;
 
   @override
-  Future<RefreshResult> refresh(RefreshTicket ticket) async {
+  Future<RefreshResult> refresh(
+    RefreshTicket ticket, {
+    bool includeCategories = true,
+  }) async {
     var metadataFailed = false;
     RefreshResult result() => RefreshResult(
       current: isCurrentRefresh(ticket),
@@ -421,16 +433,18 @@ class RemoteContentRepository extends ContentRepository {
       categoryDetailsRequired: ticket.categoryDetailsRequired,
     );
     if (!isCurrentRefresh(ticket)) return result();
-    try {
-      final response = await _api.listCategories();
-      if (!isCurrentRefresh(ticket)) return result();
-      _categories
-        ..clear()
-        ..addAll(_reconcileCategoryList(response));
-      _notify();
-    } catch (_) {
-      metadataFailed = true;
-      // Category metadata failure does not prevent the list refresh.
+    if (includeCategories) {
+      try {
+        final response = await _api.listCategories();
+        if (!isCurrentRefresh(ticket)) return result();
+        _categories
+          ..clear()
+          ..addAll(_reconcileCategoryList(response));
+        _notify();
+      } catch (_) {
+        metadataFailed = true;
+        // Category metadata failure does not prevent the list refresh.
+      }
     }
     if (!isCurrentRefresh(ticket)) return result();
     await Future.wait(
@@ -922,6 +936,26 @@ class RemoteContentRepository extends ContentRepository {
       _notify();
     }
     return created;
+  }
+
+  @override
+  Future<ApiCategory?> updateCategorySubmission({
+    required int categoryId,
+    required String name,
+    required String color,
+    required String submissionKey,
+  }) async {
+    final account = _accountVersion;
+    final saved = await _api.updateCategory(
+      categoryId: categoryId,
+      name: name,
+      color: color,
+      submissionKey: submissionKey,
+    );
+    ApiRequestScope.current?.checkActive();
+    if (_disposed || account != _accountVersion) return null;
+    if (!saved.submissionReplayed) _replaceCategoryLocally(categoryId, saved);
+    return saved;
   }
 
   Future<ApiContent> _save(Future<ApiContent> Function() request) async {

@@ -809,6 +809,24 @@ class ClipbackApi {
       body: {'name': name, 'color': color},
       headers: {'Idempotency-Key': submissionKey},
     );
+    return _categorySubmissionResult(
+      response,
+      submissionKey,
+      statusCode: 201,
+      name: name,
+      color: color,
+    );
+  }
+
+  ApiCategory _categorySubmissionResult(
+    http.Response response,
+    String submissionKey, {
+    required int statusCode,
+    String? name,
+    String? color,
+    bool checkColor = true,
+    int? categoryId,
+  }) {
     final data = _decodeJson(response);
     if (response.statusCode == 422 && data['detail'] is List) {
       throw const CategorySubmissionRejected(
@@ -834,10 +852,11 @@ class ClipbackApi {
         statusCode: response.statusCode,
       );
     }
-    if (response.statusCode != 201 ||
+    if (response.statusCode != statusCode ||
         submission['status'] != 'succeeded' ||
-        data['name'] != name ||
-        data['color'] != color ||
+        (name != null && data['name'] != name) ||
+        (checkColor && data['color'] != color) ||
+        (categoryId != null && data['id'] != categoryId) ||
         data['is_default'] is! bool) {
       throw const FormatException('Category submission result is unconfirmed');
     }
@@ -852,10 +871,28 @@ class ClipbackApi {
     required int categoryId,
     String? name,
     String? color,
+    String? submissionKey,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (color != null) body['color'] = color;
+    if (submissionKey != null) {
+      final response = await _request(
+        'PATCH',
+        '/categories/$categoryId',
+        body: body,
+        headers: {'Idempotency-Key': submissionKey},
+      );
+      return _categorySubmissionResult(
+        response,
+        submissionKey,
+        statusCode: 200,
+        name: name,
+        color: color,
+        checkColor: color != null,
+        categoryId: categoryId,
+      );
+    }
     return ApiCategory.fromJson(
       await _json('PATCH', '/categories/$categoryId', body: body),
     );
