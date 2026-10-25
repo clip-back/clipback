@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Query, Response, status
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Header, Query, Response, status
+from fastapi.responses import JSONResponse
 
 from app.api.deps import CurrentUserId, DatabaseSession
 from app.repositories.category_repository import CategoryRepository
@@ -36,10 +40,14 @@ async def create_category(
     payload: CategoryCreate,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
-) -> CategoryRead:
+    idempotency_key: Annotated[UUID | None, Header()] = None,
+) -> CategoryRead | Response:
     service = CategoryService(
         category_repository=CategoryRepository(db),
     )
+    if idempotency_key is not None:
+        result = await service.create_submission(current_user_id, idempotency_key, payload)
+        return JSONResponse(result.body, status_code=result.status_code)
     return await service.create_category(user_id=current_user_id, payload=payload)
 
 
@@ -49,8 +57,14 @@ async def update_category(
     payload: CategoryUpdate,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
-) -> CategoryRead:
+    idempotency_key: Annotated[UUID | None, Header()] = None,
+) -> CategoryRead | Response:
     service = CategoryService(category_repository=CategoryRepository(db))
+    if idempotency_key is not None:
+        result = await service.update_submission(
+            current_user_id, idempotency_key, category_id, payload,
+        )
+        return JSONResponse(result.body, status_code=result.status_code)
     return await service.update_category(current_user_id, category_id, payload)
 
 

@@ -155,7 +155,7 @@ void main() {
 
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     testWidgets(
-      '${platform.name} member and guest notice header and OS back preserve My offset without requests',
+      '${platform.name} member and guest notice header and OS back preserve My offset and only refresh stats',
       (tester) async {
         for (final kind in ['member', 'guest']) {
           final server = fixture.NoticeServer(kind);
@@ -181,7 +181,12 @@ void main() {
                 expect(find.byType(MyScreen), findsOneWidget);
                 expect(_notice, findsNothing);
                 expect(_myPosition(tester).pixels, closeTo(before, .2));
-                expect(server.requests.length, beforeRequests);
+                expect(server.requests.length, beforeRequests + 1);
+                expect(server.requests.last, {
+                  'method': 'GET',
+                  'path': '/api/v1/users/me/stats',
+                  'query': <String, String>{},
+                });
                 expect(server.records.length, beforeRecords);
                 expect(server.logoutCalls, 0);
                 expect(storage.value, isNotNull);

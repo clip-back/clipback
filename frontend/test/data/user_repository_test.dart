@@ -87,15 +87,16 @@ void main() {
       addTearDown(repository.dispose);
       final request = repository.loadMe();
       repository.resetAccount(1);
+      final cancelled = expectLater(request, throwsStateError);
       response.complete(_json(_user('previous account')));
-      await request;
+      await cancelled;
       expect(repository.user, isNull);
       expect(repository.stats, isNull);
     },
   );
 
   test(
-    'refresh atomically applies server counts and profile after both reads',
+    'refresh publishes server counts before the independent profile completes',
     () async {
       final userResponse = Completer<http.Response>();
       final userRequested = Completer<void>();
@@ -113,7 +114,8 @@ void main() {
       final request = repository.refresh(isCurrent: () => true);
       await userRequested.future;
       expect(repository.user, isNull);
-      expect(repository.stats, isNull);
+      expect(repository.stats?.savedCount, 700);
+      expect(repository.stats?.reopenedCount, 900);
       userResponse.complete(_json(_user('server user')));
       await request;
       expect(repository.user?.displayName, 'server user');

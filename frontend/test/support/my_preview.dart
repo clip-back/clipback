@@ -243,12 +243,30 @@ Map<String, Object?> myMeasure(Element root) {
     });
   }
   final metrics = <Map<String, Object?>>[];
-  for (final e in _elements(stats).where((e) => e.widget is MyMetric)) {
-    final w = e.widget as MyMetric;
+  for (final (label, value) in [
+    ('저장한 콘텐츠', user.savedContentCount?.toString() ?? '—'),
+    ('다시 본 콘텐츠', user.revisitedContentCount?.toString() ?? '—'),
+  ]) {
+    final labelElement = _text(stats, label)!;
+    final values =
+        _elements(stats)
+            .where(
+              (element) =>
+                  element.widget is Text &&
+                  (element.widget as Text).data == value,
+            )
+            .toList()
+          ..sort(
+            (a, b) => (_box(a).center.dx - _box(labelElement).center.dx)
+                .abs()
+                .compareTo(
+                  (_box(b).center.dx - _box(labelElement).center.dx).abs(),
+                ),
+          );
     metrics.add({
-      'bounds': _rect(_box(e)),
-      'label': _paragraph(_text(e, w.label)!),
-      'value': _paragraph(_text(e, w.value)!),
+      'bounds': _rect(_box(labelElement)),
+      'label': _paragraph(labelElement),
+      'value': _paragraph(values.first),
     });
   }
   final groups = <Map<String, Object?>>[];
@@ -992,7 +1010,7 @@ Future<void> _run() async {
   final initial = (_my.widget as MyScreen).user;
   _require(
     initial.providerLabel == myMember.providerLabel &&
-        initial.revisitedContentCount > initial.savedContentCount,
+        initial.revisitedContentCount! > initial.savedContentCount!,
     'Actual raw mapper/cumulative stats replaced',
   );
   final header = _find<MyPageTopBar>(_my)!;

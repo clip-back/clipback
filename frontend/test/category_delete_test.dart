@@ -10,6 +10,7 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
@@ -32,18 +33,24 @@ const _category = {
   'name': '공부',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _otherCategory = {
   'id': 202,
   'name': '여행',
   'color': '#FB7185',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _uncategorized = {
   'id': 303,
   'name': '미분류',
   'color': '#B5BDC3',
   'is_default': true,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _allCategories = [_category, _otherCategory, _uncategorized];
 
@@ -158,7 +165,15 @@ class _Server {
             'id': 404,
           };
           categories.add(created);
-          return _json(created, 201);
+          return _json({
+            ...created,
+            if (request.headers['Idempotency-Key'] case final String key)
+              'submission': {
+                'key': key,
+                'status': 'succeeded',
+                'replayed': false,
+              },
+          }, 201);
         }
         return _json(categories);
       case _feed:
@@ -326,6 +341,69 @@ Future<void> _openArchive(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _openCategoryCreate(WidgetTester tester) async {
+  await _openArchive(tester);
+  _archive(tester).onTabChanged(1);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('archive-category-add')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openCategoryEdit(
+  WidgetTester tester, {
+  bool management = false,
+}) async {
+  await _openArchive(tester);
+  if (management) {
+    _archive(tester).onOpenCategoryManagement!();
+  } else {
+    _archive(tester).onTabChanged(1);
+  }
+  await tester.pumpAndSettle();
+  _moreTap(tester, 101)!();
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('카테고리 수정'));
+  await tester.pumpAndSettle();
+}
+
+List<http.Request> _updates(_Server server) => server.requests
+    .where(
+      (request) =>
+          request.method == 'PATCH' &&
+          request.url.path == '/api/v1/categories/101',
+    )
+    .toList();
+
+http.Response _updateResult(http.Request request, {bool replayed = false}) =>
+    _json({
+      ..._category,
+      ...jsonDecode(request.body) as Map,
+      'submission': {
+        'key': request.headers['Idempotency-Key'],
+        'status': 'succeeded',
+        'replayed': replayed,
+      },
+    });
+
+List<http.Request> _creates(_Server server) => server.requests
+    .where(
+      (request) =>
+          request.method == 'POST' && request.url.path == '/api/v1/categories',
+    )
+    .toList();
+
+http.Response _createResult(http.Request request, {bool replayed = false}) =>
+    _json({
+      'id': 404,
+      ...jsonDecode(request.body) as Map<String, dynamic>,
+      'is_default': false,
+      'submission': {
+        'key': request.headers['Idempotency-Key'],
+        'status': 'succeeded',
+        'replayed': replayed,
+      },
+    }, 201);
+
 CategoryItem _categoryItem(ArchiveScreen screen, [int id = 101]) =>
     screen.categories.singleWhere((category) => category.id == id);
 List<http.Request> _deletes(_Server server) => server.requests
@@ -383,6 +461,786 @@ void main() {
     }
     await fonts.load();
   });
+
+  testWidgets('실제 수정 시트는 현재 값으로 시작하고 성공 확인 뒤 닫는다', (tester) async {
+    final pending = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request, _) =>
+          request.method == 'PATCH' &&
+              request.url.path == '/api/v1/categories/101'
+          ? pending.future
+          : null,
+    );
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      _archive(tester).onTabChanged(1);
+      await tester.pumpAndSettle();
+      _moreTap(tester, 101)!();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('카테고리 수정'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '공부',
+      );
+      expect(
+        tester
+            .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+            .selectedColor,
+        const Color(0xFF059669),
+      );
+      await tester.enterText(find.byType(TextField), '수정 초안');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pump();
+      expect(find.text('저장하고 있어요.'), findsOneWidget);
+      final sent = server.calls('/api/v1/categories/101').last;
+      expect(sent.headers['Idempotency-Key'], isNotEmpty);
+      pending.complete(
+        _json({
+          ..._category,
+          ...jsonDecode(sent.body) as Map,
+          'submission': {
+            'key': sent.headers['Idempotency-Key'],
+            'status': 'succeeded',
+            'replayed': false,
+          },
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+    });
+  });
+
+  testWidgets('수정 성공 뒤 목록 갱신 실패는 시트를 닫고 카테고리만 재조회한다', (tester) async {
+    var stored = false;
+    var retry = false;
+    final server = _Server(
+      respond: (request, server) {
+        if (request.method == 'PATCH') {
+          stored = true;
+          server.categories[0] = {
+            ...server.categories[0],
+            ...jsonDecode(request.body) as Map<String, dynamic>,
+          };
+          return _updateResult(request);
+        }
+        if (stored && !retry && request.url.path == '/api/v1/categories') {
+          return _json({'detail': 'metadata failed'}, 500);
+        }
+        return null;
+      },
+    );
+    server.categories.first['content_count'] = 7;
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester);
+      await tester.enterText(find.byType(TextField), '저장한 수정');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_categoryItem(_archive(tester)).contentCount, 7);
+      expect(find.text('저장은 완료됐지만 카테고리 목록을 새로 불러오지 못했어요'), findsOneWidget);
+      expect(_updates(server), hasLength(1));
+      final beforeRetry = server.requests.length;
+      retry = true;
+      await tester.tap(find.widgetWithText(SnackBarAction, '다시 불러오기'));
+      await tester.pumpAndSettle();
+      expect(
+        server.requests
+            .skip(beforeRetry)
+            .map((request) => '${request.method} ${request.url.path}'),
+        ['GET /api/v1/categories'],
+      );
+      expect(_categoryItem(_archive(tester)).name, '저장한 수정');
+    });
+  });
+
+  testWidgets('삭제된 수정 대상은 초안과 안내를 남기고 목록으로 돌아간다', (tester) async {
+    final server = _Server(
+      respond: (request, _) {
+        if (request.method != 'PATCH') return null;
+        return _json({
+          'detail': 'Category not found',
+          'code': 'category_target_missing',
+          'submission': {
+            'key': request.headers['Idempotency-Key'],
+            'status': 'rejected',
+            'replayed': false,
+          },
+        }, 404);
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester, management: true);
+      await tester.enterText(find.byType(TextField), '삭제된 대상의 초안');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pumpAndSettle();
+      expect(find.text('이 카테고리가 삭제되어 수정할 수 없어요.'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '삭제된 대상의 초안',
+      );
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
+      await tester.tap(find.widgetWithText(FilledButton, '목록으로 돌아가기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_updates(server), hasLength(1));
+      expect(_creates(server), isEmpty);
+    });
+  });
+
+  testWidgets('수정의 전체10초와 늦은 응답은 목록을 되돌리지 않고 같은 제출을 재확인한다', (tester) async {
+    final first = Completer<http.Response?>();
+    final second = Completer<http.Response?>();
+    final read = Completer<http.Response?>();
+    var writes = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.method == 'PATCH') {
+          return ++writes == 1 ? first.future : second.future;
+        }
+        if (writes > 1 && request.url.path == '/api/v1/categories') {
+          return read.future;
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester);
+      await tester.enterText(find.byType(TextField), '  수정할 이름  ');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.drag(
+        find.byKey(const ValueKey('category-form-handle')),
+        const Offset(0, 120),
+      );
+      expect(_updates(server), hasLength(1));
+      expect(_categoryItem(_archive(tester)).name, '공부');
+      await tester.pump(const Duration(seconds: 9));
+      expect(find.text('저장하고 있어요.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
+      await tester.tap(find.widgetWithText(FilledButton, '결과 다시 확인'));
+      await tester.pump();
+      expect(find.text('저장 결과를 확인하고 있어요.'), findsOneWidget);
+      first.complete(_updateResult(_updates(server).first));
+      await tester.pump();
+      expect(find.text('저장 결과를 확인하고 있어요.'), findsOneWidget);
+      expect(_categoryItem(_archive(tester)).name, '공부');
+      second.complete(_updateResult(_updates(server).last, replayed: true));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_categoryItem(_archive(tester)).name, '공부');
+      expect(_updates(server).last.body, _updates(server).first.body);
+      expect(
+        _updates(server).last.headers['Idempotency-Key'],
+        _updates(server).first.headers['Idempotency-Key'],
+      );
+      read.complete(
+        _json([
+          {..._category, 'name': '다른 기기 최종 이름'},
+          _otherCategory,
+          _uncategorized,
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(_categoryItem(_archive(tester)).name, '다른 기기 최종 이름');
+    });
+  });
+
+  for (final code in ['category_name_exists', 'category_input_invalid']) {
+    testWidgets('수정 $code 거절 뒤 초안을 고치면 새 제출로 저장한다', (tester) async {
+      var writes = 0;
+      final server = _Server(
+        respond: (request, _) {
+          if (request.method != 'PATCH') return null;
+          if (++writes > 1) return _updateResult(request);
+          return code == 'category_input_invalid'
+              ? _json({
+                  'detail': [
+                    {'msg': 'invalid input'},
+                  ],
+                }, 422)
+              : _json({
+                  'detail': 'Category already exists',
+                  'code': code,
+                  'submission': {
+                    'key': request.headers['Idempotency-Key'],
+                    'status': 'rejected',
+                    'replayed': false,
+                  },
+                }, 409);
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openCategoryEdit(tester, management: true);
+        await tester.enterText(find.byType(TextField), '거절된 초안');
+        final picker = tester.widget<FolderColorPicker>(
+          find.byType(FolderColorPicker),
+        );
+        picker.onChanged(FolderColorPicker.colors[3]);
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '거절된 초안',
+        );
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).readOnly,
+          isFalse,
+        );
+        expect(
+          tester
+              .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+              .selectedColor,
+          FolderColorPicker.colors[3],
+        );
+        if (code == 'category_name_exists') {
+          expect(
+            find.text('같은 이름의 카테고리가 있어요. 다른 이름을 입력해 주세요.'),
+            findsOneWidget,
+          );
+        }
+        await tester.enterText(find.byType(TextField), '고친 초안');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryFormSheet), findsNothing);
+        expect(
+          _updates(server).first.headers['Idempotency-Key'],
+          isNot(_updates(server).last.headers['Idempotency-Key']),
+        );
+        expect(
+          jsonDecode(_updates(server).last.body)['color'],
+          jsonDecode(_updates(server).first.body)['color'],
+        );
+      });
+    });
+  }
+
+  testWidgets('수정은 인증 갱신 재요청에도 같은 내용을 유지하고 전체10초만 기다린다', (tester) async {
+    final denied = Completer<http.Response?>();
+    final refresh = Completer<http.Response?>();
+    final retried = Completer<http.Response?>();
+    var writes = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path == '/api/v1/auth/refresh') return refresh.future;
+        if (request.method == 'PATCH') {
+          return ++writes == 1 ? denied.future : retried.future;
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester);
+      await tester.enterText(find.byType(TextField), '인증 중 수정 초안');
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pump(const Duration(seconds: 4));
+      denied.complete(_json({'detail': 'expired'}, 401));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      refresh.complete(
+        _json({
+          'access_token': 'rotated-access',
+          'refresh_token': 'rotated-refresh',
+          'expires_in': 3600,
+          'refresh_expires_in': 86400,
+        }),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(_updates(server), hasLength(2));
+      expect(_updates(server).first.body, _updates(server).last.body);
+      expect(
+        _updates(server).first.headers['Idempotency-Key'],
+        _updates(server).last.headers['Idempotency-Key'],
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      retried.complete(_updateResult(_updates(server).last));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      expect(_categoryItem(_archive(tester)).name, '공부');
+    });
+  });
+
+  testWidgets('수정 입력도 trim 후 code point40자를 검사하고 초과 이름을 자르지 않는다', (
+    tester,
+  ) async {
+    final server = _Server(
+      respond: (request, _) =>
+          request.method == 'PATCH' ? _updateResult(request) : null,
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryEdit(tester);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      expect(find.text('카테고리 이름을 입력해 주세요.'), findsOneWidget);
+      final over = '${'가' * 39}😀나';
+      await tester.enterText(find.byType(TextField), over);
+      await tester.pump();
+      expect(find.text('이름은 40자 이내로 입력해 주세요.'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        over,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '수정하기'))
+            .onPressed,
+        isNull,
+      );
+      expect(_updates(server), isEmpty);
+      final valid = '${'가' * 39}😀';
+      await tester.enterText(find.byType(TextField), '  $valid  ');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+      await tester.pumpAndSettle();
+      expect(jsonDecode(_updates(server).single.body)['name'], valid);
+      expect(find.byType(CategoryFormSheet), findsNothing);
+    });
+  });
+
+  for (final failure in [
+    'network',
+    '500',
+    'JSON',
+    'missing',
+    'wrong-target',
+    'conflict',
+  ]) {
+    testWidgets('수정 $failure 응답은 미확인으로 유지하고 닫기 전에 확인한다', (tester) async {
+      final server = _Server(
+        respond: (request, _) {
+          if (request.method != 'PATCH') return null;
+          return switch (failure) {
+            'network' => throw http.ClientException('offline'),
+            '500' => _json({'detail': 'Server failed'}, 500),
+            'JSON' => http.Response('{broken', 200),
+            'missing' => _json({
+              ..._category,
+              ...jsonDecode(request.body) as Map,
+            }),
+            'wrong-target' => _json({
+              ..._category,
+              ...jsonDecode(request.body) as Map,
+              'id': 202,
+              'submission': {
+                'key': request.headers['Idempotency-Key'],
+                'status': 'succeeded',
+                'replayed': false,
+              },
+            }),
+            _ => _json({
+              'detail': 'input mismatch',
+              'code': 'category_submission_conflict',
+            }, 409),
+          };
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openCategoryEdit(tester);
+        await tester.enterText(find.byType(TextField), '유지할 수정 초안');
+        await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '유지할 수정 초안',
+        );
+        expect(_categoryItem(_archive(tester)).name, '공부');
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        expect(find.text('입력 창을 닫을까요?'), findsOneWidget);
+        await tester.tap(find.text('계속 확인하기'));
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '닫기'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryFormSheet), findsNothing);
+        expect(_updates(server), hasLength(1));
+      });
+    });
+  }
+
+  testWidgets('카테고리 생성은 실제 시트에서 성공을 확인한 뒤 닫는다', (tester) async {
+    final pending = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request, _) =>
+          request.url.path == '/api/v1/categories' && request.method == 'POST'
+          ? pending.future
+          : null,
+    );
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      _archive(tester).onTabChanged(1);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('archive-category-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '취업 준비',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pump();
+      expect(find.byType(CategoryFormSheet), findsOneWidget);
+      expect(find.text('저장하고 있어요.'), findsOneWidget);
+      final posted = server.calls('/api/v1/categories').last;
+      pending.complete(
+        _json({
+          'id': 404,
+          'name': '취업 준비',
+          'color': jsonDecode(posted.body)['color'],
+          'is_default': false,
+          'submission': {
+            'key': posted.headers['Idempotency-Key'],
+            'status': 'succeeded',
+            'replayed': false,
+          },
+        }, 201),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+    });
+  });
+
+  testWidgets('생성 전체 10초 뒤에는 초안을 잠그고 같은 제출로 결과를 다시 확인한다', (tester) async {
+    final first = Completer<http.Response?>();
+    var writes = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/categories' ||
+            request.method != 'POST') {
+          return null;
+        }
+        writes++;
+        return writes == 1
+            ? first.future
+            : _createResult(request, replayed: true);
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryCreate(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '  보존할 이름  ',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.drag(
+        find.byKey(const ValueKey('category-form-handle')),
+        const Offset(0, 120),
+      );
+      await tester.pump(const Duration(seconds: 9));
+      expect(find.text('저장하고 있어요.'), findsOneWidget);
+      expect(_creates(server), hasLength(1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      final input = tester.widget<TextField>(
+        find.byKey(const ValueKey('category-form-input')),
+      );
+      expect(input.controller!.text, '  보존할 이름  ');
+      expect(input.readOnly, isTrue);
+      expect(jsonDecode(_creates(server).single.body)['name'], '보존할 이름');
+      // A response after the attempt deadline cannot close or rewrite the sheet.
+      first.complete(_createResult(_creates(server).single));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, '결과 다시 확인'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_creates(server), hasLength(2));
+      expect(
+        _creates(server).last.headers['Idempotency-Key'],
+        _creates(server).first.headers['Idempotency-Key'],
+      );
+      expect(_creates(server).last.body, _creates(server).first.body);
+    });
+  });
+
+  testWidgets('명확한 생성 거절은 이름과 색상을 유지하고 수정 후 새 제출을 보낸다', (tester) async {
+    var writes = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/categories' ||
+            request.method != 'POST') {
+          return null;
+        }
+        if (++writes > 1) return _createResult(request);
+        return _json({
+          'detail': 'Category already exists',
+          'code': 'category_name_exists',
+          'submission': {
+            'key': request.headers['Idempotency-Key'],
+            'status': 'rejected',
+            'replayed': false,
+          },
+        }, 409);
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryCreate(tester);
+      final palette = tester.widget<FolderColorPicker>(
+        find.byKey(const ValueKey('category-form-palette')),
+      );
+      palette.onChanged(FolderColorPicker.colors[3]);
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '중복 이름',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pumpAndSettle();
+      expect(find.text('같은 이름의 카테고리가 있어요. 다른 이름을 입력해 주세요.'), findsOneWidget);
+      final input = tester.widget<TextField>(
+        find.byKey(const ValueKey('category-form-input')),
+      );
+      expect(input.controller!.text, '중복 이름');
+      expect(input.readOnly, isFalse);
+      expect(
+        tester
+            .widget<FolderColorPicker>(
+              find.byKey(const ValueKey('category-form-palette')),
+            )
+            .selectedColor,
+        FolderColorPicker.colors[3],
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '새 이름',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_creates(server), hasLength(2));
+      expect(
+        _creates(server).last.headers['Idempotency-Key'],
+        isNot(_creates(server).first.headers['Idempotency-Key']),
+      );
+    });
+  });
+
+  testWidgets('생성 이름은 초과 붙여넣기와 한글 조합을 보존하고 공백 제거 뒤 40자를 검사한다', (tester) async {
+    final server = _Server();
+    await _withApp(tester, server, () async {
+      await _openCategoryCreate(tester);
+      expect(find.byKey(const ValueKey('category-form-error')), findsNothing);
+      final input = find.byKey(const ValueKey('category-form-input'));
+      final longName = List.filled(41, '😀').join();
+      await tester.enterText(input, longName);
+      await tester.pump();
+      expect(tester.widget<TextField>(input).controller!.text, longName);
+      expect(find.text('이름은 40자 이내로 입력해 주세요.'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '생성하기'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(input, '');
+      await tester.pump();
+      expect(find.text('카테고리 이름을 입력해 주세요.'), findsOneWidget);
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '한ㄱ',
+          composing: TextRange(start: 1, end: 2),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(input).controller!.value.composing,
+        const TextRange(start: 1, end: 2),
+      );
+      final valid = List.filled(40, '😀').join();
+      await tester.enterText(input, ' $valid ');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('category-form-error')), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pumpAndSettle();
+      expect(jsonDecode(_creates(server).single.body)['name'], valid);
+      expect(find.byType(CategoryFormSheet), findsNothing);
+    });
+  });
+
+  testWidgets('생성은 인증 갱신과 재요청을 합쳐 전체 10초만 기다린다', (tester) async {
+    final denied = Completer<http.Response?>();
+    final refresh = Completer<http.Response?>();
+    final retried = Completer<http.Response?>();
+    var writes = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path == '/api/v1/auth/refresh') return refresh.future;
+        if (request.url.path == '/api/v1/categories' &&
+            request.method == 'POST') {
+          return ++writes == 1 ? denied.future : retried.future;
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openCategoryCreate(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '인증 중 보존',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pump(const Duration(seconds: 4));
+      denied.complete(_json({'detail': 'expired'}, 401));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      refresh.complete(
+        _json({
+          'access_token': 'rotated-access',
+          'refresh_token': 'rotated-refresh',
+          'expires_in': 3600,
+          'refresh_expires_in': 86400,
+        }),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(_creates(server), hasLength(2));
+      expect(
+        _creates(server).first.headers['Idempotency-Key'],
+        _creates(server).last.headers['Idempotency-Key'],
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+      retried.complete(_createResult(_creates(server).last));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+    });
+  });
+
+  testWidgets('관리 화면 생성도 성공 뒤 후속 목록을 기다리지 않고 닫는다', (tester) async {
+    final read = Completer<http.Response?>();
+    var stored = false;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/categories') return null;
+        if (request.method == 'POST') {
+          stored = true;
+          return _createResult(request);
+        }
+        return stored ? read.future : null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      _archive(tester).onOpenCategoryManagement!();
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryManagementScreen), findsOneWidget);
+      await tester.tap(find.byTooltip('카테고리 추가'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('category-form-input')),
+        '관리에서 생성',
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryFormSheet), findsNothing);
+      expect(_creates(server), hasLength(1));
+      read.complete(_json(_allCategories));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  for (final failure in [
+    'network',
+    '500',
+    'JSON',
+    'missing',
+    'mismatch',
+    'invalid-success',
+  ]) {
+    testWidgets('생성 $failure 응답은 미확인으로 남기고 직접 닫기 전에 확인한다', (tester) async {
+      final server = _Server(
+        respond: (request, _) {
+          if (request.url.path != '/api/v1/categories' ||
+              request.method != 'POST') {
+            return null;
+          }
+          return switch (failure) {
+            'network' => throw http.ClientException('offline'),
+            '500' => _json({'detail': 'Server failed'}, 500),
+            'JSON' => http.Response('{broken', 201),
+            'missing' => _json({
+              'id': 404,
+              'name': '입력 유지',
+              'color': '#FF6277',
+              'is_default': false,
+            }, 201),
+            'mismatch' => _json({
+              'submission': {
+                'key': 'another-key',
+                'status': 'succeeded',
+                'replayed': false,
+              },
+            }, 201),
+            _ => _json({
+              'id': 0,
+              'name': '입력 유지',
+              'color': '#FF6277',
+              'is_default': false,
+              'submission': {
+                'key': request.headers['Idempotency-Key'],
+                'status': 'succeeded',
+                'replayed': false,
+              },
+            }, 201),
+          };
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openCategoryCreate(tester);
+        await tester.enterText(
+          find.byKey(const ValueKey('category-form-input')),
+          '입력 유지',
+        );
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(FilledButton, '결과 다시 확인'), findsOneWidget);
+        expect(
+          tester
+              .widget<TextField>(
+                find.byKey(const ValueKey('category-form-input')),
+              )
+              .controller!
+              .text,
+          '입력 유지',
+        );
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        expect(find.text('입력 창을 닫을까요?'), findsOneWidget);
+        await tester.tap(find.text('계속 확인하기'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryFormSheet), findsOneWidget);
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '닫기'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryFormSheet), findsNothing);
+        expect(_creates(server), hasLength(1));
+      });
+    });
+  }
 
   testWidgets(
     'delete confirmation explains preserved content and uncategorized fallback',

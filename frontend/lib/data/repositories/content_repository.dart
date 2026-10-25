@@ -5,6 +5,21 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:flutter/foundation.dart';
 import '../services/event_uuid.dart';
+import '../services/api_request_scope.dart';
+
+class CategoryReadSuperseded extends ClipbackApiException {
+  const CategoryReadSuperseded() : super('Category read is no longer current');
+}
+
+/// The raw accepted response retains its read/account ownership through callers.
+class CategoryServerSnapshot {
+  CategoryServerSnapshot(List<ApiCategory> categories, this._isCurrent)
+    : categories = List.unmodifiable(categories);
+
+  final List<ApiCategory> categories;
+  final bool Function() _isCurrent;
+  bool get current => _isCurrent();
+}
 
 abstract class ContentRepository extends ChangeNotifier {
   int get accountVersion;
@@ -20,6 +35,7 @@ abstract class ContentRepository extends ChangeNotifier {
   bool isCategoryDeleted(int id);
   void resetAccount(int version);
   Future<void> loadCategories();
+  Future<CategoryServerSnapshot> readCurrentCategories();
   void configureFeed(
     FeedKey key, {
     int? categoryId,
@@ -31,7 +47,10 @@ abstract class ContentRepository extends ChangeNotifier {
   Future<void> loadNext(FeedKey key, {bool reset = false});
   void ensureFeed(FeedKey key);
   RefreshTicket beginRefresh({bool preserveViewport = false});
-  Future<RefreshResult> refresh(RefreshTicket ticket);
+  Future<RefreshResult> refresh(
+    RefreshTicket ticket, {
+    bool includeCategories = true,
+  });
   bool isCurrentRefresh(RefreshTicket ticket);
   ContentMutationHandle? beginBookmark(int contentId);
   ContentMutationHandle? beginContentCategoryChange(
@@ -49,7 +68,17 @@ abstract class ContentRepository extends ChangeNotifier {
   CategoryMutationHandle? beginCategoryDelete(int id);
   Future<MutationResult> executeCategoryMutation(CategoryMutationHandle handle);
   void finishCategoryMutation(CategoryMutationHandle handle);
-  Future<ApiCategory?> createCategory({required String name, String? color});
+  Future<ApiCategory?> createCategory({
+    required String name,
+    String? color,
+    String? submissionKey,
+  });
+  Future<ApiCategory?> updateCategorySubmission({
+    required int categoryId,
+    required String name,
+    required String color,
+    required String submissionKey,
+  });
   Future<ApiContent> saveLink({required String url, int? categoryId});
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
@@ -160,6 +189,8 @@ class RemoteContentRepository extends ContentRepository {
   bool _categoryRefreshRequired = false;
   int _accountVersion = 0;
   int _refreshVersion = 0;
+  int _categoryReadVersion = 0;
+  ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
   ApiContent? _selectedContent;
@@ -210,6 +241,7 @@ class RemoteContentRepository extends ContentRepository {
   @override
   void dispose() {
     _disposed = true;
+    _categoryReadScope?.cancel();
     _detailHandle = null;
     super.dispose();
   }
@@ -232,6 +264,8 @@ class RemoteContentRepository extends ContentRepository {
     _categoryMutations.clear();
     _deletedCategoryIds.clear();
     _categoryRefreshRequired = false;
+    _categoryReadScope?.cancel();
+    _categoryReadVersion++;
     _refreshVersion++;
     _detailVersion++;
     _detailHandle = null;
@@ -248,13 +282,60 @@ class RemoteContentRepository extends ContentRepository {
 
   @override
   Future<void> loadCategories() async {
+    await _loadCategories();
+  }
+
+  /// Accepted server values, before optimistic display reconciliation.
+  @override
+  Future<CategoryServerSnapshot> readCurrentCategories() async {
+    final response = await _loadCategories();
+    if (response == null || !response.current) {
+      throw const CategoryReadSuperseded();
+    }
+    return response;
+  }
+
+  Future<CategoryServerSnapshot?> _loadCategories({
+    bool Function()? isCurrent,
+  }) async {
     final account = _accountVersion;
-    final response = await _api.listCategories();
-    if (_disposed || account != _accountVersion) return;
-    _categories
-      ..clear()
-      ..addAll(_reconcileCategoryList(response));
-    _notify();
+    final read = ++_categoryReadVersion;
+    final owner = ApiRequestScope.current;
+    _categoryReadScope?.cancel();
+    bool current() =>
+        !_disposed &&
+        account == _accountVersion &&
+        read == _categoryReadVersion &&
+        (isCurrent?.call() ?? true);
+    final scope = ApiRequestScope(
+      isCurrent: () => current() && (owner?.isActive ?? true),
+    );
+    _categoryReadScope = scope;
+    if (owner != null) {
+      unawaited(owner.cancelled.then((_) => scope.cancel()));
+    }
+    try {
+      final response = await scope.run(_api.listCategories);
+      if (_disposed || account != _accountVersion) return null;
+      scope.checkActive();
+      _categories
+        ..clear()
+        ..addAll(_reconcileCategoryList(response));
+      _notify();
+      scope.checkActive();
+      return CategoryServerSnapshot(
+        response,
+        () => current() && (owner?.isActive ?? true),
+      );
+    } catch (error) {
+      if (!current() && error is! ClipbackApiException) {
+        throw const CategoryReadSuperseded();
+      }
+      rethrow;
+    } finally {
+      scope.cancel();
+      if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+    }
   }
 
   /// Replaces the whole filter; loading/resetting remains an explicit command.
@@ -408,7 +489,10 @@ class RemoteContentRepository extends ContentRepository {
       ticket.version == _refreshVersion;
 
   @override
-  Future<RefreshResult> refresh(RefreshTicket ticket) async {
+  Future<RefreshResult> refresh(
+    RefreshTicket ticket, {
+    bool includeCategories = true,
+  }) async {
     var metadataFailed = false;
     RefreshResult result() => RefreshResult(
       current: isCurrentRefresh(ticket),
@@ -416,16 +500,15 @@ class RemoteContentRepository extends ContentRepository {
       categoryDetailsRequired: ticket.categoryDetailsRequired,
     );
     if (!isCurrentRefresh(ticket)) return result();
-    try {
-      final response = await _api.listCategories();
-      if (!isCurrentRefresh(ticket)) return result();
-      _categories
-        ..clear()
-        ..addAll(_reconcileCategoryList(response));
-      _notify();
-    } catch (_) {
-      metadataFailed = true;
-      // Category metadata failure does not prevent the list refresh.
+    if (includeCategories) {
+      try {
+        await _loadCategories(isCurrent: () => isCurrentRefresh(ticket));
+      } on CategoryReadSuperseded {
+        // The newer category read owns metadata; keep this caller's feed refresh.
+      } catch (_) {
+        metadataFailed = true;
+        // Category metadata failure does not prevent the list refresh.
+      }
     }
     if (!isCurrentRefresh(ticket)) return result();
     await Future.wait(
@@ -788,6 +871,7 @@ class RemoteContentRepository extends ContentRepository {
       name: handle.name,
       color: handle.color,
     );
+    _categoryReadVersion++;
     _categoryMutations[id] = _CategoryChange(handle, value);
     _replaceCategoryLocally(id, value);
     return handle;
@@ -849,6 +933,7 @@ class RemoteContentRepository extends ContentRepository {
         if (!_isCurrentCategoryMutation(handle)) {
           return const MutationResult.stale();
         }
+        _categoryReadVersion++;
         _deletedCategoryIds.add(id);
         _categories.removeWhere((item) => item.id == id);
         _normalizeLoadedCategories();
@@ -866,6 +951,7 @@ class RemoteContentRepository extends ContentRepository {
         if (!_isCurrentCategoryMutation(handle)) {
           return const MutationResult.stale();
         }
+        _categoryReadVersion++;
         final change = _categoryMutations[id]!;
         change.value = _copyCategory(
           change.value,
@@ -902,13 +988,52 @@ class RemoteContentRepository extends ContentRepository {
   Future<ApiCategory?> createCategory({
     required String name,
     String? color,
+    String? submissionKey,
   }) async {
     final account = _accountVersion;
-    final created = await _api.createCategory(name: name, color: color);
+    _categoryReadVersion++;
+    final created = await _api.createCategory(
+      name: name,
+      color: color,
+      submissionKey: submissionKey,
+    );
+    ApiRequestScope.current?.checkActive();
     if (_disposed || account != _accountVersion) return null;
-    _categories.insert(0, created);
-    _notify();
+    _categoryReadVersion++;
+    if (!created.submissionReplayed) {
+      _categories.insert(0, created);
+      _notify();
+    }
     return created;
+  }
+
+  @override
+  Future<ApiCategory?> updateCategorySubmission({
+    required int categoryId,
+    required String name,
+    required String color,
+    required String submissionKey,
+  }) async {
+    final account = _accountVersion;
+    final saved = await _api.updateCategory(
+      categoryId: categoryId,
+      name: name,
+      color: color,
+      submissionKey: submissionKey,
+    );
+    ApiRequestScope.current?.checkActive();
+    if (_disposed || account != _accountVersion) return null;
+    _categoryReadVersion++;
+    final current = _categories
+        .where((item) => item.id == categoryId)
+        .firstOrNull;
+    if (!saved.submissionReplayed && current != null) {
+      _replaceCategoryLocally(
+        categoryId,
+        _copyCategory(current, name: saved.name, color: saved.color),
+      );
+    }
+    return saved;
   }
 
   Future<ApiContent> _save(Future<ApiContent> Function() request) async {

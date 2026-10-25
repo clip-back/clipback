@@ -83,6 +83,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _myNoticeStorageAuthEpoch = 0;
   bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
+  AppRoute _statsRoute = AppRoute.splash;
   Object? _weeklyVisit, _weeklyRequest, _pendingWeeklyFailure;
   int _weeklyGeneration = -1;
   bool _weeklyForeground = true;
@@ -259,6 +260,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _syncWeeklyHome();
     _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
+    _syncMyStatsEntry();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
       _archiveStorageAccountGeneration = _d.app.accountGeneration;
       _archivePageStorageBucket = PageStorageBucket();
@@ -266,6 +268,35 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
     setState(() {});
     _flushUiEffects();
+  }
+
+  void _syncMyStatsEntry() {
+    final route = _d.app.route;
+    final entering = route == AppRoute.my && _statsRoute != AppRoute.my;
+    _statsRoute = route;
+    if (entering &&
+        _canUseAccountActions &&
+        _d.session.hasSession &&
+        !_d.session.pendingSessionClear) {
+      unawaited(_d.account.retryStats());
+    }
+  }
+
+  VoidCallback _statsRetryAction() {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      if (!_canUseAccountActions ||
+          _d.app.route != AppRoute.my ||
+          generation != _d.app.accountGeneration ||
+          epoch != _d.app.authEpoch ||
+          !_d.session.hasSession ||
+          _d.session.pendingSessionClear ||
+          !_d.account.canRetryStats) {
+        return;
+      }
+      unawaited(_d.account.retryStats());
+    };
   }
 
   // Only the My -> notices -> My pair restores My's scroll position. Other
@@ -1245,6 +1276,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onChangeContentCategory: _d.archive.changeCategory,
             onDeleteContent: _d.archive.deleteContent,
             onAddCategory: _d.categories.add,
+            onSubmitCategory: _d.categories.submitCreate,
+            onSubmitCategoryUpdate: _d.categories.submitUpdate,
+            onPrepareCategory: _d.categories.prepareEditor,
             onUpdateCategory: _d.categories.update,
             onDeleteCategory: _d.categories.delete,
             onAddLink: _d.save.addLink,
@@ -1304,6 +1338,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           bucket: _myNoticePageStorageBucket,
           child: MyScreen(
             user: _d.account.user,
+            statsMessage: _d.account.statsMessage,
+            onRetryStats: _d.account.canRetryStats ? _statsRetryAction() : null,
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),
@@ -1340,6 +1376,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             contents: _d.home.page.items,
             onBack: () => _go(_categoryManagementReturnRoute),
             onAddCategory: _d.categories.add,
+            onSubmitCategory: _d.categories.submitCreate,
+            onSubmitCategoryUpdate: _d.categories.submitUpdate,
+            onPrepareCategory: _d.categories.prepareEditor,
             onUpdateCategory: _d.categories.update,
             onDeleteCategory: _d.categories.delete,
           ),

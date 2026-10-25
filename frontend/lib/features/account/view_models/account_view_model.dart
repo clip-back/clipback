@@ -1,4 +1,3 @@
-import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/repositories/user_repository.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
@@ -10,13 +9,25 @@ class AccountViewModel extends ViewModel {
   }
   final UserRepository repository;
 
-  AppUser get user => repository.user == null
-      ? defaultUser
-      : userFromApi(
-          repository.user!,
-          repository.stats ??
-              const ApiUserStats(savedCount: 0, reopenedCount: 0),
-        );
+  AppUser get user => userFromApi(repository.user, repository.stats);
+
+  String? get statsMessage => switch (repository.statsStatus) {
+    UserStatsStatus.idle || UserStatsStatus.loading =>
+      repository.stats == null ? '통계를 불러오는 중이에요' : '마지막 확인값 · 새로 불러오는 중',
+    UserStatsStatus.failure =>
+      repository.stats == null ? '통계를 불러오지 못했어요' : '마지막 확인값 · 새로 불러오지 못했어요',
+    UserStatsStatus.success => null,
+  };
+
+  bool get canRetryStats => repository.statsStatus == UserStatsStatus.failure;
+
+  Future<void> retryStats() async {
+    try {
+      await repository.loadStats();
+    } catch (_) {
+      // The repository exposes the failure locally; authentication uses the API path.
+    }
+  }
 
   @override
   void dispose() {

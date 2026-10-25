@@ -11,8 +11,8 @@ class AppUser {
   final String name;
   final String providerLabel;
   final String joinedAt;
-  final int savedContentCount;
-  final int revisitedContentCount;
+  final int? savedContentCount;
+  final int? revisitedContentCount;
   final String appVersion;
 }
 
@@ -20,7 +20,7 @@ const defaultUser = AppUser(
   name: '계정 정보 확인 중',
   providerLabel: '계정 정보 확인 중',
   joinedAt: '-',
-  savedContentCount: 0,
-  revisitedContentCount: 0,
+  savedContentCount: null,
+  revisitedContentCount: null,
   appVersion: 'ver. 1.1',
 );

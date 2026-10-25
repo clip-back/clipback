@@ -93,6 +93,30 @@
 
 위 목록은 MVP 현황 문서에서, 다음 엔드포인트별 상세 설명은 기존 백엔드 README에서 이관했습니다. 추천 정책 문서에 있던 추가 HTTP 조건은 마지막 절에 출처를 구분해 보존합니다.
 
+## 카테고리 생성·수정 제출 복구
+
+`POST /api/v1/categories`와 `PATCH /api/v1/categories/{category_id}`는 선택적 UUID `Idempotency-Key`를 받는다.
+키 없는 기존 요청의 상태·본문·검증은 유지한다. 키가 있으면 같은 계정·키의 작업 종류, 수정 대상 ID,
+정규화된 전송 이름·색상과 부분 수정 필드의 존재 여부를 비교하고, DB 변경과 최소 처리 결과를 같은 트랜잭션에 저장한다.
+동시 제출은 직렬화하며 같은 제출의 재전송은 원래 HTTP 상태와 결과를 재사용한다.
+
+- 생성 성공 `201`과 수정 성공 `200`은 기존 카테고리 필드와 `submission: {key, status: "succeeded", replayed}`를 반환한다.
+- 확정된 이름 중복 `409`는 `code: "category_name_exists"`, `detail`, 같은 형태의 `submission`을 반환하며
+  `status`는 `"rejected"`다. 같은 키의 거절은 나중에 이름이 비어도 재실행하지 않는다.
+- 수정 성공 기록이 없는 대상의 부재·소유권 거절은 기존 `404`와 `code: "category_target_missing"`,
+  `status: "rejected"`인 제출 기록을 반환한다. 원래 성공 기록이 있으면 대상 삭제 뒤에도 과거 `200`을 재사용한다.
+- 같은 계정·키를 다른 내용이나 작업에 사용하면 `409 category_submission_conflict`로 응답하며
+  원래 제출의 성공·거절로 간주할 `submission`은 제공하지 않는다. 잘못된 UUID와 스키마 입력은 기존 `422` 검증을 따른다.
+- 기록을 재사용할 때만 `replayed: true`다. 원래 성공 뒤 수정·삭제된 카테고리를 덮거나 재생성하지 않는다.
+  처리 기록은 자동 만료시키지 않고 카테고리 삭제 후에도 유지하며 계정 삭제 시 FK cascade로 제거한다.
+
+`202610250015`는 기존 테이블을 바꾸지 않고 `category_submissions`를 추가한다. 신규 앱 배포 전에 migration과
+이 서버 계약을 먼저 적용한다. 생성·수정 복구의 후속 목록 조회는 저장 트랜잭션과 별개다.
+앱은 `GET /api/v1/categories`의 정상 배열·항목과 정상 빈 배열을 현재 목록으로 반영한다.
+각 항목의 `content_count: int`, `last_saved_at: datetime | null`은 목록의 필수 요약 필드다.
+빈 HTTP 본문·JSON null·잘못된 배열/항목을 빈 목록으로 보정하지 않으며 마지막 확인 목록을 유지한다.
+저장 후 이 조회의 실패는 저장 성공을 바꾸지 않고 카테고리 GET만 재시도한다.
+
 ## Guest Authentication
 
 Create a guest session with `POST /api/v1/auth/guest`. The response contains a
