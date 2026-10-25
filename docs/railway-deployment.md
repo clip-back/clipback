@@ -87,6 +87,11 @@ SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상�
 
 ## 데이터 영속성 및 백업
 
+현재 기존 Volume 원본의 첫 실제 백업·격리 복원은 [운영 실행 체크리스트](backend/image-operator-first-run.md)를 따른다.
+새 비공개 원본 읽기·영속 점검·Mac 복원 제어를 검증하고 명시적으로 재개하는 절차다.
+아래 이전 Volume 내보내기/중단 검증의 시간 제한과 방법을 새 점검 실행에 그대로 적용하지 않는다.
+과거 실행 결과는 해당 작업 이력의 증거로 보존한다.
+
 Bucket 원본을 사용하는 새 이미지 보관은 [전용 운영 작업의 일일 백업·7일 보존·삭제 반영 복원](backend/backup-recovery.md#일일-백업과-시간별-보존-작업)을 기준으로 한다.
 별도 operator 이미지에 source DB와 같은 pg_dump 주 버전 및 daily/시간별 maintain 일정을
 설정하고, 원본 API에는 백업 자격을 주지 않는다. 아래 Railway 볼륨 자체의 백업과 구분하며,

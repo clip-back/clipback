@@ -154,3 +154,20 @@ pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/te
 Tests fail before creating resources if either image revision differs from the expected source.
 Image IDs and revision labels are build provenance, not evidence of actual Railway configuration.
 Use the [compatible deployment checklist](image-storage-compatible-deployment.md) for that evidence.
+
+## 원본 운영자·점검·복원 통합 검사
+
+GitHub Actions의 migration job은 PostgreSQL 18에서 기존 테스트 DB와 별도
+`clipback_maintenance100`을 만들고 두 DB를 migration한다. 후자의 URL을
+`MAINTENANCE_TEST_DATABASE_URL`로 제공해 다중 프로세스·취소·재시작 점검 검사가
+누락되지 않게 한다. 이 DB는 다른 테스트/운영 DB와 공유하지 않는다.
+
+기존 PostgreSQL 16 배포·삭제 기록 초기화 호환 검사는 유지한다. 별도 `operator-recovery` job은
+같은 커밋 revision 라벨의 API와 PostgreSQL 18 운영자 이미지를 빌드하고, 수동 백업·비공개 원본
+읽기·점검·권위 있는 복원 제어·기존 백업/다중 사용자 복원·DB 준비 검사를 실행한다.
+이는 합성 Docker 환경이며 실제 Railway 성공이나 Mac SSH 연결의 증거가 아니다.
+
+로컬에서 같은 검사를 실행할 때는 workflow의 이미지 환경변수와 PostgreSQL 16/18·Moto 이미지를
+준비하고 해당 선택형 모듈을 같은 pytest 프로세스에서 순차 실행한다. 실행하지 않은 선택형 검사는
+명시적으로 미실행으로 기록한다. 실제 운영 결과는 [첫 운영 체크리스트](image-operator-first-run.md)에
+따라 별도로 남긴다.

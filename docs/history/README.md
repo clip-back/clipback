@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [원본 운영자 통합 검증과 첫 실행 인계](2026-10-26-image-operator-readiness.md)
+
 - [2026-10-26 실제 점검을 확인하는 격리 복원](2026-10-26-live-isolated-restore.md)
 - [영속 점검 제어 구현](2026-10-26-image-maintenance.md)
 

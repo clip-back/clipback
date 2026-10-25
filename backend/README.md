@@ -168,3 +168,5 @@ recovery instructions. Record deployment status and verification evidence using 
 운영 복원을 위한 전체 업무 쓰기 중단과 서버 측 명시적 재개는 [점검 제어 안내](../docs/backend/image-maintenance.md)를 따릅니다.
 
 실제 점검을 확인한 Mac Docker 복원은 [격리 복원 실행](../docs/backend/isolated-restore-execution.md)의 준비·실행·연결 상실 복구·명시적 재개 절차를 따릅니다.
+
+첫 실제 원본 백업·점검·Mac 격리 복원·재개는 [운영 실행 체크리스트](../docs/backend/image-operator-first-run.md)를 따른다. 코드·합성 검증과 실제 운영 완료는 별도로 기록한다.
