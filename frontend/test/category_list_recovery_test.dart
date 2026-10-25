@@ -660,8 +660,9 @@ void main() {
           if (request.url.path == _categories &&
               request.method == 'GET' &&
               server.userId == 1 &&
-              server.calls(_categories, 'POST').isNotEmpty)
+              server.calls(_categories, 'POST').isNotEmpty) {
             return oldRead.future;
+          }
           return null;
         },
       );
@@ -700,8 +701,9 @@ void main() {
       respond: (request, server) {
         if (request.url.path == _categories &&
             request.method == 'GET' &&
-            server.calls(_categories, 'POST').length == 1)
+            server.calls(_categories, 'POST').length == 1) {
           return first.future;
+        }
         return null;
       },
     );
