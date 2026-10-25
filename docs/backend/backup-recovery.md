@@ -14,17 +14,17 @@
 docker build -f backend/Dockerfile.operator -t clipback-image-operator:SOURCE_SHA backend
 docker run --rm --env-file /absolute/private/operator.env \
   -v /absolute/private/backup-bucket.json:/run/backup.json:ro \
-  -v /actual/source/originals:/data/screenshots:ro \
   clipback-image-operator:SOURCE_SHA manual \
   --backup-config-file /run/backup.json --backup-id UNIQUE_BACKUP_ID \
   --app-commit FULL_40_CHARACTER_SOURCE_SHA --origin production
 ```
 
-위 mount 예시는 실제 원본이 해당 실행 호스트에 있는 경우에만 사용합니다. 별도 Railway 서비스에
-같은 경로를 지정해도 API Volume을 공유하지 않습니다. 원격 원본 실행 경로가 준비되기 전까지
-이 예시를 운영 Railway Volume 접근 방법으로 사용하지 않습니다.
+운영 Volume 백업은 [식별된 비공개 원격 원본](image-operator-source.md)의 설정 세 값을
+필수로 공급합니다. 별도 Railway 서비스에 같은 경로를 지정해도 API Volume을 공유하지 않습니다.
+자산이 없어도 원본 식별 확인을 생략하지 않으며, 원격 설정 없이 빈 경로로 실행하면 실패합니다.
+직접 로컬 파일을 읽는 합성 검증은 `APP_ENVIRONMENT=test` 또는 `local`에서만 수행합니다.
 
-`operator.env`에는 `DATABASE_URL`, 절대 경로 `STORAGE_ROOT`, `STORAGE_BACKEND`와 사용 중인
+`operator.env`에는 `DATABASE_URL`, 절대 경로 `STORAGE_ROOT`, `STORAGE_BACKEND`, 원격 원본 설정과 사용 중인
 원본/독립 삭제 기록 저장소의 설정만 공급합니다. 실제 DB·원본·삭제 기록의 접속 요건은 유지하되
 `manual`·`daily`·`maintain`은 `SECRET_KEY`, AI·소셜 로그인 설정을 요구하지 않습니다.
 앱 API는 기존 전체 설정 검증을 유지합니다. 비밀값을 argv·Git·보고서에 넣지 않습니다.

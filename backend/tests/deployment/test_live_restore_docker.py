@@ -127,21 +127,30 @@ def test_authoritative_live_restore_finishes_receipt_and_keeps_maintenance(live_
     asyncio.run(scenario())
 
 
-def slow_target_docker(tmp_path, monkeypatch):
+def slow_target_docker(tmp_path, monkeypatch, *, stubborn_descendant=False):
     import shutil
 
     actual = shutil.which("docker")
     directory = tmp_path / "slow-docker"
     directory.mkdir()
     marker = tmp_path / "target-created"
+    descendant = tmp_path / "restore-descendant.json"
+    descendant_code = (
+        "import json,os,signal,time;from pathlib import Path;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        f"Path({str(descendant)!r}).write_text(json.dumps({{'pid':os.getpid(),'group':os.getpgrp()}}));"
+        "time.sleep(300)"
+    )
     wrapper = directory / "docker"
     wrapper.write_text(f"""#!{sys.executable}
-import os,sys
+import os,sys,subprocess
 from pathlib import Path
 a=sys.argv[1:]
 if a[:2]==["container","create"] and "--name" in a:
  name=a[a.index("--name")+1]
  if name.startswith("clipback-recovery-") and name.endswith("-db"):
+  if {stubborn_descendant!r}:
+   subprocess.Popen([sys.executable,"-c",{descendant_code!r}],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   a=a[:-1]+["--entrypoint","sh",a[-1],"-c","sleep 300"]
   Path({str(marker)!r}).write_text(name)
 os.execv({actual!r},[{actual!r},*a])
@@ -179,6 +188,50 @@ def test_total_timeout_stops_real_child_and_daemon_container(live_context, monke
             assert state["phase"] == "frozen" and not state["operations"]
             await gate.resume(prepared["run_id"])
         finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+
+def test_timeout_stops_descendants_even_after_the_restore_leader_exits(
+    live_context, monkeypatch, tmp_path
+):
+    import signal
+
+    item = live_context
+    slow_target_docker(tmp_path, monkeypatch, stubborn_descendant=True)
+    descendant = tmp_path / "restore-descendant.json"
+
+    async def scenario():
+        engine, gate = await gate_for(item["fixture"]["env"])
+        try:
+            prepared = await prepare(
+                item["directory"], item["credentials"], item["image"], item["root"]
+            )
+            await gate.start(prepared["run_id"])
+            await gate.drain(prepared["run_id"])
+            result = await run_restore(Path(prepared["workspace"]), timeout_seconds=8)
+            assert descendant.exists(), "The timeout must exercise a real descendant executor"
+            executor = json.loads(descendant.read_text())
+            try:
+                os.kill(executor["pid"], 0)
+            except ProcessLookupError:
+                stopped = True
+            else:
+                stopped = False
+            assert stopped, "A terminated leader does not prove its descendant stopped"
+            assert result["child_stopped"] and result["restore_receipt_finished"], result
+            state = await gate.status()
+            assert state["phase"] == "frozen" and not state["operations"]
+            await gate.resume(prepared["run_id"])
+        finally:
+            if descendant.exists():
+                executor = json.loads(descendant.read_text())
+                try:
+                    os.killpg(executor["group"], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             await engine.dispose()
 
     asyncio.run(scenario())

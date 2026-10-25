@@ -16,7 +16,21 @@ from urllib.error import HTTPError
 
 from sqlalchemy import text
 
-from scripts.check_backup_restore import CheckError
+# This source is embedded into the API image matching an older backup revision.
+# Keep the host error type while allowing images predating the operator package.
+try:
+    from scripts.check_backup_restore import CheckError
+except ModuleNotFoundError as exc:
+    if exc.name != "scripts.check_backup_restore":
+        raise
+
+    class CheckError(Exception):
+        """Fixed snapshot error codes in historical API images."""
+
+
+# Backup wire contract: operational records are excluded even when the matching
+# historical API image predates the module that implements maintenance.
+CONTROL_TABLES = frozenset({"maintenance_state", "maintenance_operations", "maintenance_events"})
 
 
 def fingerprint(value):
@@ -80,7 +94,6 @@ async def snapshot(payload, *, runtime=None):
             .all()
         )
         tables = {}
-        from app.services.maintenance import CONTROL_TABLES
         for name in names:
             if name in CONTROL_TABLES:
                 continue

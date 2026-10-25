@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_manual_backup_uses_minimal_production_settings_and_preserves_other_work(tmp_path):
+def test_synthetic_manual_backup_uses_minimal_settings_and_preserves_other_work(tmp_path):
     identifier = "backup98-" + uuid4().hex[:12]
     network, db, s3 = [identifier + x for x in ("-net", "-db", "-s3")]
     image = os.environ.get("CLIPBACK_OPERATOR_TEST_IMAGE", "clipback-operator:ticket98")
@@ -43,8 +43,8 @@ def test_manual_backup_uses_minimal_production_settings_and_preserves_other_work
         "DATABASE_URL": f"postgresql+asyncpg://postgres:fixture@{db}:5432/clipback",
         "STORAGE_ROOT": "/originals", "STORAGE_BACKEND": "local",
         "DELETION_LEDGER_BACKEND": "local", "DELETION_LEDGER_ROOT": "/ledger",
-        # Production mode deliberately has no API authentication/provider configuration.
-        "APP_ENVIRONMENT": "production",
+        # Synthetic direct local fixtures need no API authentication/provider configuration.
+        "APP_ENVIRONMENT": "test",
     }
     env = [arg for key, val in environment.items() for arg in ("-e", f"{key}={val}")]
     args = ["--network", f"container:{s3}", "-v", f"{originals}:/originals:ro",
@@ -144,6 +144,37 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
                     "s=BackupBucket.from_config_file(Path('/backup.json'));"
                     "assert s.completed_points()==['first','old']")
         assert final.returncode == 0, final.stdout + final.stderr
+        sample = tmp_path / "legacy-sample.json"
+        sample.write_text(json.dumps({"content_id": 1, "asset_id": 1}))
+        sample.chmod(0o600)
+        legacy = run(*args, "-v", f"{sample}:/sample.json:ro", "--entrypoint", "python",
+                     "-e", "APP_ENVIRONMENT=production", "-e", "STORAGE_BACKEND=s3",
+                     "-e", "S3_ENDPOINT_URL=https://unused.invalid", "-e", "S3_BUCKET=primary",
+                     "-e", "S3_ACCESS_KEY_ID=testing", "-e", "S3_SECRET_ACCESS_KEY=testing",
+                     "-e", "DELETION_LEDGER_BACKEND=s3",
+                     "-e", "DELETION_LEDGER_S3_ENDPOINT_URL=https://unused-ledger.invalid",
+                     "-e", "DELETION_LEDGER_S3_BUCKET=independent-ledger",
+                     "-e", "DELETION_LEDGER_S3_ACCESS_KEY_ID=testing",
+                     "-e", "DELETION_LEDGER_S3_SECRET_ACCESS_KEY=testing", image,
+                     "-m", "scripts.image_backup", "--backup-config-file", "/backup.json", "create",
+                     "--backup-id", "unidentified-legacy", "--sample-file", "/sample.json",
+                     "--app-commit", "a" * 40, "--origin", "production", "--writers-frozen")
+        assert legacy.returncode == 1, (
+            "Bucket mode must not read unidentified legacy local originals"
+        )
+        assert json.loads(legacy.stdout) == {"passed": False, "error": "original_read_failed"}
+        docker("exec", db, "psql", "-U", "postgres", "-d", "clipback", "-c",
+               "DELETE FROM content_assets")
+        unidentified = run(*args, "-e", "APP_ENVIRONMENT=production",
+                           "-e", "STORAGE_ROOT=/unmounted-empty-source", image, "manual",
+                           "--backup-config-file", "/backup.json", "--backup-id", "unidentified",
+                           "--app-commit", "a" * 40, "--origin", "production")
+        assert unidentified.returncode == 1, (
+            "Production empty backups still require source identity"
+        )
+        assert json.loads(unidentified.stdout) == {
+            "passed": False, "error": "operator_configuration_invalid"
+        }
     finally:
         for name in reversed(containers):
             docker("rm", "-f", "-v", name, check=False)

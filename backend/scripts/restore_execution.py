@@ -349,21 +349,37 @@ def alive(pid):
         return False
 
 
+def process_group_alive(group):
+    if not group:
+        return False
+    try:
+        os.killpg(group, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # An unobservable group is not proof that all executors stopped.
+        return True
+
+
 async def stop_child(child):
     if child is None:
         return True
     try:
-        if child.returncode is None:
-            os.killpg(child.pid, signal.SIGTERM)
+        # The restore leader can exit while its Docker CLI descendants survive.
+        # The new-session process group, rather than only wait(), owns them all.
+        for signum in (signal.SIGTERM, signal.SIGKILL):
             try:
-                await asyncio.wait_for(child.wait(), timeout=3)
-            except TimeoutError:
-                os.killpg(child.pid, signal.SIGKILL)
-                await asyncio.wait_for(child.wait(), timeout=3)
-        return child.returncode is not None
-    except ProcessLookupError:
-        await child.wait()
-        return True
+                os.killpg(child.pid, signum)
+            except ProcessLookupError:
+                break
+            deadline = time.monotonic() + 3
+            while process_group_alive(child.pid) and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            if not process_group_alive(child.pid):
+                break
+        await asyncio.wait_for(child.wait(), timeout=3)
+        return child.returncode is not None and not process_group_alive(child.pid)
     except (OSError, TimeoutError):
         return False
 
@@ -596,7 +612,8 @@ async def recover_workspace(workspace, *, confirmed):
     require(confirmed, "executor_stop_confirmation_required")
     value = journal(workspace)
     require(
-        not alive(value.get("controller_pid")) and not alive(value.get("child_pid")),
+        not alive(value.get("controller_pid")) and not alive(value.get("child_pid"))
+        and not process_group_alive(value.get("child_pid")),
         "restore_executor_still_running",
     )
     result = await asyncio.to_thread(cleanup_owned, value["owner"])

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.deletion_ledger_config import DeletionLedgerSettings
 from app.integrations.operator_source import RemoteSourceClient
-from app.integrations.storage_client import StorageRouter
+from app.integrations.storage_client import StorageRouter, StorageUnavailableError
 
 
 class OperatorSettings(DeletionLedgerSettings):
@@ -54,6 +54,9 @@ class OperatorSettings(DeletionLedgerSettings):
                     or "\r" in self.operator_read_key.get_secret_value()
                     or "\n" in self.operator_read_key.get_secret_value()):
                 raise ValueError("Remote source configuration is invalid")
+        if (self.app_environment == "production" and self.storage_backend == "local"
+                and not self.operator_source_url):
+            raise ValueError("Production Volume backups require an identified remote source")
         if not self.storage_root.is_absolute():
             raise ValueError("STORAGE_ROOT must be absolute")
         if self.storage_backend == "s3":
@@ -75,12 +78,33 @@ class OperatorSettings(DeletionLedgerSettings):
         return self
 
 
+class UnidentifiedLocalSource:
+    """Production Bucket backups cannot fall back to an unverified legacy Volume."""
+
+    async def read_file(self, storage_key):
+        raise StorageUnavailableError("Legacy local originals require an identified remote source")
+
+    async def file_size(self, storage_key):
+        await self.read_file(storage_key)
+
+    async def save_file(self, storage_key, content):
+        raise StorageUnavailableError("Operator source is read-only")
+
+    async def delete_file(self, storage_key):
+        raise StorageUnavailableError("Operator source is read-only")
+
+
 class OperatorRuntime:
     def __init__(self, config=None):
         self.config = config or OperatorSettings()
         self.engine = create_async_engine(self.config.database_url)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
-        local = RemoteSourceClient(self.config) if self.config.operator_source_url else None
+        if self.config.operator_source_url:
+            local = RemoteSourceClient(self.config)
+        elif self.config.app_environment == "production":
+            local = UnidentifiedLocalSource()
+        else:
+            local = None
         self.storage = StorageRouter(self.config, local_client=local)
 
     async def preflight_source(self):

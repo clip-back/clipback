@@ -145,3 +145,7 @@ Mac을 잃은 경우에도 Railway 측의 [점검 상태·명시적 복구 명�
 기존 `image_backup_jobs restore-check --synthetic-offline ... --writers-frozen`은 명시적으로 합성 백업만
 허용하고 `maintenance_verified=false`, `synthetic_only=true`를 보고한다. 실제 운영 지점은 위 제어기로
 검증하며 오래된 offline export를 최신 삭제 기록으로 간주하지 않는다.
+
+### 실행 그룹 종료 확인
+
+복원 리더 프로세스가 종료돼도 같은 실행 그룹의 자손이 남을 수 있습니다. 제어기는 실행 그룹 전체에 종료 신호를 보내고 남아 있으면 강제 종료한 뒤 그룹이 사라졌는지 확인합니다. 확인할 수 없으면 복원 기록·저널을 유지하며, 정리 명령도 이전 실행 그룹이 남아 있는 동안 완료로 표시하지 않습니다.

@@ -96,6 +96,7 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
                "-e", "YOUTUBE_SUMMARY_ENABLED=false", "-e", "DELETION_LEDGER_BACKEND=local",
                "-e", "DELETION_LEDGER_ROOT=/ledger", "-e", "STORAGE_ROOT=/originals",
                "-e", "OPERATOR_SOURCE_ID=source99", "-e", "OPERATOR_READ_KEY=reader99-safe-token",
+               "-e", f"DATABASE_URL=postgresql+asyncpg://postgres:fixture@{db}:5432/clipback",
                "-e", "OPERATOR_HOST=0.0.0.0", "-e", "PORT=8000", api_image)
         for _ in range(100):
             ready = docker("exec", api, "python", "-c",
