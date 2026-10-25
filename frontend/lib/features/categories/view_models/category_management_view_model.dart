@@ -4,6 +4,9 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
+import 'package:clipback_frontend/data/services/event_uuid.dart';
+import 'package:flutter/material.dart';
 
 class CategoryManagementViewModel extends ContentViewModel {
   CategoryManagementViewModel(super.repository, this.actions);
@@ -12,9 +15,50 @@ class CategoryManagementViewModel extends ContentViewModel {
   List<ContentItem> get contents =>
       repository.feed(FeedKey.home).items.map(present).toList();
 
+  Future<void> prepareEditor(
+    CategoryItem? original, {
+    required bool Function() isCurrent,
+    required ValueChanged<CategoryItem?> onReady,
+  }) async {
+    await actions.reloadCategories(
+      feedback: emitEffect,
+      isCurrent: () => !isDisposed && isCurrent(),
+      onLoaded: (categories) {
+        final current = categories
+            .where((c) => c.id == original?.id)
+            .firstOrNull;
+        onReady(current == null ? null : categoryFromApi(current));
+      },
+    );
+  }
+
   Future<void> add(CategoryItem category) => actions.createCategory(
     name: category.name,
     color: hexFromColor(category.color),
+    feedback: emitEffect,
+  );
+
+  Future<CategorySaveResult> submitCreate({
+    required String name,
+    required Color color,
+    String? submissionKey,
+  }) => actions.submitCategoryCreate(
+    name: name,
+    color: hexFromColor(color),
+    submissionKey: submissionKey ?? newEventUuid(),
+    feedback: emitEffect,
+  );
+
+  Future<CategorySaveResult> submitUpdate(
+    CategoryItem category, {
+    required String name,
+    required Color color,
+    String? submissionKey,
+  }) => actions.submitCategoryUpdate(
+    category.id!,
+    name: name,
+    color: hexFromColor(color),
+    submissionKey: submissionKey ?? newEventUuid(),
     feedback: emitEffect,
   );
   Future<void> update(CategoryItem original, CategoryItem updated) async {

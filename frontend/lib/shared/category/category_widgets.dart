@@ -7,6 +7,7 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class CategoryTopBar extends StatelessWidget {
@@ -288,6 +289,9 @@ class CategoryArchiveView extends StatelessWidget {
     required this.bookmarkedFirst,
     required this.onSortChanged,
     required this.onAddCategory,
+    this.onSubmitCategory,
+    this.onSubmitCategoryUpdate,
+    this.onPrepareCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     required this.onOpenCategory,
@@ -300,6 +304,9 @@ class CategoryArchiveView extends StatelessWidget {
   final bool bookmarkedFirst;
   final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
+  final CategorySubmitCallback? onSubmitCategory;
+  final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
+  final CategoryPrepareCallback? onPrepareCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -335,12 +342,11 @@ class CategoryArchiveView extends StatelessWidget {
         CategoryArchiveToolbar(
           bookmarkedFirst: bookmarkedFirst,
           onSortChanged: onSortChanged,
-          onAddCategory: () => showModalBottomSheet<void>(
+          onAddCategory: () => showCategoryCreateSheet(
             context: context,
-            useSafeArea: true,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),
+            onCreate: onAddCategory,
+            onSubmit: onSubmitCategory,
+            onPrepare: onPrepareCategory,
           ),
         ),
         // A missing metadata item is not evidence of an empty account.
@@ -370,6 +376,8 @@ class CategoryArchiveView extends StatelessWidget {
                   category: category,
                   contentCount: category.contentCount,
                   onUpdate: onUpdateCategory,
+                  onSubmitUpdate: onSubmitCategoryUpdate,
+                  onPrepare: onPrepareCategory,
                   onDelete: onDeleteCategory,
                 ),
               );

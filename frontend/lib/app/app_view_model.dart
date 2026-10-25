@@ -265,6 +265,7 @@ class AppViewModel extends ChangeNotifier {
   }
 
   void _resetAccount() {
+    _effects.add(const CloseTransientRoutesEffect());
     _accountGeneration++;
     _ordinaryLoginFailure = null;
     _ordinaryLoginStatus = null;
@@ -296,7 +297,6 @@ class AppViewModel extends ChangeNotifier {
 
   void _showLoginChoice() {
     if (_disposed) return;
-    _effects.add(const CloseTransientRoutesEffect());
     _authEpoch++;
     _resetAccount();
     _linkingGuest = false;

@@ -63,6 +63,16 @@ cumulative view statistics, screenshot download/deletion, cross-user isolation, 
 DB failure compensation that removes an already-written image. These tests do not
 validate live provider credentials, external service quality, deployment, or load.
 
+`tests/integration/test_category_submissions.py`는 카테고리 생성·수정의 같은 제출 결과 재사용,
+계정·작업 종류·수정 대상·부분 수정 필드 구분, 거절 보존과 후속 수정·삭제 보존을 HTTP로 확인합니다.
+독립 PostgreSQL 연결로 동시 제출과 commit 전 실패·commit 응답 유실을 구분합니다.
+처리 기록의 삭제 보존·계정 삭제 정리도 함께 검사하며, 이는 운영 DB나 실제 앱 네트워크 검증이 아닙니다.
+
+카테고리 제출의 현재 상태·수명 검사는 `tests/integration/test_category_submissions.py`에서 생성·수정 각각
+독립 세션과 실제 commit으로 실행합니다. 원래 성공 뒤 별도 키 수정·삭제·같은 이름의 다른 ID 생성 후 원래 키를 재확인해도
+원래 결과만 반환하고 최신 목록은 이후 상태를 유지해야 합니다. 삭제된 대상의 새 수정은 확정 거절이며,
+카테고리 삭제 뒤 처리 기록 보존·기존 계정 삭제 계약 뒤 기록 제거를 확인합니다. 자동 TTL이나 새 회원 탈퇴 API는 추가하지 않습니다.
+
 ## Native Share Local Backend Harness
 
 `tests/support/share_live_server.py` runs the real API, authentication, receipts,

@@ -6,6 +6,8 @@ import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/data/repositories/content_repository.dart';
 import 'package:clipback_frontend/data/repositories/session_repository.dart';
 import 'package:clipback_frontend/data/repositories/user_repository.dart';
+import 'package:clipback_frontend/data/services/api_request_scope.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
 
 typedef ContentFeedback = void Function(UiEffect effect);
@@ -18,8 +20,13 @@ class ContentActions {
   final UserRepository users;
   final SessionRepository session;
   bool _disposed = false;
+  Object? _categoryReadAttempt;
+  ApiRequestScope? _categoryReadScope;
 
-  void dispose() => _disposed = true;
+  void dispose() {
+    _disposed = true;
+    _categoryReadScope?.cancel();
+  }
 
   bool _current(int generation) =>
       !_disposed && generation == content.accountVersion;
@@ -133,6 +140,201 @@ class ContentActions {
     }
   }
 
+  /// Start after the result can close its sheet; this read never extends saving.
+  void refreshCategoriesAfterSave({
+    required int accountVersion,
+    required ContentFeedback feedback,
+  }) {
+    unawaited(
+      Future<void>(() async {
+        if (_current(accountVersion)) {
+          await reloadCategories(feedback: feedback, afterSave: true);
+        }
+      }),
+    );
+  }
+
+  Future<bool> reloadCategories({
+    required ContentFeedback feedback,
+    bool afterSave = false,
+    bool Function()? isCurrent,
+    void Function(List<ApiCategory> categories)? onLoaded,
+  }) async {
+    if (_disposed) return false;
+    final account = content.accountVersion;
+    final attempt = Object();
+    _categoryReadScope?.cancel();
+    _categoryReadAttempt = attempt;
+    bool current() =>
+        _current(account) &&
+        identical(_categoryReadAttempt, attempt) &&
+        (isCurrent?.call() ?? true);
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: current,
+    );
+    _categoryReadScope = scope;
+    try {
+      final snapshot = await scope.run(
+        () => scope.wait(content.readCurrentCategories()),
+      );
+      scope.checkActive();
+      if (!snapshot.current) throw const CategoryReadSuperseded();
+      onLoaded?.call(snapshot.categories);
+      return current();
+    } on CategoryReadSuperseded {
+      return false;
+    } catch (_) {
+      if (current()) {
+        feedback(
+          MessageEffect(
+            afterSave ? '저장은 완료됐지만 카테고리 목록을 새로 불러오지 못했어요' : '최신 정보를 불러오지 못했어요.',
+            retryLabel: '다시 불러오기',
+            retry: () {
+              if (current()) {
+                unawaited(
+                  reloadCategories(
+                    feedback: feedback,
+                    afterSave: afterSave,
+                    isCurrent: isCurrent,
+                    onLoaded: onLoaded,
+                  ),
+                );
+              }
+            },
+          ),
+        );
+      }
+      return false;
+    } finally {
+      scope.cancel();
+      if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+    }
+  }
+
+  Future<CategorySaveResult> submitCategoryCreate({
+    required String name,
+    required String color,
+    required String submissionKey,
+    required ContentFeedback feedback,
+  }) async {
+    final generation = content.accountVersion;
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: () => _current(generation),
+    );
+    try {
+      final created = await scope.run(
+        () => scope.wait(
+          content.createCategory(
+            name: name,
+            color: color,
+            submissionKey: submissionKey,
+          ),
+        ),
+      );
+      if (!_current(generation) || created == null) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      refreshCategoriesAfterSave(
+        accountVersion: generation,
+        feedback: feedback,
+      );
+      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
+    } on CategorySubmissionRejected catch (error) {
+      if (!_current(generation)) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      return CategorySaveResult(
+        CategorySaveStatus.rejected,
+        submissionKey,
+        rejection: _categorySaveRejection(error.code),
+      );
+    } catch (_) {
+      return CategorySaveResult(
+        _current(generation)
+            ? CategorySaveStatus.unconfirmed
+            : CategorySaveStatus.stale,
+        submissionKey,
+      );
+    } finally {
+      scope.cancel();
+    }
+  }
+
+  Future<CategorySaveResult> submitCategoryUpdate(
+    int id, {
+    required String name,
+    required String color,
+    required String submissionKey,
+    required ContentFeedback feedback,
+  }) async {
+    final generation = content.accountVersion;
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: () => _current(generation),
+    );
+    try {
+      final saved = await scope.run(
+        () => scope.wait(
+          content.updateCategorySubmission(
+            categoryId: id,
+            name: name,
+            color: color,
+            submissionKey: submissionKey,
+          ),
+        ),
+      );
+      if (!_current(generation) || saved == null) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      refreshCategoriesAfterSave(
+        accountVersion: generation,
+        feedback: feedback,
+      );
+      unawaited(
+        Future<void>(() async {
+          if (!_current(generation)) return;
+          final ticket = content.beginRefresh(preserveViewport: true);
+          final read = ApiRequestScope(
+            timeout: const Duration(seconds: 10),
+            isCurrent: () =>
+                _current(generation) && content.isCurrentRefresh(ticket),
+          );
+          try {
+            await read.run(
+              () =>
+                  read.wait(content.refresh(ticket, includeCategories: false)),
+            );
+          } catch (_) {
+            // Existing feed errors keep their own retry behavior.
+          } finally {
+            read.cancel();
+          }
+        }),
+      );
+      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
+    } on CategorySubmissionRejected catch (error) {
+      if (!_current(generation)) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      return CategorySaveResult(
+        CategorySaveStatus.rejected,
+        submissionKey,
+        rejection: _categorySaveRejection(error.code),
+      );
+    } catch (_) {
+      return CategorySaveResult(
+        _current(generation)
+            ? CategorySaveStatus.unconfirmed
+            : CategorySaveStatus.stale,
+        submissionKey,
+      );
+    } finally {
+      scope.cancel();
+    }
+  }
+
   Future<void> updateCategory(
     int id, {
     required String name,
@@ -235,6 +437,13 @@ class ContentActions {
     if (_current(generation)) await refresh(feedback);
     return item;
   }
+
+  CategorySaveRejection _categorySaveRejection(String code) => switch (code) {
+    'category_name_exists' => CategorySaveRejection.nameExists,
+    'category_input_invalid' => CategorySaveRejection.inputInvalid,
+    'category_target_missing' => CategorySaveRejection.targetMissing,
+    _ => CategorySaveRejection.other,
+  };
 
   String _message(Object? error, String fallback) =>
       error is ClipbackApiException ? error.message : fallback;

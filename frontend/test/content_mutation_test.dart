@@ -32,18 +32,24 @@ const _category = {
   'name': '공부',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _otherCategory = {
   'id': 202,
   'name': '여행',
   'color': '#FB7185',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _uncategorized = {
   'id': 303,
   'name': '미분류',
   'color': '#B5BDC3',
   'is_default': true,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _allCategories = [_category, _otherCategory, _uncategorized];
 
