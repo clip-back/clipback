@@ -1,7 +1,7 @@
 # 카테고리 생성·수정의 입력 보존과 실패 복구
 
 2026-10-25 설계 인터뷰의 Q18에서 Q1~Q17을 포함한 전체 정책·디자인을 최종 확정했습니다.
-구현은 #87~#91로 나누어 진행합니다. 생성 시트·생성 제출 API의 적용·검증 범위와 남은 작업은
+구현은 #87~#91로 나누어 진행합니다. 생성 시트·생성 제출 API·저장 후 목록 복구의 적용·검증 범위와 남은 작업은
 [구현 이력](../history/2026-10-25-category-save-recovery-implementation.md)을 따릅니다.
 이 합의를 구현 가능한 계약·사용자 스토리·검증 기준으로 정리한 [구현 스펙](category-save-recovery-spec.md)과
 [GitHub 이슈 #86](https://github.com/clip-back/clipback/issues/86)을 함께 따릅니다.
