@@ -116,7 +116,7 @@ class _Server {
   _Server({this.source, this.summaryStatus, this.category = _recommended});
   final String? source;
   final String? summaryStatus;
-  final Map<String, Object> category;
+  final Map<String, Object?> category;
   final calls = <_Call>[];
   Map<String, Object?>? saved;
   late final client = MockClient.streaming((request, stream) async {
