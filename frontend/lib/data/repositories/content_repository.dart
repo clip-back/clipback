@@ -11,6 +11,16 @@ class CategoryReadSuperseded extends ClipbackApiException {
   const CategoryReadSuperseded() : super('Category read is no longer current');
 }
 
+/// The raw accepted response retains its read/account ownership through callers.
+class CategoryServerSnapshot {
+  CategoryServerSnapshot(List<ApiCategory> categories, this._isCurrent)
+    : categories = List.unmodifiable(categories);
+
+  final List<ApiCategory> categories;
+  final bool Function() _isCurrent;
+  bool get current => _isCurrent();
+}
+
 abstract class ContentRepository extends ChangeNotifier {
   int get accountVersion;
   int get refreshVersion;
@@ -25,6 +35,7 @@ abstract class ContentRepository extends ChangeNotifier {
   bool isCategoryDeleted(int id);
   void resetAccount(int version);
   Future<void> loadCategories();
+  Future<CategoryServerSnapshot> readCurrentCategories();
   void configureFeed(
     FeedKey key, {
     int? categoryId,
@@ -270,9 +281,23 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
-  Future<void> loadCategories() => _loadCategories();
+  Future<void> loadCategories() async {
+    await _loadCategories();
+  }
 
-  Future<void> _loadCategories({bool Function()? isCurrent}) async {
+  /// Accepted server values, before optimistic display reconciliation.
+  @override
+  Future<CategoryServerSnapshot> readCurrentCategories() async {
+    final response = await _loadCategories();
+    if (response == null || !response.current) {
+      throw const CategoryReadSuperseded();
+    }
+    return response;
+  }
+
+  Future<CategoryServerSnapshot?> _loadCategories({
+    bool Function()? isCurrent,
+  }) async {
     final account = _accountVersion;
     final read = ++_categoryReadVersion;
     final owner = ApiRequestScope.current;
@@ -291,12 +316,17 @@ class RemoteContentRepository extends ContentRepository {
     }
     try {
       final response = await scope.run(_api.listCategories);
-      if (_disposed || account != _accountVersion) return;
+      if (_disposed || account != _accountVersion) return null;
       scope.checkActive();
       _categories
         ..clear()
         ..addAll(_reconcileCategoryList(response));
       _notify();
+      scope.checkActive();
+      return CategoryServerSnapshot(
+        response,
+        () => current() && (owner?.isActive ?? true),
+      );
     } catch (error) {
       if (!current() && error is! ClipbackApiException) {
         throw const CategoryReadSuperseded();

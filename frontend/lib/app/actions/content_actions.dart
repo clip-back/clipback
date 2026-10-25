@@ -157,6 +157,8 @@ class ContentActions {
   Future<bool> reloadCategories({
     required ContentFeedback feedback,
     bool afterSave = false,
+    bool Function()? isCurrent,
+    void Function(List<ApiCategory> categories)? onLoaded,
   }) async {
     if (_disposed) return false;
     final account = content.accountVersion;
@@ -164,15 +166,21 @@ class ContentActions {
     _categoryReadScope?.cancel();
     _categoryReadAttempt = attempt;
     bool current() =>
-        _current(account) && identical(_categoryReadAttempt, attempt);
+        _current(account) &&
+        identical(_categoryReadAttempt, attempt) &&
+        (isCurrent?.call() ?? true);
     final scope = ApiRequestScope(
       timeout: const Duration(seconds: 10),
       isCurrent: current,
     );
     _categoryReadScope = scope;
     try {
-      await scope.run(() => scope.wait(content.loadCategories()));
+      final snapshot = await scope.run(
+        () => scope.wait(content.readCurrentCategories()),
+      );
       scope.checkActive();
+      if (!snapshot.current) throw const CategoryReadSuperseded();
+      onLoaded?.call(snapshot.categories);
       return current();
     } on CategoryReadSuperseded {
       return false;
@@ -185,7 +193,12 @@ class ContentActions {
             retry: () {
               if (current()) {
                 unawaited(
-                  reloadCategories(feedback: feedback, afterSave: afterSave),
+                  reloadCategories(
+                    feedback: feedback,
+                    afterSave: afterSave,
+                    isCurrent: isCurrent,
+                    onLoaded: onLoaded,
+                  ),
                 );
               }
             },

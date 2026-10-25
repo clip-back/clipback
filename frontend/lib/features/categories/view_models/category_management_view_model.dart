@@ -15,6 +15,23 @@ class CategoryManagementViewModel extends ContentViewModel {
   List<ContentItem> get contents =>
       repository.feed(FeedKey.home).items.map(present).toList();
 
+  Future<void> prepareEditor(
+    CategoryItem? original, {
+    required bool Function() isCurrent,
+    required ValueChanged<CategoryItem?> onReady,
+  }) async {
+    await actions.reloadCategories(
+      feedback: emitEffect,
+      isCurrent: () => !isDisposed && isCurrent(),
+      onLoaded: (categories) {
+        final current = categories
+            .where((c) => c.id == original?.id)
+            .firstOrNull;
+        onReady(current == null ? null : categoryFromApi(current));
+      },
+    );
+  }
+
   Future<void> add(CategoryItem category) => actions.createCategory(
     name: category.name,
     color: hexFromColor(category.color),

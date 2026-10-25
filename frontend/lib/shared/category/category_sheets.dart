@@ -103,6 +103,34 @@ class _CategorySheetHandle extends StatelessWidget {
   );
 }
 
+void showCategoryCreateSheet({
+  required BuildContext context,
+  required ValueChanged<CategoryItem> onCreate,
+  CategorySubmitCallback? onSubmit,
+  CategoryPrepareCallback? onPrepare,
+}) {
+  final route = ModalRoute.of(context);
+  bool current() => context.mounted && (route?.isCurrent ?? true);
+  void open(CategoryItem? _) {
+    if (!current()) return;
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      enableDrag: onSubmit == null,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          CategoryCreateSheet(onCreate: onCreate, onSubmit: onSubmit),
+    );
+  }
+
+  if (onPrepare == null) {
+    open(null);
+  } else {
+    onPrepare(null, isCurrent: current, onReady: open);
+  }
+}
+
 void showCategoryActionSheet({
   required BuildContext context,
   required CategoryItem category,
@@ -110,6 +138,7 @@ void showCategoryActionSheet({
   required void Function(CategoryItem original, CategoryItem updated) onUpdate,
   required ValueChanged<CategoryItem> onDelete,
   CategoryUpdateSubmitCallback? onSubmitUpdate,
+  CategoryPrepareCallback? onPrepare,
 }) {
   if (category.mutationLabel != null) return;
   showModalBottomSheet<void>(
@@ -123,26 +152,39 @@ void showCategoryActionSheet({
         Navigator.pop(sheetContext);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!context.mounted) return;
-          showModalBottomSheet<void>(
-            context: context,
-            useSafeArea: true,
-            isScrollControlled: true,
-            enableDrag: onSubmitUpdate == null,
-            backgroundColor: Colors.transparent,
-            builder: (context) => CategoryEditSheet(
-              category: category,
-              onSave: (updated) => onUpdate(category, updated),
-              onSubmit: onSubmitUpdate == null
-                  ? null
-                  : ({required name, required color, submissionKey}) =>
-                        onSubmitUpdate(
-                          category,
-                          name: name,
-                          color: color,
-                          submissionKey: submissionKey,
-                        ),
-            ),
-          );
+          final route = ModalRoute.of(context);
+          bool current() => context.mounted && (route?.isCurrent ?? true);
+          void open(CategoryItem? prepared) {
+            if (!current()) return;
+            final value = prepared ?? category;
+            showModalBottomSheet<void>(
+              context: context,
+              useSafeArea: true,
+              isScrollControlled: true,
+              enableDrag: onSubmitUpdate == null,
+              backgroundColor: Colors.transparent,
+              builder: (context) => CategoryEditSheet(
+                category: value,
+                targetMissing: onPrepare != null && prepared == null,
+                onSave: (updated) => onUpdate(value, updated),
+                onSubmit: onSubmitUpdate == null
+                    ? null
+                    : ({required name, required color, submissionKey}) =>
+                          onSubmitUpdate(
+                            value,
+                            name: name,
+                            color: color,
+                            submissionKey: submissionKey,
+                          ),
+              ),
+            );
+          }
+
+          if (onPrepare == null) {
+            open(category);
+          } else {
+            onPrepare(category, isCurrent: current, onReady: open);
+          }
         });
       },
       onDelete: () {
@@ -460,15 +502,18 @@ class CategoryEditSheet extends StatelessWidget {
     required this.category,
     required this.onSave,
     this.onSubmit,
+    this.targetMissing = false,
     super.key,
   });
 
   final CategoryItem category;
+  final bool targetMissing;
   final ValueChanged<CategoryItem> onSave;
   final CategorySubmitCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) => CategoryFormSheet(
+    targetMissing: targetMissing,
     initialName: category.name,
     initialColor: category.color,
     actionLabel: '수정하기',
@@ -491,6 +536,7 @@ class CategoryFormSheet extends StatefulWidget {
     this.initialName = '',
     this.initialColor,
     this.onSubmit,
+    this.targetMissing = false,
     super.key,
   });
 
@@ -499,6 +545,7 @@ class CategoryFormSheet extends StatefulWidget {
   final String initialName;
   final Color? initialColor;
   final CategorySubmitCallback? onSubmit;
+  final bool targetMissing;
 
   @override
   State<CategoryFormSheet> createState() => _CategoryFormSheetState();
@@ -555,6 +602,7 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialName);
+    if (widget.targetMissing) _rejection = CategorySaveRejection.targetMissing;
     _selectedColor = widget.initialColor ?? FolderColorPicker.colors.first;
   }
 

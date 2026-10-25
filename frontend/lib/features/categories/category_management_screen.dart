@@ -19,6 +19,7 @@ class CategoryManagementScreen extends StatelessWidget {
     required this.onAddCategory,
     this.onSubmitCategory,
     this.onSubmitCategoryUpdate,
+    this.onPrepareCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     super.key,
@@ -30,6 +31,7 @@ class CategoryManagementScreen extends StatelessWidget {
   final ValueChanged<CategoryItem> onAddCategory;
   final CategorySubmitCallback? onSubmitCategory;
   final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
+  final CategoryPrepareCallback? onPrepareCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -133,16 +135,11 @@ class CategoryManagementScreen extends StatelessWidget {
                             width: 48,
                             height: 48,
                           ),
-                          onPressed: () => showModalBottomSheet<void>(
+                          onPressed: () => showCategoryCreateSheet(
                             context: context,
-                            useSafeArea: true,
-                            isScrollControlled: true,
-                            enableDrag: onSubmitCategory == null,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => CategoryCreateSheet(
-                              onCreate: onAddCategory,
-                              onSubmit: onSubmitCategory,
-                            ),
+                            onCreate: onAddCategory,
+                            onSubmit: onSubmitCategory,
+                            onPrepare: onPrepareCategory,
                           ),
                           icon: SvgPicture.asset(
                             Assets.archiveFolderPlus,
@@ -176,6 +173,7 @@ class CategoryManagementScreen extends StatelessWidget {
                         contentCount: category.contentCount,
                         onUpdate: onUpdateCategory,
                         onSubmitUpdate: onSubmitCategoryUpdate,
+                        onPrepare: onPrepareCategory,
                         onDelete: onDeleteCategory,
                       ),
                     );

@@ -131,6 +131,55 @@
 iOS Simulator·Android Emulator의 변경 전/후/Figma 비교·스크린샷·영상은 별도 네이티브 검증 담당이 통합 코드에서 확인합니다.
 이 담당의 자동 테스트로 네이티브 실행·실제 OAuth·운영 서버·실기기·원격 CI 검증을 대신하지 않습니다.
 
+## #90 시트 닫기·현재 서버 값으로 재진입
+
+- 작업 기준: `2991607e18de1fbd953cecb2fab32fa3db166972`, 브랜치 `feature/category-sheet-reentry-90`.
+  #88·#89 검증 종료 뒤 생성·수정의 닫기·재진입만 구현했다. backend 제품 API/모델/마이그레이션은 바꾸지 않았다.
+- 아카이브/관리의 생성·수정은 `CategoryPrepareCallback` → `prepareEditor` → 카테고리 전용 조회에서
+  인증 갱신 포함 별도 전체10초를 적용한다. 성공한 현재 조회 이후 생성은 빈 이름·기본 색상, 수정은 서버의 현재 이름·색상으로 연다.
+- `CategoryServerSnapshot`은 낙관적 표시로 조정하기 전 서버 원본과 read/account 소유권을 반환한다.
+  새 공통 조회·mutation·계정 교체로 대체된 결과는 Action의 호출 전까지 다시 확인하며, 이전 bool이나 표시 목록을 원본 증거로 쓰지 않는다.
+  기존 `loadCategories`의 late-success 무시와 `CategoryReadSuperseded` 구분·다른 콘텐츠 조회 보호를 유지한다.
+- 준비 조회 실패는 마지막 목록과 일반 최신정보 실패 스낵바를 유지한다. 재시도는 카테고리 GET만 실행한 뒤
+  원래 화면·계정이 유효할 때 새 시트를 연다. 현재 서버에서 대상 ID가 없으면 기존 대상 삭제 안내로 열고 같은 이름의 다른 ID로 대체하지 않는다.
+- 편집/거절의 직접 닫기는 초안·키를 버린다. 미확인의 닫기 확인·계속 확인하기·같은 키와 내용·대기 잠금은 유지한다.
+  닫은 뒤 새 시트/새 앱에서 이전 초안·키를 복원하거나 자동 전송하지 않는다. 늦은 성공·거절은 새 시트와 목록을 바꾸지 않는다.
+
+### TDD와 자동 검증
+
+- 실제 앱+HTTP 대역+메모리 세션 첫 red: 서버 이름·색상을 바꾼 뒤 수정 진입해도 이전 ‘공부’로 열린다.
+  현재 원본 준비 경계 구현 후 green. `ticket-90-red-first.log`와 `ticket-90-green-first.log`에 보존했다.
+- `category_reentry_test.dart` 신규33개: 두 진입 위치×생성/수정의 편집·거절 직접 닫기, 미확인 닫기 확인,
+  같은 키 유지/새 키 시작·색상 폐기·GET만 재시도 뒤 열기·10초 인증 대기·새 앱·늦은 성공/거절·현재 상태 유지,
+  낙관적 overlay와 원본/대상 부재 구분·같은 이름 다른 ID·공통 조회 대체·이전 화면 스낵바를 검증했다.
+- 최종 관련 검사: `flutter test --no-pub --concurrency=1 test/category_reentry_test.dart test/category_list_recovery_test.dart test/category_delete_test.dart test/app/content_actions_test.dart test/data/content_repository_test.dart test/share/share_lifecycle_test.dart test/content_auto_category_test.dart` **200 passed**.
+  `flutter analyze --no-pub`: **No issues found**. 로그 `ticket-90-related-final.log`, `ticket-90-analyze-final.log`.
+- 기존 #89 이전 GET 대 새 저장 테스트의 HTTP 대역은 첫 후속 GET만 보류하도록 좁혔다. 새 재진입 GET까지 모두
+  보류해 새 시트가 열리지 않는 fixture 문제였으며, 과거 결과가 최신 목록을 덮지 않는 최종 기대는 바꾸지 않았다.
+- 실제 FastAPI HTTP+독립 PostgreSQL 세션/실제 commit에서 생성·수정 원래 키 성공 재확인, 이후 이름·색상 수정·삭제,
+  같은 이름의 대체 ID, 새 키의 대상 없음, 카테고리 삭제 뒤 기록3개 보존과 계정 삭제 뒤0개를 확인했다.
+  제출 관련 **17 passed**. backend 전체 **1040 passed / 12 skipped**(Docker 복원 opt-in), 기존 Starlette warning1, 105.58초.
+- 예약한 전용 테스트 DB(port15486)만 사용하고 fixture가 만든 계정/카테고리/기록을 정리한 뒤 예약을 해제했다.
+  `alembic upgrade head`, `alembic check`(새 operations 없음), `ruff check app alembic tests`, `python -m compileall -q app alembic tests` 통과.
+  로그 `ticket-90-backend-related.log`, `ticket-90-backend-full.log`, `ticket-90-migration.log`.
+- 중간 의존성 미준비·작업 경로 착오·대역 색상/변수명·lint와 독립 연결 PID assertion의 fixture 오류는 보정했다.
+  순차 요청만으로 pool의 다른 연결을 보장한다고 가정하지 않고 실제 동시 GET으로 독립 연결을 확인했다. 이 오류를 제품 red나 통과로 집계하지 않았다.
+- 최종 diff와 `git diff --check`, 문서 경로·명령 일치·민감/생성 파일 포함 여부를 확인했다.
+
+### 실행 증거와 남은 검증
+
+- iOS Simulator·Android Emulator의 변경 전/후/Figma·팝업·키보드·드래그·뒤로가기·확대·짧은 높이는 native 전담 검증에서 기록한다.
+  이 구현 담당은 기기를 실행하거나 화면 증거를 대체 제작하지 않았다.
+- 프론트 전체 suite/web 빌드는 #90/#91 통합 뒤 root의 공유 최종 실행으로 수행한다. 이 시점의 관련 검사를 전체 검사로 보고하지 않는다.
+  실제 OAuth·운영 서버·실기기·원격 CI·push/PR/issue 변경은 수행하지 않았다.
+
+### #91 통합 뒤 재검증
+
+- 최신 통합 `60fe05cdc8a1138f5117418ac8a88ff8a073c585`를 merge `c108f97c857d370da019edf57368673073816258`로 포함했다.
+  README·중앙 이력은 양쪽 추가 내용을 보존했고, 공통 opener/원본 snapshot과 #91 stale 무시·현재 form route만 닫기를 확인했다.
+- #90의 최종 관련7개 파일에 `test/category_auth_recovery_test.dart`를 더한8개 파일 **226 passed**(46초),
+  `flutter analyze --no-pub` **No issues**(3.1초). 로그 `ticket-90-91-related.log`, `ticket-90-91-analyze.log`.
+  backend 제품/테스트는 통합 전1040개 실행과 동일하며 재실행하지 않았다. 전체 Flutter/web·native는 root 공유 최종 검증을 따른다.
 
 ## #91 공유 인증 갱신과 계정 전환의 카테고리 수명 보호
 
