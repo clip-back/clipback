@@ -218,6 +218,35 @@ final class ShareUITests: XCTestCase {
     capture("ios-share-error")
     sender.alerts.buttons["닫기"].tap()
   }
+  func testImageQuotaAndFileLimitAppearInExistingShareErrorRegion() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    main.launch()
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    for (status, code, message, artifact) in [
+      (409, "image_uploads_paused", "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", "ios-share-image-paused"),
+      (409, "image_quota_exceeded", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", "ios-share-image-quota"),
+      (413, "image_file_too_large", "이미지는 10MiB 이하만 저장할 수 있습니다.", "ios-share-image-file-limit")
+    ] {
+      let before = savedCount()
+      control(["next_save_status": status, "next_save_detail": ["code": code]])
+      openShare(sender, button: "스크린샷 공유")
+      let save = sender.buttons["share.save"]
+      XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+      tapReady(save)
+      XCTAssertTrue(sender.staticTexts[message].waitForExistence(timeout: 10), sender.debugDescription)
+      XCTAssertTrue(save.isEnabled)
+      XCTAssertEqual(savedCount(), before)
+      capture(artifact)
+      if code == "image_uploads_paused" {
+        tapReady(save)
+        XCTAssertTrue(sender.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), sender.debugDescription)
+        XCTAssertEqual(savedCount(), before + 1)
+        capture("ios-share-image-pause-resumed")
+      }
+      tapReady(sender.buttons["share.close"])
+    }
+  }
   // Prepare Safari with simctl openurl and Photos with simctl addmedia before these OS-host tests.
   func testSafariSharesPreparedYouTubePage() {
     let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
@@ -270,6 +299,45 @@ final class ShareUITests: XCTestCase {
     XCTAssertTrue(photos.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), photos.debugDescription)
     capture("ios-photos-success")
     tapReady(photos.buttons["share.close"])
+  }
+  // Run image_storage_live_preview.dart against 18766 and complete actual guest login first.
+  // No fixture control endpoint or manually published native credential is used.
+  func testRealBackendNativeImageWithExistingSession() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    main.activate()
+    XCTAssertTrue(main.images["홈"].waitForExistence(timeout: 15), main.debugDescription)
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    openShare(sender, button: "스크린샷 공유")
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+    capture("ios-real-image-preview")
+    tapReady(save)
+    XCTAssertTrue(sender.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), sender.debugDescription)
+    capture("ios-real-image-success")
+    tapReady(sender.buttons["share.close"])
+    XCTAssertTrue(sender.staticTexts["sender.title"].waitForExistence(timeout: 5))
+    main.activate()
+    capture("ios-real-image-return")
+  }
+  private func realImageError(_ message: String, artifact: String) {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    openShare(sender, button: "스크린샷 공유")
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
+    tapReady(save)
+    XCTAssertTrue(sender.staticTexts[message].waitForExistence(timeout: 15), sender.debugDescription)
+    XCTAssertTrue(save.isEnabled)
+    capture(artifact)
+    tapReady(sender.buttons["share.close"])
+    XCUIApplication(bundleIdentifier: "com.huturu.app").activate()
+  }
+  func testRealBackendImagePauseWithExistingSession() {
+    realImageError("이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", artifact: "ios-real-share-pause")
+  }
+  func testRealBackendImageQuotaWithExistingSession() {
+    realImageError("이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", artifact: "ios-real-share-quota")
   }
   // Install share_preview.dart with SHARE_PREVIEW_REAL_BACKEND=true and port 18766 before this test.
   func testRealBackendGuestLoginThenNativeSave() {

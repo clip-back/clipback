@@ -160,3 +160,126 @@ async def test_event_insert_failure_rolls_back_database_and_removes_image(
     }
     # A subsequent request uses a new session and still succeeds after rollback.
     await link(api, headers)
+
+
+async def test_mixed_local_and_bucket_originals_keep_existing_authenticated_api(
+    api, png_bytes, monkeypatch, tmp_path
+):
+    import boto3
+    from moto import mock_aws
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+
+    owner, _, _ = await guest(api)
+    outsider, _, _ = await guest(api)
+
+    async def upload():
+        return await request(
+            api, "POST", "uploads/screenshots", headers=owner, status=201,
+            files={"file": ("original.png", png_bytes, "image/png")},
+        )
+
+    local = await upload()
+    with mock_aws():
+        bucket = boto3.client(
+            "s3", region_name="us-east-1",
+            aws_access_key_id="testing", aws_secret_access_key="testing",
+        )
+        bucket.create_bucket(Bucket="original-images")
+        for name, value in {
+            "storage_backend": "s3", "s3_bucket": "original-images",
+            "s3_region": "us-east-1", "s3_endpoint_url": "https://s3.amazonaws.com",
+            "s3_access_key_id": SecretStr("testing"),
+            "s3_secret_access_key": SecretStr("testing"),
+        }.items():
+            monkeypatch.setattr(settings, name, value, raising=False)
+        cloud = await upload()
+        objects = bucket.list_objects_v2(Bucket="original-images").get("Contents", [])
+        assert len(objects) == 1
+        stored = bucket.get_object(Bucket="original-images", Key=objects[0]["Key"])
+        assert stored["Body"].read() == png_bytes
+        for content in (local, cloud):
+            url = content["assets"][0]["download_url"]
+            downloaded = await api.get(url, headers=owner)
+            assert downloaded.status_code == 200 and downloaded.content == png_bytes
+            assert (await api.get(url, headers=outsider)).status_code == 404
+            await request(api, "DELETE", f"contents/{content['id']}", headers=owner, status=204)
+            assert (await api.get(url, headers=owner)).status_code == 404
+        assert bucket.list_objects_v2(Bucket="original-images").get("Contents", []) == []
+        assert not any(p.is_file() for p in tmp_path.rglob("*"))
+
+
+async def test_bucket_unavailable_rejects_upload_without_creating_content(
+    api, png_bytes, s3_storage,
+):
+    headers, _, _ = await guest(api)
+    s3_storage.delete_bucket(Bucket="original-images")
+    response = await api.post(
+        "/api/v1/uploads/screenshots", headers=headers,
+        files={"file": ("original.png", png_bytes, "image/png")},
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Image storage is temporarily unavailable"}
+    assert (await request(api, "GET", "feed", headers=headers))["items"] == []
+
+
+async def test_bucket_read_distinguishes_missing_original_from_outage(api, png_bytes, s3_storage):
+    headers, _, _ = await guest(api)
+    content = await request(
+        api, "POST", "uploads/screenshots", headers=headers, status=201,
+        files={"file": ("original.png", png_bytes, "image/png")},
+    )
+    original = s3_storage.list_objects_v2(Bucket="original-images")["Contents"][0]
+    s3_storage.delete_object(Bucket="original-images", Key=original["Key"])
+    url = content["assets"][0]["download_url"]
+    assert (await api.get(url, headers=headers)).status_code == 404
+    s3_storage.delete_bucket(Bucket="original-images")
+    assert (await api.get(url, headers=headers)).status_code == 503
+
+
+async def test_bucket_readiness_checks_selected_store_without_writing_local_volume(
+    api, s3_storage, monkeypatch, tmp_path,
+):
+    from app.core.config import settings
+
+    blocked_root = tmp_path / "not-a-directory"
+    blocked_root.write_bytes(b"local volume is read-only for this probe")
+    monkeypatch.setattr(settings, "storage_root", blocked_root)
+    ready = await api.get("/api/v1/health/ready")
+    assert ready.status_code == 200 and ready.json() == {"status": "ok"}
+    s3_storage.delete_bucket(Bucket="original-images")
+    failed = await api.get("/api/v1/health/ready")
+    assert failed.status_code == 503 and failed.json() == {"status": "unavailable"}
+
+
+@pytest.mark.parametrize("api_prefix", ["/api/v1", "/api/v9"])
+async def test_local_original_access_round_trip_uses_configured_api_prefix(
+    api, png_bytes, api_prefix,
+):
+    import hashlib
+
+    tokens = await api.post(f"{api_prefix}/auth/guest")
+    assert tokens.status_code == 201
+    headers = {"Authorization": f"Bearer {tokens.json()['access_token']}"}
+    saved = await api.post(
+        f"{api_prefix}/uploads/screenshots", headers=headers,
+        files={"file": ("original.png", png_bytes, "image/png")},
+    )
+    assert saved.status_code == 201, saved.text
+    asset = saved.json()["assets"][0]
+    original_url = f"{api_prefix}/uploads/assets/{asset['id']}"
+    assert asset["download_url"] == original_url
+    access = await api.get(f"{original_url}/access", headers=headers)
+    assert access.status_code == 200, access.text
+    descriptor = access.json()
+    assert descriptor["mode"] == "proxy" and descriptor["url"] == original_url
+    assert descriptor["sha256"] == hashlib.sha256(png_bytes).hexdigest()
+    assert descriptor["size_bytes"] == len(png_bytes)
+    reopened = await api.get(descriptor["url"], headers=headers)
+    assert reopened.status_code == 200 and reopened.content == png_bytes
+    assert reopened.headers["content-type"] == "image/png"
+    assert (await api.get(descriptor["url"])).status_code == 401
+    outsider = await api.post(f"{api_prefix}/auth/guest")
+    other = {"Authorization": f"Bearer {outsider.json()['access_token']}"}
+    assert (await api.get(f"{original_url}/access", headers=other)).status_code == 404

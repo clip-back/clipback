@@ -32,10 +32,17 @@ pytest -q tests/repositories
 ## MVP API integration tests
 
 `tests/integration` exercises HTTP routes, real authentication, services, PostgreSQL
-repositories, and local image storage together. Only social-provider verification,
+repositories, and local image storage together. Social-provider verification,
 web metadata, AI recommendations, and OCR responses are replaced with deterministic
 results. Unexpected external HTTP requests fail the test, even when caught by an
 application fallback. No external credentials are required.
+
+Migration API tests read actual asset rows from the same dedicated `TEST_DATABASE_URL`
+session factory and use actual original bytes with the public backup publish/materialize
+boundary. Their dump and trusted restore report are explicitly synthetic fixtures; they
+do not use the default `DATABASE_URL` or require a host `pg_dump` executable. Actual paired
+PostgreSQL dump, isolated restoration and the operator CLI gate are covered separately by
+`tests/deployment/test_image_migration_docker.py` with the Docker opt-in below.
 
 Use a dedicated test database, never an application database:
 
@@ -112,3 +119,38 @@ explicitly disposable; they are not application backups.
 운영 백업 입력을 새 로컬 자원에만 복원하는 도구와 별도의 합성 Docker 검사는
 [백업 격리 복원 검사](backup-recovery.md)를 따릅니다. 운영 dump를 일반 pytest나 테스트 DB에
 넣지 않으며, 합성 검사 성공과 실제 운영 백업 복원 결과를 구분합니다.
+
+## 이미지·카테고리 migration 분기 통합
+
+`tests/repositories/test_image_category_merge_migration.py`는 실제 Alembic CLI로 빈 DB와
+기존 `202610250015`·`202610230018` 분기를 각각 `202610250019`로 업그레이드합니다.
+대표 콘텐츠·local 원본 위치/무결성 정보·카테고리 제출 결과 보존, `alembic check`,
+반복 업그레이드를 확인합니다. 이미 배포된 migration의 부모를 변경하지 않습니다.
+
+이 검사는 `TEST_DATABASE_URL`의 전용 테스트 PostgreSQL 역할에 DB 생성 권한이 필요합니다.
+무작위 이름의 격리 DB를 만들고 검사 종료 시 제거합니다. 운영 DB 자격증명으로 실행하지 않습니다.
+기존 API 통합 검사는 초기화한 합성 삭제 기록 저장소와 local 원본을 사용하며,
+실제 Railway 설정·이전 이미지 호환·삭제 기록 확인은 별도 배포 체크리스트로 남깁니다.
+
+## Compatible local deployment handoff
+
+The deployment CI job builds API and operator images from the same revision label and runs
+`test_deletion_bootstrap_docker.py` plus `test_image_handoff_docker.py`. The handoff uses real
+PostgreSQL, an isolated TLS S3 substitute, the packaged operator CLI, and the actual API upload,
+read and delete routes with local original storage. OCR is intentionally unconfigured and follows
+the existing fallback; no paid provider or operating database is used. A broken ledger must fail
+checkpoint and image deletion even when ordinary readiness remains healthy.
+
+To repeat locally after building both images from the same clean commit:
+
+```bash
+RUN_DOCKER_RECOVERY_TESTS=1 \
+CLIPBACK_HANDOFF_API_IMAGE=clipback-compatible-api:validated \
+CLIPBACK_LEDGER_OPERATOR_IMAGE=clipback-ledger-operator:validated \
+CLIPBACK_HANDOFF_REVISION="$(git rev-parse HEAD)" \
+pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/test_image_handoff_docker.py
+```
+
+Tests fail before creating resources if either image revision differs from the expected source.
+Image IDs and revision labels are build provenance, not evidence of actual Railway configuration.
+Use the [compatible deployment checklist](image-storage-compatible-deployment.md) for that evidence.

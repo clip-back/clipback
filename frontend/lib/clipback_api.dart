@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'data/services/original_image_cache.dart';
 import 'data/services/api_request_scope.dart';
 
 class ClipbackApiException implements Exception {
@@ -318,12 +320,55 @@ class ApiUserStats {
   );
 }
 
+/// Short-lived access information. Never persist the URL or its query string.
+class ApiAssetAccess {
+  const ApiAssetAccess({
+    required this.assetId,
+    required this.mode,
+    required this.url,
+    required this.expiresAt,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.sha256,
+    int? sessionGeneration,
+  }) : _sessionGeneration = sessionGeneration;
+
+  final int assetId;
+  final String mode;
+  final Uri url;
+  final DateTime? expiresAt;
+  final String mimeType;
+  final int sizeBytes;
+  final String sha256;
+  final int? _sessionGeneration;
+
+  factory ApiAssetAccess.fromJson(
+    Map<String, dynamic> data, {
+    int? sessionGeneration,
+  }) => ApiAssetAccess(
+    assetId: data['asset_id'] as int,
+    mode: data['mode'] as String,
+    url: Uri.parse(data['url'] as String),
+    expiresAt: data['expires_at'] == null
+        ? null
+        : DateTime.parse(data['expires_at'] as String),
+    mimeType: data['mime_type'] as String,
+    sizeBytes: data['size_bytes'] as int,
+    sha256: data['sha256'] as String,
+    sessionGeneration: sessionGeneration,
+  );
+}
+
 class ClipbackApi {
   ClipbackApi({
     http.Client? client,
+    http.Client? bucketClient,
+    OriginalImageCache? originalImageCache,
     Future<void> Function(ApiSession)? onSessionChanged,
     Future<void> Function()? onSessionInvalidated,
   }) : _client = client ?? http.Client(),
+       _bucketClient = bucketClient ?? http.Client(),
+       _originalImageCache = originalImageCache,
        _onSessionChanged = onSessionChanged,
        _onSessionInvalidated = onSessionInvalidated;
 
@@ -334,6 +379,11 @@ class ClipbackApi {
   );
 
   final http.Client _client;
+  final http.Client _bucketClient;
+  final OriginalImageCache? _originalImageCache;
+  int? _assetUserId;
+  int _assetGeneration = 0;
+  static const assetMaxBytes = 10 * 1024 * 1024;
   final Future<void> Function(ApiSession)? _onSessionChanged;
   final Future<void> Function()? _onSessionInvalidated;
   ApiSession? _session;
@@ -385,13 +435,20 @@ class ClipbackApi {
   void clearSession() => _replaceSession(null);
 
   void _replaceSession(ApiSession? session) {
+    if (_session != null || session == null) _invalidateAssetCache();
     _sessionGeneration++;
     _session = session;
+    _assetUserId = null;
     _refreshFuture = null;
     _refreshScope?.cancel();
     _refreshScope = null;
     _refreshOwners.clear();
     _refreshHasUnscopedOwner = false;
+  }
+
+  void _invalidateAssetCache() {
+    _assetGeneration++;
+    _originalImageCache?.invalidate();
   }
 
   void _checkSessionGeneration(int generation, {bool allowLogout = false}) {
@@ -524,6 +581,7 @@ class ClipbackApi {
     _checkSessionGeneration(generation);
     if (_session == null) return;
     _logoutGeneration = generation;
+    _invalidateAssetCache();
     try {
       final refresh = _refreshFuture;
       if (refresh != null) {
@@ -637,8 +695,13 @@ class ClipbackApi {
     return session;
   }
 
-  Future<ApiUser> readMe() async =>
-      ApiUser.fromJson(await _json('GET', '/users/me'));
+  Future<ApiUser> readMe() async {
+    final generation = _sessionGeneration;
+    final user = ApiUser.fromJson(await _json('GET', '/users/me'));
+    _checkSessionGeneration(generation);
+    _assetUserId = user.id;
+    return user;
+  }
 
   Future<ApiUserStats> readStats() async =>
       ApiUserStats.fromJson(await _json('GET', '/users/me/stats'));
@@ -966,29 +1029,229 @@ class ClipbackApi {
   }
 
   Future<Uint8List> readAsset(int assetId) async {
-    late http.Response response;
+    final generation = _sessionGeneration;
+    final assetGeneration = _assetGeneration;
+    bool current() =>
+        generation == _sessionGeneration &&
+        assetGeneration == _assetGeneration &&
+        _logoutGeneration != generation;
+    void checkCurrent() {
+      _checkSessionGeneration(generation);
+      if (!current()) {
+        throw const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.');
+      }
+    }
+
+    final access = await readAssetAccess(assetId);
+    final cache = _originalImageCache;
+    if (cache == null) return downloadAsset(access);
+    final userId = _assetUserId ?? (await readMe()).id;
+    checkCurrent();
+    final cached = await cache.read(
+      environment: _baseUrl,
+      userId: userId,
+      assetId: assetId,
+      digest: access.sha256,
+      sizeBytes: access.sizeBytes,
+    );
+    checkCurrent();
+    if (cached != null) return cached;
+    final bytes = await downloadAsset(access);
+    await cache.write(
+      environment: _baseUrl,
+      userId: userId,
+      assetId: assetId,
+      digest: access.sha256,
+      bytes: bytes,
+      isCurrent: current,
+    );
+    checkCurrent();
+    return bytes;
+  }
+
+  Future<ApiAssetAccess> readAssetAccess(int assetId) async {
+    final generation = _sessionGeneration;
+    final response = await _assetApiRequest(
+      Uri.parse('$_baseUrl/uploads/assets/$assetId/access'),
+      accept: 'application/json',
+      maxBytes: 64 * 1024,
+    );
+    _throwForError(response);
     try {
-      response = await _sendWithSessionRetry((session) async {
-        final request = http.Request(
-          'GET',
-          Uri.parse('$_baseUrl/uploads/assets/$assetId'),
-        );
+      final access = ApiAssetAccess.fromJson(
+        _decodeJson(response),
+        sessionGeneration: generation,
+      );
+      _validateAssetAccess(access, assetId);
+      return access;
+    } on FormatException {
+      throw const ClipbackApiException('원본 이미지 접근 정보를 확인하지 못했어요.');
+    } on TypeError {
+      throw const ClipbackApiException('원본 이미지 접근 정보를 확인하지 못했어요.');
+    }
+  }
+
+  Future<Uint8List> downloadAsset(ApiAssetAccess access) async {
+    final generation = access._sessionGeneration ?? _sessionGeneration;
+    _checkSessionGeneration(generation);
+    if (_session == null) throw const ClipbackApiException('로그인이 필요합니다.');
+    _validateAssetAccess(access, access.assetId);
+    try {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        _checkSessionGeneration(generation);
+        late http.Response response;
+        if (access.mode == 'proxy') {
+          response = await _assetApiRequest(
+            Uri.parse(_baseUrl).resolveUri(access.url),
+            accept: 'image/png, image/jpeg, image/webp',
+            maxBytes: access.sizeBytes,
+          );
+          _throwForError(response);
+        } else {
+          // This client has no Clipback session headers and cannot follow redirects.
+          final request = http.Request('GET', access.url)
+            ..followRedirects = false;
+          request.headers['Accept'] = access.mimeType;
+          final streamed = await _bucketClient
+              .send(request)
+              .timeout(_requestTimeout);
+          if (generation != _sessionGeneration ||
+              _logoutGeneration == generation) {
+            await streamed.stream.listen(null).cancel();
+            _checkSessionGeneration(generation);
+          }
+          if (streamed.statusCode != 200) {
+            await streamed.stream.listen(null).cancel();
+            if (streamed.statusCode == 403 && attempt == 0) {
+              access = await readAssetAccess(access.assetId);
+              _checkSessionGeneration(generation);
+              continue;
+            }
+            throw ClipbackApiException(
+              '원본 이미지를 불러오지 못했어요.',
+              statusCode: streamed.statusCode,
+            );
+          }
+          response = await _boundedAssetResponse(
+            streamed,
+            access.sizeBytes,
+            generation,
+          );
+        }
+        _checkSessionGeneration(generation);
+        final contentType = response.headers['content-type']
+            ?.split(';')
+            .first
+            .trim()
+            .toLowerCase();
+        final bytes = response.bodyBytes;
+        if (contentType != access.mimeType ||
+            bytes.length != access.sizeBytes ||
+            sha256.convert(bytes).toString() != access.sha256) {
+          throw const ClipbackApiException('원본 이미지가 올바르지 않아요. 다시 시도해 주세요.');
+        }
+        return bytes;
+      }
+      throw const ClipbackApiException('원본 이미지를 불러오지 못했어요.');
+    } catch (error) {
+      _checkSessionGeneration(generation);
+      if (error is TimeoutException) {
+        throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+      }
+      if (error is http.ClientException) {
+        throw const ClipbackApiException('서버에 연결하지 못했어요.');
+      }
+      rethrow;
+    }
+  }
+
+  void _validateAssetAccess(ApiAssetAccess access, int assetId) {
+    final api = Uri.parse(_baseUrl);
+    final proxy = Uri.parse('$_baseUrl/uploads/assets/$assetId');
+    final url = api.resolveUri(access.url);
+    final loopback = {'localhost', '127.0.0.1', '::1', '10.0.2.2'};
+    final localDevelopment =
+        api.scheme == 'http' &&
+        loopback.contains(api.host) &&
+        url.scheme == 'http' &&
+        loopback.contains(url.host);
+    if (access.assetId != assetId ||
+        access.sizeBytes <= 0 ||
+        access.sizeBytes > assetMaxBytes ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(access.sha256) ||
+        !{'image/png', 'image/jpeg', 'image/webp'}.contains(access.mimeType) ||
+        url.userInfo.isNotEmpty ||
+        url.fragment.isNotEmpty ||
+        (access.mode == 'proxy'
+            ? url != proxy || access.expiresAt != null
+            : access.mode != 'direct' ||
+                  !access.url.hasAuthority ||
+                  access.expiresAt == null ||
+                  (url.scheme != 'https' && !localDevelopment))) {
+      throw const ClipbackApiException('원본 이미지 접근 정보를 확인하지 못했어요.');
+    }
+  }
+
+  Future<http.Response> _assetApiRequest(
+    Uri url, {
+    required String accept,
+    required int maxBytes,
+  }) async {
+    final generation = _sessionGeneration;
+    try {
+      return await _sendWithSessionRetry((session) async {
+        final request = http.Request('GET', url)..followRedirects = false;
         request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
-        request.headers['Accept'] = 'image/png, image/jpeg, image/webp';
-        final streamedResponse = await _client
-            .send(request)
-            .timeout(_requestTimeout);
-        return http.Response.fromStream(
-          streamedResponse,
-        ).timeout(_requestTimeout);
+        request.headers['Accept'] = accept;
+        final response = await _client.send(request).timeout(_requestTimeout);
+        if (generation != _sessionGeneration ||
+            _logoutGeneration == generation) {
+          await response.stream.listen(null).cancel();
+          _checkSessionGeneration(generation);
+        }
+        return _boundedAssetResponse(response, maxBytes, generation);
       });
     } on TimeoutException {
       throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
     } on http.ClientException {
       throw const ClipbackApiException('서버에 연결하지 못했어요.');
     }
-    _throwForError(response);
-    return response.bodyBytes;
+  }
+
+  Future<http.Response> _boundedAssetResponse(
+    http.StreamedResponse response,
+    int maxBytes,
+    int generation,
+  ) async {
+    final limit = response.statusCode == 200 ? maxBytes : 64 * 1024;
+    if ((response.contentLength ?? 0) > limit) {
+      await response.stream.listen(null).cancel();
+      throw const ClipbackApiException('원본 이미지가 허용된 크기를 초과했어요.');
+    }
+    final builder = BytesBuilder(copy: false);
+    final iterator = StreamIterator(response.stream);
+    Future<void> collect() async {
+      while (await iterator.moveNext()) {
+        _checkSessionGeneration(generation);
+        final chunk = iterator.current;
+        if (builder.length + chunk.length > limit) {
+          throw const ClipbackApiException('원본 이미지가 허용된 크기를 초과했어요.');
+        }
+        builder.add(chunk);
+      }
+    }
+
+    try {
+      await collect().timeout(_requestTimeout);
+    } catch (_) {
+      unawaited(iterator.cancel());
+      rethrow;
+    }
+    return http.Response.bytes(
+      builder.takeBytes(),
+      response.statusCode,
+      headers: response.headers,
+    );
   }
 
   Future<ApiFeed> readFeed({
@@ -1128,6 +1391,7 @@ class ClipbackApi {
         scope?.checkActive();
         _checkSessionGeneration(generation);
         if (error is ClipbackApiException && error.statusCode == 401) {
+          _invalidateAssetCache();
           await _onSessionInvalidated?.call();
         }
         rethrow;
@@ -1142,6 +1406,7 @@ class ClipbackApi {
       );
     }
     if (response.statusCode == 401 && authenticated && retryUnauthorized) {
+      _invalidateAssetCache();
       await _onSessionInvalidated?.call();
     }
     return response;
@@ -1153,6 +1418,12 @@ class ClipbackApi {
     try {
       final data = _decodeJson(response);
       final detail = data['detail'];
+      if (detail is Map && detail['code'] == 'image_quota_exceeded') {
+        message = '이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.';
+      }
+      if (detail is Map && detail['code'] == 'image_uploads_paused') {
+        message = '이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.';
+      }
       if (detail is String) message = detail;
       if (detail is List && detail.isNotEmpty) {
         message =
@@ -1160,6 +1431,9 @@ class ClipbackApi {
       }
     } on FormatException {
       // The API can return an empty non-JSON response for infrastructure errors.
+    }
+    if (response.statusCode == 413) {
+      message = '이미지는 10MiB 이하만 저장할 수 있습니다.';
     }
     throw ClipbackApiException(message, statusCode: response.statusCode);
   }

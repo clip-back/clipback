@@ -1,6 +1,12 @@
 package com.clipback.frontend.share;
 
 import android.test.InstrumentationTestCase;
+import android.app.Activity;
+import android.content.Intent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.TextView;
 import org.json.JSONObject;
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -98,5 +104,52 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
         assertTrue(finished.await(10,TimeUnit.SECONDS));assertFalse(success[0]);
         assertEquals("7",store.snapshot().getJSONArray("receipts").getJSONObject(0).getString("userId"));
         assertNull(store.draft(id));assertTrue(store.snapshot().isNull("credential"));
+    }
+    private TextView text(View view, String value) {
+        if (view instanceof TextView && value.contentEquals(((TextView)view).getText())) return (TextView)view;
+        if (view instanceof ViewGroup) for (int i=0;i<((ViewGroup)view).getChildCount();i++) {
+            TextView found=text(((ViewGroup)view).getChildAt(i),value); if(found!=null)return found;
+        }
+        return null;
+    }
+    private void imageError(int status, String code, String message, String artifact) throws Exception {
+        ByteArrayOutputStream image=new ByteArrayOutputStream();
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,image);bitmap.recycle();
+        String id=store.create(null,null,image.toByteArray(),"image/png");
+        control(new JSONObject().put("next_save_status",status).put("next_save_detail",new JSONObject().put("code",code)));
+        Intent intent=new Intent(getInstrumentation().getTargetContext(),ShareRecoveryActivity.class)
+            .putExtra("draftId",id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Activity activity=getInstrumentation().startActivitySync(intent);
+        try {
+            getInstrumentation().runOnMainSync(() -> ((Button)text(activity.getWindow().getDecorView(),"저장")).performClick());
+            long until=System.currentTimeMillis()+10000;boolean[] found={false};
+            while(System.currentTimeMillis()<until) {
+                getInstrumentation().runOnMainSync(() -> found[0]=text(activity.getWindow().getDecorView(),message)!=null);
+                if(found[0])break;Thread.sleep(50);
+            }
+            assertTrue("The existing share status must show the specific image error",found[0]);
+            assertEquals("failed",store.draft(id).getString("state"));
+            assertFalse(store.snapshot().isNull("credential"));
+            android.graphics.Bitmap screenshot=getInstrumentation().getUiAutomation().takeScreenshot();
+            assertNotNull(screenshot);
+            File destination=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),artifact+".png");
+            try(OutputStream output=new FileOutputStream(destination)) { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,output); }
+            screenshot.recycle();
+        } finally { getInstrumentation().runOnMainSync(activity::finish); }
+    }
+    public void testImageQuotaUsesExistingShareErrorRegion() throws Exception {
+        imageError(409,"image_quota_exceeded","이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.","android-share-image-quota");
+    }
+    public void testImagePauseUsesExistingShareErrorRegion() throws Exception {
+        int before=saved();
+        imageError(409,"image_uploads_paused","이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.","android-share-image-paused");
+        assertEquals(before,saved());
+        String id=store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");
+        assertTrue(save(id));assertEquals(before+1,saved());
+        assertNull(store.draft(id));assertFalse(store.imageFile(id).exists());
+    }
+    public void testImageFileLimitUsesExistingShareErrorRegion() throws Exception {
+        imageError(413,"image_file_too_large","이미지는 10MiB 이하만 저장할 수 있습니다.","android-share-image-file-limit");
     }
 }

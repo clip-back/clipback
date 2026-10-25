@@ -6,19 +6,20 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
-from app.core.config import settings
 from app.integrations.ai_client import get_ai_client
 from app.integrations.ocr_client import get_ocr_client
-from app.integrations.storage_client import LocalStorageClient
+from app.integrations.storage_client import get_storage_client
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
-from app.schemas.content import ContentRead
+from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_service import ContentService
+from app.services.image_storage_control import ImageUploadControl
+from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
 
 router = APIRouter()
@@ -78,9 +79,23 @@ async def read_asset(
     )
 
 
+@router.get("/assets/{asset_id}/access", response_model=ContentAssetAccess)
+async def asset_access(
+    asset_id: int,
+    db: DatabaseSession,
+    current_user_id: CurrentUserId,
+    response: Response,
+) -> ContentAssetAccess:
+    response.headers["Cache-Control"] = "private, no-store"
+    return await _build_upload_service(db).asset_access(
+        user_id=current_user_id, asset_id=asset_id,
+    )
+
+
 def _build_upload_service(db: AsyncSession) -> UploadService:
     content_asset_repository = ContentAssetRepository(db)
     category_repository = CategoryRepository(db)
+    storage = get_storage_client()
     return UploadService(
         content_service=ContentService(
             content_repository=ContentRepository(db),
@@ -94,6 +109,8 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
             tag_repository=TagRepository(db),
         ),
         content_asset_repository=content_asset_repository,
-        storage_client=LocalStorageClient(settings.storage_root),
+        storage_client=storage,
         ocr_client=get_ocr_client(),
+        image_storage_control=ImageUploadControl(db),
+        image_upload_policy=ImageUploadPolicy(db, storage),
     )

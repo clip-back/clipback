@@ -37,33 +37,29 @@ class FakeUploadFile:
 
 
 class FakeStorageClient:
+    backend = "local"
+
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
-        self.deleted_keys: list[str] = []
         self.fail_save = False
-        self.fail_delete = False
 
     async def save_file(self, storage_key: str, content: bytes) -> None:
         if self.fail_save:
             raise OSError("storage unavailable")
         self.files[storage_key] = content
 
-    async def read_file(self, storage_key: str) -> bytes:
+    async def read_file(self, storage_key: str, *, backend: str = "local") -> bytes:
         if storage_key not in self.files:
             raise FileNotFoundError(storage_key)
         return self.files[storage_key]
 
-    async def delete_file(self, storage_key: str) -> None:
-        self.deleted_keys.append(storage_key)
-        if self.fail_delete:
-            raise OSError("delete unavailable")
+    async def delete_file(self, storage_key: str, *, backend: str | None = None) -> None:
         self.files.pop(storage_key, None)
 
 
 class FakeContentService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
-        self.error: Exception | None = None
 
     async def create_content(
         self,
@@ -83,8 +79,6 @@ class FakeContentService:
                 "asset": asset,
             }
         )
-        if self.error is not None:
-            raise self.error
         return ContentRead(
             id=1,
             categories=[],
@@ -129,6 +123,13 @@ class FakeContentAssetRepository:
         return self.assets.get((user_id, asset_id))
 
 
+class AllowedImageUploadPolicy:
+    # These existing service tests isolate encoding/OCR/file behavior; the real
+    # authorization and transaction races are covered at the authenticated API.
+    async def authorize(self, *, user_id: int, size_bytes: int) -> None:
+        pass
+
+
 def make_image(image_format: str) -> bytes:
     output = BytesIO()
     Image.new("RGB", (2, 2), color="white").save(output, format=image_format)
@@ -152,6 +153,7 @@ def build_service(
             content_asset_repository=asset_repository or FakeContentAssetRepository(),
             storage_client=storage,
             ocr_client=ocr_client,
+            image_upload_policy=AllowedImageUploadPolicy(),
             max_bytes=max_bytes,
         ),
         storage,
@@ -320,46 +322,6 @@ async def test_upload_screenshot_falls_back_when_ocr_fails(
 
 
 @pytest.mark.asyncio
-async def test_upload_screenshot_deletes_file_when_database_write_fails() -> None:
-    content_service = FakeContentService()
-    content_service.error = RuntimeError("database unavailable")
-    service, storage, _, _ = build_service(
-        content_service=content_service,
-        max_bytes=10_000,
-    )
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        await service.upload_screenshot(
-            user_id=1,
-            file=FakeUploadFile(make_image("PNG")),
-            category_ids=[],
-        )
-
-    assert storage.files == {}
-    assert len(storage.deleted_keys) == 1
-
-
-@pytest.mark.asyncio
-async def test_upload_screenshot_preserves_database_error_when_cleanup_fails() -> None:
-    content_service = FakeContentService()
-    content_service.error = RuntimeError("database unavailable")
-    storage = FakeStorageClient()
-    storage.fail_delete = True
-    service, _, _, _ = build_service(
-        storage=storage,
-        content_service=content_service,
-        max_bytes=10_000,
-    )
-
-    with pytest.raises(RuntimeError, match="database unavailable"):
-        await service.upload_screenshot(
-            user_id=1,
-            file=FakeUploadFile(make_image("PNG")),
-            category_ids=[],
-        )
-
-
-@pytest.mark.asyncio
 async def test_upload_screenshot_does_not_create_content_when_storage_fails() -> None:
     storage = FakeStorageClient()
     storage.fail_save = True
@@ -377,7 +339,9 @@ async def test_upload_screenshot_does_not_create_content_when_storage_fails() ->
 
 @pytest.mark.asyncio
 async def test_read_asset_returns_owned_file() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/image.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/image.png", mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     storage = FakeStorageClient()
     storage.files[asset.storage_key] = b"image"
@@ -391,7 +355,9 @@ async def test_read_asset_returns_owned_file() -> None:
 
 @pytest.mark.asyncio
 async def test_read_asset_hides_missing_or_unowned_asset() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/image.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/image.png", mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     service, _, _, _ = build_service(asset_repository=repository)
 
@@ -403,7 +369,10 @@ async def test_read_asset_hides_missing_or_unowned_asset() -> None:
 
 @pytest.mark.asyncio
 async def test_read_asset_returns_not_found_when_stored_file_is_missing() -> None:
-    asset = SimpleNamespace(id=7, storage_key="screenshots/1/missing.png", mime_type="image/png")
+    asset = SimpleNamespace(
+        id=7, storage_backend="local", storage_key="screenshots/1/missing.png",
+        mime_type="image/png",
+    )
     repository = FakeContentAssetRepository({(1, 7): asset})
     service, _, _, _ = build_service(asset_repository=repository)
 

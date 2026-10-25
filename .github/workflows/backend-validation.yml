@@ -117,8 +117,19 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build runtime image
-        run: docker build -t clipback-backend:check .
+        run: docker build --label org.opencontainers.image.revision=${{ github.sha }} -t clipback-backend:check .
       - name: Pull PostgreSQL
         run: docker pull postgres:16
       - name: Check container persistence and paired restore
         run: python scripts/check_deployment.py --image clipback-backend:check
+      - name: Install deployment test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Build matching operator image
+        run: docker build --build-arg POSTGRES_MAJOR=16 --label org.opencontainers.image.revision=${{ github.sha }} -f Dockerfile.operator -t clipback-ledger-operator:check .
+      - name: Check ledger bootstrap and local API handoff
+        env:
+          RUN_DOCKER_RECOVERY_TESTS: "1"
+          CLIPBACK_HANDOFF_API_IMAGE: clipback-backend:check
+          CLIPBACK_LEDGER_OPERATOR_IMAGE: clipback-ledger-operator:check
+          CLIPBACK_HANDOFF_REVISION: ${{ github.sha }}
+        run: pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/test_image_handoff_docker.py

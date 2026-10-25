@@ -3,10 +3,12 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+
+from app.core.deletion_ledger_config import DeletionLedgerSettings
 
 
-class Settings(BaseSettings):
+class Settings(DeletionLedgerSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     youtube_summary_enabled: bool = True
@@ -46,6 +48,14 @@ class Settings(BaseSettings):
     apple_token_encryption_key: SecretStr | None = None
     social_auth_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_root: Path = Path("storage")
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: str | None = None
+    s3_bucket: str | None = None
+    s3_region: str = "auto"
+    s3_addressing_style: Literal["virtual", "path"] = "virtual"
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    deletion_ledger_backend: Literal["local", "s3"] = "local"
     screenshot_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     @field_validator("database_url")
@@ -80,6 +90,25 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be configured in production")
             if not self.storage_root.is_absolute():
                 raise ValueError("STORAGE_ROOT must be absolute in production")
+        if self.storage_backend == "s3":
+            for key in ("s3_endpoint_url", "s3_bucket", "s3_access_key_id", "s3_secret_access_key"):
+                value = getattr(self, key)
+                raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+                if not raw or not raw.strip():
+                    raise ValueError(f"{key.upper()} is required for S3 storage")
+            if self.app_environment == "production" and not self.s3_endpoint_url.startswith("https://"):
+                raise ValueError("S3_ENDPOINT_URL must use HTTPS in production")
+        if self.deletion_ledger_backend == "local":
+            if self.deletion_ledger_root.resolve().is_relative_to(self.storage_root.resolve()):
+                raise ValueError("DELETION_LEDGER_ROOT must be outside STORAGE_ROOT")
+            if self.app_environment == "production" and self.storage_backend == "s3":
+                raise ValueError("DELETION_LEDGER_BACKEND must be s3 for production Bucket images")
+        else:
+            if (
+                self.deletion_ledger_s3_endpoint_url == self.s3_endpoint_url
+                and self.deletion_ledger_s3_bucket == self.s3_bucket
+            ):
+                raise ValueError("DELETION_LEDGER_S3_BUCKET must be independent from image Bucket")
         if self.youtube_summary_enabled:
             for key in ("gemini_api_key", "youtube_data_api_key"):
                 value = getattr(self, key)

@@ -184,3 +184,49 @@ def test_alembic_percent_escape_round_trip():
     config = Config()
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     assert config.get_main_option("sqlalchemy.url") == url
+
+
+@pytest.mark.parametrize("missing", [
+    "s3_endpoint_url", "s3_bucket", "s3_access_key_id", "s3_secret_access_key",
+])
+def test_bucket_storage_requires_explicit_credentials(missing):
+    values = dict(storage_backend="s3", s3_endpoint_url="https://s3.example.com",
+                  s3_bucket="originals", s3_access_key_id="testing",
+                  s3_secret_access_key="testing")
+    values[missing] = ""
+    with pytest.raises(ValidationError, match=missing.upper()):
+        Settings(**values, _env_file=None)
+
+
+def test_local_deletion_ledger_must_be_outside_original_images():
+    with pytest.raises(ValidationError, match="DELETION_LEDGER_ROOT"):
+        Settings(
+            storage_root="/data/images", deletion_ledger_root="/data/images/ledger", _env_file=None,
+        )
+
+
+@pytest.mark.parametrize("missing", [
+    "deletion_ledger_s3_endpoint_url", "deletion_ledger_s3_bucket",
+    "deletion_ledger_s3_access_key_id", "deletion_ledger_s3_secret_access_key",
+])
+def test_independent_ledger_requires_its_own_explicit_credentials(missing):
+    values = dict(
+        deletion_ledger_backend="s3", deletion_ledger_s3_endpoint_url="https://ledger.example.com",
+        deletion_ledger_s3_bucket="deletion-ledger", deletion_ledger_s3_access_key_id="testing",
+        deletion_ledger_s3_secret_access_key="testing",
+    )
+    values[missing] = ""
+    with pytest.raises(ValidationError, match=missing.upper()):
+        Settings(**values, _env_file=None)
+
+
+def test_production_bucket_images_require_independent_bucket_ledger():
+    with pytest.raises(ValidationError, match="DELETION_LEDGER_BACKEND"):
+        Settings(
+            _env_file=None, app_environment="production", secret_key="test-secret",
+            openai_api_key="testing", google_client_ids=["testing"], kakao_client_ids=["testing"],
+            database_url="postgres://u:p@db/app", storage_root="/data/images",
+            storage_backend="s3", s3_endpoint_url="https://originals.example.com",
+            s3_bucket="originals", s3_access_key_id="testing", s3_secret_access_key="testing",
+            deletion_ledger_backend="local",
+        )

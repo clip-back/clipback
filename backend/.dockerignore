@@ -1,5 +1,6 @@
 **
 !Dockerfile
+!Dockerfile.operator
 !pyproject.toml
 !app/
 !app/**
@@ -8,5 +9,13 @@
 !alembic/**
 !scripts/
 !scripts/start.sh
+!scripts/image_backup.py
+!scripts/image_backup_jobs.py
+!scripts/image_storage_admin.py
+!scripts/image_migration.py
+!scripts/image_deletions.py
+!scripts/recovery_probe.py
+!scripts/recovery_deletions.py
+!scripts/check_backup_restore.py
 **/__pycache__/
 **/*.pyc

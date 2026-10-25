@@ -4,6 +4,8 @@
 // requests return an error; there is no real HTTP client or provider SDK fallback.
 import 'dart:convert';
 
+import 'asset_access_fixture.dart';
+
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -305,7 +307,7 @@ class _PreviewServer {
       }
     }
     final assetMatch = RegExp(
-      r'^/api/v1/uploads/assets/(\d+)$',
+      r'^/api/v1/uploads/assets/(\d+)(?:/access)?$',
     ).firstMatch(path);
     if (method == 'GET' && assetMatch != null) {
       final assetId = int.parse(assetMatch.group(1)!);
@@ -314,6 +316,9 @@ class _PreviewServer {
           (asset) => (asset as Map)['id'] == assetId,
         ),
       )) {
+        if (path.endsWith('/access')) {
+          return originalAccessFixture(assetId, image);
+        }
         return http.Response.bytes(
           image,
           200,

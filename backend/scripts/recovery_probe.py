@@ -8,14 +8,17 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import UTC, datetime
+from urllib.error import HTTPError
 
 from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
+from app.integrations.storage_client import get_storage_client
 
 
 def fingerprint(value):
@@ -43,9 +46,18 @@ def get(path, token):
 
 async def snapshot(payload):
     root = settings.storage_root.resolve()
+    version = payload.get("format_version", 1)
+    authenticated_user = None
+    if version == 2 and payload.get("verify_api", True):
+        authenticated_user = json.loads(get("users/me", payload["access_token"]))["id"]
     async with AsyncSessionLocal() as session:
-        # Capture the source while all app writes are stopped.
+        # Caller freezes writers or provides a protected, exported DB snapshot.
         await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        if payload.get("snapshot_id"):
+            snapshot_id = payload["snapshot_id"]
+            if not re.fullmatch(r"[0-9A-Fa-f-]+", snapshot_id):
+                raise ValueError("Invalid exported snapshot")
+            await session.execute(text(f"SET TRANSACTION SNAPSHOT '{snapshot_id}'"))
         names = (
             (
                 await session.execute(
@@ -79,32 +91,67 @@ async def snapshot(payload):
             )
         ]
         assets = []
-        for row in await session.execute(
-            text("SELECT id, content_id, storage_key FROM content_assets ORDER BY id")
-        ):
-            path = (root / row.storage_key).resolve()
-            if not path.is_relative_to(root) or not path.is_file():
-                raise ValueError("Invalid or missing stored asset")
-            assets.append(
-                {
-                    "id": row.id,
-                    "storage_key": row.storage_key,
-                    "size_bytes": path.stat().st_size,
-                    "sha256": file_hash(path),
-                }
+        columns = "id, content_id, storage_key"
+        if version == 2:
+            columns += ", storage_backend, size_bytes, sha256"
+        storage = get_storage_client() if version == 2 else None
+        for row in await session.execute(text(f"SELECT {columns} FROM content_assets ORDER BY id")):
+            if version == 2:
+                content_bytes = await storage.read_file(
+                    row.storage_key, backend=row.storage_backend
+                )
+                size, digest = len(content_bytes), hashlib.sha256(content_bytes).hexdigest()
+                if (row.size_bytes is not None and size != row.size_bytes) or (
+                    row.sha256 is not None and digest != row.sha256
+                ):
+                    raise ValueError("Stored original metadata differs")
+            else:
+                path = (root / row.storage_key).resolve()
+                if not path.is_relative_to(root) or not path.is_file():
+                    raise ValueError("Invalid or missing stored asset")
+                size, digest = path.stat().st_size, file_hash(path)
+            asset = {
+                "id": row.id,
+                "storage_key": row.storage_key,
+                "size_bytes": size,
+                "sha256": digest,
+            }
+            if version == 2:
+                asset.update(
+                    content_id=row.content_id,
+                    storage_backend=row.storage_backend,
+                    backup_key=f"originals/sha256/{digest}",
+                )
+            assets.append(asset)
+        sample = payload.get("sample")
+        if version == 2 and (not sample or not any(
+            a["id"] == sample.get("asset_id") and a["content_id"] == sample.get("content_id")
+            for a in assets
+        )):
+            candidates = assets
+            if authenticated_user is not None:
+                owned = set((await session.execute(
+                    text("SELECT id FROM contents WHERE user_id=:user_id"),
+                    {"user_id": authenticated_user},
+                )).scalars())
+                candidates = [asset for asset in assets if asset["content_id"] in owned]
+            sample = ({"content_id": candidates[0]["content_id"], "asset_id": candidates[0]["id"]}
+                      if candidates else None)
+        content = None
+        if sample:
+            content = await session.scalar(
+                text("SELECT to_jsonb(c) FROM contents c WHERE id=:id"),
+                {"id": sample["content_id"]},
             )
-        sample = payload["sample"]
-        content = await session.scalar(
-            text("SELECT to_jsonb(c) FROM contents c WHERE id=:id"), {"id": sample["content_id"]}
-        )
-        asset_content = await session.scalar(
-            text("SELECT content_id FROM content_assets WHERE id=:id"), {"id": sample["asset_id"]}
-        )
-        if not content or asset_content != content["id"]:
-            raise ValueError("Sample asset does not belong to content")
-    expected = next(asset for asset in assets if asset["id"] == sample["asset_id"])
+            asset_content = await session.scalar(
+                text("SELECT content_id FROM content_assets WHERE id=:id"),
+                {"id": sample["asset_id"]},
+            )
+            if not content or asset_content != content["id"]:
+                raise ValueError("Sample asset does not belong to content")
+    expected = next((a for a in assets if sample and a["id"] == sample["asset_id"]), None)
     categories = sorted(
-        category_id for content_id, category_id in links if content_id == content["id"]
+        category_id for content_id, category_id in links if content and content_id == content["id"]
     )
 
     def projection(value):
@@ -127,16 +174,34 @@ async def snapshot(payload):
 
     if payload.get("verify_api", True):
         token = payload["access_token"]
-        public = json.loads(get(f"contents/{sample['content_id']}", token))
-        image = get(f"uploads/assets/{sample['asset_id']}", token)
-        if (
-            not any(asset["id"] == sample["asset_id"] for asset in public["assets"])
-            or projection(public) != projection(content)
-            or sorted(category["id"] for category in public["categories"]) != categories
-            or hashlib.sha256(image).hexdigest() != expected["sha256"]
-        ):
-            raise ValueError("Authenticated API data differs")
-    referenced = {asset["storage_key"] for asset in assets}
+        for deleted in payload.get("deleted", []):
+            paths = [f"contents/{deleted['content_id']}"]
+            paths += [f"uploads/assets/{identifier}" for identifier in deleted["asset_ids"]]
+            paths += [f"uploads/assets/{identifier}/access" for identifier in deleted["asset_ids"]]
+            for path in paths:
+                try:
+                    get(path, token)
+                except HTTPError as exc:
+                    if exc.code != 404:
+                        raise ValueError("Deleted original API access differs") from None
+                else:
+                    raise ValueError("Deleted original was exposed")
+        if sample:
+            public = json.loads(get(f"contents/{sample['content_id']}", token))
+            image = get(f"uploads/assets/{sample['asset_id']}", token)
+            if (
+                not any(asset["id"] == sample["asset_id"] for asset in public["assets"])
+                or projection(public) != projection(content)
+                or sorted(category["id"] for category in public["categories"]) != categories
+                or hashlib.sha256(image).hexdigest() != expected["sha256"]
+            ):
+                raise ValueError("Authenticated API data differs")
+        elif authenticated_user is None:
+            # A real authenticated request still proves the restored account/session.
+            get("users/me", token)
+    referenced = {
+        asset["storage_key"] for asset in assets if asset.get("storage_backend", "local") == "local"
+    }
     extra = sum(
         1
         for path in root.rglob("*")
@@ -153,7 +218,7 @@ async def snapshot(payload):
             "saved_at": projection(content)["saved_at"],
             "category_ids": categories,
             "content_sha256": fingerprint(projection(content)),
-        },
+        } if sample else None,
         "extra_file_count": extra,
     }
 

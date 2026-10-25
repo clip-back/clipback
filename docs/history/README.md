@@ -114,6 +114,19 @@
 | 2026-10-22 | [운영 데이터 영속성과 백업·격리 복원 검증](2026-10-22-production-recovery.md) | 운영 |
 | 2026-10-22 | [일반 문서 README·상세 기준 정리와 보존 검증](2026-10-22-general-docs-structure.md) | 문서 |
 | 2026-10-23 | [에이전트 스킬 저장소 설정과 GitHub 라벨 확인](2026-10-23-agent-skills-setup.md) | 문서 |
+| 2026-10-23 | [이미지 보관 정책 설계 인터뷰·명세 발행](2026-10-23-image-storage-design.md) | 설계 |
+| 2026-10-23 | [이미지 보관 명세 통합 구현](2026-10-23-image-storage-implementation.md) | 통합 |
+| 2026-10-23 | [비공개 Bucket 원본 보관과 기존 API 호환](2026-10-23-image-storage-bucket.md) | 저장 |
+| 2026-10-23 | [계정별 이미지 한도와 양쪽 모바일 오류 안내](2026-10-23-image-storage-quota.md) | 저장 |
+| 2026-10-23 | [원본 접근 확인과 직접 다운로드](2026-10-23-image-direct-download.md) | 조회 |
+| 2026-10-23 | [계정별 기기 캐시와 양쪽 모바일 재시작 검증](2026-10-23-image-original-cache.md) | 조회 |
+| 2026-10-23 | [원본 삭제 내구성과 정리 재시도](2026-10-23-image-deletion.md) | 저장 |
+| 2026-10-23 | [DB·원본 Bucket 백업과 격리 복원](2026-10-23-image-storage-backup.md) | 운영 |
+| 2026-10-23 | [일일 백업·7일 보존과 최신 삭제 상태 복원](2026-10-23-image-backup-retention.md) | 운영 |
+| 2026-10-23 | [이미지 사용량과 저장 중단·재개 및 모바일 안내](2026-10-23-image-storage-controls.md) | 운영 |
+| 2026-10-23 | [기존 원본 이관과 실제 CLI·이전 백업 복원 검증](2026-10-23-image-storage-migration.md) | 운영 |
+| 2026-10-24 | [이미지 보관 전체 회귀·실제 모바일·다중 계정 복원 검증](2026-10-24-image-storage-integration.md) | 통합 |
+| 2026-10-24 | [이미지 보관 두 축 리뷰와 최종 수정 검증](2026-10-24-image-storage-review.md) | 리뷰 |
 | 2026-10-24 | [홈 최초 불러오기 복구 설계 인터뷰](2026-10-24-home-loading-recovery-design.md) | 설계 |
 | 2026-10-24 | [홈 최초 불러오기 복구 구현](2026-10-24-home-loading-recovery-implementation.md) | 프론트 |
 | 2026-10-24 | [마이 통계 조회 상태·복구 설계 인터뷰](2026-10-24-account-stats-recovery-design.md) | 설계 |

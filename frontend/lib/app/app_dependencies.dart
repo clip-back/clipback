@@ -1,4 +1,5 @@
 import '../data/services/search_history_storage.dart';
+import '../data/services/original_image_cache.dart';
 import '../data/services/api_request_scope.dart';
 import '../data/repositories/search_history_repository.dart';
 import '../clipback_api.dart';
@@ -34,6 +35,7 @@ class AppDependencies {
     bool Function()? canPrepareSharing,
   }) {
     final api = ClipbackApi(
+      originalImageCache: OriginalImageCache(),
       onSessionChanged: (_) async {
         if (!_disposed) await session.persistCurrentSession();
       },

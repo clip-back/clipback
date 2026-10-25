@@ -55,7 +55,7 @@ final class ShareService {
                     message = success ? "저장했어요. 요약과 분류는 계속 처리될 수 있어요." : "요청한 계정에 저장했습니다. 계정이 변경되어 본앱에서 확인해 주세요.";
                 } else {
                     if (status == 401) { store.rejectCredential(revision, auth.getString("token")); store.setState(id, "authRequired"); message = "로그인 상태 확인이 필요해요. 초안을 보관했습니다. 본앱을 열어 대기 중인 공유를 다시 선택해 주세요."; }
-                    else { store.setState(id, "failed"); message = errorMessage(status); }
+                    else { store.setState(id, "failed"); message = errorMessage(status, connection.getErrorStream()); }
                 }
             } catch (Exception error) {
                 try { store.setState(id, transmitted ? "unknown" : "failed"); } catch (Exception ignored) { }
@@ -68,7 +68,14 @@ final class ShareService {
             MAIN.post(() -> { if (listeners != null) for (Listener target : listeners) target.finished(id, result, done); });
         });
     }
-    private static String errorMessage(int status) {
+    private static String errorMessage(int status, InputStream body) {
+        try {
+            JSONObject detail = new JSONObject(read(body)).optJSONObject("detail");
+            if (detail != null && "image_uploads_paused".equals(detail.optString("code")))
+                return "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.";
+            if (detail != null && "image_quota_exceeded".equals(detail.optString("code")))
+                return "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.";
+        } catch (Exception ignored) { /* Preserve the status-specific fallback for non-JSON errors. */ }
         if (status == 409) return "이 요청의 입력이 기존 저장과 다릅니다. 원래 공유 항목을 확인해 주세요.";
         if (status == 410) return "이미 삭제된 저장 항목입니다. 이 공유는 다시 저장하지 않습니다.";
         if (status == 413) return "이미지는 10MiB 이하만 저장할 수 있습니다.";

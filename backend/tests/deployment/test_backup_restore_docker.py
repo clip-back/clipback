@@ -69,7 +69,8 @@ def real_backup(tmp_path_factory, request):
             f"postgres:{major}",
         )
         drill.docker("start", db)
-        drill.wait("exec", db, "pg_isready", "-U", "postgres", "-d", "clipback")
+        drill.wait("exec", db, "pg_isready", "-h", "127.0.0.1",
+                   "-U", "postgres", "-d", "clipback")
         migrate = drill.owner + "-migrate"
         drill.container(
             migrate, "--network", network, *env_args, image, "alembic", "upgrade", "head"
@@ -109,6 +110,10 @@ def real_backup(tmp_path_factory, request):
         snapshot = execute(drill, api, PROBE, payload)
         assert snapshot["tables"]["users"] == 2
         assert snapshot["extra_file_count"] == 1
+        # The authenticated image GET also records anonymous transfer telemetry.
+        # Capture the final source state after that verification, before dumping;
+        # otherwise the manifest counts precede a write contained in the dump.
+        snapshot = execute(drill, api, PROBE, {**payload, "verify_api": False})
         # Worker is disabled and the only producer is now stopped: a consistent paired set.
         drill.docker("stop", api)
         dump = directory / "database.dump"
@@ -160,7 +165,7 @@ def test_real_paired_restore_and_authentication(real_backup):
     directory, _, credentials, image = real_backup
     before = {p.name: sha256_file(p) for p in directory.iterdir()}
     report = check(directory, credentials, image)
-    assert report["passed"], report
+    assert report["passed"], json.dumps(report)
     assert report["authentication_passed"] and report["image_bytes_passed"]
     assert report["extra_file_count"] == 1
     assert report["cleanup_passed"]
