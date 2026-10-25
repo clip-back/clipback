@@ -7,6 +7,7 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class CategoryTopBar extends StatelessWidget {
@@ -288,6 +289,7 @@ class CategoryArchiveView extends StatelessWidget {
     required this.bookmarkedFirst,
     required this.onSortChanged,
     required this.onAddCategory,
+    this.onSubmitCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     required this.onOpenCategory,
@@ -300,6 +302,7 @@ class CategoryArchiveView extends StatelessWidget {
   final bool bookmarkedFirst;
   final ValueChanged<bool> onSortChanged;
   final ValueChanged<CategoryItem> onAddCategory;
+  final CategorySubmitCallback? onSubmitCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -339,8 +342,12 @@ class CategoryArchiveView extends StatelessWidget {
             context: context,
             useSafeArea: true,
             isScrollControlled: true,
+            enableDrag: onSubmitCategory == null,
             backgroundColor: Colors.transparent,
-            builder: (context) => CategoryCreateSheet(onCreate: onAddCategory),
+            builder: (context) => CategoryCreateSheet(
+              onCreate: onAddCategory,
+              onSubmit: onSubmitCategory,
+            ),
           ),
         ),
         // A missing metadata item is not evidence of an empty account.

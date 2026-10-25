@@ -4,6 +4,9 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
+import 'package:clipback_frontend/data/services/event_uuid.dart';
+import 'package:flutter/material.dart';
 
 class CategoryManagementViewModel extends ContentViewModel {
   CategoryManagementViewModel(super.repository, this.actions);
@@ -16,6 +19,16 @@ class CategoryManagementViewModel extends ContentViewModel {
     name: category.name,
     color: hexFromColor(category.color),
     feedback: emitEffect,
+  );
+
+  Future<CategorySaveResult> submitCreate({
+    required String name,
+    required Color color,
+    String? submissionKey,
+  }) => actions.submitCategoryCreate(
+    name: name,
+    color: hexFromColor(color),
+    submissionKey: submissionKey ?? newEventUuid(),
   );
   Future<void> update(CategoryItem original, CategoryItem updated) async {
     if (isDisposed || original.id == null) return;

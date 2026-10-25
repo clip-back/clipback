@@ -1,6 +1,7 @@
 from app.models.apple_auth import AppleAuthChallenge, AppleCredential
 from app.models.auth_session import AuthSession
 from app.models.category import Category
+from app.models.category_submission import CategorySubmission
 from app.models.content import Content, ContentSource, ContentType
 from app.models.content_asset import AssetType, ContentAsset
 from app.models.content_category import content_categories
@@ -26,6 +27,7 @@ __all__ = [
     "AssetType",
     "AuthSession",
     "Category",
+    "CategorySubmission",
     "Content",
     "ContentAsset",
     "ContentEvent",
