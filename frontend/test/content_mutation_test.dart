@@ -7,6 +7,7 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -234,8 +235,9 @@ class _Server {
 Future<void> _withApp(
   WidgetTester tester,
   _Server server,
-  Future<void> Function() check,
-) async {
+  Future<void> Function() check, {
+  double textScale = 1,
+}) async {
   SharedPreferences.setMockInitialValues({
     'clipback.session': jsonEncode({
       'access_token': 'test-access',
@@ -246,6 +248,8 @@ Future<void> _withApp(
   });
   tester.view.physicalSize = const Size(428, 1000);
   tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(server.client.close);
@@ -325,6 +329,436 @@ Future<void> _loadMore(WidgetTester tester) async {
 }
 
 void main() {
+  for (final activation in ['single pointer', 'semantics', 'keyboard action']) {
+    testWidgets('마이 통계 재시도 $activation 활성화는 요청 시작부터10초를 지킨다', (tester) async {
+      final pending = Completer<http.Response?>();
+      var statsReads = 0;
+      final server = _Server(
+        respond: (request, _) {
+          if (request.url.path != '/api/v1/users/me/stats') return null;
+          return switch (++statsReads) {
+            1 => _json({'saved_count': 218, 'reopened_count': 72}),
+            2 => _failure('503'),
+            _ => pending.future,
+          };
+        },
+      );
+      await _withApp(tester, server, () async {
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        switch (activation) {
+          case 'single pointer':
+            await tester.tap(find.text('다시 시도'));
+            await tester.pump(const Duration(milliseconds: 300));
+          case 'semantics':
+            final semantics = tester.ensureSemantics();
+            tester.semantics.tap(find.semantics.byLabel('다시 시도'));
+            semantics.dispose();
+          case 'keyboard action':
+            Actions.invoke(
+              tester.element(find.text('다시 시도')),
+              const ActivateIntent(),
+            );
+        }
+        await tester.pump();
+        expect(statsReads, 3);
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        expect(find.text('다시 시도'), findsNothing);
+        await tester.pump(const Duration(milliseconds: 9999));
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump();
+        expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+        expect(find.text('218'), findsOneWidget);
+        expect(find.text('72'), findsOneWidget);
+        pending.complete(_json({'saved_count': 1, 'reopened_count': 1}));
+        await tester.pumpAndSettle();
+      });
+    });
+  }
+
+  testWidgets('마이 통계 재시도 연속 입력은 이동한 관리 메뉴를 열지 않는다', (tester) async {
+    final fonts = FontLoader('Pretendard');
+    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
+      fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
+    }
+    await fonts.load();
+    final pending = Completer<http.Response?>();
+    var statsReads = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/users/me/stats') return null;
+        return switch (++statsReads) {
+          1 => _json({'saved_count': 218, 'reopened_count': 72}),
+          2 => _failure('503'),
+          _ => pending.future,
+        };
+      },
+    );
+    await _withApp(tester, server, () async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+      final retryPosition = tester.getCenter(find.text('다시 시도'));
+      final first = await tester.startGesture(retryPosition);
+      await tester.pump(const Duration(milliseconds: 45));
+      await first.up();
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 15));
+      }
+      final second = await tester.startGesture(retryPosition);
+      await tester.pump(const Duration(milliseconds: 45));
+      await second.up();
+      await tester.pump(const Duration(milliseconds: 350));
+      final unintendedSheet = find.byType(ReminderSheet).evaluate().isNotEmpty;
+      expect(server.calls('/api/v1/users/me/stats'), hasLength(3));
+      pending.complete(_json({'saved_count': 320, 'reopened_count': 89}));
+      await tester.pumpAndSettle();
+      expect(unintendedSheet, isFalse);
+      expect(find.byType(ReminderSheet), findsNothing);
+      expect(find.text('320'), findsOneWidget);
+      expect(find.text('89'), findsOneWidget);
+      await tester.tap(find.text('리마인드 설정'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReminderSheet), findsOneWidget);
+    }, textScale: 2);
+  });
+
+  testWidgets('콘텐츠 갱신 뒤 늦은 최초 프로필401은 현재 통계와 인증을 바꾸지 않는다', (tester) async {
+    final oldProfile = Completer<http.Response?>();
+    var profileReads = 0;
+    final server = _Server(
+      respond: (request, _) =>
+          request.url.path == '/api/v1/users/me' && ++profileReads == 1
+          ? oldProfile.future
+          : null,
+    );
+    await _withApp(tester, server, () async {
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      home.onToggleBookmark(home.contents.first);
+      await tester.pumpAndSettle();
+      expect(profileReads, 2);
+      oldProfile.complete(_failure('401'));
+      await tester.pumpAndSettle();
+      home.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(server.calls('/api/v1/auth/refresh'), isEmpty);
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+      expect(find.text('999'), findsOneWidget);
+      expect(find.text('0'), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+    });
+  });
+
+  testWidgets('콘텐츠 삭제 뒤 프로필 실패가 누적 통계 성공과 삭제를 가리지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    var profileReads = 0;
+    var statsReads = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path == '/api/v1/users/me' && ++profileReads == 2) {
+          return profile.future;
+        }
+        if (request.url.path == '/api/v1/users/me/stats') {
+          return _json({
+            'saved_count': 70,
+            'reopened_count': ++statsReads == 1 ? 30 : 31,
+          });
+        }
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _detail(tester);
+      final detail = _currentDetail(tester);
+      detail.onDeleteContent(detail.content);
+      await tester.pumpAndSettle();
+      detail.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('70'), findsOneWidget);
+      expect(find.text('31'), findsOneWidget);
+      expect(find.textContaining('마지막 확인값'), findsNothing);
+      expect(server.records, hasLength(2));
+      profile.complete(_failure('503'));
+      await tester.pumpAndSettle();
+      expect(find.text('70'), findsOneWidget);
+      expect(find.text('31'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text('다시 시도'), findsNothing);
+      expect(server.records, hasLength(2));
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    });
+  });
+
+  testWidgets('새 앱 실행에서는 이전 실행의 마이 통계를 복원하지 않는다', (tester) async {
+    final firstServer = _Server();
+    await _withApp(tester, firstServer, () async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('999'), findsOneWidget);
+    });
+    final pending = Completer<http.Response?>();
+    final secondServer = _Server(
+      respond: (request, _) =>
+          request.url.path == '/api/v1/users/me/stats' ? pending.future : null,
+    );
+    await _withApp(tester, secondServer, () async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('—'), findsNWidgets(2));
+      expect(find.text('999'), findsNothing);
+      expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
+      pending.complete(_json({'saved_count': 77, 'reopened_count': 3}));
+      await tester.pumpAndSettle();
+      expect(find.text('77'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+    });
+  });
+
+  testWidgets('마이 통계의0과0도 마지막 확인값으로 유지하고10초 뒤 복구한다', (tester) async {
+    final pending = Completer<http.Response?>();
+    final recovered = Completer<http.Response?>();
+    var statsReads = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/users/me/stats') return null;
+        return switch (++statsReads) {
+          1 => _json({'saved_count': 0, 'reopened_count': 0}),
+          2 => pending.future,
+          _ => recovered.future,
+        };
+      },
+    );
+    await _withApp(tester, server, () async {
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      home.onToggleBookmark(home.contents.first);
+      await tester.pumpAndSettle();
+      home.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('0'), findsNWidgets(2));
+      expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(find.text('0'), findsNWidgets(2));
+      expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 9999));
+      expect(find.text('0'), findsNWidgets(2));
+      expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+      recovered.complete(_json({'saved_count': 23, 'reopened_count': 9}));
+      await tester.pumpAndSettle();
+      pending.complete(_json({'saved_count': 9999, 'reopened_count': 9999}));
+      await tester.pumpAndSettle();
+      expect(find.text('23'), findsOneWidget);
+      expect(find.text('9'), findsOneWidget);
+      expect(find.text('9999'), findsNothing);
+      expect(find.textContaining('마지막 확인값'), findsNothing);
+      expect(server.calls('/api/v1/auth/guest'), isEmpty);
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    });
+  });
+
+  testWidgets('새 콘텐츠 목록이 늦어도 무효화된 통계의 로딩은10초에 끝난다', (tester) async {
+    final oldStats = Completer<http.Response?>();
+    final newFeed = Completer<http.Response?>();
+    var statsReads = 0;
+    var holdFeed = false;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path == '/api/v1/users/me/stats') {
+          return switch (++statsReads) {
+            1 => _json({'saved_count': 70, 'reopened_count': 30}),
+            2 => oldStats.future,
+            _ => _failure('503'),
+          };
+        }
+        if (request.url.path == _feed && holdFeed) return newFeed.future;
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      home.onToggleBookmark(home.contents[0]);
+      await tester.pumpAndSettle();
+      home.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      holdFeed = true;
+      home.onToggleBookmark(home.contents[1]);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      final ended = find.text('마지막 확인값 · 새로 불러오지 못했어요').evaluate().isNotEmpty;
+      final retained = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+      holdFeed = false;
+      newFeed.complete(_failure('503'));
+      oldStats.complete(_json({'saved_count': 1, 'reopened_count': 1}));
+      await tester.pumpAndSettle();
+      expect(ended, isTrue);
+      expect(retained.savedContentCount, 70);
+      expect(retained.revisitedContentCount, 30);
+      expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+      expect(find.text('다시 시도'), findsOneWidget);
+    });
+  });
+
+  testWidgets('콘텐츠 갱신의 이전 프로필401은 새 통계와 인증을 바꾸지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final newFeed = Completer<http.Response?>();
+    var profileReads = 0;
+    var holdFeed = false;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path == '/api/v1/users/me' && ++profileReads == 2) {
+          return profile.future;
+        }
+        if (request.url.path == _feed && holdFeed) return newFeed.future;
+        return null;
+      },
+    );
+    await _withApp(tester, server, () async {
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      home.onToggleBookmark(home.contents[0]);
+      await tester.pumpAndSettle();
+      expect(profileReads, 2);
+      holdFeed = true;
+      home.onToggleBookmark(home.contents[1]);
+      await tester.pump();
+      profile.complete(_failure('401'));
+      await tester.pump();
+      final refreshes = server.calls('/api/v1/auth/refresh').length;
+      final token = (await ApiSessionStorage().read())?.accessToken;
+      holdFeed = false;
+      newFeed.complete(null);
+      await tester.pumpAndSettle();
+      home.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(refreshes, 0);
+      expect(token, 'test-access');
+      expect(find.text('999'), findsOneWidget);
+      expect(find.text('0'), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+    });
+  });
+
+  for (final refreshStarted in [false, true]) {
+    testWidgets('새 콘텐츠 갱신으로 무효화된 통계는 인증을 바꾸지 않는다 (refresh=$refreshStarted)', (
+      tester,
+    ) async {
+      final oldStats = Completer<http.Response?>();
+      final refreshResponse = Completer<http.Response?>();
+      final newFeed = Completer<http.Response?>();
+      var statsReads = 0;
+      var holdFeed = false;
+      final server = _Server(
+        respond: (request, _) {
+          if (request.url.path == '/api/v1/auth/refresh') {
+            return refreshResponse.future;
+          }
+          if (request.url.path == '/api/v1/users/me/stats') {
+            return switch (++statsReads) {
+              1 => _json({'saved_count': 70, 'reopened_count': 30}),
+              2 => oldStats.future,
+              _ => _json({'saved_count': 210, 'reopened_count': 100}),
+            };
+          }
+          if (request.url.path == _feed && holdFeed) return newFeed.future;
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        home.onToggleBookmark(home.contents[0]);
+        await tester.pumpAndSettle();
+        expect(statsReads, 2);
+        if (refreshStarted) {
+          oldStats.complete(_failure('401'));
+          await tester.pump();
+          expect(server.calls('/api/v1/auth/refresh'), hasLength(1));
+        }
+        holdFeed = true;
+        home.onToggleBookmark(home.contents[1]);
+        await tester.pump();
+        if (refreshStarted) {
+          refreshResponse.complete(
+            _json({
+              'access_token': 'obsolete-access',
+              'refresh_token': 'obsolete-refresh',
+              'expires_in': 3600,
+              'refresh_expires_in': 86400,
+            }),
+          );
+        } else {
+          oldStats.complete(_failure('401'));
+        }
+        await tester.pump();
+        final refreshes = server.calls('/api/v1/auth/refresh').length;
+        final token = (await ApiSessionStorage().read())?.accessToken;
+        holdFeed = false;
+        newFeed.complete(null);
+        await tester.pumpAndSettle();
+        home.onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        expect(refreshes, refreshStarted ? 1 : 0);
+        expect(token, 'test-access');
+        expect(find.text('210'), findsOneWidget);
+        expect(find.text('100'), findsOneWidget);
+        expect(find.byType(LoginScreen), findsNothing);
+      });
+    });
+  }
+
+  testWidgets('마이 통계 마지막 확인값은 콘텐츠 갱신 실패와 재시도 중에도 유지된다', (tester) async {
+    final pending = Completer<http.Response?>();
+    final recovered = Completer<http.Response?>();
+    var statsReads = 0;
+    final server = _Server(
+      respond: (request, _) {
+        if (request.url.path != '/api/v1/users/me/stats') return null;
+        return switch (++statsReads) {
+          1 => _json({'saved_count': 70, 'reopened_count': 30}),
+          2 => pending.future,
+          _ => recovered.future,
+        };
+      },
+    );
+    await _withApp(tester, server, () async {
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      home.onToggleBookmark(home.contents.first);
+      await tester.pumpAndSettle();
+      expect(server.calls('/api/v1/users/me/stats'), hasLength(2));
+      home.onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('70'), findsOneWidget);
+      expect(find.text('30'), findsOneWidget);
+      expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+      expect(find.text('다시 시도'), findsNothing);
+
+      pending.complete(_failure('503'));
+      await tester.pumpAndSettle();
+      expect(find.text('70'), findsOneWidget);
+      expect(find.text('30'), findsOneWidget);
+      expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      final profiles = server.calls('/api/v1/users/me').length;
+      await tester.tap(find.text('다시 시도'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('70'), findsOneWidget);
+      expect(find.text('30'), findsOneWidget);
+      expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+      expect(find.text('다시 시도'), findsNothing);
+      recovered.complete(_json({'saved_count': 100, 'reopened_count': 40}));
+      await tester.pumpAndSettle();
+      expect(find.text('100'), findsOneWidget);
+      expect(find.text('40'), findsOneWidget);
+      expect(find.textContaining('마지막 확인값'), findsNothing);
+      expect(server.calls('/api/v1/users/me'), hasLength(profiles));
+      expect(_mutations(server), hasLength(1));
+      expect(server.records.first['is_favorite'], isTrue);
+      expect((await ApiSessionStorage().read())?.accessToken, 'test-access');
+    });
+  });
+
   for (final count in [1, 2]) {
     testWidgets(
       'a rendered card tapped after deletion stays in archive with ${count - 1} remaining items',

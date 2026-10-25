@@ -126,10 +126,10 @@ void main() {
       expect(app.route, AppRoute.home);
       expect(app.apiConnectionError, isNull);
       expect(app.authenticatedUser, isNull);
-      expect(account.user.savedContentCount, 0);
-      expect(account.user.revisitedContentCount, 0);
+      expect(account.user.savedContentCount, 70);
+      expect(account.user.revisitedContentCount, 30);
 
-      // A subsequent content refresh recovers the profile and server counts.
+      // A subsequent content refresh recovers the profile and preserves server counts.
       await actions.refresh((_) {});
       expect(account.user.savedContentCount, 70);
       expect(account.user.revisitedContentCount, 30);
