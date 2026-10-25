@@ -130,3 +130,50 @@
 이 단계의 앱 검사는 로컬 HTTP 대역입니다. 백엔드 코드는 바꾸지 않아 DB·마이그레이션 검사를 새로 실행하지 않았습니다.
 iOS Simulator·Android Emulator의 변경 전/후/Figma 비교·스크린샷·영상은 별도 네이티브 검증 담당이 통합 코드에서 확인합니다.
 이 담당의 자동 테스트로 네이티브 실행·실제 OAuth·운영 서버·실기기·원격 CI 검증을 대신하지 않습니다.
+
+
+## #91 공유 인증 갱신과 계정 전환의 카테고리 수명 보호
+
+### 변경과 red → green
+
+- 실제 `ClipbackApp`·HTTP 대역·메모리 세션의 공개 화면 콜백으로, 결과 미확인 생성 시트와 닫기 확인창을 연 뒤
+  게스트 계정 연결을 완료했습니다. 새 계정으로 초기화돼도 기존 시트가 남는 실패를 재현했습니다.
+  `CloseTransientRoutesEffect`를 로그인 선택 전용 경로에서 실제 계정 초기화의 공통 경계로 옮겨 둘을 함께 정리합니다.
+  같은 계정의 토큰 갱신과 로그아웃 시도의 일반 실패는 계정 초기화가 아니므로 초안과 제출을 유지합니다.
+- 생성·수정의 현재 최종401이 로그인 복구로 시트를 닫은 직후, 아직 닫힘 애니메이션 중인 폼의 늦은 `stale` 결과가
+  다시 `Navigator.pop`을 호출해 첫 route까지 제거하는 실패(`_history.isNotEmpty`)를 재현했습니다.
+  이전 계정 결과는 추가로 닫지 않고, 성공도 해당 폼의 route가 현재일 때만 닫도록 제한했습니다.
+- 공통 인증 갱신의 독립 scope·소유자 집합과 기존 직렬 토큰 저장은 그대로 유지합니다.
+  카테고리 호출자의 전체10초가 먼저 끝나면 해당 대기만 끝나며, 다른 현재 요청이 소유한 갱신은 계속합니다.
+  이미 유효한 갱신이 시작한 토큰 저장을 취소·롤백하지 않고, 끝난 카테고리 시도는 재전송·화면 반영을 하지 않습니다.
+- 현재 README·동작·정책·ADR의 미구현 표현을 적용된 계약으로 맞추고, 서버 API와 migration `202610250015`를
+  신규 앱보다 먼저 적용하는 배포 순서를 운영 안내에 연결했습니다. 운영에 적용했다는 의미는 아닙니다.
+
+### 이 단계의 검증
+
+- 신규 `test/category_auth_recovery_test.dart`의 실제 앱 검사26개를 통과했습니다.
+  생성·수정·같은 제출 재확인·저장 후 GET의 인증 포함 전체10초, 단독 소유자 만료 뒤 늦은200/401,
+  검색과 공유한 갱신 성공/503, 느린 토큰 저장 뒤 같은 키·내용의 수동 재확인, 로그아웃 실패/완료,
+  미확인 시트·닫기 확인창과 잠긴 저장 시트의 실제 종료, 새 계정 초안 뒤의 늦은 쓰기·인증,
+  갱신 거절/재요청의 현재 최종401 복구와 자동 게스트 발급 없음까지 확인했습니다.
+- 초기 대역 작성에서 입력 반영 프레임 누락과 잘못된 소셜 upgrade 경로를 수정했습니다.
+  이 대역 준비 오류와 위 두 제품 회귀의 red → green은 구분합니다.
+- `frontend/`에서 `flutter test --no-pub --concurrency=1`로 아래14개 파일의 관련 검사 **431개**를 통과했습니다(65초).
+  `category_auth_recovery_test`, `category_delete_test`, `category_list_recovery_test`, `category_sheet_alignment_test`,
+  `session_restore_test`, `session_refresh_test`, `session_persistence_test`, `social_login_test`,
+  `data/session_repository_test`, `app/app_view_model_test`, `app/content_actions_test`, `data/content_repository_test`,
+  `share/share_lifecycle_test`, `content_auto_category_test`입니다. 이전 계정 GET·스낵바, 홈15초, 마이 통계 마지막 확인값과
+  기존 콘텐츠·공유 복구도 이번 실행에 포함했습니다.
+- 새 테스트 조건문의12개 lint 안내를 수정한 뒤 `flutter analyze --no-pub`는 No issues였습니다.
+  변경 Dart format, 문서7개 로컬 경로, `git diff --check`와 민감·생성 파일 제외를 확인했습니다.
+  전체 검사·제품 빌드·양 플랫폼 실행은 아래 공유 완료 검증과 구분합니다.
+
+### 증거 경계
+
+이 단계의 앱 검사는 로컬 HTTP·SDK 대역과 메모리 세션입니다. 실제 OAuth는 수행하지 않았습니다.
+백엔드 제품·테스트·migration 소스는 변경하지 않았고 DB를 사용하지 않았습니다.
+기존 서버의 계정 격리·권한·동일 키 처리 결과 검증은 선행 #87/#88과 최종 공유 서버 검사에서 구분합니다.
+전체 프론트·백엔드·빌드·migration은 #90/#91을 모두 통합한 뒤 root가 한 번 실행하는 공유 완료 검증으로 진행합니다.
+iOS Simulator·Android Emulator의 기종·OS·시나리오와 변경 전/후/Figma·스크린샷·영상은 별도 네이티브 담당의 기록을 따릅니다.
+이 구현 담당은 기기를 실행하지 않았으며, 이 자동 검사로 네이티브 실행을 대신하지 않습니다.
+운영 배포·운영 서버·실기기·원격 CI는 수행하지 않았습니다.
