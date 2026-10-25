@@ -90,10 +90,14 @@ class MyScreen extends StatelessWidget {
     required this.onOpenCategoryManagement,
     required this.onTab,
     this.onOpenNotices,
+    this.statsMessage,
+    this.onRetryStats,
     super.key,
   });
 
   final AppUser user;
+  final String? statsMessage;
+  final VoidCallback? onRetryStats;
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
@@ -126,6 +130,45 @@ class MyScreen extends StatelessWidget {
                     MyProfileRow(user: user, onTap: onOpenAccount),
                     const MySectionHeader(title: '나의 허투루'),
                     MyStatsStrip(user: user),
+                    if (statsMessage case final message?)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              message,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.subtle,
+                              ),
+                            ),
+                            if (onRetryStats != null) ...[
+                              const SizedBox(height: 8),
+                              // Consume a rapid second tap before retry moves the menus.
+                              GestureDetector(
+                                onDoubleTap: onRetryStats,
+                                excludeFromSemantics: true,
+                                child: OutlinedButton(
+                                  onPressed: onRetryStats,
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(88, 44),
+                                    foregroundColor: AppColors.text,
+                                    side: const BorderSide(
+                                      color: AppColors.subtle,
+                                    ),
+                                    textStyle: const TextStyle(fontSize: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: const Text('다시 시도'),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     const MySectionHeader(title: '관리'),
                     MyListGroup(
@@ -403,17 +446,51 @@ class MyStatsStrip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
-        height: 80,
+        constraints: const BoxConstraints(minHeight: 80),
         decoration: BoxDecoration(
           color: AppColors.text,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Expanded(
-              child: MyMetric(
-                label: '저장한 콘텐츠',
-                value: user.savedContentCount.toString(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(),
+                  1: FixedColumnWidth(1),
+                  2: FlexColumnWidth(),
+                },
+                children: [
+                  TableRow(
+                    children: [
+                      _metricText('저장한 콘텐츠', _MyText.metricLabel),
+                      const SizedBox.shrink(),
+                      _metricText('다시 본 콘텐츠', _MyText.metricLabel),
+                    ],
+                  ),
+                  const TableRow(
+                    children: [
+                      SizedBox(height: 8),
+                      SizedBox.shrink(),
+                      SizedBox(height: 8),
+                    ],
+                  ),
+                  TableRow(
+                    children: [
+                      _metricText(
+                        user.savedContentCount?.toString() ?? '—',
+                        _MyText.metricValue,
+                      ),
+                      const SizedBox.shrink(),
+                      _metricText(
+                        user.revisitedContentCount?.toString() ?? '—',
+                        _MyText.metricValue,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             SizedBox(
@@ -430,40 +507,16 @@ class MyStatsStrip extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              child: MyMetric(
-                label: '다시 본 콘텐츠',
-                value: user.revisitedContentCount.toString(),
-              ),
-            ),
           ],
         ),
       ),
     );
   }
-}
 
-class MyMetric extends StatelessWidget {
-  const MyMetric({required this.label, required this.value, super.key});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(label, textAlign: TextAlign.center, style: _MyText.metricLabel),
-          const SizedBox(height: 8),
-          Text(value, textAlign: TextAlign.center, style: _MyText.metricValue),
-        ],
-      ),
-    );
-  }
+  Widget _metricText(String text, TextStyle style) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Text(text, textAlign: TextAlign.center, style: style),
+  );
 }
 
 class MyListGroup extends StatelessWidget {

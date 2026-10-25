@@ -127,6 +127,16 @@
 | 2026-10-23 | [기존 원본 이관과 실제 CLI·이전 백업 복원 검증](2026-10-23-image-storage-migration.md) | 운영 |
 | 2026-10-24 | [이미지 보관 전체 회귀·실제 모바일·다중 계정 복원 검증](2026-10-24-image-storage-integration.md) | 통합 |
 | 2026-10-24 | [이미지 보관 두 축 리뷰와 최종 수정 검증](2026-10-24-image-storage-review.md) | 리뷰 |
+| 2026-10-24 | [홈 최초 불러오기 복구 설계 인터뷰](2026-10-24-home-loading-recovery-design.md) | 설계 |
+| 2026-10-24 | [홈 최초 불러오기 복구 구현](2026-10-24-home-loading-recovery-implementation.md) | 프론트 |
+| 2026-10-24 | [마이 통계 조회 상태·복구 설계 인터뷰](2026-10-24-account-stats-recovery-design.md) | 설계 |
+| 2026-10-24 | [마이 통계 조회 상태·복구 구현 명세 작성](2026-10-24-account-stats-recovery-spec.md) | 명세 |
+| 2026-10-24 | [마이 통계 조회 상태·복구 구현 티켓 분할](2026-10-24-account-stats-recovery-tickets.md) | 티켓 |
+| 2026-10-25 | [마이 통계 조회 상태·복구 구현](2026-10-25-account-stats-recovery-implementation.md) | 프론트 |
+| 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 설계](2026-10-25-category-save-recovery-design.md) | 설계 |
+| 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 명세 작성](2026-10-25-category-save-recovery-spec.md) | 명세 |
+| 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 티켓 분할](2026-10-25-category-save-recovery-tickets.md) | 티켓 |
+| 2026-10-25 | [카테고리 입력 보존과 실패 복구 구현](2026-10-25-category-save-recovery-implementation.md) | 기능 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 

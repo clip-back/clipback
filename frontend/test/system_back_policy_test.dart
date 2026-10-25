@@ -388,6 +388,8 @@ void main() {
           expect(find.byType(SessionRestoreScreen), findsOneWidget);
           expect(h.osExits, 0);
           storage.pending.complete(storage.value);
+          await t.pump();
+          await t.pump(const Duration(milliseconds: 900));
           await t.pumpAndSettle();
           expect(find.byType(HomeScreen), findsOneWidget);
         },

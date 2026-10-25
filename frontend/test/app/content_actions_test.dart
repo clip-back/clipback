@@ -26,7 +26,10 @@ class _Content extends ContentRepository {
   );
 
   @override
-  Future<RefreshResult> refresh(RefreshTicket ticket) {
+  Future<RefreshResult> refresh(
+    RefreshTicket ticket, {
+    bool includeCategories = true,
+  }) {
     final result = RefreshResult(
       current: isCurrentRefresh(ticket),
       metadataFailed: true,

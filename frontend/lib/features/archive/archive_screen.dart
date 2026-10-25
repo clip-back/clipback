@@ -7,6 +7,7 @@ import 'package:clipback_frontend/features/archive/category_card_review_screen.d
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
+import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -39,6 +40,9 @@ class ArchiveScreen extends StatelessWidget {
     required this.onChangeContentCategory,
     required this.onDeleteContent,
     required this.onAddCategory,
+    this.onSubmitCategory,
+    this.onSubmitCategoryUpdate,
+    this.onPrepareCategory,
     required this.onUpdateCategory,
     required this.onDeleteCategory,
     required this.onAddLink,
@@ -71,6 +75,9 @@ class ArchiveScreen extends StatelessWidget {
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final ValueChanged<CategoryItem> onAddCategory;
+  final CategorySubmitCallback? onSubmitCategory;
+  final CategoryUpdateSubmitCallback? onSubmitCategoryUpdate;
+  final CategoryPrepareCallback? onPrepareCategory;
   final void Function(CategoryItem original, CategoryItem updated)
   onUpdateCategory;
   final ValueChanged<CategoryItem> onDeleteCategory;
@@ -206,6 +213,9 @@ class ArchiveScreen extends StatelessWidget {
                         bookmarkedFirst: bookmarkedFirst,
                         onSortChanged: onSortChanged,
                         onAddCategory: onAddCategory,
+                        onSubmitCategory: onSubmitCategory,
+                        onSubmitCategoryUpdate: onSubmitCategoryUpdate,
+                        onPrepareCategory: onPrepareCategory,
                         onUpdateCategory: onUpdateCategory,
                         onDeleteCategory: onDeleteCategory,
                         onOpenCategory: onOpenCategory,

@@ -23,6 +23,8 @@ const _category = {
   'name': '보관 분류',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 
 Map<String, Object?> _content({

@@ -70,6 +70,16 @@ cumulative view statistics, screenshot download/deletion, cross-user isolation, 
 DB failure compensation that removes an already-written image. These tests do not
 validate live provider credentials, external service quality, deployment, or load.
 
+`tests/integration/test_category_submissions.py`는 카테고리 생성·수정의 같은 제출 결과 재사용,
+계정·작업 종류·수정 대상·부분 수정 필드 구분, 거절 보존과 후속 수정·삭제 보존을 HTTP로 확인합니다.
+독립 PostgreSQL 연결로 동시 제출과 commit 전 실패·commit 응답 유실을 구분합니다.
+처리 기록의 삭제 보존·계정 삭제 정리도 함께 검사하며, 이는 운영 DB나 실제 앱 네트워크 검증이 아닙니다.
+
+카테고리 제출의 현재 상태·수명 검사는 `tests/integration/test_category_submissions.py`에서 생성·수정 각각
+독립 세션과 실제 commit으로 실행합니다. 원래 성공 뒤 별도 키 수정·삭제·같은 이름의 다른 ID 생성 후 원래 키를 재확인해도
+원래 결과만 반환하고 최신 목록은 이후 상태를 유지해야 합니다. 삭제된 대상의 새 수정은 확정 거절이며,
+카테고리 삭제 뒤 처리 기록 보존·기존 계정 삭제 계약 뒤 기록 제거를 확인합니다. 자동 TTL이나 새 회원 탈퇴 API는 추가하지 않습니다.
+
 ## Native Share Local Backend Harness
 
 `tests/support/share_live_server.py` runs the real API, authentication, receipts,
@@ -109,3 +119,15 @@ explicitly disposable; they are not application backups.
 운영 백업 입력을 새 로컬 자원에만 복원하는 도구와 별도의 합성 Docker 검사는
 [백업 격리 복원 검사](backup-recovery.md)를 따릅니다. 운영 dump를 일반 pytest나 테스트 DB에
 넣지 않으며, 합성 검사 성공과 실제 운영 백업 복원 결과를 구분합니다.
+
+## 이미지·카테고리 migration 분기 통합
+
+`tests/repositories/test_image_category_merge_migration.py`는 실제 Alembic CLI로 빈 DB와
+기존 `202610250015`·`202610230018` 분기를 각각 `202610250019`로 업그레이드합니다.
+대표 콘텐츠·local 원본 위치/무결성 정보·카테고리 제출 결과 보존, `alembic check`,
+반복 업그레이드를 확인합니다. 이미 배포된 migration의 부모를 변경하지 않습니다.
+
+이 검사는 `TEST_DATABASE_URL`의 전용 테스트 PostgreSQL 역할에 DB 생성 권한이 필요합니다.
+무작위 이름의 격리 DB를 만들고 검사 종료 시 제거합니다. 운영 DB 자격증명으로 실행하지 않습니다.
+기존 API 통합 검사는 초기화한 합성 삭제 기록 저장소와 local 원본을 사용하며,
+실제 Railway 설정·이전 이미지 호환·삭제 기록 확인은 별도 배포 체크리스트로 남깁니다.

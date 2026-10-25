@@ -39,6 +39,8 @@ class _Social extends SocialAuth {
   );
   Future<SocialCredential?> Function()? respond;
   AppleCredentialStatus state = AppleCredentialStatus.authorized;
+  Future<AppleCredentialStatus> Function()? checkCredential;
+  int appleChecks = 0;
   String? remembered;
   @override
   Stream<void> get appleCredentialRevocations => revocations.stream;
@@ -60,7 +62,10 @@ class _Social extends SocialAuth {
   }
 
   @override
-  Future<AppleCredentialStatus> appleCredentialState() async => state;
+  Future<AppleCredentialStatus> appleCredentialState() async {
+    appleChecks++;
+    return checkCredential != null ? checkCredential!() : state;
+  }
 }
 
 class _Storage extends ApiSessionStorage {
@@ -160,6 +165,7 @@ Future<void> _app(
   _Social social,
   Future<void> Function() check, {
   bool stored = false,
+  bool settle = true,
   _Storage? storage,
 }) async {
   SharedPreferences.setMockInitialValues({});
@@ -175,7 +181,7 @@ Future<void> _app(
       await tester.pumpWidget(
         ClipbackApp(sessionStorage: storage, socialAuth: social),
       );
-      await completeAppStartup(tester);
+      await completeAppStartup(tester, settle: settle);
       await check();
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -338,6 +344,229 @@ void main() {
     },
   );
 
+  for (final lateStatus in [200, 401, 503]) {
+    testWidgets('마이 재조회 중 계정 연결 뒤 이전$lateStatus 응답은 새 계정 통계를 바꾸지 않는다', (
+      tester,
+    ) async {
+      final oldStats = Completer<http.Response?>();
+      var guestStats = 0;
+      var memberStats = 0;
+      final server = _Server()
+        ..respond = (request) async {
+          if (!request.url.path.endsWith('/stats')) return null;
+          if (request.headers['Authorization'] == 'Bearer guest-access') {
+            return switch (++guestStats) {
+              1 => _json({'saved_count': 81, 'reopened_count': 22}),
+              2 => _json({'detail': 'temporary failure'}, 503),
+              _ => oldStats.future,
+            };
+          }
+          return ++memberStats == 2
+              ? _json({'detail': 'temporary failure'}, 503)
+              : _json({'saved_count': 5, 'reopened_count': 2});
+        };
+      final storage = _Storage();
+      await _app(
+        tester,
+        server,
+        _Social(),
+        () async {
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.text('81'), findsOneWidget);
+          final oldRetry = tester
+              .widget<MyScreen>(find.byType(MyScreen))
+              .onRetryStats!;
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+          tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<AccountManagementScreen>(
+                find.byType(AccountManagementScreen),
+              )
+              .onConnect();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google);
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.text('5'), findsOneWidget);
+          expect(find.text('2'), findsOneWidget);
+          expect(find.text('81'), findsNothing);
+          expect(find.text('22'), findsNothing);
+          expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+          final requests = server.at('/users/me/stats').length;
+          oldRetry();
+          await tester.pump();
+          expect(server.at('/users/me/stats'), hasLength(requests));
+          expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
+          oldStats.complete(
+            lateStatus == 200
+                ? _json({'saved_count': 999, 'reopened_count': 999})
+                : _json({'detail': 'old account response'}, lateStatus),
+          );
+          await tester.pumpAndSettle();
+          final current = tester.widget<MyScreen>(find.byType(MyScreen));
+          expect(current.user.name, '연결된 사용자');
+          expect(current.user.savedContentCount, 5);
+          expect(current.user.revisitedContentCount, 2);
+          expect(current.statsMessage, '마지막 확인값 · 새로 불러오지 못했어요');
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pumpAndSettle();
+          expect(find.textContaining('마지막 확인값'), findsNothing);
+          expect(server.at('/users/me/stats'), hasLength(requests + 1));
+          expect(server.at('/auth/refresh'), isEmpty);
+          expect(server.at('/auth/logout'), isEmpty);
+          expect(server.at('/auth/guest'), isEmpty);
+          expect(storage.writes, 1);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'social-access',
+          );
+        },
+        stored: true,
+        storage: storage,
+      );
+    });
+  }
+
+  for (final cancelled in [true, false]) {
+    testWidgets(
+      '마이 재조회 중 계정 연결 ${cancelled ? '취소' : '서버 실패'}는 같은 계정의 마지막 확인값과 진행 중 조회를 보존한다',
+      (tester) async {
+        final pending = Completer<http.Response?>();
+        var statsReads = 0;
+        final server = _Server()
+          ..respond = (request) async {
+            if (request.url.path.endsWith('/stats')) {
+              return ++statsReads == 1
+                  ? _json({'saved_count': 81, 'reopened_count': 22})
+                  : pending.future;
+            }
+            if (request.url.path.endsWith('/upgrade')) {
+              return _json({'detail': 'temporary connection failure'}, 503);
+            }
+            return null;
+          };
+        final social = _Social();
+        if (cancelled) social.credential = null;
+        await _app(tester, server, social, () async {
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.text('81'), findsOneWidget);
+          expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+          tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<AccountManagementScreen>(
+                find.byType(AccountManagementScreen),
+              )
+              .onConnect();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google);
+          await tester.pumpAndSettle();
+          tester.widget<LoginScreen>(find.byType(LoginScreen)).onBack!();
+          await tester.pumpAndSettle();
+          final account = tester.widget<AccountManagementScreen>(
+            find.byType(AccountManagementScreen),
+          );
+          expect(account.user.savedContentCount, 81);
+          expect(account.user.revisitedContentCount, 22);
+          account.onBack();
+          await tester.pumpAndSettle();
+          expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+          expect(statsReads, 2);
+          pending.complete(_json({'saved_count': 90, 'reopened_count': 27}));
+          await tester.pumpAndSettle();
+          expect(find.text('90'), findsOneWidget);
+          expect(find.text('27'), findsOneWidget);
+          expect(find.textContaining('마지막 확인값'), findsNothing);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'guest-access',
+          );
+          expect(server.at('/auth/refresh'), isEmpty);
+          expect(server.at('/auth/logout'), isEmpty);
+        }, stored: true);
+      },
+    );
+  }
+
+  for (final lateStatus in [200, 401]) {
+    testWidgets('계정 연결 뒤 이전 통계가 시작한 갱신의 늦은$lateStatus 응답은 새 토큰을 바꾸지 않는다', (
+      tester,
+    ) async {
+      final oldRefresh = Completer<http.Response?>();
+      var guestStats = 0;
+      final server = _Server()
+        ..respond = (request) async {
+          if (request.url.path.endsWith('/auth/refresh')) {
+            return oldRefresh.future;
+          }
+          if (!request.url.path.endsWith('/stats')) return null;
+          if (request.headers['Authorization'] == 'Bearer guest-access') {
+            return ++guestStats == 1
+                ? _json({'saved_count': 81, 'reopened_count': 22})
+                : _json({'detail': 'old access expired'}, 401);
+          }
+          return _json({'saved_count': 5, 'reopened_count': 2});
+        };
+      final storage = _Storage();
+      await _app(
+        tester,
+        server,
+        _Social(),
+        () async {
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.text('81'), findsOneWidget);
+          expect(server.at('/auth/refresh'), hasLength(1));
+          tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<AccountManagementScreen>(
+                find.byType(AccountManagementScreen),
+              )
+              .onConnect();
+          await tester.pumpAndSettle();
+          await tester
+              .widget<LoginScreen>(find.byType(LoginScreen))
+              .onSocialLogin(SocialLoginProvider.google);
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          oldRefresh.complete(
+            lateStatus == 200
+                ? _json(_tokens('obsolete'))
+                : _json({'detail': 'old refresh expired'}, 401),
+          );
+          await tester.pumpAndSettle();
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.text('5'), findsOneWidget);
+          expect(find.text('2'), findsOneWidget);
+          expect(storage.writes, 1);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'social-access',
+          );
+          expect(server.at('/auth/refresh'), hasLength(1));
+          expect(server.at('/auth/logout'), isEmpty);
+          expect(server.at('/auth/guest'), isEmpty);
+        },
+        stored: true,
+        storage: storage,
+      );
+    });
+  }
+
   testWidgets('SDK work is single-flight and logout cannot race it', (
     tester,
   ) async {
@@ -435,6 +664,204 @@ void main() {
       );
     }, stored: true);
   });
+
+  testWidgets('15초 전에 확인한 Apple 철회는 서버 종료가 지연돼도 로컬 세션을 차단한다', (tester) async {
+    final check = Completer<AppleCredentialStatus>();
+    final logout = Completer<http.Response?>();
+    final social = _Social()..checkCredential = () => check.future;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async =>
+          request.url.path.endsWith('/logout') ? logout.future : null;
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        await tester.pump(const Duration(milliseconds: 13100));
+        check.complete(AppleCredentialStatus.revoked);
+        await tester.pump();
+        expect(server.at('/auth/logout'), hasLength(1));
+        expect(find.byType(HomeScreen), findsNothing);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(await ApiSessionStorage().read(), isNull);
+        expect(find.text('저장한 콘텐츠를 불러오지 못했어요.'), findsNothing);
+        expect(find.byType(LoginScreen), findsOneWidget);
+        logout.complete(http.Response('', 204));
+        await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(server.at('/auth/guest'), isEmpty);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('홈이 열린 뒤 늦게 확인된 Apple 계정도 철회 확인을 생략하지 않는다', (tester) async {
+    final profile = Completer<http.Response?>();
+    final check = Completer<AppleCredentialStatus>();
+    final social = _Social()..checkCredential = () => check.future;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async =>
+          request.url.path == '/api/v1/users/me' ? profile.future : null;
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(social.appleChecks, 0);
+        profile.complete(
+          _json({
+            'id': 2,
+            'email': null,
+            'display_name': '늦게 확인된 Apple 계정',
+            'is_guest': false,
+            'created_at': '2026-10-10T00:00:00Z',
+            'linked_providers': ['apple'],
+          }),
+        );
+        await tester.pump();
+        expect(social.appleChecks, 1);
+        await tester.pump(const Duration(seconds: 2));
+        check.complete(AppleCredentialStatus.notFound);
+        await tester.pumpAndSettle();
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(await ApiSessionStorage().read(), isNull);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('Apple 확인 때문에 실패한 시도의 늦은 통계는 재시도 홈에 반영하지 않는다', (tester) async {
+    final oldCheck = Completer<AppleCredentialStatus>();
+    final oldStats = Completer<http.Response?>();
+    final social = _Social();
+    social.checkCredential = () => social.appleChecks == 1
+        ? oldCheck.future
+        : Future.value(AppleCredentialStatus.authorized);
+    var stats = 0;
+    final server = _Server()
+      ..guest = false
+      ..provider = 'apple'
+      ..respond = (request) async {
+        if (request.url.path.endsWith('/stats') && stats++ == 0) {
+          return oldStats.future;
+        }
+        return null;
+      };
+    await _app(
+      tester,
+      server,
+      social,
+      () async {
+        await tester.pump(const Duration(milliseconds: 14100));
+        await tester.pump();
+        expect(find.text('다시 시도'), findsOneWidget);
+        await tester.tap(find.text('다시 시도'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 900));
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsOneWidget);
+        oldStats.complete(_json({'saved_count': 999, 'reopened_count': 999}));
+        oldCheck.complete(AppleCredentialStatus.notFound);
+        await tester.pumpAndSettle();
+        tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+        await tester.pumpAndSettle();
+        final user = tester.widget<MyScreen>(find.byType(MyScreen)).user;
+        expect(user.savedContentCount, 0);
+        expect(user.revisitedContentCount, 0);
+        expect((await ApiSessionStorage().read())?.accessToken, 'guest-access');
+        expect(server.at('/auth/logout'), isEmpty);
+      },
+      stored: true,
+      settle: false,
+    );
+  });
+
+  testWidgets('소셜 인증 대기는 홈 최초 불러오기15초를 소모하지 않는다', (tester) async {
+    final credential = Completer<SocialCredential?>();
+    final category = Completer<http.Response?>();
+    final social = _Social()..respond = () => credential.future;
+    final server = _Server()
+      ..respond = (request) async =>
+          request.url.path.endsWith('/categories') ? category.future : null;
+    await _app(tester, server, social, () async {
+      final attempt = await startLoginChoice(
+        tester,
+        () => tester
+            .widget<LoginScreen>(find.byType(LoginScreen))
+            .onSocialLogin(SocialLoginProvider.google),
+      );
+      await tester.pump(const Duration(seconds: 20));
+      expect(server.at('/categories'), isEmpty);
+      expect(find.text('다시 시도'), findsNothing);
+      credential.complete(const SocialCredential(token: 'provider-token'));
+      await tester.pump();
+      expect(server.at('/categories'), hasLength(1));
+      await tester.pump(const Duration(milliseconds: 14999));
+      expect(
+        find.byKey(const ValueKey('home-initial-loading-screen')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      await attempt.completion;
+      expect(find.text('다시 시도'), findsOneWidget);
+      expect((await ApiSessionStorage().read())?.accessToken, 'social-access');
+      expect(social.calls, [SocialLoginProvider.google]);
+    });
+  });
+
+  for (final lateState in [
+    AppleCredentialStatus.revoked,
+    AppleCredentialStatus.notFound,
+  ]) {
+    testWidgets('홈 불러오기 재시도는 이전 Apple 확인을 기다리지 않고 늦은$lateState 무시한다', (
+      tester,
+    ) async {
+      final oldCheck = Completer<AppleCredentialStatus>();
+      final social = _Social();
+      social.checkCredential = () => social.appleChecks == 1
+          ? oldCheck.future
+          : Future.value(AppleCredentialStatus.authorized);
+      final server = _Server()
+        ..guest = false
+        ..provider = 'apple';
+      await _app(
+        tester,
+        server,
+        social,
+        () async {
+          expect(social.appleChecks, 1);
+          await tester.pump(const Duration(milliseconds: 14100));
+          await tester.pump();
+          expect(find.text('다시 시도'), findsOneWidget);
+          await tester.tap(find.text('다시 시도'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 900));
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          expect(social.appleChecks, 2);
+          oldCheck.complete(lateState);
+          await tester.pumpAndSettle();
+          expect(find.byType(HomeScreen), findsOneWidget);
+          expect(server.at('/auth/logout'), isEmpty);
+          expect(
+            (await ApiSessionStorage().read())?.accessToken,
+            'guest-access',
+          );
+        },
+        stored: true,
+        settle: false,
+      );
+    });
+  }
 
   testWidgets(
     'confirmed Apple revocation returns to login despite logout network failure',

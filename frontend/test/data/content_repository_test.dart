@@ -125,6 +125,7 @@ class _Api extends ClipbackApi {
     required int categoryId,
     String? name,
     String? color,
+    String? submissionKey,
   }) =>
       onCategoryUpdate?.call(categoryId, name, color) ??
       Future.value(

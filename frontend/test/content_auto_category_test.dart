@@ -27,24 +27,32 @@ const _first = {
   'name': '첫 카테고리',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _recommended = {
   'id': 202,
   'name': '서버 분류',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _uncategorized = {
   'id': 303,
   'name': '미분류',
   'color': '#B5BDC3',
   'is_default': true,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _hashCategory = {
   'id': 404,
   'name': '###',
   'color': '#059669',
   'is_default': false,
+  'content_count': 0,
+  'last_saved_at': null,
 };
 const _pendingMessage = '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
 const _unclassifiedMessage = '아직 분류되지 않았어요.';
@@ -108,7 +116,7 @@ class _Server {
   _Server({this.source, this.summaryStatus, this.category = _recommended});
   final String? source;
   final String? summaryStatus;
-  final Map<String, Object> category;
+  final Map<String, Object?> category;
   final calls = <_Call>[];
   Map<String, Object?>? saved;
   late final client = MockClient.streaming((request, stream) async {

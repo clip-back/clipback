@@ -69,6 +69,7 @@ flutter build web --no-pub
 | `lib/app/` | 의존성 조립·화면 연결·UI 효과를 처리하는 앱 View와 인증·화면 흐름을 조정하는 AppViewModel |
 | `lib/app/actions/` | 여러 Repository를 사용하는 계정 초기화·콘텐츠 변경 후 갱신 순서 |
 | `lib/data/repositories/` | 세션, 콘텐츠·카테고리·피드, 사용자·서버 통계, 계정별 최근 검색어, 네이티브 공유 Repository의 계약과 구현 |
+| `lib/data/services/api_request_scope.dart` | 최초 홈·부가 조회·마이 통계·카테고리 저장/재확인/조회의 요청 수명과 공통 인증 갱신의 늦은 응답 차단 |
 | `lib/data/models/` | 읽기 전용 피드 스냅샷, 요청 세대와 변경 핸들 등 데이터 처리 계약 |
 | `lib/shared/models/` | 여러 기능에서 사용하는 화면 모델 |
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |
@@ -98,7 +99,8 @@ Repository는 API DTO와 데이터 계약을 사용하고 화면 경로·표시 
 콘텐츠 저장 화면은 `features/content/`의 `showContentSaveScreen`을 공통 진입점으로 사용한다.
 입력·스크롤·이미지 컨트롤러, 파일 선택, 애니메이션과 시트 생명주기는 위젯에서 관리한다.
 Snackbar·배너·확인창·Navigator 호출은 View가 소비하는 UI 효과로 전달한다.
-API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이스를 유지하며, 서비스 추가·DTO 일괄 복제는 하지 않는다.
+API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이스를 유지하며, 해당 어댑터 추가·DTO 일괄 복제는 하지 않는다.
+`ApiRequestScope`처럼 외부 API·SDK·저장소에 직접 접근하지 않고 요청 수명을 조정하는 도우미는 이 어댑터 추가 금지 대상에 포함하지 않는다.
 
 ### 현재 기능 연결과 디자인 기준
 
@@ -108,11 +110,20 @@ API·세션 저장소·소셜 인증 서비스는 기존 위치와 인터페이�
 - 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다. Dart API 오류 검사는
   `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
   [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
+- 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.
+- 마이 통계는 사용자 Repository가 조회 상태를 소유하고 계정 ViewModel이 화면에 투영합니다. 미확인 값은 `—`이며, 실제 마이 진입 때 갱신하고 실패하면 통계만 다시 시도합니다. 같은 계정의 진행 중 조회는 전체10초의 남은 시간을 공유하고, 마지막 확인값은 이번 앱 실행 동안 유지합니다. 프로필 조회와 통계 표시는 독립적입니다. 자세한 동작은 [마이 통계 정책](../docs/frontend/account-stats-recovery.md)을 따릅니다.
+- 카테고리 생성·수정은 공통 시트가 비동기 제출 결과를 기다리고 Action이 인증 갱신 포함 전체10초를 관리합니다. 실패·미확인 시 초안을 유지하며, 미확인은 같은 제출 키로 수동 재확인합니다. 수정은 현재 이름·색상으로 시작하며 삭제된 대상은 목록 복귀를 제공합니다. 키 없는 호출·프리뷰·삭제의 기존 인터페이스는 유지합니다. [정책·디자인](../docs/frontend/category-save-recovery.md)과 [구현 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)을 따릅니다.
+- 아카이브·관리에서 생성·수정 시트를 열기 전에 카테고리 GET을 별도 전체10초로 확인합니다. 생성은 빈 입력, 수정은 낙관적 표시와 구분한 현재 서버 값으로 시작합니다. 조회 실패의 **다시 불러오기**는 GET만 복구한 뒤 새 시트를 열며, 직접 닫기·앱 종료 뒤 이전 초안·제출 키를 복원하거나 재전송하지 않습니다. [닫기와 재진입](../docs/frontend/behavior.md#카테고리-시트-닫기와-재진입)을 따릅니다.
+- 실제 계정 전환·로그아웃 완료는 카테고리 시트와 닫기 확인창을 함께 정리합니다. 같은 계정의 토큰 갱신·로그아웃 일반 실패는 초안을 유지하며, 카테고리 제한 시간이 끝나도 다른 현재 요청의 공유 인증 갱신은 유지합니다. 이전 응답과 재시도는 새 계정에 적용하지 않습니다.
+- 카테고리 저장 후 목록은 저장 대기와 별개인 전체10초로 조회합니다. 실패하면 마지막 목록과 닫힌 시트를 유지하며 스낵바의 **다시 불러오기**는 카테고리 GET만 실행합니다. 공통 콘텐츠·통계 갱신과 구분하며 [현재 동작](../docs/frontend/behavior.md#카테고리-저장-후-목록-복구)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서
 
 - [세션·저장·탐색·실패 복구와 화면 동작](../docs/frontend/behavior.md)
+- [홈 최초 불러오기 복구 정책과 구현 범위](../docs/frontend/home-loading-recovery.md) · [구현 명세 #76](https://github.com/clip-back/clipback/issues/76)
+- [마이 통계 조회 상태·복구 정책](../docs/frontend/account-stats-recovery.md) · [구현 명세 #80](https://github.com/clip-back/clipback/issues/80) · [본문 사본](../docs/frontend/account-stats-recovery-spec.md) · [구현·검증 이력](../docs/history/2026-10-25-account-stats-recovery-implementation.md)
+- [카테고리 입력 보존·저장 복구 정책](../docs/frontend/category-save-recovery.md) · [구현 명세 #86](https://github.com/clip-back/clipback/issues/86) · [구현·검증 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)
 - [소셜·플랫폼 설정과 실행·검증·TestFlight](../docs/frontend/development.md)
 - [백엔드 API 계약](../docs/backend/api-contracts.md)
 - [iOS 네이티브 공유 검증](ios/ShareVerification/README.md) · [Android 공유 검증](android/SHARE_TESTING.md)

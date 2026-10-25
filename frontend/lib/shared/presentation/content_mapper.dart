@@ -57,18 +57,22 @@ ContentItem contentFromApi(
   );
 }
 
-AppUser userFromApi(ApiUser user, ApiUserStats stats) {
-  final provider = user.isGuest
+AppUser userFromApi(ApiUser? user, ApiUserStats? stats) {
+  final provider = user == null
+      ? defaultUser.providerLabel
+      : user.isGuest
       ? '게스트 계정'
       : user.linkedProviders.isEmpty
       ? '연동된 계정 없음'
       : '${user.linkedProviders.join(', ')} 계정 연동 중';
   return AppUser(
-    name: user.displayName,
+    name: user?.displayName ?? defaultUser.name,
     providerLabel: provider,
-    joinedAt: _formatJoinedAt(user.createdAt),
-    savedContentCount: stats.savedCount,
-    revisitedContentCount: stats.reopenedCount,
+    joinedAt: user == null
+        ? defaultUser.joinedAt
+        : _formatJoinedAt(user.createdAt),
+    savedContentCount: stats?.savedCount,
+    revisitedContentCount: stats?.reopenedCount,
     appVersion: defaultUser.appVersion,
   );
 }

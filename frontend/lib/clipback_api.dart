@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/services/original_image_cache.dart';
+import 'data/services/api_request_scope.dart';
 
 class ClipbackApiException implements Exception {
   const ClipbackApiException(this.message, {this.statusCode});
@@ -16,6 +17,15 @@ class ClipbackApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class CategorySubmissionRejected extends ClipbackApiException {
+  const CategorySubmissionRejected(
+    super.message, {
+    required this.code,
+    super.statusCode,
+  });
+  final String code;
 }
 
 class ApiSession {
@@ -159,6 +169,7 @@ class ApiCategory {
     required this.isDefault,
     this.contentCount = 0,
     this.lastSavedAt,
+    this.submissionReplayed = false,
   });
 
   final int id;
@@ -167,6 +178,7 @@ class ApiCategory {
   final bool isDefault;
   final int contentCount;
   final DateTime? lastSavedAt;
+  final bool submissionReplayed;
 
   factory ApiCategory.fromJson(Map<String, dynamic> json) {
     return ApiCategory(
@@ -176,6 +188,8 @@ class ApiCategory {
       isDefault: json['is_default'] as bool? ?? false,
       contentCount: json['content_count'] as int? ?? 0,
       lastSavedAt: _dateTime(json['last_saved_at']),
+      submissionReplayed:
+          (json['submission'] as Map?)?['replayed'] as bool? ?? false,
     );
   }
 }
@@ -375,6 +389,9 @@ class ClipbackApi {
   ApiSession? _session;
   int _sessionGeneration = 0;
   Future<ApiSession>? _refreshFuture;
+  ApiRequestScope? _refreshScope;
+  final _refreshOwners = <ApiRequestScope>{};
+  bool _refreshHasUnscopedOwner = false;
   int? _logoutGeneration;
 
   bool get hasSession => _session != null;
@@ -396,10 +413,7 @@ class ClipbackApi {
       if (error.statusCode != 401) rethrow;
       _checkSessionGeneration(generation);
       // Share preparation may refresh, but its failure does not clear login.
-      final activeRefresh = _refreshFuture;
-      if (activeRefresh != null) {
-        await activeRefresh;
-      } else if (identical(issuedFor, _session)) {
+      if (_refreshFuture != null || identical(issuedFor, _session)) {
         await refreshSession();
       }
       _checkSessionGeneration(generation);
@@ -426,6 +440,10 @@ class ClipbackApi {
     _session = session;
     _assetUserId = null;
     _refreshFuture = null;
+    _refreshScope?.cancel();
+    _refreshScope = null;
+    _refreshOwners.clear();
+    _refreshHasUnscopedOwner = false;
   }
 
   void _invalidateAssetCache() {
@@ -445,6 +463,7 @@ class ClipbackApi {
     required int generation,
     bool isRefresh = false,
   }) async {
+    ApiRequestScope.current?.checkActive();
     _checkSessionGeneration(generation, allowLogout: isRefresh);
     if (isRefresh) {
       _session = session;
@@ -480,15 +499,52 @@ class ClipbackApi {
     if (session == null) {
       return Future.error(const ClipbackApiException('로그인이 필요합니다.'));
     }
+    ApiRequestScope.current?.checkActive();
     final activeRefresh = _refreshFuture;
-    if (activeRefresh != null) return activeRefresh;
+    if (activeRefresh != null) return _joinRefresh(activeRefresh);
 
+    final scope = ApiRequestScope();
+    _refreshScope = scope;
+    _refreshOwners.clear();
+    _refreshHasUnscopedOwner = false;
     late final Future<ApiSession> refresh;
-    refresh = _refreshSession(session, generation).whenComplete(() {
-      if (identical(_refreshFuture, refresh)) _refreshFuture = null;
-    });
+    refresh = scope
+        .run(() => _refreshSession(session, generation))
+        .whenComplete(() {
+          scope.cancel();
+          if (identical(_refreshFuture, refresh)) {
+            _refreshFuture = null;
+            _refreshScope = null;
+            _refreshOwners.clear();
+            _refreshHasUnscopedOwner = false;
+          }
+        });
     _refreshFuture = refresh;
-    return refresh;
+    return _joinRefresh(refresh);
+  }
+
+  Future<ApiSession> _joinRefresh(Future<ApiSession> refresh) {
+    final scope = _refreshScope!;
+    final owner = ApiRequestScope.current;
+    if (owner == null) {
+      _refreshHasUnscopedOwner = true;
+    } else if (_refreshOwners.add(owner)) {
+      unawaited(
+        owner.cancelled.then((_) {
+          if (identical(_refreshScope, scope) &&
+              !_refreshHasUnscopedOwner &&
+              _refreshOwners.every((owner) => !owner.isActive)) {
+            // An obsolete request cannot update tokens later. A refresh shared by
+            // another live request retains that request's ownership instead.
+            _refreshFuture = null;
+            _refreshScope = null;
+            _refreshOwners.clear();
+            scope.cancel();
+          }
+        }),
+      );
+    }
+    return owner?.wait(refresh) ?? refresh;
   }
 
   Future<ApiSession> _refreshSession(ApiSession session, int generation) async {
@@ -507,6 +563,11 @@ class ClipbackApi {
       _checkSessionGeneration(generation, allowLogout: true);
       rethrow;
     }
+    if (!_refreshHasUnscopedOwner &&
+        _refreshOwners.every((owner) => !owner.isActive)) {
+      ApiRequestScope.current?.cancel();
+    }
+    ApiRequestScope.current?.checkActive();
     _checkSessionGeneration(generation, allowLogout: true);
     return _setSession(
       ApiSession.fromJson(response),
@@ -781,7 +842,27 @@ class ClipbackApi {
   Future<List<ApiCategory>> listCategories() async {
     final response = await _request('GET', '/categories');
     _throwForError(response);
-    return _decodeJsonList(response).map(ApiCategory.fromJson).toList();
+    final body = jsonDecode(response.body);
+    if (body is! List) throw const FormatException('Invalid category list');
+    return body.map((value) {
+      if (value is! Map) throw const FormatException('Invalid category item');
+      final item = Map<String, dynamic>.from(value);
+      final id = item['id'];
+      final timestamp = item['last_saved_at'];
+      final count = item['content_count'];
+      if (id is! int ||
+          id <= 0 ||
+          item['name'] is! String ||
+          (item.containsKey('is_default') && item['is_default'] is! bool) ||
+          count is! int ||
+          count < 0 ||
+          !item.containsKey('last_saved_at') ||
+          (timestamp != null &&
+              (timestamp is! String || DateTime.tryParse(timestamp) == null))) {
+        throw const FormatException('Invalid category item');
+      }
+      return ApiCategory.fromJson(item);
+    }).toList();
   }
 
   Future<List<ApiCategory>> listRecentCategories({int limit = 2}) async {
@@ -794,18 +875,107 @@ class ClipbackApi {
   Future<ApiCategory> createCategory({
     required String name,
     String? color,
-  }) async => ApiCategory.fromJson(
-    await _json('POST', '/categories', body: {'name': name, 'color': color}),
-  );
+    String? submissionKey,
+  }) async {
+    if (submissionKey == null) {
+      return ApiCategory.fromJson(
+        await _json(
+          'POST',
+          '/categories',
+          body: {'name': name, 'color': color},
+        ),
+      );
+    }
+    final response = await _request(
+      'POST',
+      '/categories',
+      body: {'name': name, 'color': color},
+      headers: {'Idempotency-Key': submissionKey},
+    );
+    return _categorySubmissionResult(
+      response,
+      submissionKey,
+      statusCode: 201,
+      name: name,
+      color: color,
+    );
+  }
+
+  ApiCategory _categorySubmissionResult(
+    http.Response response,
+    String submissionKey, {
+    required int statusCode,
+    String? name,
+    String? color,
+    bool checkColor = true,
+    int? categoryId,
+  }) {
+    final data = _decodeJson(response);
+    if (response.statusCode == 422 && data['detail'] is List) {
+      throw const CategorySubmissionRejected(
+        'Invalid category input',
+        code: 'category_input_invalid',
+        statusCode: 422,
+      );
+    }
+    final submission = data['submission'];
+    if (submission is! Map ||
+        submission['key'] != submissionKey ||
+        submission['replayed'] is! bool) {
+      throw const FormatException('Category submission result is unconfirmed');
+    }
+    if (submission['status'] == 'rejected' &&
+        response.statusCode >= 400 &&
+        response.statusCode < 500 &&
+        data['code'] is String &&
+        data['code'] != 'category_submission_conflict') {
+      throw CategorySubmissionRejected(
+        data['detail'] as String? ?? 'Category rejected',
+        code: data['code'] as String,
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != statusCode ||
+        submission['status'] != 'succeeded' ||
+        (name != null && data['name'] != name) ||
+        (checkColor && data['color'] != color) ||
+        (categoryId != null && data['id'] != categoryId) ||
+        data['is_default'] is! bool) {
+      throw const FormatException('Category submission result is unconfirmed');
+    }
+    final category = ApiCategory.fromJson(data);
+    if (category.id <= 0) {
+      throw const FormatException('Invalid category result');
+    }
+    return category;
+  }
 
   Future<ApiCategory> updateCategory({
     required int categoryId,
     String? name,
     String? color,
+    String? submissionKey,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (color != null) body['color'] = color;
+    if (submissionKey != null) {
+      final response = await _request(
+        'PATCH',
+        '/categories/$categoryId',
+        body: body,
+        headers: {'Idempotency-Key': submissionKey},
+      );
+      return _categorySubmissionResult(
+        response,
+        submissionKey,
+        statusCode: 200,
+        name: name,
+        color: color,
+        checkColor: color != null,
+        categoryId: categoryId,
+      );
+    }
     return ApiCategory.fromJson(
       await _json('PATCH', '/categories/$categoryId', body: body),
     );
@@ -1157,10 +1327,18 @@ class ClipbackApi {
     bool authenticated = true,
     Map<String, dynamic>? body,
     bool retryUnauthorized = true,
+    Map<String, String>? headers,
   }) => _sendWithSessionRetry(
     (session) async {
-      final request = http.Request(method, Uri.parse('$_baseUrl$path'));
+      final scope = ApiRequestScope.current;
+      scope?.checkActive();
+      final request = http.AbortableRequest(
+        method,
+        Uri.parse('$_baseUrl$path'),
+        abortTrigger: scope?.cancelled,
+      );
       request.headers['Accept'] = 'application/json';
+      if (headers != null) request.headers.addAll(headers);
       if (authenticated) {
         request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
       }
@@ -1180,6 +1358,8 @@ class ClipbackApi {
     bool retried = false,
     bool retryUnauthorized = true,
   }) async {
+    final scope = ApiRequestScope.current;
+    scope?.checkActive();
     final generation = _sessionGeneration;
     final session = _session;
     if (authenticated) {
@@ -1188,25 +1368,27 @@ class ClipbackApi {
     }
     late final http.Response response;
     try {
-      response = await send(session);
+      final pending = send(session);
+      response = await (scope?.wait(pending) ?? pending);
     } catch (_) {
+      scope?.checkActive();
       if (authenticated) _checkSessionGeneration(generation);
       rethrow;
     }
+    scope?.checkActive();
     if (authenticated) _checkSessionGeneration(generation);
     if (response.statusCode == 401 &&
         authenticated &&
         !retried &&
         retryUnauthorized) {
       try {
-        final activeRefresh = _refreshFuture;
-        if (activeRefresh != null) {
-          // Memory can change before the persistence callback finishes.
-          await activeRefresh;
-        } else if (session!.accessToken == _session!.accessToken) {
+        // Memory can change before the persistence callback finishes.
+        if (_refreshFuture != null ||
+            session!.accessToken == _session!.accessToken) {
           await refreshSession();
         }
       } catch (error) {
+        scope?.checkActive();
         _checkSessionGeneration(generation);
         if (error is ClipbackApiException && error.statusCode == 401) {
           _invalidateAssetCache();
@@ -1214,6 +1396,7 @@ class ClipbackApi {
         }
         rethrow;
       }
+      scope?.checkActive();
       _checkSessionGeneration(generation);
       return _sendWithSessionRetry(
         send,

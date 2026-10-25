@@ -128,6 +128,12 @@ Future<void> _approve(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
   await tester.pump();
+  if (find
+      .byKey(const ValueKey('home-initial-loading-screen'))
+      .evaluate()
+      .isNotEmpty) {
+    await tester.pump(const Duration(milliseconds: 900));
+  }
 }
 
 Future<void> _cancel(WidgetTester tester, String method) async {
@@ -284,7 +290,10 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('login-cancelled-primary')));
         await tester.pumpAndSettle();
-        await _login(tester).onSocialLogin(SocialLoginProvider.kakao);
+        await performLoginChoice(
+          tester,
+          () => _login(tester).onSocialLogin(SocialLoginProvider.kakao),
+        );
         await tester.pumpAndSettle();
         expect(_guide, findsNothing);
         expect(social.calls, ['google', 'kakao']);
@@ -316,7 +325,10 @@ void main() {
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(server.socialIssuances, 1);
         expect(storage.value, isNull);
-        await _login(tester).onSocialLogin(SocialLoginProvider.kakao);
+        await performLoginChoice(
+          tester,
+          () => _login(tester).onSocialLogin(SocialLoginProvider.kakao),
+        );
         await tester.pumpAndSettle();
         expect(_guide, findsNothing);
         expect(social.calls, ['google', 'kakao']);
