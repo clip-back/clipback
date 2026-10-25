@@ -7,6 +7,10 @@ import 'package:flutter/foundation.dart';
 import '../services/event_uuid.dart';
 import '../services/api_request_scope.dart';
 
+class CategoryReadSuperseded extends ClipbackApiException {
+  const CategoryReadSuperseded() : super('Category read is no longer current');
+}
+
 abstract class ContentRepository extends ChangeNotifier {
   int get accountVersion;
   int get refreshVersion;
@@ -287,14 +291,15 @@ class RemoteContentRepository extends ContentRepository {
     }
     try {
       final response = await scope.run(() => scope.wait(_api.listCategories()));
-      ApiRequestScope.current?.checkActive();
-      if (!current()) return;
+      scope.checkActive();
       _categories
         ..clear()
         ..addAll(_reconcileCategoryList(response));
       _notify();
-    } catch (_) {
-      if (!current()) return;
+    } catch (error) {
+      if (!current() && error is! ClipbackApiException) {
+        throw const CategoryReadSuperseded();
+      }
       rethrow;
     } finally {
       scope.cancel();
@@ -467,6 +472,8 @@ class RemoteContentRepository extends ContentRepository {
     if (includeCategories) {
       try {
         await _loadCategories(isCurrent: () => isCurrentRefresh(ticket));
+      } on CategoryReadSuperseded {
+        // The newer category read owns metadata; keep this caller's feed refresh.
       } catch (_) {
         metadataFailed = true;
         // Category metadata failure does not prevent the list refresh.
