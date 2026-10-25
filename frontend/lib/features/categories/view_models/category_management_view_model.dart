@@ -31,6 +31,19 @@ class CategoryManagementViewModel extends ContentViewModel {
     submissionKey: submissionKey ?? newEventUuid(),
     feedback: emitEffect,
   );
+
+  Future<CategorySaveResult> submitUpdate(
+    CategoryItem category, {
+    required String name,
+    required Color color,
+    String? submissionKey,
+  }) => actions.submitCategoryUpdate(
+    category.id!,
+    name: name,
+    color: hexFromColor(color),
+    submissionKey: submissionKey ?? newEventUuid(),
+    feedback: emitEffect,
+  );
   Future<void> update(CategoryItem original, CategoryItem updated) async {
     if (isDisposed || original.id == null) return;
     await actions.updateCategory(

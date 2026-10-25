@@ -107,6 +107,53 @@ class CategoryService:
         if existing is not None and existing.id != category_id:
             raise InvalidStateError("Category already exists")
 
+    async def update_submission(
+        self, user_id: int, key: UUID, category_id: int, payload: CategoryUpdate,
+    ) -> CategorySubmissionResult:
+        session = self.category_repository.session
+        submissions = CategorySubmissionRepository(session)
+        fields = payload.model_dump(mode="json", exclude_unset=True)
+        fingerprint = category_fingerprint("update", category_id, fields)
+        try:
+            await submissions.lock(user_id, key)
+            existing = await submissions.find(user_id, key)
+            if existing is not None:
+                if existing.kind != "update" or existing.fingerprint != fingerprint:
+                    return CategorySubmissionResult(409, {
+                        "detail": "Idempotency key belongs to another input",
+                        "code": "category_submission_conflict",
+                    })
+                return submission_result(existing, replayed=True)
+            try:
+                async with session.begin_nested():
+                    await self.category_repository.lock_user(user_id)
+                    category = await self.category_repository.get_owned(user_id, category_id)
+                    if category is None:
+                        raise NotFoundError("Category not found")
+                    if "name" in fields:
+                        await self._check_name(user_id, payload.name, category_id)
+                    for field, value in fields.items():
+                        setattr(category, field, value)
+                    await session.flush()
+                    body = CategoryRead.model_validate(category).model_dump(mode="json")
+                status_code, outcome = 200, "succeeded"
+            except NotFoundError:
+                body = {"detail": "Category not found", "code": "category_target_missing"}
+                status_code, outcome = 404, "rejected"
+            except (InvalidStateError, IntegrityError):
+                body = {"detail": "Category already exists", "code": "category_name_exists"}
+                status_code, outcome = 409, "rejected"
+            record = CategorySubmission(
+                user_id=user_id, key=key, kind="update", target_id=category_id,
+                fingerprint=fingerprint, status=outcome, status_code=status_code, result=body,
+            )
+            await submissions.save(record)
+            await session.commit()
+            return submission_result(record, replayed=False)
+        except Exception:
+            await session.rollback()
+            raise
+
     async def update_category(
         self,
         user_id: int,

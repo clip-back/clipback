@@ -254,6 +254,84 @@ class ContentActions {
     }
   }
 
+  Future<CategorySaveResult> submitCategoryUpdate(
+    int id, {
+    required String name,
+    required String color,
+    required String submissionKey,
+    required ContentFeedback feedback,
+  }) async {
+    final generation = content.accountVersion;
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: () => _current(generation),
+    );
+    try {
+      final saved = await scope.run(
+        () => scope.wait(
+          content.updateCategorySubmission(
+            categoryId: id,
+            name: name,
+            color: color,
+            submissionKey: submissionKey,
+          ),
+        ),
+      );
+      if (!_current(generation) || saved == null) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      refreshCategoriesAfterSave(
+        accountVersion: generation,
+        feedback: feedback,
+      );
+      unawaited(
+        Future<void>(() async {
+          if (!_current(generation)) return;
+          final ticket = content.beginRefresh(preserveViewport: true);
+          final read = ApiRequestScope(
+            timeout: const Duration(seconds: 10),
+            isCurrent: () =>
+                _current(generation) && content.isCurrentRefresh(ticket),
+          );
+          try {
+            await read.run(
+              () =>
+                  read.wait(content.refresh(ticket, includeCategories: false)),
+            );
+          } catch (_) {
+            // Existing feed errors keep their own retry behavior.
+          } finally {
+            read.cancel();
+          }
+        }),
+      );
+      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
+    } on CategorySubmissionRejected catch (error) {
+      if (!_current(generation)) {
+        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
+      }
+      return CategorySaveResult(
+        CategorySaveStatus.rejected,
+        submissionKey,
+        rejection: switch (error.code) {
+          'category_name_exists' => CategorySaveRejection.nameExists,
+          'category_input_invalid' => CategorySaveRejection.inputInvalid,
+          'category_target_missing' => CategorySaveRejection.targetMissing,
+          _ => CategorySaveRejection.other,
+        },
+      );
+    } catch (_) {
+      return CategorySaveResult(
+        _current(generation)
+            ? CategorySaveStatus.unconfirmed
+            : CategorySaveStatus.stale,
+        submissionKey,
+      );
+    } finally {
+      scope.cancel();
+    }
+  }
+
   Future<void> updateCategory(
     int id, {
     required String name,

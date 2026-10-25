@@ -57,8 +57,14 @@ async def update_category(
     payload: CategoryUpdate,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
-) -> CategoryRead:
+    idempotency_key: Annotated[UUID | None, Header()] = None,
+) -> CategoryRead | Response:
     service = CategoryService(category_repository=CategoryRepository(db))
+    if idempotency_key is not None:
+        result = await service.update_submission(
+            current_user_id, idempotency_key, category_id, payload,
+        )
+        return JSONResponse(result.body, status_code=result.status_code)
     return await service.update_category(current_user_id, category_id, payload)
 
 
