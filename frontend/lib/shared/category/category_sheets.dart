@@ -643,9 +643,9 @@ class _CategoryFormSheetState extends State<CategoryFormSheet> {
       submissionKey: submission.key,
     );
     if (!mounted || attempt != _attempt) return;
-    if (result.status == CategorySaveStatus.succeeded ||
-        result.status == CategorySaveStatus.stale) {
-      Navigator.pop(context);
+    if (result.status == CategorySaveStatus.stale) return;
+    if (result.status == CategorySaveStatus.succeeded) {
+      if (ModalRoute.of(context)?.isCurrent == true) Navigator.pop(context);
       return;
     }
     setState(() {
