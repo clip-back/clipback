@@ -826,8 +826,9 @@ void main() {
             holdNext = false;
             return first.future;
           }
-          if (server.calls(_categories, 'POST').isNotEmpty)
+          if (server.calls(_categories, 'POST').isNotEmpty) {
             return latest.future;
+          }
         }
         return null;
       },

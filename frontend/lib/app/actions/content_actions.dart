@@ -174,6 +174,8 @@ class ContentActions {
       await scope.run(() => scope.wait(content.loadCategories()));
       scope.checkActive();
       return current();
+    } on CategoryReadSuperseded {
+      return false;
     } catch (_) {
       if (current()) {
         feedback(
