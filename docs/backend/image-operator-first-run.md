@@ -6,6 +6,9 @@
 따라서 **7일 보존·삭제 사본 정리가 자동 운영 중인 것은 아니다**.
 
 상세 실행 식별자·시각·검증 범위는 [2026-10-26 운영 실행 기록](../history/2026-10-26-image-operator-production.md)에 보존한다.
+운영 현황은 이 문서를 기준으로 읽고 과거 실행 계획은 당시 설계 자료로만 사용한다.
+아래 개선 CLI는 저장소 구현 기준이며 **아직 운영에 배포·적용하지 않았다**.
+운영 서비스의 기존 한 줄 래퍼와 설정은 그대로다. 새 명령으로 바꾸기 전에 새 이미지 배포를 확인한다.
 이 문서 갱신으로 GitHub #97·#102의 상태를 변경하지 않았다.
 
 ## 확인된 운영 상태 (2026-10-26)
@@ -86,16 +89,21 @@ API의 pre-deploy migration·HTTP start command·healthcheck를 운영자에 복
 | 백업 설정 JSON | 원본과 다른 비공개 백업 Bucket의 endpoint·bucket·region·addressing_style·키 |
 | `IMAGE_BACKUP_ID`, `IMAGE_BACKUP_APP_COMMIT` | 이번 고유 백업 ID와 실제 원본 API의 전체 40자 커밋 |
 
-운영자에는 점검 제어 키·SSH 키·AI·소셜 로그인 비밀값을 요구하지 않는다. 서비스의 백업 설정 파일은
-`0600`이어야 한다. Railway에서 파일을 미리 전달할 실행 경로가 없다면, 콘솔 비밀 변수
-`BACKUP_BUCKET_CONFIG_JSON`으로 JSON을 공급하고 다음 start command로 실행 소유 임시 파일을 만든다.
-Railway의 Docker [start command](https://docs.railway.com/deployments/start-command)는 이미지 ENTRYPOINT를 대체한다.
-아래 Python 코드가 환경변수를 읽으므로 쉘에서 비밀값을 명령 인자로 펼치지 않는다. JSON 필드는
-[백업 설정 계약](backup-recovery.md)을 따른다.
+운영자에는 점검 제어 키·SSH 키·AI·소셜 로그인 비밀값을 요구하지 않는다.
+개선 이미지에서는 `BACKUP_BUCKET_CONFIG_JSON`을 프로세스 환경에서 직접 읽으므로 임시 설정 파일과
+콘솔 Python 래퍼가 필요 없다. JSON 필드는 [백업 설정 계약](backup-recovery.md)을 따른다.
+파일 방식도 계속 지원하며, `--backup-config-file`을 지정하면 환경변수보다 우선한다.
+설정 파일은 소유자가 실행 사용자이고 권한이 `0600`이어야 한다.
+
+개선 이미지 배포 후 Railway Start Command:
 
 ```sh
-python -c 'import os,sys,tempfile; raw=os.environ.pop("BACKUP_BUCKET_CONFIG_JSON"); fd,name=tempfile.mkstemp(suffix=".json"); f=os.fdopen(fd,"w"); f.write(raw); f.close(); os.execvp(sys.executable,[sys.executable,"-m","scripts.image_backup_jobs","manual","--backup-config-file",name,"--backup-id",os.environ["IMAGE_BACKUP_ID"],"--app-commit",os.environ["IMAGE_BACKUP_APP_COMMIT"],"--origin","production"])'
+python -m scripts.image_backup_jobs manual
 ```
+
+`IMAGE_BACKUP_ID`와 `IMAGE_BACKUP_APP_COMMIT`은 환경변수에서 읽는다. 명시적인 CLI 인자로
+덮어쓸 수 있다. `--origin` 기본값은 `production`이며 합성 검사는 `--origin synthetic`을 지정한다.
+필수 설정 누락·잘못된 값은 비밀값 없는 오류 JSON과 실패 종료로 보고한다.
 
 - [ ] 운영자에서 실제 원본 식별·읽기가 성공하고 PostgreSQL 도구 major가 원본 DB와 맞는지 확인한다.
 - [ ] 수동 백업을 1회 실행한다. `passed=true`, 해당 `backup_id`, `backup_created=true`, `restore_verified=false`와 정상 종료를 확인한다.
@@ -182,25 +190,84 @@ S3 대역·CI 성공만으로 실제 운영 완료를 체크하지 않는다. �
 실제 단계가 모두 확인돼야 #102와 #97을 완료 처리한다. 후속 일일 일정·삭제/보존 정리·신규 Bucket
 전환·이관의 착수 조건과 담당자를 다음 작업에 인계한다.
 
-## 현재 일일 백업 설정과 다음 작업
+## 일일 백업과 보존 정리 CLI (개선 이미지 배포 후)
 
-`clipback-backup`은 현재 다음 **한 줄** Start Command를 사용한다. 콘솔 입력 과정에서 여러 줄
-Python 코드가 공백으로 합쳐져 문법 오류가 발생했던 경로를 피한다.
+현재 운영 중인 `clipback-backup`의 Cron은 `0 0 * * *` (UTC 00:00 / KST 09:00),
+Restart Policy는 `Never`다. 새 이미지 배포를 확인한 뒤 다음 명령으로 교체할 수 있다.
+이 문서 변경만으로 운영 명령을 교체하지 않는다.
 
 ```sh
-python -c 'import os,sys,tempfile; raw=os.environ.pop("BACKUP_BUCKET_CONFIG_JSON"); fd,name=tempfile.mkstemp(suffix=".json"); f=os.fdopen(fd,"w"); f.write(raw); f.close(); os.execvp(sys.executable,[sys.executable,"-m","scripts.image_backup_jobs","daily","--backup-config-file",name,"--app-commit",os.environ["IMAGE_BACKUP_APP_COMMIT"],"--origin","production"])'
+python -m scripts.image_backup_jobs daily
 ```
 
-- Cron: `0 0 * * *` (UTC 00:00 / KST 09:00). Restart Policy: `Never`.
-- ID는 `daily-YYYY-MM-DD`(UTC)로 자동 생성한다. `IMAGE_BACKUP_ID`는 사용하지 않는다.
-- `IMAGE_BACKUP_APP_COMMIT`은 실제 원본 API의 커밋과 맞춘다. API 버전 변경 시 함께 확인한다.
-- 기존 DB·백업 Bucket·삭제 기록·원본 S3 설정과 Volume 원격 읽기 설정을 유지한다.
+- `BACKUP_BUCKET_CONFIG_JSON`과 `IMAGE_BACKUP_APP_COMMIT`, 기존 DB·삭제 기록·원본 S3·Volume 원격 읽기 설정을 유지한다.
+- ID는 `daily-YYYY-MM-DD`(UTC)로 생성한다. `IMAGE_BACKUP_ID`는 사용하지 않는다.
+- `IMAGE_BACKUP_APP_COMMIT`은 실제 원본 API 커밋과 맞추고 API 버전 변경 시 확인한다.
 - 같은 날짜의 완료 지점이 있으면 `backup_created=false`로 종료할 수 있다.
 - `restore_verified=false`는 생성만 수행했다는 뜻이다. 별도 격리 복원 성공으로 바꾸지 않는다.
-- 예약 외 실행 성공과 예약 시각의 자동 실행 성공은 구분한다. 첫 자동 실행의 완료 지점과 종료를 확인한다.
+- 예약 외 실행과 예약 시각 자동 실행을 구분한다. 첫 자동 실행의 완료 지점과 종료를 확인한다.
 
-`maintain` 서비스는 아직 설정·실행하지 않았다. 재개할 때 별도 서비스에서 매시간 15분
-(`15 * * * *`) 실행을 준비하고 첫 결과를 검증한다. 이 작업은 7일 이상 된 복구 지점과
-참조되지 않는 백업 사본을 삭제한다. 사용자 삭제 후 6일이 지난 이미지를 포함한 복구 지점은
-7일 기한 전에 정리 여유를 확보하려고 전체가 조기 제거될 수 있다. 삭제 기록 자체와 운영 원본의
-물리 삭제 재처리는 이 명령의 정리 대상이 아니다. 보류 중에는 7일 자동 정리가 보장되지 않는다.
+`maintain`은 **보류** 상태다. 재개 승인과 개선 이미지 배포 후 별도 서비스에서 다음 명령과
+매시간 15분 Cron `15 * * * *`, Restart Policy `Never`를 사용한다.
+
+```sh
+python -m scripts.image_backup_jobs maintain
+```
+
+필요한 변수는 다음뿐이다. 기존 API·백업 서비스의 동일한 DB·삭제 기록·백업 Bucket을 참조한다.
+
+```text
+APP_ENVIRONMENT=production
+DATABASE_URL
+BACKUP_BUCKET_CONFIG_JSON
+DELETION_LEDGER_BACKEND=s3
+DELETION_LEDGER_S3_ENDPOINT_URL
+DELETION_LEDGER_S3_BUCKET
+DELETION_LEDGER_S3_REGION
+DELETION_LEDGER_S3_ADDRESSING_STYLE
+DELETION_LEDGER_S3_ACCESS_KEY_ID
+DELETION_LEDGER_S3_SECRET_ACCESS_KEY
+```
+
+개선 `maintain`에는 `STORAGE_*`, 원본 `S3_*`, `OPERATOR_*`, `IMAGE_BACKUP_*`, AI·로그인 키가
+필요 없다. DB는 점검 상태와 중복 실행 잠금에 사용한다. 백업 생성의 원본 검증은 그대로 유지한다.
+첫 실행은 `passed=true`, `freshness_met=true`, `retention_overdue=0`,
+`deletion_records_pruned=0`과 종료를 확인한다.
+
+이 작업은 7일 이상 된 복구 지점과 참조되지 않는 백업 사본을 실제로 삭제한다. 사용자 삭제 후
+6일이 지난 이미지를 포함한 복구 지점은 7일 기한 전에 정리 여유를 확보하려고 전체가 조기 제거될 수 있다.
+삭제 기록 자체와 운영 원본의 물리 삭제 재처리는 대상이 아니다. 보류 중에는 7일 자동 정리가 보장되지 않는다.
+
+## 읽기 전용 결과 확인과 기록
+
+backend 디렉터리에서 설치된 Python 환경을 사용한다. 공급자 CLI 인증은 사용자의 기존 인증을 쓴다.
+다음 명령은 실행·배포·병합을 하지 않고 필요한 필드만 출력한다.
+
+```sh
+python -m scripts.operator_status cron --service clipback-backup --environment production
+python -m scripts.operator_status pr 104
+```
+
+Cron은 최근 5개 실행의 ID·상태·시각·소요 시간을 반환한다. PR은 커밋·충돌·리뷰 판정·CI 상태를 반환한다.
+전체 서비스 메타데이터·시작 명령·공급자 stderr는 출력하지 않는다. 상태 조회 실패를 성공이나 빈 목록으로
+바꾸지 않는다. PR 최종 diff·리뷰 본문은 필요할 때 별도로 읽고 공백 검사는 `git diff --check`를 사용한다.
+
+백업 설정만 공급해 원본과 DB의 크기·SHA-256을 스트리밍으로 검사한다. 운영 DB 접속이나
+로컬 DB·이미지 다운로드는 필요 없다. 아래 ID는 확인할 실제 복구 지점으로 바꾼다.
+
+```sh
+python -m scripts.image_backup verify --backup-id BACKUP_ID
+```
+
+파일 설정을 쓰는 경우:
+
+```sh
+python -m scripts.image_backup --backup-config-file /absolute/private/backup.json verify --backup-id BACKUP_ID
+```
+
+검증 결과는 저장소별 이미지 수·검증 객체 수·바이트 수·커밋·migration·삭제 checkpoint 포함 여부를
+기록한다. 최신 운영 삭제 기록 검증과 격리 복원은 수행하지 않으며 해당 결과는 `false`다.
+검사 도중 정리된 복구 지점은 실패할 수 있다. 성공은 검사 당시의 결과이며 이후 보존을 보장하지 않는다.
+
+운영 작업 완료 시 [상세 이력](../history/README.md)에 비밀값 없는 결과를 저장하고 이 문서 상단의
+확인 날짜·완료·미확인·보류 상태를 함께 갱신한다. 임시 경로의 보고서만을 유일한 증거로 남기지 않는다.

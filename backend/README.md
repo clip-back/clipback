@@ -1,5 +1,9 @@
 # Clipback Backend
 
+백업·격리 복원·보존 정리·Railway 상태 확인 작업은
+[첫 운영 실행 체크리스트](../docs/backend/image-operator-first-run.md)에서 현재 상태와 명령을 먼저 확인합니다.
+
+
 이미지 저장소의 운영 전환 순서와 확인 기준은 [이미지 보관 운영 전환](../docs/backend/image-storage-rollout.md)을 따릅니다.
 
 FastAPI backend for the Clipback MVP.
@@ -75,9 +79,9 @@ uvicorn app.main:app --reload
 개발 의존성이 준비된 `backend/` 가상환경에서 실행합니다.
 
 ```bash
-ruff check app alembic tests
+ruff check app scripts alembic tests
 pytest -q
-python -m compileall app alembic tests
+python -m compileall app scripts alembic tests
 ```
 
 DB 검사에는 별도 설정·마이그레이션이 필요합니다. [검증 조건과 전용 테스트 DB](../docs/backend/testing.md#validation)를 먼저 확인하며, DB 테스트의 skip을 통과로 보고하지 않습니다.

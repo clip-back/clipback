@@ -10,6 +10,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -86,7 +87,21 @@ class BackupBucket:
             and info.st_uid == os.getuid(),
             "credentials_not_private",
         )
-        config = json.loads(path.read_text())
+        return cls.from_config(json.loads(path.read_text()))
+
+    @classmethod
+    def from_environment(cls):
+        """Consume secret JSON directly; no shell expansion or credential file needed."""
+        raw = os.environ.pop("BACKUP_BUCKET_CONFIG_JSON", None)
+        require(bool(raw), "backup_configuration_missing")
+        try:
+            config = json.loads(raw)
+        except (ValueError, TypeError) as exc:
+            raise CheckError("invalid_credentials") from exc
+        return cls.from_config(config)
+
+    @classmethod
+    def from_config(cls, config):
         require(
             isinstance(config, dict)
             and set(config).issubset(
@@ -176,6 +191,15 @@ class BackupBucket:
             raise CheckError("backup_object_missing_or_unavailable") from exc
         require(response["ContentLength"] == size_bytes, "backup_hash_mismatch")
 
+    def verify_object(self, key, size_bytes, digest):
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        actual, size = hashlib.sha256(), 0
+        with response["Body"] as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                actual.update(block)
+                size += len(block)
+        require(size == size_bytes and actual.hexdigest() == digest, "backup_hash_mismatch")
+
     def download_verified(self, key, destination, size_bytes, digest):
         response = self.client.get_object(Bucket=self.bucket, Key=key)
         actual, size = hashlib.sha256(), 0
@@ -215,6 +239,36 @@ class BackupBucket:
     def read_manifest(self, backup_id):
         require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", backup_id)), "invalid_backup_id")
         return json.loads(self.read(f"points/{backup_id}/manifest.json"))
+
+
+def verify_backup(store, backup_id):
+    """Read every referenced object without writing a local DB/image copy."""
+    manifest = store.read_manifest(backup_id)
+    require(manifest.get("format_version") == 2 and manifest.get("backup_id") == backup_id,
+            "invalid_manifest")
+    database, assets = manifest["database"], manifest["assets"]
+    require(database["backup_key"] == f"points/{backup_id}/database.dump", "invalid_manifest")
+    require(isinstance(assets, list), "invalid_manifest")
+    for asset in assets:
+        require(asset.get("storage_backend") in {"local", "s3"}
+                and asset.get("backup_key") == "originals/sha256/" + asset["sha256"],
+                "invalid_manifest")
+    objects = [database, *assets]
+    for item in objects:
+        require(type(item["size_bytes"]) is int and item["size_bytes"] >= 0
+                and bool(re.fullmatch(r"[0-9a-f]{64}", item["sha256"])), "invalid_manifest")
+        store.verify_object(item["backup_key"], item["size_bytes"], item["sha256"])
+    # Detect retirement/replacement during verification without taking a write lock.
+    require(store.read_manifest(backup_id) == manifest, "backup_point_changed")
+    return {
+        "passed": True, "backup_id": backup_id, "captured_at": manifest["captured_at"],
+        "asset_counts": dict(Counter(a["storage_backend"] for a in assets)),
+        "verified_objects": len(objects), "total_bytes": sum(i["size_bytes"] for i in objects),
+        "all_sizes_and_sha256_match": True, "app_commit": manifest["app_commit"],
+        "migration_revisions": manifest["migration_revisions"],
+        "has_deletion_checkpoint": isinstance(manifest.get("deletion_checkpoint"), dict),
+        "restore_verified": False, "live_deletion_ledger_verified": False,
+    }
 
 
 async def publish_backup(
@@ -456,7 +510,8 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backup-config-file", type=Path, required=True)
+    parser.add_argument("--backup-config-file", type=Path,
+                        help="Private JSON file; otherwise BACKUP_BUCKET_CONFIG_JSON is consumed")
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create")
     create.add_argument("--backup-id", required=True)
@@ -469,9 +524,15 @@ def main():
     download = sub.add_parser("download")
     download.add_argument("--backup-id", required=True)
     download.add_argument("--directory", type=Path, required=True)
+    verify = sub.add_parser("verify")
+    verify.add_argument("--backup-id", required=True)
     args = parser.parse_args()
     try:
-        store = BackupBucket.from_config_file(args.backup_config_file)
+        store = (BackupBucket.from_config_file(args.backup_config_file)
+                 if args.backup_config_file else BackupBucket.from_environment())
+        if args.command == "verify":
+            print(json.dumps(verify_backup(store, args.backup_id), sort_keys=True))
+            return 0
         if args.command == "create":
             from app.integrations.deletion_ledger import get_deletion_ledger
             from scripts.operator_runtime import OperatorRuntime
