@@ -104,7 +104,10 @@ def bucket_backup(tmp_path_factory):
             "get_deletion_ledger().initialize()",
         )
         drill.docker("start", "-a", bootstrap)
-        drill.container(api, "--network", network, *env_args,
+        # The host operator reads local originals too. Preserve 0600 permissions by
+        # running the synthetic producer as their host owner, including on Linux.
+        drill.container(api, "--user", f"{os.getuid()}:{os.getgid()}",
+                        "--network", network, *env_args,
                         "-v", f"{source_images}:/data/screenshots", image)
         drill.docker("start", api)
         drill.wait(

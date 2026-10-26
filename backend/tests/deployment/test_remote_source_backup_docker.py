@@ -50,7 +50,9 @@ def test_private_volume_backup_uses_remote_bytes_and_rejects_wrong_sources(tmp_p
         "APP_ENVIRONMENT": "production",
     }
     env = [arg for key, val in environment.items() for arg in ("-e", f"{key}={val}")]
-    args = ["--network", f"container:{s3}",
+    # Linux bind mounts preserve host ownership; keep private files owned by the executor.
+    args = ["--user", f"{os.getuid()}:{os.getgid()}",
+            "--network", f"container:{s3}",
             "-v", f"{ledger}:/ledger", "-v", f"{config}:/backup.json:ro", *env]
     try:
         docker("network", "create", network)

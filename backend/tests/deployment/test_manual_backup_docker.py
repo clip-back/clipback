@@ -47,7 +47,9 @@ def test_synthetic_manual_backup_uses_minimal_settings_and_preserves_other_work(
         "APP_ENVIRONMENT": "test",
     }
     env = [arg for key, val in environment.items() for arg in ("-e", f"{key}={val}")]
-    args = ["--network", f"container:{s3}", "-v", f"{originals}:/originals:ro",
+    # Linux bind mounts preserve host ownership; keep private files owned by the executor.
+    args = ["--user", f"{os.getuid()}:{os.getgid()}",
+            "--network", f"container:{s3}", "-v", f"{originals}:/originals:ro",
             "-v", f"{ledger}:/ledger", "-v", f"{config}:/backup.json:ro", *env]
     try:
         docker("network", "create", network)
