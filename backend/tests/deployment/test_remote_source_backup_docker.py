@@ -87,7 +87,9 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
         docker("exec", db, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
                "-c", seed + control_schema_sql())
         # API owns the only source mount. Operator intentionally has no originals mount.
-        registration = docker("run", "--rm", "-v", f"{originals}:/originals",
+        # The host mutates the identity below to verify fail-closed reads.
+        registration = docker("run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
+                              "-v", f"{originals}:/originals",
                               "--entrypoint", "python", api_image, "-m", "scripts.image_source",
                               "register", "--root", "/originals", "--source-id", "source99",
                               "--confirm-volume", check=False)
