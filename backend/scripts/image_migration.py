@@ -295,13 +295,15 @@ async def run(args):
         if args.command == "inspect":
             async with AsyncSessionLocal() as session:
                 return await inspect_originals(session, storage)
-        return await migrate_originals(
-            engine,
-            storage,
-            backup_directory=args.backup_directory,
-            restore_report_file=args.restore_report_file,
-            limit=args.limit,
-        )
+        from app.services.maintenance import MaintenanceGate
+        async with MaintenanceGate(AsyncSessionLocal).operation("image_migration"):
+            return await migrate_originals(
+                engine,
+                storage,
+                backup_directory=args.backup_directory,
+                restore_report_file=args.restore_report_file,
+                limit=args.limit,
+            )
     finally:
         await engine.dispose()
 

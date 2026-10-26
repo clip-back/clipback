@@ -84,7 +84,8 @@ print(json.dumps(asyncio.run(seed())))
     directory = fixture["directory"] / "multiuser-materialized"
     materialize_backup(store, "multiuser", directory)
     restore = [
-        "scripts.image_backup_jobs", "restore-check", "--backup-dir", str(directory),
+        "scripts.image_backup_jobs", "restore-check", "--synthetic-offline",
+        "--backup-dir", str(directory),
         "--credentials-file", str(credentials), "--image", image, "--writers-frozen",
     ]
     living = command(restore, fixture["env"])

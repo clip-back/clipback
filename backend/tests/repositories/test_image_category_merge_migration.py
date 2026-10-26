@@ -9,6 +9,8 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy.engine import make_url
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -75,7 +77,14 @@ async def test_upgrade_head_preserves_both_deployed_branches(starting_revision):
             connection = await asyncpg.connect(database=name, **arguments)
         assert await connection.fetchval("SELECT count(*) FROM alembic_version") == 1
         revision = await connection.fetchval("SELECT version_num FROM alembic_version")
-        assert revision == "202610250019"
+        config = Config(str(BACKEND / "alembic.ini"))
+        config.set_main_option("script_location", str(BACKEND / "alembic"))
+        assert revision == ScriptDirectory.from_config(config).get_current_head()
+        assert tuple(await connection.fetchrow(
+            "SELECT id,phase,run_id,generation,drain_deadline,result FROM maintenance_state"
+        )) == (1, "open", None, 0, None, None)
+        assert await connection.fetchval("SELECT count(*) FROM maintenance_operations") == 0
+        assert await connection.fetchval("SELECT count(*) FROM maintenance_events") == 0
         if starting_revision != "base":
             category_name = await connection.fetchval("SELECT name FROM categories WHERE id=94")
             assert category_name == "preserved"
@@ -92,7 +101,23 @@ async def test_upgrade_head_preserves_both_deployed_branches(starting_revision):
                 """)
                 assert row["status_code"] == 201
                 assert json.loads(row["result"]) == {"id": 94, "name": "preserved"}
+        # Re-running a deployment upgrade must not silently thaw or erase an admitted executor.
+        run_id, operation_id = str(uuid4()), str(uuid4())
+        await connection.execute(
+            "UPDATE maintenance_state SET phase='draining',run_id=$1,generation=7,"
+            "drain_deadline=now()+interval '60 seconds',result='draining' WHERE id=1", run_id,
+        )
+        await connection.execute(
+            "INSERT INTO maintenance_operations(id,kind,executor,registered_at) "
+            "VALUES($1,'migration-fixture','stopped-test-executor',now())", operation_id,
+        )
         await migrate("upgrade", "head")
+        assert tuple(await connection.fetchrow(
+            "SELECT phase,run_id,generation,result FROM maintenance_state WHERE id=1"
+        )) == ("draining", run_id, 7, "draining")
+        assert await connection.fetchval(
+            "SELECT id FROM maintenance_operations WHERE id=$1", operation_id,
+        ) == operation_id
     finally:
         if connection is not None:
             await connection.close()

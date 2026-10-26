@@ -350,13 +350,24 @@ async def create_backup(
     deletion_checkpoint=None,
     ledger=None,
     _job_locked=False,
+    runtime=None,
 ):
     """Capture a frozen source or an online snapshot coordinated with its live ledger."""
-    from app.core.config import settings
-    from app.db.session import engine
     from app.integrations.deletion_ledger import IMAGE_CLEANUP_LOCK, LEDGER_WRITE_LOCK
-    from app.integrations.storage_client import get_storage_client
     from scripts.recovery_probe import snapshot
+
+    if runtime is not None:
+        await runtime.preflight_source()
+    if runtime is None:
+        from app.core.config import settings
+        from app.db.session import engine
+        from app.integrations.storage_client import get_storage_client
+
+        database_url, storage = settings.database_url, get_storage_client()
+    else:
+        engine, database_url, storage = (
+            runtime.engine, runtime.config.database_url, runtime.storage
+        )
 
     require(writers_frozen is True or ledger is not None, "source_write_freeze_required")
     require(bool(re.fullmatch(r"[0-9a-f]{40}", app_commit)), "invalid_manifest")
@@ -364,11 +375,12 @@ async def create_backup(
     if not _job_locked:
         from scripts.image_backup_jobs import BACKUP_JOB_LOCK, source_lock
 
-        async with source_lock(BACKUP_JOB_LOCK, try_only=True):
+        async with source_lock(BACKUP_JOB_LOCK, try_only=True, engine=engine):
             return await create_backup(
                 store, backup_id=backup_id, sample=sample, app_commit=app_commit, origin=origin,
                 writers_frozen=writers_frozen, pg_dump=pg_dump,
                 deletion_checkpoint=deletion_checkpoint, ledger=ledger, _job_locked=True,
+                runtime=runtime,
             )
     async with engine.connect() as connection:
         await connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
@@ -401,12 +413,13 @@ async def create_backup(
                     "snapshot_id": snapshot_id,
                     "sample": sample,
                     "verify_api": False,
-                }
+                },
+                runtime=runtime,
             )
             with tempfile.TemporaryDirectory(prefix="clipback-backup-private-") as temporary:
                 path = Path(temporary) / "database.dump"
                 await asyncio.to_thread(
-                    dump_database, settings.database_url, snapshot_id, path, pg_dump, major
+                    dump_database, database_url, snapshot_id, path, pg_dump, major
                 )
                 path.chmod(0o600)
                 return await publish_backup(
@@ -414,7 +427,7 @@ async def create_backup(
                     backup_id=backup_id,
                     snapshot=data,
                     database=path,
-                    storage=get_storage_client(),
+                    storage=storage,
                     captured_at=captured_at,
                     app_commit=app_commit,
                     postgres_major=major,
@@ -461,20 +474,29 @@ def main():
         store = BackupBucket.from_config_file(args.backup_config_file)
         if args.command == "create":
             from app.integrations.deletion_ledger import get_deletion_ledger
+            from scripts.operator_runtime import OperatorRuntime
 
-            sample = json.loads(args.sample_file.read_text())
-            manifest = asyncio.run(
-                create_backup(
-                    store,
-                    backup_id=args.backup_id,
-                    sample=sample,
-                    app_commit=args.app_commit,
-                    origin=args.origin,
-                    writers_frozen=args.writers_frozen,
-                    pg_dump=args.pg_dump,
-                    ledger=get_deletion_ledger() if args.capture_deletion_checkpoint else None,
-                )
-            )
+            async def capture():
+                runtime = OperatorRuntime()
+                try:
+                    from app.services.maintenance import MaintenanceGate
+                    async with MaintenanceGate(runtime.sessions).operation("backup_create"):
+                        return await create_backup(
+                            store,
+                            backup_id=args.backup_id,
+                            sample=json.loads(args.sample_file.read_text()),
+                            app_commit=args.app_commit,
+                            origin=args.origin,
+                            writers_frozen=args.writers_frozen,
+                            pg_dump=args.pg_dump,
+                            ledger=get_deletion_ledger(runtime.config)
+                            if args.capture_deletion_checkpoint else None,
+                            runtime=runtime,
+                        )
+                finally:
+                    await runtime.close()
+
+            manifest = asyncio.run(capture())
         else:
             manifest = materialize_backup(store, args.backup_id, args.directory)
         print(

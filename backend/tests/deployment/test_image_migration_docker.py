@@ -143,7 +143,7 @@ except urllib.error.HTTPError as error:
     materialize_backup(store, "migration-before", directory)
     restore = [
         "scripts.image_backup_jobs",
-        "restore-check",
+        "restore-check", "--synthetic-offline",
         "--backup-dir",
         str(directory),
         "--credentials-file",

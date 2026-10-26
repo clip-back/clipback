@@ -9,6 +9,9 @@
 !alembic/**
 !scripts/
 !scripts/start.sh
+!scripts/serve.py
+!scripts/image_source.py
+!scripts/operator_runtime.py
 !scripts/image_backup.py
 !scripts/image_backup_jobs.py
 !scripts/image_storage_admin.py
@@ -19,3 +22,7 @@
 !scripts/check_backup_restore.py
 **/__pycache__/
 **/*.pyc
+
+!scripts/maintenance.py
+
+!scripts/restore_execution.py

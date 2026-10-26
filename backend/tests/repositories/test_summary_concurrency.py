@@ -33,6 +33,8 @@ async def setup(sessions, content_id):
             )
         )
         await session.commit()
+    from app.services.maintenance import MaintenanceGate
+
     return SummaryWorker(
         sessions,
         None,
@@ -42,6 +44,7 @@ async def setup(sessions, content_id):
             gemini_api_key="test",
             youtube_data_api_key="test",
         ),
+        maintenance=MaintenanceGate(sessions),
     )
 
 

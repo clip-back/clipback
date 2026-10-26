@@ -16,9 +16,21 @@ from urllib.error import HTTPError
 
 from sqlalchemy import text
 
-from app.core.config import settings
-from app.db.session import AsyncSessionLocal
-from app.integrations.storage_client import get_storage_client
+# This source is embedded into the API image matching an older backup revision.
+# Keep the host error type while allowing images predating the operator package.
+try:
+    from scripts.check_backup_restore import CheckError
+except ModuleNotFoundError as exc:
+    if exc.name != "scripts.check_backup_restore":
+        raise
+
+    class CheckError(Exception):
+        """Fixed snapshot error codes in historical API images."""
+
+
+# Backup wire contract: operational records are excluded even when the matching
+# historical API image predates the module that implements maintenance.
+CONTROL_TABLES = frozenset({"maintenance_state", "maintenance_operations", "maintenance_events"})
 
 
 def fingerprint(value):
@@ -44,13 +56,24 @@ def get(path, token):
         return response.read()
 
 
-async def snapshot(payload):
-    root = settings.storage_root.resolve()
+async def snapshot(payload, *, runtime=None):
+    if runtime is None:
+        from app.core.config import settings
+        from app.db.session import AsyncSessionLocal
+        from app.integrations.storage_client import get_storage_client
+
+        root, sessions, configured_storage = (
+            settings.storage_root.resolve(), AsyncSessionLocal, get_storage_client()
+        )
+    else:
+        root, sessions, configured_storage = (
+            runtime.config.storage_root.resolve(), runtime.sessions, runtime.storage
+        )
     version = payload.get("format_version", 1)
     authenticated_user = None
     if version == 2 and payload.get("verify_api", True):
         authenticated_user = json.loads(get("users/me", payload["access_token"]))["id"]
-    async with AsyncSessionLocal() as session:
+    async with sessions() as session:
         # Caller freezes writers or provides a protected, exported DB snapshot.
         await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
         if payload.get("snapshot_id"):
@@ -72,6 +95,8 @@ async def snapshot(payload):
         )
         tables = {}
         for name in names:
+            if name in CONTROL_TABLES:
+                continue
             quoted = '"' + name.replace('"', '""') + '"'
             tables[name] = await session.scalar(text(f"SELECT count(*) FROM public.{quoted}"))
         revisions = list(
@@ -94,17 +119,22 @@ async def snapshot(payload):
         columns = "id, content_id, storage_key"
         if version == 2:
             columns += ", storage_backend, size_bytes, sha256"
-        storage = get_storage_client() if version == 2 else None
+        storage = configured_storage if version == 2 else None
         for row in await session.execute(text(f"SELECT {columns} FROM content_assets ORDER BY id")):
             if version == 2:
-                content_bytes = await storage.read_file(
-                    row.storage_key, backend=row.storage_backend
-                )
+                try:
+                    content_bytes = await storage.read_file(
+                        row.storage_key, backend=row.storage_backend
+                    )
+                except FileNotFoundError as exc:
+                    raise CheckError("original_missing") from exc
+                except OSError as exc:
+                    raise CheckError("original_read_failed") from exc
                 size, digest = len(content_bytes), hashlib.sha256(content_bytes).hexdigest()
                 if (row.size_bytes is not None and size != row.size_bytes) or (
                     row.sha256 is not None and digest != row.sha256
                 ):
-                    raise ValueError("Stored original metadata differs")
+                    raise CheckError("original_hash_mismatch")
             else:
                 path = (root / row.storage_key).resolve()
                 if not path.is_relative_to(root) or not path.is_file():
@@ -202,10 +232,12 @@ async def snapshot(payload):
     referenced = {
         asset["storage_key"] for asset in assets if asset.get("storage_backend", "local") == "local"
     }
+    # Remote source inventory is not exposed; zero is not proof of no extra source files.
     extra = sum(
         1
         for path in root.rglob("*")
-        if path.is_file() and str(path.relative_to(root)) not in referenced
+        if path.is_file() and path.name != ".clipback-source-id"
+        and str(path.relative_to(root)) not in referenced
     )
     return {
         "migration_revisions": revisions,

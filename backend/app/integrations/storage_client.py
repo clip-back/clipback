@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import tempfile
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.config import Settings, settings
+if TYPE_CHECKING:
+    from app.core.config import Settings
 
 
 class StorageClient(Protocol):
@@ -154,10 +157,12 @@ class S3StorageClient:
 
 
 class StorageRouter:
-    def __init__(self, config: Settings) -> None:
+    def __init__(self, config: Settings, *, local_client=None) -> None:
         self.config = config
         self.backend = config.storage_backend
-        self._clients: dict[str, StorageClient] = {"local": LocalStorageClient(config.storage_root)}
+        self._clients: dict[str, StorageClient] = {
+            "local": local_client or LocalStorageClient(config.storage_root)
+        }
 
     def for_backend(self, backend: str) -> StorageClient:
         if backend == "s3" and backend not in self._clients:
@@ -177,4 +182,6 @@ class StorageRouter:
 
 
 def get_storage_client() -> StorageRouter:
+    from app.core.config import settings
+
     return StorageRouter(settings)

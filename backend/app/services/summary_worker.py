@@ -22,10 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class SummaryWorker:
-    def __init__(self, session_factory, client, config: Settings):
+    def __init__(self, session_factory, client, config: Settings, *, maintenance=None):
         self.sessions = session_factory
         self.client = client
         self.config = config
+        self.maintenance = maintenance
 
     async def claim(self):
         now = datetime.now(UTC)
@@ -85,6 +86,17 @@ class SummaryWorker:
             )
 
     async def run_once(self) -> bool:
+        if not self.config.youtube_summary_enabled:
+            return False
+        from app.services.maintenance import MaintenanceError, default_gate
+        gate = self.maintenance or default_gate()
+        try:
+            async with gate.operation("summary"):
+                return await self._run_once()
+        except MaintenanceError:
+            return False
+
+    async def _run_once(self) -> bool:
         if not self.config.youtube_summary_enabled:
             return False
         claim = await self.claim()

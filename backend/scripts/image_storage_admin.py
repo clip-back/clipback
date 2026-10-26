@@ -138,8 +138,10 @@ async def run(args):
                     BackupBucket.from_config_file(args.backup_config),
                     month=args.month,
                 )
-            await set_uploads_paused(session, args.command == "pause")
-            return {"uploads_paused": args.command == "pause"}
+            from app.services.maintenance import MaintenanceGate
+            async with MaintenanceGate(AsyncSessionLocal).operation("image_admission"):
+                await set_uploads_paused(session, args.command == "pause")
+                return {"uploads_paused": args.command == "pause"}
     finally:
         await engine.dispose()
 

@@ -42,7 +42,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
       - name: Lint
-        run: ruff check app alembic tests
+        run: ruff check app scripts alembic tests
 
   test:
     runs-on: ubuntu-24.04
@@ -67,14 +67,14 @@ jobs:
       - name: Test
         run: pytest -q
       - name: Compile
-        run: python -m compileall app alembic tests
+        run: python -m compileall app scripts alembic tests
 
   migration:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -89,6 +89,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clipback_test
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clipback_test
+      MAINTENANCE_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clipback_maintenance100
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -102,8 +103,29 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Upgrade database
         run: alembic upgrade head
+      - name: Create dedicated maintenance test database
+        run: |
+          python - <<'PY'
+          import asyncio
+          import asyncpg
+
+          async def create():
+              connection = await asyncpg.connect(
+                  "postgresql://postgres:postgres@localhost:5432/postgres"
+              )
+              try:
+                  await connection.execute("CREATE DATABASE clipback_maintenance100")
+              finally:
+                  await connection.close()
+
+          asyncio.run(create())
+          PY
+      - name: Upgrade dedicated maintenance database
+        run: DATABASE_URL="$MAINTENANCE_TEST_DATABASE_URL" alembic upgrade head
       - name: Check migration state
-        run: alembic check
+        run: |
+          alembic check
+          DATABASE_URL="$MAINTENANCE_TEST_DATABASE_URL" alembic check
       - name: Test PostgreSQL repositories and API integration
         run: pytest -q tests/repositories tests/integration
 
@@ -133,3 +155,45 @@ jobs:
           CLIPBACK_LEDGER_OPERATOR_IMAGE: clipback-ledger-operator:check
           CLIPBACK_HANDOFF_REVISION: ${{ github.sha }}
         run: pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/test_image_handoff_docker.py
+
+
+  operator-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install recovery test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Pull isolated recovery dependencies
+        run: |
+          docker pull postgres:16
+          docker pull postgres:18
+          docker pull motoserver/moto:5.2.4
+      - name: Build matching API and PostgreSQL 18 operator images
+        run: |
+          docker build --label org.opencontainers.image.revision=${{ github.sha }} -t clipback-operator-api:check .
+          docker build --build-arg POSTGRES_MAJOR=18 --label org.opencontainers.image.revision=${{ github.sha }} -f Dockerfile.operator -t clipback-operator-pg18:check .
+      - name: Check private source backup, maintenance and isolated recovery
+        env:
+          RUN_DOCKER_RECOVERY_TESTS: "1"
+          CLIPBACK_SOURCE_API_IMAGE: clipback-operator-api:check
+          CLIPBACK_SOURCE_API_TEST_IMAGE: clipback-operator-api:check
+          CLIPBACK_OPERATOR_TEST_IMAGE: clipback-operator-pg18:check
+          CLIPBACK_RECOVERY_TEST_IMAGE: clipback-operator-api:check
+          CLIPBACK_RECOVERY_POSTGRES_MAJOR: "18"
+          CLIPBACK_RECOVERY_OPERATOR_IMAGE: clipback-operator-pg18:check
+        run: |
+          pytest -q \
+            tests/deployment/test_manual_backup_docker.py \
+            tests/deployment/test_remote_source_backup_docker.py \
+            tests/deployment/test_maintenance_docker.py \
+            tests/deployment/test_live_restore_docker.py \
+            tests/deployment/test_image_backup_docker.py \
+            tests/deployment/test_multiuser_image_restore_docker.py \
+            tests/deployment/test_backup_restore_docker.py \
+            tests/deployment/test_postgres_restore_ready_docker.py

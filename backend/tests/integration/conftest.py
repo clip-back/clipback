@@ -5,7 +5,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from PIL import Image
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -78,7 +78,9 @@ async def api(database_connection, external_responses, monkeypatch, tmp_path, ap
     monkeypatch.setattr(settings, "api_v1_prefix", api_prefix)
     monkeypatch.setattr(settings, "storage_root", tmp_path)
     monkeypatch.setattr(settings, "openai_api_key", None)
-    app = create_app()
+    from app.services.maintenance import MaintenanceGate
+    gate = MaintenanceGate(async_sessionmaker(database_connection.engine, expire_on_commit=False))
+    app = create_app(maintenance=gate)
 
     async def request_session():
         async with AsyncSession(
