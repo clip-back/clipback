@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -162,10 +163,10 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
                   pg_dump="pg_dump", backup_id=None):
     """Backup-only commands never perform source cleanup or retention."""
     from app.integrations.deletion_ledger import get_deletion_ledger
-    from scripts.operator_runtime import OperatorRuntime
+    from scripts.operator_runtime import MaintenanceRuntime, OperatorRuntime
 
     try:
-        runtime = OperatorRuntime()
+        runtime = MaintenanceRuntime() if command == "maintain" else OperatorRuntime()
     except ValidationError as exc:
         raise CheckError("operator_configuration_invalid") from exc
     try:
@@ -219,14 +220,15 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("manual", "daily", "maintain"):
         task = sub.add_parser(command)
-        task.add_argument("--backup-config-file", type=Path, required=True)
+        task.add_argument("--backup-config-file", type=Path,
+                          help="Private JSON file; otherwise BACKUP_BUCKET_CONFIG_JSON is consumed")
         if command in {"manual", "daily"}:
-            task.add_argument("--app-commit", required=True)
-            task.add_argument("--origin", choices=["production", "synthetic"], required=True)
+            task.add_argument("--app-commit", default=os.environ.get("IMAGE_BACKUP_APP_COMMIT"))
+            task.add_argument("--origin", choices=["production", "synthetic"], default="production")
             task.add_argument("--sample-file", type=Path)
             task.add_argument("--pg-dump", default="pg_dump")
         if command == "manual":
-            task.add_argument("--backup-id", required=True)
+            task.add_argument("--backup-id", default=os.environ.get("IMAGE_BACKUP_ID"))
     restore = sub.add_parser("restore-check")
     restore.add_argument("--workspace", type=Path)
     restore.add_argument("--backup-dir", type=Path)
@@ -246,7 +248,14 @@ def main():
                     writers_frozen=args.writers_frozen, synthetic_offline=args.synthetic_offline,
                 ))
         else:
-            store = BackupBucket.from_config_file(args.backup_config_file)
+            if args.command in {"manual", "daily"}:
+                require(bool(re.fullmatch(r"[0-9a-f]{40}", args.app_commit or "")),
+                        "app_commit_required")
+            if args.command == "manual":
+                require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", args.backup_id or "")),
+                        "backup_id_required")
+            store = (BackupBucket.from_config_file(args.backup_config_file)
+                     if args.backup_config_file else BackupBucket.from_environment())
             kwargs = {}
             if args.command in {"manual", "daily"}:
                 kwargs = dict(app_commit=args.app_commit, origin=args.origin, pg_dump=args.pg_dump,

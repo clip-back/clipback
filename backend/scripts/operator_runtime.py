@@ -13,8 +13,22 @@ from app.integrations.operator_source import RemoteSourceClient
 from app.integrations.storage_client import StorageRouter, StorageUnavailableError
 
 
-class OperatorSettings(DeletionLedgerSettings):
+class MaintenanceSettings(DeletionLedgerSettings):
     database_url: str
+
+    @field_validator("database_url")
+    @classmethod
+    def database_connection(cls, value):
+        try:
+            url = make_url(value)
+        except ArgumentError as exc:
+            raise ValueError("A PostgreSQL database is required") from exc
+        if url.drivername not in {"postgres", "postgresql", "postgresql+asyncpg"}:
+            raise ValueError("A PostgreSQL database is required")
+        return url.set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
+
+
+class OperatorSettings(MaintenanceSettings):
     storage_root: Path
     storage_backend: Literal["local", "s3"] = "local"
     operator_source_url: str | None = None
@@ -27,17 +41,6 @@ class OperatorSettings(DeletionLedgerSettings):
     s3_addressing_style: Literal["virtual", "path"] = "virtual"
     s3_access_key_id: SecretStr | None = None
     s3_secret_access_key: SecretStr | None = None
-
-    @field_validator("database_url")
-    @classmethod
-    def database_connection(cls, value):
-        try:
-            url = make_url(value)
-        except ArgumentError as exc:
-            raise ValueError("A PostgreSQL database is required") from exc
-        if url.drivername not in {"postgres", "postgresql", "postgresql+asyncpg"}:
-            raise ValueError("A PostgreSQL database is required")
-        return url.set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
 
     @model_validator(mode="after")
     def source_configuration(self):
@@ -94,11 +97,19 @@ class UnidentifiedLocalSource:
         raise StorageUnavailableError("Operator source is read-only")
 
 
-class OperatorRuntime:
+class MaintenanceRuntime:
     def __init__(self, config=None):
-        self.config = config or OperatorSettings()
+        self.config = config or MaintenanceSettings()
         self.engine = create_async_engine(self.config.database_url)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+
+    async def close(self):
+        await self.engine.dispose()
+
+
+class OperatorRuntime(MaintenanceRuntime):
+    def __init__(self, config=None):
+        super().__init__(config or OperatorSettings())
         if self.config.operator_source_url:
             local = RemoteSourceClient(self.config)
         elif self.config.app_environment == "production":
@@ -110,6 +121,3 @@ class OperatorRuntime:
     async def preflight_source(self):
         if self.config.operator_source_url:
             await self.storage.for_backend("local").preflight()
-
-    async def close(self):
-        await self.engine.dispose()

@@ -146,6 +146,46 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
                     "s=BackupBucket.from_config_file(Path('/backup.json'));"
                     "assert s.completed_points()==['first','old']")
         assert final.returncode == 0, final.stdout + final.stderr
+        # Run the same short entrypoint used in Railway, with no Python shell wrapper.
+        daily = run(*args, "--entrypoint", "python",
+                    "-e", "BACKUP_BUCKET_CONFIG_JSON=" + config.read_text(),
+                    "-e", "IMAGE_BACKUP_APP_COMMIT=" + "a" * 40,
+                    image, "-m", "scripts.image_backup_jobs", "daily", "--origin", "synthetic")
+        assert daily.returncode == 0, daily.stdout + daily.stderr
+        daily_report = json.loads(daily.stdout)
+        assert daily_report["passed"] and daily_report["backup_created"]
+        check = run(*args, "--entrypoint", "python",
+                    "-e", "BACKUP_BUCKET_CONFIG_JSON=" + config.read_text(), image,
+                    "-m", "scripts.image_backup", "verify", "--backup-id",
+                    daily_report["backup_id"])
+        assert check.returncode == 0, check.stdout + check.stderr
+        assert json.loads(check.stdout)["verified_objects"] == 2
+        remove_seed = run(*args, "--entrypoint", "python", image, "-c",
+                          "from scripts.image_backup import BackupBucket;from pathlib import Path;"
+                          "s=BackupBucket.from_config_file(Path('/backup.json'));"
+                          "s.delete_verified('points/old/manifest.json')")
+        assert remove_seed.returncode == 0
+        maintained = run("--user", f"{os.getuid()}:{os.getgid()}",
+                         "--network", f"container:{s3}", "-v", f"{ledger}:/ledger",
+                         "--entrypoint", "python", "-e", "APP_ENVIRONMENT=test",
+                         "-e", "DATABASE_URL=" + environment["DATABASE_URL"],
+                         "-e", "DELETION_LEDGER_BACKEND=local",
+                         "-e", "DELETION_LEDGER_ROOT=/ledger",
+                         "-e", "BACKUP_BUCKET_CONFIG_JSON=" + config.read_text(),
+                         image, "-m", "scripts.image_backup_jobs", "maintain")
+        assert maintained.returncode == 0, maintained.stdout + maintained.stderr
+        maintenance_report = json.loads(maintained.stdout)
+        assert maintenance_report["passed"] and maintenance_report["retained_points"] == 2
+        assert maintenance_report["removed_originals"] == 1
+        assert (originals / "pending.png").read_bytes() == b"pending cleanup remains"
+        missing_config = run("--entrypoint", "python", image,
+                             "-m", "scripts.image_backup_jobs", "maintain")
+        assert missing_config.returncode == 1
+        assert json.loads(missing_config.stdout)["error"] == "backup_configuration_missing"
+        invalid_config = run("--entrypoint", "python", "-e", "BACKUP_BUCKET_CONFIG_JSON=secret",
+                             image, "-m", "scripts.image_backup_jobs", "maintain")
+        assert invalid_config.returncode == 1
+        assert "secret" not in invalid_config.stdout + invalid_config.stderr
         sample = tmp_path / "legacy-sample.json"
         sample.write_text(json.dumps({"content_id": 1, "asset_id": 1}))
         sample.chmod(0o600)
