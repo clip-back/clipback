@@ -48,20 +48,25 @@ def check_tags(repo, tag, remote):
     return 'checked'
 
 
-def render_record(template, identifier, source_sha, changes, args, checked_at, remote_status):
+def record_overview(template, identifier, changes, checked_at, note):
     record = f'# {identifier}\n\n' + template[template.index('## 배포 개요'):]
     record = record.replace('- 배포 식별자: 미확인', f'- 배포 식별자: {identifier}')
     record = record.replace('- 준비일: 미확인', f'- 준비일: {checked_at}')
     record = record.replace('의 항목 또는 앵커: 미확인',
                             '의 항목 또는 앵커: ' + '; '.join(changes))
-    note = '초안; 산출물·운영 반영 미확인'
-    if remote_status == 'unknown':
-        note += '; remote_tags_unavailable'
     record = record.replace('- 후보 준비 상태·미확인 사유: 미확인',
                             f'- 후보 준비 상태·미확인 사유: {note}')
     record = record.replace('| 기존 후보 기록·로컬 태그 | 미확인 | 미확인 |',
                             '| 기존 후보 기록·로컬 태그 | '
                             f'로컬 저장소 / {checked_at} | 충돌 없음 |')
+    return record
+
+
+def render_record(template, identifier, source_sha, changes, args, checked_at, remote_status):
+    note = '초안; 산출물·운영 반영 미확인'
+    if remote_status == 'unknown':
+        note += '; remote_tags_unavailable'
+    record = record_overview(template, identifier, changes, checked_at, note)
     status = ('동일 태그 없음' if remote_status == 'checked'
               else '미확인: remote_tags_unavailable')
     record = record.replace('| 원격 태그 | 미확인 | 미확인 |',
@@ -216,21 +221,12 @@ def prepare_app(args):
     }
     checked_at = datetime.now(KST).isoformat(timespec='seconds') + ' KST'
     template = (repo / 'docs/releases/TEMPLATE.md').read_text(encoding='utf-8')
-    record = f'# {identifier}\n\n' + template[template.index('## 배포 개요'):]
-    record = record.replace('- 배포 식별자: 미확인', f'- 배포 식별자: {identifier}')
-    record = record.replace('- 준비일: 미확인', f'- 준비일: {checked_at}')
-    record = record.replace('의 항목 또는 앵커: 미확인',
-                            '의 항목 또는 앵커: ' + '; '.join(changes))
     reasons = [platform + '_store_history_unavailable'
                for platform, data in platforms.items() if data['history'] is None]
     reasons += [platform + '_remote_tags_unavailable'
                 for platform, status in remote_status.items() if status == 'unknown']
-    record = record.replace('- 후보 준비 상태·미확인 사유: 미확인',
-                            '- 후보 준비 상태·미확인 사유: 초안; 산출물·공개 미확인; '
-                            + '; '.join(reasons))
-    record = record.replace('| 기존 후보 기록·로컬 태그 | 미확인 | 미확인 |',
-                            '| 기존 후보 기록·로컬 태그 | '
-                            f'로컬 저장소 / {checked_at} | 충돌 없음 |')
+    note = '초안; 산출물·공개 미확인; ' + '; '.join(reasons)
+    record = record_overview(template, identifier, changes, checked_at, note)
     remote_text = '; '.join(f'{platform}: {status}' for platform, status in remote_status.items())
     record = record.replace('| 원격 태그 | 미확인 | 미확인 |',
                             f'| 원격 태그 | {args.remote} / {checked_at} | {remote_text} |')
