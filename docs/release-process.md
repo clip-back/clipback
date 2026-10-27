@@ -151,6 +151,46 @@ python -m scripts.prepare_release backend \
 - 명령은 태그 생성·푸시·빌드·버전 변경·업로드·배포를 실행하지 않습니다.
   자격 증명이나 사용자 데이터를 입력에 넣지 않으며 원격 명령의 원문 오류는 출력하지 않습니다.
 
+## 앱 후보 초안 생성
+
+같은 `backend/` 진입점에서 목표 버전과 대상 플랫폼의 빌드·소스를 지정합니다. 아래 번호는 설명용 예시입니다.
+
+```bash
+python -m scripts.prepare_release app \
+  --version 0.2.0 \
+  --ios-build 21 --ios-source HEAD \
+  --android-build 8 --android-source HEAD \
+  --change '[앱] 선택한 변경 이력 항목 또는 앵커' \
+  --ios-store-history /path/to/ios-history.json
+```
+
+- `--version`과 한 번 이상의 `--change`, 적어도 한 플랫폼의 `--ios-build`·`--ios-source` 또는
+  `--android-build`·`--android-source` 쌍이 필요합니다. 대상이 아닌 플랫폼 옵션은 생략합니다.
+  버전은 앞자리 0이 없는 `X.Y.Z`, 빌드 번호는 앞자리 0이 없는 양의 정수입니다.
+- `--repo`, `--remote`는 서버 명령과 같습니다. 선택적인 `--server-source`, `--environment`,
+  `--api-version`으로 함께 준비하는 서버 정보를 기록할 수 있습니다. 미제공 정보와 배포 결과는 미확인으로 남깁니다.
+- 새 파일은 앞서 정한 플랫폼 조합별 후보 이름을 사용하며 기존 기록·수동 개요를 수정하지 않습니다.
+  기존 후보 파일·예전 버전별 기록의 빌드 표·로컬 및 원격 앱 태그에 확인된 최대 빌드보다 높은 번호를 요구합니다.
+  사용자 버전이나 플랫폼 조합을 바꿔도 같은 플랫폼의 번호를 재사용할 수 없습니다.
+- `--ios-store-history`·`--android-store-history`는 해당 앱의 해당 플랫폼 업로드 이력을 사람이 확인한 JSON입니다.
+  `source`에 앱과 다시 확인할 수 있는 스토어 기록을 명시하고, `checked_at`에는 시간대를 포함한 ISO 시각을 적습니다.
+  `highest_build`는 그 시점에 확인한 최대 업로드 번호이며 업로드 이력이 전혀 없음을 확인했으면 0입니다.
+
+  ```json
+  {"platform":"ios","source":"App Store Connect: 해당 앱의 빌드 목록","checked_at":"2026-10-27T09:00:00+09:00","highest_build":20}
+  ```
+
+- 도구는 수동 확인값을 실시간 스토어 조회로 취급하지 않습니다. 앱·플랫폼과 이력 전체의 확인 책임은 담당자에게 있고,
+  준비 시 최신 이력을 확인해 근거를 갱신합니다. 해당 플랫폼과 다른 `platform`, 잘못된 형식·빈 출처·음수 최대 번호는 거부합니다.
+  확인한 최대 업로드 번호 이하의 후보는 실패합니다. 증거 파일에 키·토큰·개인정보를 넣거나 커밋하지 않습니다.
+- 증거를 생략하거나 파일을 읽을 수 없으면 `checks.ios_store_history` 또는 `checks.android_store_history`가
+  `unknown`입니다. 수동 확인값은 `manual_snapshot`, 원격 태그는 플랫폼별 `*_remote_tags`로 표시합니다.
+  하나라도 확인하지 못하면 `identifier_checks_complete: false`이며, 초안에 출처·시점·미확인 사유를 남깁니다.
+  `true`도 제공한 근거와 조회한 태그 범위의 확인만 뜻하며 실제 산출물·업로드·정식 공개의 성공을 보장하지 않습니다.
+- 같은 목표 버전의 새 테스트 빌드는 높은 번호의 새 후보로 생성합니다. 동일 산출물의 재업로드는 기존 진행 기록에
+  수동으로 이어 적고, 플랫폼별 순차 공개 상태·최종 검증 빌드·정식 배포 대상은 실제 확인 후 각각 갱신합니다.
+  정식 공개 뒤 앱을 수정하면 새 사용자 버전을 준비합니다. 명령은 빌드·태그 생성·푸시·업로드·배포를 실행하지 않습니다.
+
 ## 검증과 스토어 등록
 
 - 모바일 실행·설정은 [프론트 README](../frontend/README.md),
