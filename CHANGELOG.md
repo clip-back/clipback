@@ -54,8 +54,9 @@
 
 ## 앱 0.2.0
 
-[iOS 배포 후보 기록](docs/releases/app-v0.2.0-ios-b6.md): TestFlight 검증용 빌드 6 준비 중입니다.
+[iOS 배포 기록](docs/releases/app-v0.2.0-ios-b6.md): 빌드 6이 TestFlight 내부 그룹 `test`에서 테스트 중입니다.
 정식 공개일은 미확정이며, Android의 같은 변경은 `미배포`에 남깁니다.
+Android는 [개발자 계정 승인 대기](docs/history/2026-10-27-android-release-preparation.md) 상태입니다.
 
 ### 개선
 
