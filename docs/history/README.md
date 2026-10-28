@@ -25,6 +25,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-10-28 | [Android 내부 테스트 배포 구현 진행](2026-10-28-android-internal-test-implementation.md) | 앱 배포 준비 |
 | 2026-10-28 | [Android 내부 테스트 배포 구현 티켓 발행](2026-10-28-android-internal-test-tickets.md) | 티켓 |
 | 2026-10-28 | [Android 내부 테스트 배포 명세 발행](2026-10-28-android-internal-test-spec.md) | 명세 |
 | 2026-10-28 | [Android 배포 준비 설계 인터뷰](2026-10-28-android-release-design.md) | 설계 |
