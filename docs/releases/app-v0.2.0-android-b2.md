@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [Android] 사진 선택 시 원본 파일 압축 방지 (CHANGELOG 미배포 수정)
 - 관련 PR·작업 링크: [명세 #112](https://github.com/clip-back/clipback/issues/112), [실기기 검증 #115](https://github.com/clip-back/clipback/issues/115)
 - 앱 버전별 개요·이전 후보 링크: [Android 빌드 1](app-v0.2.0-android-b1.md)
-- 후보 준비 상태·미확인 사유: 정상 Release AAB·양쪽 모바일 실행·Play 내부 제공·Galaxy 업데이트 검증 완료. 새 사진의 원본 표시와 완전 재시작 후 5개 유지·새 원본 재열람까지 확인. 최종 통합 리뷰 대기.
+- 후보 준비 상태·미확인 사유: 정상 Release AAB·양쪽 모바일 실행·Play 내부 제공·Galaxy 업데이트 검증 완료. 새 사진의 원본 표시와 완전 재시작 후 5개 유지·새 원본 재열람까지 확인. 최종 저장소 규칙·명세 리뷰 모두 지적 0건.
 
 ## 식별자 확인 근거
 
