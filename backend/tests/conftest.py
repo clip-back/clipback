@@ -15,7 +15,9 @@ from app.main import app  # noqa: E402
 @pytest.fixture
 def client(monkeypatch) -> Iterator[TestClient]:
     from tests.support.maintenance import OpenUnitGate
-    monkeypatch.setattr(app.state, "maintenance", OpenUnitGate())
+    # State stores dynamic attributes in _state; patch the backing mapping so
+    # pytest restores the gate instead of deleting it during fixture teardown.
+    monkeypatch.setitem(app.state._state, "maintenance", OpenUnitGate())
     with TestClient(app) as test_client:
         yield test_client
 
