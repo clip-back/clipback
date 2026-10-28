@@ -6,9 +6,9 @@
 - 배포 담당자: 미확인
 - 준비일: 2026-10-28T13:22:56+09:00 KST
 - 포함한 변경 이력의 항목 또는 앵커: [앱 0.2.0의 Android 항목](../../CHANGELOG.md#앱-020)
-- 관련 PR·작업 링크: [#112](https://github.com/clip-back/clipback/issues/112), [#113](https://github.com/clip-back/clipback/issues/113), [진행 기록](../history/2026-10-28-android-internal-test-implementation.md)
+- 관련 PR·작업 링크: [#112](https://github.com/clip-back/clipback/issues/112), [#113](https://github.com/clip-back/clipback/issues/113), [#114](https://github.com/clip-back/clipback/issues/114), [#115](https://github.com/clip-back/clipback/issues/115), [진행 기록](../history/2026-10-28-android-internal-test-implementation.md)
 - 앱 버전별 개요·이전 후보 링크: 미확인
-- 후보 준비 상태·미확인 사유: #113 준비 완료; #114에서 동일 AAB 업로드·처리, Google·카카오 Android 등록, 본인 한 명에게 내부 테스트 제공·참여 완료. 다운로드 링크의 Store Not Found로 Play 설치·실제 OAuth와 #115 핵심 기능 검증 대기
+- 후보 준비 상태·미확인 사유: #113·#114 완료; 동일 AAB 업로드·처리, 공급자 등록, 본인 한 명의 Play 설치와 실제 Google·카카오 로그인·재로그인 확인. Store Not Found는 해소됐고 저장·공유·재시작 후 데이터 확인은 #115에서 검증
 
 ## 식별자 확인 근거
 
@@ -72,9 +72,9 @@
 | 원격 CI | 미실행 | 미실행 | 로컬 구현 단계, PR·푸시 미실행 |
 | iOS Simulator | iPhone 16 Pro / iOS 18.6, 별도 Debug 제품 빌드 시작 | 통과 | 로그인 화면·PID 확인, 상세 범위는 진행 기록 참조 |
 | Android Emulator | Medium Phone / Android 16 API 36, AAB 변환 로컬 APK 시작 | 통과 | 로컬 Debug 서명, Play 설치·OAuth 증거 아님 |
-| 실제 OAuth·외부 공급자 | Play 인증서 기준 Google·카카오 Android 등록 저장 확인 | 설정 완료·로그인 미실행 | Google 별도 테스트 계정 허용 확인; 실제 인증은 수동 기기 검증 대기 |
-| 운영 서버 | 미확인 | 미확인 | 미확인 |
-| 실기기 | Galaxy S25 Ultra SM-S938N / Android 16 API 36 | 설치 미완료 | 본인 참여 완료 뒤 Play Store에서 항목을 찾을 수 없음; 동일 계정 웹에서도 재현. 로컬 APK 설치하지 않음 |
+| 실제 OAuth·외부 공급자 | 실제 Play 설치본의 별도 테스트 계정 | Google·카카오 각각 로그인과 로그아웃 후 같은 제공자 재로그인 성공 | 사용자 수동 조작 완료 응답과 실제 홈 화면 증거. 제공자 설정 저장을 실제 인증 성공으로 대체하지 않음 |
+| 운영 서버 | 기존 production API의 Google·카카오 인증·로그아웃 흐름 | 해당 흐름 확인 | 서버 재배포·전체 API·콘텐츠 저장 검증을 뜻하지 않음. 저장·공유·데이터 유지 검증은 #115 |
+| 실기기 | Galaxy S25 Ultra SM-S938N / Android 16 API 36 | Play 설치·양 제공자 로그인·재로그인 확인 | `com.android.vending` 설치 출처, `com.huturu.app` 0.2.0(1), 실제 Play 앱 서명 인증서 일치. 4KB 페이지 기기이며 저장·공유·재시작 후 데이터 확인은 #115 |
 
 ## 진행 기록과 중단·복구
 
@@ -86,3 +86,5 @@
 | 시각 (KST) | 대상·단계 | 수행 내용·사유·산출물 또는 SHA | 결과·근거·후속 조치 |
 | --- | --- | --- | --- |
 | 2026-10-28 14:10 KST | Android 내부 테스트 제공 | 고정 AAB `0.2.0(1)` 업로드·처리 후 본인 전용 목록에 출시 | 내부 테스터에게 제공됨. 실제 Play 설치·로그인은 별도로 확인하며 [진행 기록](../history/2026-10-28-android-internal-test-implementation.md#114-play-제공과-실제-인증-검증)에 후속 결과 보존 |
+| 2026-10-28 14:21 KST | Android Play 설치 | 초기 Store Not Found 뒤 같은 다운로드 링크가 열리고 사용자가 Galaxy에 설치 | 설치 출처·버전·빌드·실제 Play 서명·로그인 화면 확인. 초기 오류 이력은 보존하며 실제 OAuth는 별도 검증 |
+| 2026-10-28 14:30 KST | Android 실제 OAuth | Google·카카오 테스트 계정 각각 로그인·로그아웃 후 같은 제공자 재로그인 | 사용자 완료 응답과 실제 전경 앱의 홈 화면 확인. 저장·공유·재시작 후 데이터 유지 검증은 #115로 이음 |

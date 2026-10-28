@@ -36,8 +36,8 @@
 ## 앱 0.2.0
 
 [iOS 배포 기록](docs/releases/app-v0.2.0-ios-b6.md): 빌드 6이 TestFlight 내부 그룹 `test`에서 테스트 중입니다.
-Android [0.2.0(1) 배포 기록](docs/releases/app-v0.2.0-android-b1.md): 내부 테스트 활성화와 본인 한 명의 참여를 완료했으며 Play 스토어 설치 링크 반영을 기다리고 있습니다.
-양 플랫폼의 정식 공개는 미실행이며, Android 실기기 설치·실제 기능은 아직 미검증입니다.
+Android [0.2.0(1) 배포 기록](docs/releases/app-v0.2.0-android-b1.md): 내부 테스트에서 본인 한 명의 Play 참여·Galaxy 설치를 확인했습니다.
+Android의 Google·카카오 로그인과 같은 제공자 재로그인을 확인했습니다. 양 플랫폼의 정식 공개는 미실행이며, Android 저장·공유·재시작 후 데이터 확인은 검증 중입니다.
 
 ### 개선
 
