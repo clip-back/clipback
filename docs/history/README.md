@@ -25,6 +25,11 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-10-28 | [Android 내부 테스트 배포 구현·검증](2026-10-28-android-internal-test-implementation.md) | 앱 내부 배포 |
+| 2026-10-28 | [Android 내부 테스트 배포 구현 티켓 발행](2026-10-28-android-internal-test-tickets.md) | 티켓 |
+| 2026-10-28 | [Android 내부 테스트 배포 명세 발행](2026-10-28-android-internal-test-spec.md) | 명세 |
+| 2026-10-28 | [Android 배포 준비 설계 인터뷰](2026-10-28-android-release-design.md) | 설계 |
+| 2026-10-28 | [Android 앱 식별자를 iOS와 통일](2026-10-28-android-app-id.md) | 앱 배포 준비 |
 | 2026-10-27 | [Android 개발자 계정 승인 대기와 배포 준비](2026-10-27-android-release-preparation.md) | 앱 배포 준비 |
 | 2026-10-27 | [iOS 0.2.0 빌드 6 TestFlight 업로드](2026-10-27-ios-b6-testflight.md) | 앱 업로드 |
 | 2026-10-27 | [iOS 0.2.0 빌드 6 검증·배포용 빌드](2026-10-27-ios-b6-build.md) | 앱 빌드 |

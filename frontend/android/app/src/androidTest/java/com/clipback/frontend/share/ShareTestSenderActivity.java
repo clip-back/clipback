@@ -15,7 +15,7 @@ public final class ShareTestSenderActivity extends Activity {
         Button link=new Button(this);link.setText("Share YouTube link");link.setOnClickListener(v ->
             startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"https://youtu.be/dQw4w9WgXcQ"),"Share with")));root.addView(link);
         Button image=new Button(this);image.setText("Share screenshot URI");image.setOnClickListener(v -> {
-            Uri uri=Uri.parse("content://com.clipback.frontend.test.shareimage/screenshot.png");
+            Uri uri=Uri.parse("content://com.huturu.app.test.shareimage/screenshot.png");
             Intent share=new Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM,uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             share.setClipData(ClipData.newRawUri("Screenshot",uri));

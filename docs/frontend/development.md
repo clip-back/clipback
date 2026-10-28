@@ -29,8 +29,11 @@ flutter run -d "$DEVICE_ID" --no-pub \
   --dart-define="CLIPBACK_KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY"
 ```
 
-Android의 `applicationId`는 `com.clipback.frontend`입니다. Google 콘솔에는 이 패키지와 실제
-Debug/Release 서명 SHA를, 카카오 콘솔에는 패키지와 해당 서명 key hash를 등록합니다.
+Android의 `applicationId`는 iOS Bundle ID와 같은 `com.huturu.app`입니다. Google 콘솔에는 이
+패키지와 실제 설치본의 서명 SHA-1을, 카카오 콘솔에는 패키지와 해당 서명 key hash를 등록합니다.
+로컬 Debug/Release 서명과 Google Play App Signing의 앱 서명 인증서를 구분합니다.
+Play에서 설치한 앱은 업로드 키가 아닌 앱 서명 인증서를 기준으로 등록합니다.
+기존 `com.clipback.frontend` 등록만으로 새 패키지의 소셜 로그인이 설정되지는 않습니다.
 Google `serverClientId`를 명시하므로 `google-services.json`을 추가하지 않습니다.
 Gradle은 Flutter `dart-defines`에서 카카오 Native key를 읽어 manifest의
 `AuthCodeHandlerActivity` 콜백 `kakao{Native key}://oauth`를 구성합니다.
@@ -69,7 +72,15 @@ Bundle ID를 기존 `com.clipback.app`에서 `com.huturu.app`으로 변경했으
 Google의 iOS OAuth client와 URL scheme, 카카오의 iOS 플랫폼 등록, Apple App ID·프로비저닝을
 새 식별자 기준으로 확인합니다. 백엔드 Apple 설정의 `APPLE_CLIENT_ID`도 `com.huturu.app`이어야 하며,
 `APPLE_TEAM_ID`·키는 해당 App ID에 사용할 개발자 팀과 일치해야 합니다. 저장소 설정 변경만으로
-공급자 콘솔이나 배포 환경변수가 변경되지는 않습니다. Android 패키지명은 그대로 유지합니다.
+공급자 콘솔이나 배포 환경변수가 변경되지는 않습니다.
+
+Android의 설치·배포 식별자는 `com.huturu.app`이며 내부 Java namespace는
+`com.clipback.frontend`를 유지합니다. ADB component는
+`com.huturu.app/com.clipback.frontend.MainActivity`처럼 앱 ID와 클래스명을 구분합니다.
+기존 패키지의 개발 앱과는 별도 앱으로 설치되며 기존 로그인·공유 초안·로컬 캐시를 자동으로 이전하지 않습니다.
+첫 Play 업로드 전 새 패키지의 공급자 등록과 Release 서명을 확인합니다.
+Release는 [외부 업로드 키 설정](#android-release-서명과-aab)이 있어야 빌드되며 Debug 키로 대체하지 않습니다.
+변경 근거와 실행 결과는 [Android 앱 식별자 변경 기록](../history/2026-10-28-android-app-id.md)을 따릅니다.
 
 ### 검증 범위
 
@@ -166,6 +177,50 @@ compileSdk를 36으로 맞춥니다. 앱의 minSdk·targetSdk와 패키지 잠�
 `file_picker`를 업데이트할 때 플러그인 자체의 compileSdk를 확인하고 이 보정의 필요성을 재검토합니다.
 
 
+## Android Release 서명과 AAB
+
+업로드 키와 서명 설정 파일은 저장소 밖의 운영자 전용 위치에 둡니다. 사용할 암호관리자와
+보관 위치를 정한 뒤 키 파일·별칭·비밀번호를 백업하고, 복원한 키의 인증서와 서명 가능 여부를
+확인합니다. Google 생성 앱 서명 키와 로컬 업로드 키는 별개입니다.
+키 생성·백업 방식은 [Flutter Android 배포 안내](https://docs.flutter.dev/deployment/android#sign-the-app)와
+[Play App Signing](https://developer.android.com/studio/publish/app-signing)을 따릅니다.
+
+`CLIPBACK_ANDROID_KEY_PROPERTIES`에는 외부 UTF-8 Java properties 파일의 절대 경로만 지정합니다.
+설정 파일은 아래 4개 항목을 포함하고, `storeFile`은 외부 키 파일의 절대 경로여야 합니다.
+실제 값은 암호관리자에서 로컬 파일에 입력하며 Git·채팅·쉘 명령 인수에 넣지 않습니다.
+Java properties의 역슬래시 등 이스케이프 규칙을 적용하고 파일 권한은 운영자만 읽도록 제한합니다.
+
+```properties
+storeFile=/absolute/private/location/upload.jks
+storePassword=<store password>
+keyAlias=upload
+keyPassword=<key password>
+```
+
+아래 명령은 `frontend/`에서 실행합니다. 먼저 잠금파일 의존성과 실제 운영용 Google·카카오 공개 ID를
+준비하고, 기존 [앱 후보 초안 생성](../release-process.md#앱-후보-초안-생성)을 통해 소스·버전·빌드 번호를
+확정합니다. 명령의 환경변수는 로컬에서 지정하며 iOS 빌드 번호를 Android에 복사하지 않습니다.
+
+```bash
+export CLIPBACK_ANDROID_KEY_PROPERTIES=/absolute/private/location/key.properties
+(cd android && ./gradlew :app:validateReleaseSigning --console=plain)
+flutter build appbundle --release --no-pub -t lib/main.dart \
+  --build-name="$ANDROID_VERSION" --build-number="$ANDROID_BUILD_NUMBER" \
+  --dart-define=CLIPBACK_API_BASE_URL=https://clipback-production.up.railway.app/api/v1 \
+  --dart-define="CLIPBACK_GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID" \
+  --dart-define="CLIPBACK_KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY"
+```
+
+`validateReleaseSigning`은 필수 입력·외부 파일 위치·실제 키 복호화를 확인하며, Release 빌드 전에
+자동 실행됩니다. 입력 누락·잘못된 키/별칭/비밀번호는 실패하고 비밀번호 값은 오류에 출력하지 않습니다.
+Debug 개발에는 이 환경변수나 Release 키가 필요하지 않습니다. 검증 작업 통과만으로 AAB가
+만들어졌거나 백업 복구가 완료된 것은 아니므로 정상 빌드와 복원 검증을 각각 수행합니다.
+
+최종 `build/app/outputs/bundle/release/app-release.aab`의 패키지·버전·빌드 번호·서명·권한·target SDK,
+포함된 네이티브 라이브러리의 [16KB 호환](https://developer.android.com/guide/practices/page-sizes)을
+산출물에서 확인하고 SHA-256과 소스 커밋을 기록합니다. Play 설치본의 소셜 등록에는 업로드 키가
+아닌 Play 앱 서명 인증서를 사용합니다. 업로드·처리·테스터 제공·설치·실제 기능 결과는 각각 확인합니다.
+
 ## iOS 개발 실행
 
 iOS 프로젝트는 `ios/Runner.xcworkspace`로 엽니다. 앱 이름은 **허투루**, Bundle ID는
@@ -244,7 +299,7 @@ Xcode Organizer에서 새 아카이브를 검증하고 `Distribute App → App S
   `group.com.huturu.app`, 공유 Keychain `$(AppIdentifierPrefix)com.huturu.app.share`.
   기존 기본 Keychain 그룹과 소셜 설정은 유지합니다. 실기기·배포 시 Apple 개발자 계정에
   App Group과 두 App ID의 capabilities를 등록하고 프로비저닝을 갱신해야 합니다.
-- Android: application ID `com.clipback.frontend` 유지. 공유 수신 Activity에만 `ACTION_SEND`
+- Android: application ID `com.huturu.app`. 공유 수신 Activity에만 `ACTION_SEND`
   `text/plain`·`image/*`를 등록하며 복구 Activity는 외부에 공개하지 않습니다.
   자격은 Android Keystore AES-GCM으로 암호화해 앱 전용 저장소에 기록합니다.
 - Dart와 두 네이티브 구현의 API 주소는 같은 `CLIPBACK_API_BASE_URL` 빌드 값을 사용합니다.
