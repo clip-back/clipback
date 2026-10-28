@@ -37,8 +37,8 @@
 
 [iOS 배포 기록](docs/releases/app-v0.2.0-ios-b6.md): 빌드 6이 TestFlight 내부 그룹 `test`에서 테스트 중입니다.
 Android [0.2.0(1) 배포 기록](docs/releases/app-v0.2.0-android-b1.md): 내부 테스트에서 본인 한 명의 Play 참여·Galaxy 설치를 확인했습니다.
-Android의 Google·카카오 로그인과 같은 제공자 재로그인을 확인했습니다. 양 플랫폼의 정식 공개는 미실행이며, Android 저장·공유·재시작 후 데이터 확인은 검증 중입니다.
-사진 원본 보존 수정은 [Android 0.2.0(2) 후속 후보](docs/releases/app-v0.2.0-android-b2.md)로 준비했으며 아직 Play에 제공하지 않았습니다. 같은 수정의 iOS 배포는 미실행입니다.
+Android의 Google·카카오 로그인과 같은 제공자 재로그인, 저장·공유·재시작 후 데이터 유지를 빌드 1에서 확인했습니다. 양 플랫폼의 정식 공개는 미실행입니다.
+사진 원본 보존 수정은 [Android 0.2.0(2) 후속 빌드](docs/releases/app-v0.2.0-android-b2.md)로 기존 본인 내부 테스터에게 제공했습니다. Galaxy의 Play 업데이트 후 새 사진 원본 표시와 완전 재시작 후 5개 유지·새 원본 재열람을 확인했습니다. 같은 수정의 iOS 배포는 미실행입니다.
 
 ### 개선
 
