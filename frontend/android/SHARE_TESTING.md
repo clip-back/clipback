@@ -37,7 +37,7 @@ adb -s emulator-5554 install -r ../build/app/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 install -r ../build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s emulator-5554 shell am instrument -w \
   -e class com.clipback.frontend.share.ShareStoreTest,com.clipback.frontend.share.ShareActivityTest,com.clipback.frontend.share.ShareServiceFixtureTest \
-  com.clipback.frontend.test/android.test.InstrumentationTestRunner
+  com.huturu.app.test/android.test.InstrumentationTestRunner
 ```
 
 클래스를 명시해야 큰 Flutter APK의 불필요한 전체 클래스 탐색을 피한다.
@@ -68,8 +68,8 @@ fixture의 `next_save_detail`은 오류 코드 전달만 대역 처리하며 실
 그다음 별도 송신 앱을 연다.
 
 ```bash
-adb -s emulator-5554 shell am start -n com.clipback.frontend/.MainActivity
-adb -s emulator-5554 shell am start -n com.clipback.frontend.test/com.clipback.frontend.share.ShareTestSenderActivity
+adb -s emulator-5554 shell am start -n com.huturu.app/com.clipback.frontend.MainActivity
+adb -s emulator-5554 shell am start -n com.huturu.app.test/com.clipback.frontend.share.ShareTestSenderActivity
 ```
 
 송신 앱의 링크/이미지 버튼 → 실제 시스템 공유 목록의 허투루 → 계정·입력 확인 → 저장 →

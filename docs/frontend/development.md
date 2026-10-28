@@ -29,8 +29,11 @@ flutter run -d "$DEVICE_ID" --no-pub \
   --dart-define="CLIPBACK_KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY"
 ```
 
-Android의 `applicationId`는 `com.clipback.frontend`입니다. Google 콘솔에는 이 패키지와 실제
-Debug/Release 서명 SHA를, 카카오 콘솔에는 패키지와 해당 서명 key hash를 등록합니다.
+Android의 `applicationId`는 iOS Bundle ID와 같은 `com.huturu.app`입니다. Google 콘솔에는 이
+패키지와 실제 설치본의 서명 SHA-1을, 카카오 콘솔에는 패키지와 해당 서명 key hash를 등록합니다.
+로컬 Debug/Release 서명과 Google Play App Signing의 앱 서명 인증서를 구분합니다.
+Play에서 설치한 앱은 업로드 키가 아닌 앱 서명 인증서를 기준으로 등록합니다.
+기존 `com.clipback.frontend` 등록만으로 새 패키지의 소셜 로그인이 설정되지는 않습니다.
 Google `serverClientId`를 명시하므로 `google-services.json`을 추가하지 않습니다.
 Gradle은 Flutter `dart-defines`에서 카카오 Native key를 읽어 manifest의
 `AuthCodeHandlerActivity` 콜백 `kakao{Native key}://oauth`를 구성합니다.
@@ -69,7 +72,15 @@ Bundle ID를 기존 `com.clipback.app`에서 `com.huturu.app`으로 변경했으
 Google의 iOS OAuth client와 URL scheme, 카카오의 iOS 플랫폼 등록, Apple App ID·프로비저닝을
 새 식별자 기준으로 확인합니다. 백엔드 Apple 설정의 `APPLE_CLIENT_ID`도 `com.huturu.app`이어야 하며,
 `APPLE_TEAM_ID`·키는 해당 App ID에 사용할 개발자 팀과 일치해야 합니다. 저장소 설정 변경만으로
-공급자 콘솔이나 배포 환경변수가 변경되지는 않습니다. Android 패키지명은 그대로 유지합니다.
+공급자 콘솔이나 배포 환경변수가 변경되지는 않습니다.
+
+Android의 설치·배포 식별자는 `com.huturu.app`이며 내부 Java namespace는
+`com.clipback.frontend`를 유지합니다. ADB component는
+`com.huturu.app/com.clipback.frontend.MainActivity`처럼 앱 ID와 클래스명을 구분합니다.
+기존 패키지의 개발 앱과는 별도 앱으로 설치되며 기존 로그인·공유 초안·로컬 캐시를 자동으로 이전하지 않습니다.
+첫 Play 업로드 전 새 패키지의 공급자 등록과 Release 서명을 확인합니다.
+현재 Release는 Debug 키를 사용하므로 배포용 업로드 키 설정이 별도로 필요합니다.
+변경 근거와 실행 결과는 [Android 앱 식별자 변경 기록](../history/2026-10-28-android-app-id.md)을 따릅니다.
 
 ### 검증 범위
 
@@ -244,7 +255,7 @@ Xcode Organizer에서 새 아카이브를 검증하고 `Distribute App → App S
   `group.com.huturu.app`, 공유 Keychain `$(AppIdentifierPrefix)com.huturu.app.share`.
   기존 기본 Keychain 그룹과 소셜 설정은 유지합니다. 실기기·배포 시 Apple 개발자 계정에
   App Group과 두 App ID의 capabilities를 등록하고 프로비저닝을 갱신해야 합니다.
-- Android: application ID `com.clipback.frontend` 유지. 공유 수신 Activity에만 `ACTION_SEND`
+- Android: application ID `com.huturu.app`. 공유 수신 Activity에만 `ACTION_SEND`
   `text/plain`·`image/*`를 등록하며 복구 Activity는 외부에 공개하지 않습니다.
   자격은 Android Keystore AES-GCM으로 암호화해 앱 전용 저장소에 기록합니다.
 - Dart와 두 네이티브 구현의 API 주소는 같은 `CLIPBACK_API_BASE_URL` 빌드 값을 사용합니다.

@@ -30,6 +30,10 @@ flutter run -d chrome --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:8000/
 
 기기별 실행·서명·API 주소 조건은 [Android 개발 실행](../docs/frontend/development.md#android-개발-실행), [iOS 개발 실행](../docs/frontend/development.md#ios-개발-실행)을 따릅니다. 제품 빌드의 진입점은 `lib/main.dart`이며 프리뷰 진입점을 배포하지 않습니다.
 
+Android application ID와 iOS Bundle ID는 `com.huturu.app`입니다. Android 내부 namespace와
+공급자 콘솔·서명 설정은 [공개 앱 설정](../docs/frontend/development.md#공개-앱-설정)을 확인합니다.
+기존 `com.clipback.frontend` 개발 앱과 새 Android 앱은 별도로 설치됩니다.
+
 원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
 Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
 권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.

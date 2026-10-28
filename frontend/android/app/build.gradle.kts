@@ -36,7 +36,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.clipback.frontend"
+        applicationId = "com.huturu.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
