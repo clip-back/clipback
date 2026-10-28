@@ -36,6 +36,8 @@ Android application ID와 iOS Bundle ID는 `com.huturu.app`입니다. Android �
 Android Release는 저장소 밖의 업로드 키 설정을 요구합니다.
 [Release 서명과 AAB 빌드](../docs/frontend/development.md#android-release-서명과-aab)를 따릅니다.
 
+앱의 사진 첨부는 파일 선택기의 압축을 끄고 선택한 파일 바이트와 이름을 그대로 업로드합니다.
+PNG 투명도·화질을 바꾸는 JPEG 변환을 요청하지 않으며, Android 이미지 URI 공유도 제공된 원본을 읽습니다.
 원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
 Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
 권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.

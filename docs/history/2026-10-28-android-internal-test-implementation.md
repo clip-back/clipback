@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | [#113](https://github.com/clip-back/clipback/issues/113) | 업로드 키 Release 서명, 1Password 복구, 정상 AAB·양 플랫폼 시작·네이티브 공유 검사 완료 | 없음; Play 제공·실기기 기능은 #114~#115 |
 | [#114](https://github.com/clip-back/clipback/issues/114) | 같은 AAB 업로드·처리, 공급자 등록, 본인 참여·Play 설치·서명 일치, 실제 Google·카카오 로그인·같은 제공자 재로그인 완료 | 없음; 저장·공유·데이터 유지 검증은 #115 |
-| [#115](https://github.com/clip-back/clipback/issues/115) | 실제 Play 설치본과 양 제공자 로그인 완료 상태를 전달받을 준비 완료 | Play 실기기 저장·공유·재로그인·재시작 후 데이터 확인과 화면·영상 증거 |
+| [#115](https://github.com/clip-back/clipback/issues/115) | Play 빌드 1에서 링크·사진·외부 공유, Google 0개/카카오 4개 격리와 완전 재시작 후 유지 확인; 앱 사진 선택의 JPEG 변환 결함 재현·최소 수정 | 수정 소스의 양 플랫폼 실행과 새 Android 후보의 Play 설치·PNG 원본 보존 재검증; 완료 전 이슈 유지 |
 
 사용자는 1Password, 본인 Google 계정과 Galaxy S25 Ultra를 지정했다. 기기는 USB 디버깅으로
 연결했으며 Android 16 / API 36을 확인했다. 개인 계정 주소와 기기 일련번호는 저장소에 기록하지 않는다.
@@ -260,3 +260,106 @@
   링크·사진 저장, 시스템 공유, 재로그인·재시작 후 같은 계정의 데이터 유지는 #115에서 검증해야 한다.
 - 이번 후속 커밋은 문서만 변경하므로 링크·앵커, 변경 항목 내용 보존, 개인 주소 미포함과
   `git diff --check`를 확인한다. #113의 자동·에뮬레이터·시뮬레이터 검사는 이번에 재실행한 것으로 보고하지 않는다.
+
+## #115 Play 저장·공유·재진입 검증과 원본 보존 수정
+
+### 2026-10-28 14:38~15:04 KST 빌드 1의 실제 사용자 흐름
+
+- 작업 브랜치 `feature/android-play-save-share`는 통합 브랜치의 `181c5b9`에서 시작했고 최초 작업 트리는 깨끗했다.
+  실제 설치본은 #114의 동일 AAB 소스 `311f2788e479b551c6bf7fec157f5c94077fd3d5`를 사용했다.
+- 시작 직전 읽기 전용 ADB로 Galaxy S25 Ultra `SM-S938N`, Android 16 / API 36,
+  `com.huturu.app` 버전 `0.2.0`, 빌드 `1`, 설치 출처 `com.android.vending`을 재확인했다.
+  #114에서 인증한 카카오 테스트 계정의 빈 홈으로 시작했다.
+- 사용자가 실제 터치·계정 선택·저장·공유를 수행했다. 에이전트는 단계 요청 전에 최대 180초 녹화를
+  시작하고 응답 뒤 스크린샷을 확보했다. 입력 자동화·비공개 앱 데이터/토큰 조회·데이터 초기화·삭제·사이드로드는 없었다.
+- 앱 내 링크는 공개 `https://example.com/?huturu-test=20261028-app`을 사용했다. 사전 HTTP 200을
+  확인하고 홈 `+` → `링크 첨부` → `허투루에 저장하기` → `닫기` → 목록 카드 → 상세/전문 보기로 진행했다.
+  사용자가 `링크 저장 재열람 완료`를 알렸고 실제 Example Domain 상세를 캡처했다.
+- 사진은 기존 공개 로고 `frontend/android/app/src/main/res/drawable-nodpi/splash_a01_logo.png`만 사용했다.
+  PNG 596×200, 7,454바이트, SHA-256은 `ce978c44205ead268d055c7b74a56a835092f5cfa7712d4422860d855d7f841f`다.
+  기기의 새 `Download/huturu-play-test-20261028-1445-logo.png` 경로가 비어 있음을 확인한 뒤 그대로 복사하고
+  미디어 색인을 요청했다. 기기 파일 해시도 일치했으며 개인 사진은 테스트 입력으로 사용하지 않았다.
+- `사진 첨부` → 해당 파일 선택 → 저장 → 닫기 → 목록 → `원본 이미지 보기`에서
+  사용자가 `사진 저장 원본 재열람 완료`를 알렸다. 사진이 다시 열렸지만 아래 원본 변환 결함이 확인돼
+  이 결과를 선택 파일의 원본 바이트 보존 성공으로 집계하지 않는다.
+- 외부 링크 공유의 첫 시험 주소는 `https://example.com/?huturu-test=20261028-share`였다.
+  실제 Android 공유 화면은 `Instagram 또는 YouTube 링크만 저장할 수 있습니다.`로 거절했다.
+  `ShareInput.java`의 기존 허용 호스트와 일치하는 지원하지 않는 입력 사례다. 일반 웹 링크를 받도록 기능을 넓히지 않았다.
+- 지원되는 공개 `https://youtu.be/jNQXAC9IVRw`로 다시 확인했다. HTTP 200과 YouTube 공식 oEmbed의
+  `Me at the zoo` 응답을 먼저 확인했다. 실제 송신 앱은 YouTube였으며 그 앱의 공유 → 더보기 → Android 공유 대상
+  `허투루` → `저장` → `저장했어요` → `닫기` 뒤 YouTube로 돌아왔다. 사용자가 공유 저장·복귀 완료를 알렸고
+  녹화에서도 성공 화면과 송신 앱 복귀를 확인했다. 콘텐츠 제목·요약은 이후 서버 처리로 바뀔 수 있어 식별 근거로 고정하지 않는다.
+- Samsung 내 파일에서 같은 테스트 PNG 한 장을 선택해 실제 공유 메뉴 → 허투루 → 저장 → 성공 → 닫기로 진행했다.
+  사용자가 `이미지 공유 저장 내 파일 복귀 완료`를 알렸고 송신 앱 복귀를 캡처했다.
+  네이티브 입력은 `content:` 이미지 URI를 실제 `ContentResolver`로 읽는 기존 경로다.
+- 허투루에 다시 진입해 최신 공유 사진의 원본 로고를 다시 열었다. 사용자는
+  `공유 사진 원본 재열람 완료, 목록 4개`를 알렸다. 공유 사진의 실제 상세와 원본 표시를 캡처했다.
+- 카카오 계정에서 로그아웃하고 #114의 동일 Google 테스트 계정으로 로그인한 뒤 사용자는
+  `Google 목록 0개, 카카오 항목 안 보임`을 알렸다. 빈 홈을 캡처했다.
+  이어 같은 카카오 테스트 계정으로 재로그인해 `카카오 재로그인 목록 4개, 기존 결과 유지`를 알렸고
+  아카이브 전체보기의 `불러온 4개`와 기존 결과를 캡처했다. 계정 병합·데이터 삭제는 수행하지 않았다.
+- 전체 재시작은 실행 중 PID `7288` 확인 → `adb shell am force-stop com.huturu.app`만 실행 → PID 없음 확인 →
+  사용자가 기존 Play 앱 아이콘으로 다시 실행하는 방식으로 확인했다. 새 PID는 `31703`이었다.
+  사용자는 `재시작 후 4개 유지, 원본 재열람 완료`를 알렸고 재시작 후 원본 표시를 캡처했다.
+  이 검증은 메모리에 남은 화면 복귀와 구분하지만, 위 앱 내 사진의 원본 변환 결함을 해소하지는 않는다.
+
+### 사진 원본 변환의 원인과 수정
+
+- 같은 PNG를 앱에서 첨부한 원본 화면에는 검은 배경이 생겼고, 내 파일의 이미지 URI 공유로 저장한 원본은
+  투명 배경을 유지했다. `save_content_screen.dart`의 `FilePicker.pickFiles(type: FileType.image, withData: true)`는
+  압축 허용값을 지정하지 않았다.
+- 잠긴 `file_picker` 버전은 8.3.7이다. 해당 버전의 공식
+  [Dart API](https://raw.githubusercontent.com/miguelpruivo/flutter_file_picker/8.3.7/lib/src/file_picker.dart)는
+  `allowCompression=true`, `compressionQuality=30`을 기본값으로 두고,
+  [Android 입력 처리](https://raw.githubusercontent.com/miguelpruivo/flutter_file_picker/8.3.7/android/src/main/java/com/mr/flutter/plugin/filepicker/FilePickerDelegate.java)는
+  이미지에 압축이 허용되면
+  [JPEG 변환](https://raw.githubusercontent.com/miguelpruivo/flutter_file_picker/8.3.7/android/src/main/java/com/mr/flutter/plugin/filepicker/FileUtils.java)을 거친다.
+  이 동작은 [선택 원본을 변환 없이 보관하는 결정](../adr/0001-preserve-account-image-originals.md)과 충돌한다.
+- 앱 코드 수정은 파일 선택 요청의 `allowCompression: false` 한 줄이다. 선택한 파일의 이름·바이트를
+  기존 업로드 경로에 전달하며 화면 구조·Figma 디자인·네이티브 공유·서버·스키마는 바꾸지 않았다.
+  이미 JPEG로 바뀌어 저장된 기존 테스트 사진과 다른 사용자 데이터를 삭제하거나 복원하지 않았다.
+- 기존 `screenshot_auth_test.dart`의 공개 앱 저장 화면 → 실제 multipart 업로드 경계에 회귀 사례를 추가했다.
+  외부 파일 선택기 대역은 문서화된 Android 동작처럼 압축 허용 시 유효한 JPEG와 이름을 돌려주며,
+  테스트는 업로드된 바이트와 파일명이 선택 PNG 원본인지 확인한다. 내부 함수 호출·인자만 맞추는 검사는 추가하지 않았다.
+- 기존 코드에서 이 테스트는 PNG 첫 바이트 `137` 대신 JPEG 첫 바이트 `255`를 업로드해 실패했다.
+  한 줄 수정 뒤 같은 테스트가 통과했고 저장 인증·원본 조회·저장 완료·수동 초안 보존·공유 생명주기 관련 102개가 통과했다.
+  `flutter analyze --no-pub`은 문제 없음, `flutter test --no-pub --reporter expanded`는 전체 1,993개가 통과했다.
+  변경하지 않은 CLI·네이티브 공유 검사는 이번에 재실행한 것으로 보고하지 않는다.
+
+### 증거 보관과 남은 완료 조건
+
+증거는 저장소 밖 `/private/tmp/clipback-android-save-share-evidence/`에 보관한다.
+브라우저 제안·계정 선택·개인 다운로드 항목 등이 섞인 원본 녹화와 `*-private` 화면은 비공개로 유지하며
+공개 저장소나 최종 첨부에 포함하지 않는다. 안전한 완료 화면과 원본 재열람 화면만 전달한다.
+
+| 확인 범위 | 증거 파일 | 해석 |
+| --- | --- | --- |
+| 앱 링크 상세 | `phase1-app-link-reopened.png` | 실제 저장 뒤 목록에서 연 상세 |
+| 앱 사진 재열람·원본 결함 | `phase2-app-photo-original.png` | JPEG 변환으로 원본 보존 실패 |
+| 지원하지 않는 외부 링크 | `phase3-unsupported-link.png` | 기존 호스트 제한의 실제 오류 안내 |
+| YouTube 공유 저장·복귀 | `phase3b-youtube-saved.png`, `phase3b-youtube-save-return.mp4` | 녹화의 안전한 성공→복귀 부분만 시간으로 잘라낸 7.63초 영상; UI 픽셀 보정 없음 |
+| 이미지 URI 공유 저장·재열람 | `phase4-image-uri-saved.png`, `phase5-shared-photo-original.png` | 성공과 제공 URI를 읽어 저장한 원본 표시 |
+| 계정 격리·카카오 재진입 | `phase6-google-isolated-empty.png`, `phase7-kakao-four-restored.png` | Google 0개, 카카오 4개 |
+| 전체 재시작 | `phase8-b1-restarted-four.png`, `phase8-b1-restarted-original.png` | 새 프로세스의 4개 목록과 기존 공유 사진 원본 재열람; 목록은 녹화 100초의 원본 프레임 |
+| 재현·수정 검사 | `tdd-red.log`, `tdd-green.log`, `flutter-related.log` | 운영 API와 분리된 외부 경계 대역 검사 |
+| 수정 후 전체 자동 검사 | `flutter-analyze.log`, `flutter-full.log` | 분석 문제 없음, Flutter 1,993개 통과 |
+
+상위 명세의 완료 조건은 다음과 같이 대조한다. 앞 단계의 성공을 수정 후 새 후보의 결과로 복사하지 않는다.
+
+| #112 완료 조건 | 현재 근거·상태 |
+| --- | --- |
+| 배포 대상·소스 연결 | 빌드 1의 AAB·소스·해시는 #113~#114에 연결됨; 수정 소스는 새 Android 후보 필요 |
+| 업로드 키·서명·복구 | #113의 실제 Release 서명·1Password 복구 완료; 이번에 키를 바꾸지 않음 |
+| Release AAB | 빌드 1 생성·무결성·정적 호환성 확인 완료; 수정 후 새 AAB 미준비 |
+| 내부 업로드·처리·본인 제공 | #114에서 같은 빌드 1 완료; 새 후보의 제공은 미실행 |
+| 실제 Play 설치 | #114의 설치 출처·패키지·서명과 이번 빌드 1 버전 확인 완료; 새 후보 설치는 미실행 |
+| 실제 핵심 기능 | 빌드 1의 양 제공자 인증·저장·공유·재진입 확인, 앱 사진 원본 보존은 실패해 수정 후 실기기 재검증 필요 |
+| 증거·기록 | 자동/운영/실기기·개인정보 포함 원본/안전한 첨부를 구분해 보관; 새 후보 결과까지 확보 전 내부 테스트 완료 아님 |
+
+- 빌드 1에서 저장·공유·복귀·계정 격리·데이터 재진입은 실제 확인했지만 앱 사진의 원본 보존 조건은 실패했다.
+  #115와 상위 #112를 완료 처리하지 않는다.
+- 수정 소스는 Android Emulator와 iOS Simulator 실행 검증이 필요하다. 이 수정에 대해 #113의 과거 실행을 재사용하지 않는다.
+  화면 배치·디자인 변경이 없어 새 디자인이나 Figma 비교 화면을 만들지 않는다.
+- Android는 기존 후보·AAB·사진 4개를 보존하고 새 빌드 번호의 후보를 준비한 뒤, 같은 Play 내부 제공·설치 절차로
+  바뀐 앱 사진 경로의 원본 보존과 재진입을 다시 확인해야 한다. iOS 0.2.0 빌드 6과 TestFlight는 보존하며 새 iOS Release는 범위 밖이다.
+- 팀·지인 확대, 회원 탈퇴·운영 정책·스토어 정보, 비공개 12명·14일, 프로덕션 액세스·정식 출시는 실행하지 않았다.

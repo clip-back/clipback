@@ -209,6 +209,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
     if (_savedResult != null) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
+      allowCompression: false,
       withData: true,
     );
     final photo = result != null && result.files.isNotEmpty

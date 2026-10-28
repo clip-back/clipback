@@ -55,6 +55,12 @@ final Uint8List _png = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDw'
   'AEhQGAhKmMIQAAAABJRU5ErkJggg==',
 );
+final Uint8List _jpeg = base64Decode(
+  '/9j//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYG'
+  'BgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABNAAEBAAAAAA'
+  'AAAAAAAAAAAAAABgEBAQEAAAAAAAAAAAAAAAAAAAYHEAEAAAAAAAAAAAAAAAAAAAAAEQEAAA'
+  'AAAAAAAAAAAAAAAAAA/8AAEQgAAQABAwESAAISAAMSAP/aAAwDAQACEQMRAD8AixKDfx//2Q==',
+);
 
 void _expectSavedPhotoResult(WidgetTester tester) {
   final confirmation = tester.widget<SavedContentConfirmation>(
@@ -285,6 +291,9 @@ class _BackingStore {
 }
 
 class _Picker extends FilePicker {
+  _Picker({this.simulateAndroidCompression = false});
+
+  final bool simulateAndroidCompression;
   int calls = 0;
   FileType? requestedType;
   bool? requestedData;
@@ -307,8 +316,20 @@ class _Picker extends FilePicker {
     calls++;
     requestedType = type;
     requestedData = withData;
+    // The external Android picker converts images to JPEG when compression is
+    // enabled; the app must preserve the selected PNG through the upload API.
+    final compressed =
+        simulateAndroidCompression &&
+        type == FileType.image &&
+        allowCompression &&
+        compressionQuality > 0;
+    final bytes = compressed ? _jpeg : _png;
     return FilePickerResult([
-      PlatformFile(name: 'screen.png', size: _png.length, bytes: _png),
+      PlatformFile(
+        name: compressed ? 'screen.jpg' : 'screen.png',
+        size: bytes.length,
+        bytes: bytes,
+      ),
     ]);
   }
 }
@@ -342,10 +363,10 @@ Future<void> _withApp(
   }, () => server.client);
 }
 
-Future<_Picker> _selectPhoto(WidgetTester tester) async {
+Future<_Picker> _selectPhoto(WidgetTester tester, {_Picker? picker}) async {
   final previousPicker = FilePicker.platform;
-  final picker = _Picker();
-  FilePicker.platform = picker;
+  final selectedPicker = picker ?? _Picker();
+  FilePicker.platform = selectedPicker;
   addTearDown(() => FilePicker.platform = previousPicker);
   final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
   unawaited(
@@ -360,7 +381,7 @@ Future<_Picker> _selectPhoto(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text('사진 선택'));
   await tester.pumpAndSettle();
-  return picker;
+  return selectedPicker;
 }
 
 Future<ApiContent> _uploadPhoto(ClipbackApi api) => api.uploadScreenshot(
@@ -471,6 +492,25 @@ void main() {
     expect(upload.file.filename, 'screen.png');
     expect(upload.file.bytes, orderedEquals(_png));
     expect(server.calls(_refresh), isEmpty);
+  });
+
+  testWidgets('manual photo upload preserves the selected PNG original', (
+    tester,
+  ) async {
+    final server = _Server();
+    await _withApp(tester, server, () async {
+      await _selectPhoto(
+        tester,
+        picker: _Picker(simulateAndroidCompression: true),
+      );
+      await tester.tap(find.text('허투루에 저장하기'));
+      await tester.pumpAndSettle();
+
+      final file = server.calls(_upload).single.file;
+      expect(file.bytes, orderedEquals(_png));
+      expect(file.filename, 'screen.png');
+      expect(find.byType(SavedContentConfirmation), findsOneWidget);
+    });
   });
 
   testWidgets(
