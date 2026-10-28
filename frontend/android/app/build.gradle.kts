@@ -1,4 +1,7 @@
 import java.util.Base64
+import java.util.Properties
+import java.security.KeyStore
+import java.security.PrivateKey
 
 plugins {
     id("com.android.application")
@@ -20,6 +23,45 @@ val dartDefines = providers.gradleProperty("dart-defines").orNull
 val kakaoNativeAppKey = dartDefines["CLIPBACK_KAKAO_NATIVE_APP_KEY"].orEmpty()
 val shareApiBaseUrl = dartDefines["CLIPBACK_API_BASE_URL"]
     ?: "https://clipback-production.up.railway.app/api/v1"
+
+// Only the local path is passed through the environment; credentials stay in an
+// operator-owned file outside the repository.
+val signingPropertiesFile = providers.environmentVariable("CLIPBACK_ANDROID_KEY_PROPERTIES")
+    .orNull?.let { File(it) }
+val signingProperties = Properties().apply {
+    if (signingPropertiesFile?.isFile == true) {
+        signingPropertiesFile.reader(Charsets.UTF_8).use { load(it) }
+    }
+}
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
+    doLast {
+        require(signingPropertiesFile?.isFile == true) {
+            "Set CLIPBACK_ANDROID_KEY_PROPERTIES to the external signing properties file."
+        }
+        val repository = rootProject.projectDir.parentFile.parentFile.canonicalFile.toPath()
+        require(signingPropertiesFile.isAbsolute &&
+            !signingPropertiesFile.canonicalFile.toPath().startsWith(repository)) {
+            "Use an absolute signing properties path outside the repository."
+        }
+        for (name in listOf("storeFile", "storePassword", "keyAlias", "keyPassword")) {
+            require(!signingProperties.getProperty(name).isNullOrBlank()) {
+                "Release signing requires $name."
+            }
+        }
+        val keyFile = File(signingProperties.getProperty("storeFile"))
+        require(keyFile.isAbsolute && keyFile.isFile &&
+            !keyFile.canonicalFile.toPath().startsWith(repository)) {
+            "Release storeFile must be an existing absolute path outside the repository."
+        }
+        try {
+            val store = KeyStore.getInstance(keyFile, signingProperties.getProperty("storePassword").toCharArray())
+            require(store.getKey(signingProperties.getProperty("keyAlias"),
+                signingProperties.getProperty("keyPassword").toCharArray()) is PrivateKey)
+        } catch (_: Exception) {
+            throw GradleException("Cannot read the upload key. Check the keystore, alias and passwords.")
+        }
+    }
+}
 
 android {
     namespace = "com.clipback.frontend"
@@ -50,12 +92,24 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = signingProperties.getProperty("storeFile")?.let { File(it) }
+            storePassword = signingProperties.getProperty("storePassword")
+            keyAlias = signingProperties.getProperty("keyAlias")
+            keyPassword = signingProperties.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
+
+tasks.matching { it.name == "preReleaseBuild" || it.name == "validateSigningRelease" }
+    .configureEach { dependsOn(validateReleaseSigning) }
 
 flutter {
     source = "../.."

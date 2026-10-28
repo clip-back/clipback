@@ -79,7 +79,7 @@ Android의 설치·배포 식별자는 `com.huturu.app`이며 내부 Java namesp
 `com.huturu.app/com.clipback.frontend.MainActivity`처럼 앱 ID와 클래스명을 구분합니다.
 기존 패키지의 개발 앱과는 별도 앱으로 설치되며 기존 로그인·공유 초안·로컬 캐시를 자동으로 이전하지 않습니다.
 첫 Play 업로드 전 새 패키지의 공급자 등록과 Release 서명을 확인합니다.
-현재 Release는 Debug 키를 사용하므로 배포용 업로드 키 설정이 별도로 필요합니다.
+Release는 [외부 업로드 키 설정](#android-release-서명과-aab)이 있어야 빌드되며 Debug 키로 대체하지 않습니다.
 변경 근거와 실행 결과는 [Android 앱 식별자 변경 기록](../history/2026-10-28-android-app-id.md)을 따릅니다.
 
 ### 검증 범위
@@ -176,6 +176,50 @@ Android Gradle 설정·네이티브 플러그인을 바꿨다면 실행을 종�
 compileSdk를 36으로 맞춥니다. 앱의 minSdk·targetSdk와 패키지 잠금파일은 유지합니다.
 `file_picker`를 업데이트할 때 플러그인 자체의 compileSdk를 확인하고 이 보정의 필요성을 재검토합니다.
 
+
+## Android Release 서명과 AAB
+
+업로드 키와 서명 설정 파일은 저장소 밖의 운영자 전용 위치에 둡니다. 사용할 암호관리자와
+보관 위치를 정한 뒤 키 파일·별칭·비밀번호를 백업하고, 복원한 키의 인증서와 서명 가능 여부를
+확인합니다. Google 생성 앱 서명 키와 로컬 업로드 키는 별개입니다.
+키 생성·백업 방식은 [Flutter Android 배포 안내](https://docs.flutter.dev/deployment/android#sign-the-app)와
+[Play App Signing](https://developer.android.com/studio/publish/app-signing)을 따릅니다.
+
+`CLIPBACK_ANDROID_KEY_PROPERTIES`에는 외부 UTF-8 Java properties 파일의 절대 경로만 지정합니다.
+설정 파일은 아래 4개 항목을 포함하고, `storeFile`은 외부 키 파일의 절대 경로여야 합니다.
+실제 값은 암호관리자에서 로컬 파일에 입력하며 Git·채팅·쉘 명령 인수에 넣지 않습니다.
+Java properties의 역슬래시 등 이스케이프 규칙을 적용하고 파일 권한은 운영자만 읽도록 제한합니다.
+
+```properties
+storeFile=/absolute/private/location/upload.jks
+storePassword=<store password>
+keyAlias=upload
+keyPassword=<key password>
+```
+
+아래 명령은 `frontend/`에서 실행합니다. 먼저 잠금파일 의존성과 실제 운영용 Google·카카오 공개 ID를
+준비하고, 기존 [앱 후보 초안 생성](../release-process.md#앱-후보-초안-생성)을 통해 소스·버전·빌드 번호를
+확정합니다. 명령의 환경변수는 로컬에서 지정하며 iOS 빌드 번호를 Android에 복사하지 않습니다.
+
+```bash
+export CLIPBACK_ANDROID_KEY_PROPERTIES=/absolute/private/location/key.properties
+(cd android && ./gradlew :app:validateReleaseSigning --console=plain)
+flutter build appbundle --release --no-pub -t lib/main.dart \
+  --build-name="$ANDROID_VERSION" --build-number="$ANDROID_BUILD_NUMBER" \
+  --dart-define=CLIPBACK_API_BASE_URL=https://clipback-production.up.railway.app/api/v1 \
+  --dart-define="CLIPBACK_GOOGLE_SERVER_CLIENT_ID=$GOOGLE_SERVER_CLIENT_ID" \
+  --dart-define="CLIPBACK_KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY"
+```
+
+`validateReleaseSigning`은 필수 입력·외부 파일 위치·실제 키 복호화를 확인하며, Release 빌드 전에
+자동 실행됩니다. 입력 누락·잘못된 키/별칭/비밀번호는 실패하고 비밀번호 값은 오류에 출력하지 않습니다.
+Debug 개발에는 이 환경변수나 Release 키가 필요하지 않습니다. 검증 작업 통과만으로 AAB가
+만들어졌거나 백업 복구가 완료된 것은 아니므로 정상 빌드와 복원 검증을 각각 수행합니다.
+
+최종 `build/app/outputs/bundle/release/app-release.aab`의 패키지·버전·빌드 번호·서명·권한·target SDK,
+포함된 네이티브 라이브러리의 [16KB 호환](https://developer.android.com/guide/practices/page-sizes)을
+산출물에서 확인하고 SHA-256과 소스 커밋을 기록합니다. Play 설치본의 소셜 등록에는 업로드 키가
+아닌 Play 앱 서명 인증서를 사용합니다. 업로드·처리·테스터 제공·설치·실제 기능 결과는 각각 확인합니다.
 
 ## iOS 개발 실행
 
