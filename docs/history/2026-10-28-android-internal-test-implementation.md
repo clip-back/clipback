@@ -8,7 +8,7 @@
 
 | 티켓 | 이번 진행 | 남은 완료 조건 |
 | --- | --- | --- |
-| [#113](https://github.com/clip-back/clipback/issues/113) | 업로드 키 Release 서명·명령 검증, 1Password 백업·복구, 0.2.0(1) 정상 AAB 빌드·검사 | 플랫폼 실행 검증 |
+| [#113](https://github.com/clip-back/clipback/issues/113) | 업로드 키 Release 서명, 1Password 복구, 정상 AAB·양 플랫폼 시작·네이티브 공유 검사 완료 | 없음; Play 제공·실기기 기능은 #114~#115 |
 | [#114](https://github.com/clip-back/clipback/issues/114) | Play의 기존 출시·번들·테스터 상태 조회 | #113 완료 후 앱 서명·공급자 설정, 업로드·처리·본인 제공·Play 설치·실제 OAuth |
 | [#115](https://github.com/clip-back/clipback/issues/115) | 기존 자동 검증 재사용 | #114 완료 후 Play 실기기 저장·공유·재로그인·재시작 검증과 화면·영상 증거 |
 
@@ -67,6 +67,8 @@
   네이티브 라이브러리는 ABI 3종에 각 4개, 총 12개다. 64-bit 라이브러리 8개의 LOAD 정렬이
   16KiB 이상이며 페이지 내 offset·가상 주소가 일치했다. 번들 설정의 native library alignment도
   `PAGE_ALIGNMENT_16K`였다. 이 정적 검사는 16KB 기기 실행 성공을 뜻하지 않는다.
+- AAB의 arm64 Dart 바이너리에서 실제 운영 API·Google 웹 OAuth ID·카카오 Native key를 확인했고,
+  manifest의 카카오 콜백 scheme도 같은 공개 설정과 일치했다. 공개 값의 원문은 기록하지 않았다.
 
 ## 검증 기록
 
@@ -83,9 +85,39 @@
   일회용 키는 검증 후 제거했으며 영구 업로드 키의 백업 복구 증거로 사용하지 않았다.
 - 코드 리뷰의 Standards·Spec 양 축에서 코드 결함·범위 확장 지적은 없었다.
   정상 AAB·백업 복구·양 플랫폼 실행·Play 실기기 검증이 남았음을 별도로 확인했다.
-- 이번 소스의 iOS Simulator·Android Emulator 실행, Play 설치·실제 OAuth·운영 저장·공유 검증은
-  미실행이다. 정상 빌드 공간과 1Password 복구 준비가 충족되지 않았으므로 과거 화면·자동 테스트로 대체하지 않았다.
+- Android Emulator: Pixel 3a API 33의 800MiB 내부 저장소에서는 APK 설치가
+  `INSTALL_FAILED_INSUFFICIENT_STORAGE`로 실패했다. 데이터를 지우지 않고 이 작업에서 부팅한
+  read-only 에뮬레이터를 종료한 뒤 Medium Phone / Android 16 / API 36을 사용했다.
+  기존 `com.huturu.app`이 없음을 확인한 뒤 실제 AAB에서 bundletool로 변환한 universal APK를
+  설치하고 제품 로그인 화면을 실행했다. 버전 `0.2.0(1)`, 실행 PID와 화면을 확인했고 최근 오류 로그에서
+  fatal·unhandled 진단은 없었다. 이미지: `/private/tmp/clipback-android-release-runtime/android-product-login.png`.
+  로컬 APK는 bundletool의 Debug 서명을 사용하므로 Play 설치·인증 증거로 사용하지 않았다.
+  CUA에서 Android 에뮬레이터 앱을 선택할 수 없어 수동 버튼 이동은 미검증이다.
+- 실행 후 이 작업에서 생성한 Android 중간 빌드 폴더만 정리하고 Gradle daemon 두 개를 종료해
+  iOS 실행 검증에 필요한 공간·메모리를 확보했다. 최종 AAB와 기존 iOS 산출물은 보존했다.
+- iOS Simulator: 제품 진입점과 실제 공개 SDK 설정 3개를 사용한 정상 Debug 시뮬레이터 빌드가
+  Xcode 106초에 성공했다. 시뮬레이터용 앱 버전은 기존 pubspec의 `0.1.0(1)`이며 새 iOS 배포 후보는 아니다.
+  iPhone 16 Pro / iOS 18.6의 기존 앱을 삭제하지 않고 갱신해 로그인 화면과 실행 PID를 확인했다.
+  Xcode 27의 DeviceHub에서 카카오·Apple·Google·게스트 버튼을 확인했다. 홈 버튼 동작은
+  화면 변화가 확인되지 않아 이동 성공으로 집계하지 않았다. 이미지:
+  `/private/tmp/clipback-android-release-runtime/ios-product-login.png`.
+- 기존 iOS 배포 IPA의 SHA-256은 `3482f4a77d83557b9c7d2abc8d43ba331de82f9ffbac11079e23f1341ccbf6c0`로
+  이전 빌드 기록과 같아 보존을 확인했다.
+- Release 환경변수를 명시적으로 제거한 상태의 정상 Debug·androidTest APK 빌드는 39초에 성공했다.
+  Android API 36에서 기존 ShareStore 15개·ShareActivity 4개·ShareServiceFixture 9개, 총 28개
+  네이티브 검사가 131.879초에 통과했다. HTTP 대역은 정확히 `10.0.2.2:18765`로 제한했고 운영 API로
+  우회하지 않았다. 테스트에서 생성한 이미지 한도 오류 스크린샷 두 개도 로컬 증거 폴더에 보관했다.
+  이후 이 작업의 read-only AVD·대역 서버만 종료하고 기존 iOS 시뮬레이터의 부팅 상태를 복원한다.
+- Play 설치·실제 OAuth·운영 저장·공유 검증은 미실행이며 자동·로컬 결과로 대체하지 않는다.
 
-추가 빌드·업로드·설치 검증 결과는 실제 실행한 뒤 이어 기록한다. #112~#115는 미완료 상태로 유지한다.
+## 공급자 설정 사전 조회
+
+- Google Cloud의 기존 Android Debug OAuth 클라이언트는 `com.clipback.frontend`로 등록돼 있었다.
+  새 Play 설치본은 실제 앱 서명 인증서와 `com.huturu.app`에 맞는 등록이 필요하다.
+- 카카오 허투루 앱의 기존 Native 키도 Android 패키지가 `com.clipback.frontend`,
+  iOS 번들 ID는 `com.huturu.app`이었다. 아직 값을 수정하거나 저장하지 않았다.
+
+추가 업로드·설치 검증 결과는 실제 실행한 뒤 이어 기록한다. #113의 준비 범위는 완료했으며,
+#112·#114·#115는 실제 Play 제공·실기기 검증 전까지 미완료 상태로 유지한다.
 
 이 기록은 진행 상황이며 Android 내부 테스트 제공·실기기 검증의 완료 기록이 아니다.
