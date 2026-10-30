@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
@@ -162,7 +164,7 @@ void main() {
     }, appInfo: _installed);
   });
 
-  testWidgets('계정 정보를 불러오지 못해도 같은 앱 버전이 보인다', (tester) async {
+  testWidgets('마이 통계를 불러오지 못해도 같은 앱 버전이 보인다', (tester) async {
     final server = fixture.LogoutServer('member');
     final client = MockClient((request) async {
       if (request.url.path == '/api/v1/users/me/stats') {
@@ -174,6 +176,26 @@ void main() {
       await _openMy(tester);
       expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
       expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
+    }, appInfo: _installed);
+  });
+
+  testWidgets('사용자 정보를 기다리거나 불러오지 못해도 같은 앱 버전이 보인다', (tester) async {
+    final server = fixture.LogoutServer('member');
+    final profile = Completer<http.Response>();
+    final client = MockClient((request) async {
+      if (request.url.path == '/api/v1/users/me') return profile.future;
+      return _forward(server.client, request);
+    });
+    await _runApp(tester, client, () async {
+      await _openMy(tester);
+      expect(find.text('계정 정보 확인 중'), findsWidgets);
+      expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
+      profile.complete(server.json({'detail': '사용자 정보 대역 요청 실패'}, 503));
+      await tester.pumpAndSettle();
+      expect(find.byType(MyScreen), findsOneWidget);
+      expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
+      await _openVersionSheet(tester);
+      expect(_sheetText('ver. 0.2.0 (6)'), findsOneWidget);
     }, appInfo: _installed);
   });
 
