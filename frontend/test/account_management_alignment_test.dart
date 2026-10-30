@@ -119,7 +119,6 @@ void main() {
               joinedAt: '-',
               savedContentCount: 1234567,
               revisitedContentCount: 9876543,
-              appVersion: 'ver. 9.8.7-local',
             );
             await _pump(tester, platform: platform, width: width, user: user);
             final m = _measurement(tester),
@@ -138,7 +137,6 @@ void main() {
             expect(account.text.toPlainText(), provider);
             expect((m['user'] as Map)['savedCount'], 1234567);
             expect((m['user'] as Map)['reopenedCount'], 9876543);
-            expect((m['user'] as Map)['appVersion'], user.appVersion);
             final j = fixture.accountJudgment(m);
             expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
             expect(j['stylePassed'], isTrue, reason: '${j['styleFailures']}');

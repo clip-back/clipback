@@ -222,6 +222,7 @@ class _PreviewState extends State<_Preview> {
     ),
     AppRoute.my => MyScreen(
       user: defaultUser,
+      appInfo: null,
       onOpenAccount: _noop,
       onOpenCategoryManagement: _noop,
       onAddLink: _saveLink,

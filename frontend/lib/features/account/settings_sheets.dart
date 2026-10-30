@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
@@ -97,15 +98,22 @@ class ContactSheet extends StatelessWidget {
 }
 
 class AppVersionSheet extends StatelessWidget {
-  const AppVersionSheet({super.key});
+  const AppVersionSheet({required this.appInfo, super.key});
+
+  final AppInfo? appInfo;
 
   @override
   Widget build(BuildContext context) {
+    final info = appInfo;
     return AppSheet(
       title: '앱 버전',
-      children: const [
-        SheetInfoRow(label: '현재 버전', value: 'ver. 1.1'),
-        SheetInfoRow(label: '업데이트', value: '최신 버전입니다'),
+      children: [
+        SheetInfoRow(
+          label: '현재 버전',
+          value: info == null
+              ? '-'
+              : 'ver. ${info.version} (${info.buildNumber})',
+        ),
       ],
     );
   }

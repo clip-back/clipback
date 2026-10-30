@@ -220,7 +220,6 @@ void main() {
       expect(user.joinedAt, '2026. 01. 02');
       expect(user.savedContentCount, 42);
       expect(user.revisitedContentCount, 17);
-      expect(user.appVersion, 'ver. 1.1');
     });
   }
 

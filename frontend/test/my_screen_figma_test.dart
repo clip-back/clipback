@@ -2,6 +2,7 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -25,6 +26,7 @@ Future<_Calls> _pump(
   double width = 375,
   double height = 812,
   AppUser user = fixture.myMember,
+  AppInfo? appInfo = fixture.myAppInfo,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
@@ -46,6 +48,7 @@ Future<_Calls> _pump(
       ),
       home: MyScreen(
         user: user,
+        appInfo: appInfo,
         onAddLink: ({required url, category}) async {
           calls.links++;
           throw StateError('Unrequested save');
@@ -116,9 +119,14 @@ void main() {
             joinedAt: '-',
             savedContentCount: 1234567,
             revisitedContentCount: 9876543,
-            appVersion: 'ver. 9.8.7-local',
           );
-          await _pump(tester, platform: platform, width: width, user: user);
+          await _pump(
+            tester,
+            platform: platform,
+            width: width,
+            user: user,
+            appInfo: const AppInfo(version: '9.8.7', buildNumber: '42'),
+          );
           final m = _measurement(tester), styles = m['styles'] as Map;
           expect(styles['account']['text'], provider);
           expect(styles['account']['fontSize'], 12);
@@ -128,7 +136,7 @@ void main() {
           expect(styles['name']['overflow'], 'ellipsis');
           expect(find.text('1234567'), findsOneWidget);
           expect(find.text('9876543'), findsOneWidget);
-          expect(find.text(user.appVersion), findsOneWidget);
+          expect(find.text('ver. 9.8.7'), findsOneWidget);
           final n = _paragraph(tester, user.name),
               a = _paragraph(tester, provider);
           expect(n.didExceedMaxLines, isTrue);
