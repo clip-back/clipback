@@ -1,5 +1,6 @@
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/shared/models/app_info.dart';
@@ -20,6 +21,18 @@ Finder get _versionRow =>
 
 Finder _versionRowText(String text) =>
     find.descendant(of: _versionRow, matching: find.text(text));
+
+Finder _sheetText(String text) => find.descendant(
+  of: find.byType(AppVersionSheet),
+  matching: find.text(text),
+);
+
+Future<void> _openVersionSheet(WidgetTester tester) async {
+  await tester.ensureVisible(_versionRow);
+  await tester.tap(_versionRow);
+  await tester.pumpAndSettle();
+  expect(find.byType(AppVersionSheet), findsOneWidget);
+}
 
 Future<http.Response> _forward(http.Client client, http.Request request) async {
   final copy = http.Request(request.method, request.url)
@@ -162,5 +175,28 @@ void main() {
       expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
       expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
     }, appInfo: _installed);
+  });
+
+  testWidgets('앱 버전 시트의 현재 버전에 앱 버전과 빌드 번호가 보이고 업데이트 안내는 없다', (tester) async {
+    final server = fixture.LogoutServer('member');
+    await _runApp(tester, server.client, () async {
+      await _openMy(tester);
+      await _openVersionSheet(tester);
+      expect(_sheetText('현재 버전'), findsOneWidget);
+      expect(_sheetText('ver. 0.2.0 (6)'), findsOneWidget);
+      expect(_sheetText('업데이트'), findsNothing);
+      expect(find.text('최신 버전입니다'), findsNothing);
+    }, appInfo: _installed);
+  });
+
+  testWidgets('앱 정보가 없으면 앱 버전 시트의 현재 버전에 -가 보이고 예전 고정값은 없다', (tester) async {
+    final server = fixture.LogoutServer('member');
+    await _runApp(tester, server.client, () async {
+      await _openMy(tester);
+      await _openVersionSheet(tester);
+      expect(_sheetText('현재 버전'), findsOneWidget);
+      expect(_sheetText('-'), findsOneWidget);
+      expect(find.textContaining('ver. 1.1'), findsNothing);
+    });
   });
 }

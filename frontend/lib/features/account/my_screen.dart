@@ -233,7 +233,8 @@ class MyScreen extends StatelessWidget {
                             context: context,
                             useSafeArea: true,
                             backgroundColor: Colors.transparent,
-                            builder: (context) => const AppVersionSheet(),
+                            builder: (context) =>
+                                AppVersionSheet(appInfo: appInfo),
                           ),
                         ),
                       ],
