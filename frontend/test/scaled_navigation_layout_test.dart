@@ -7,6 +7,7 @@ import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -245,8 +246,8 @@ Widget _screen(
           joinedAt: '오늘',
           savedContentCount: 1,
           revisitedContentCount: 0,
-          appVersion: 'ver. 1.1',
         ),
+        appInfo: const AppInfo(version: '0.2.0', buildNumber: '6'),
         onAddLink: _saveLink,
         onAddScreenshot: _saveScreenshot,
         onOpenAccount: () {},

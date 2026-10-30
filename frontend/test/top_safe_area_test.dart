@@ -228,6 +228,7 @@ void main() {
                 'my',
                 () => MyScreen(
                   user: defaultUser,
+                  appInfo: null,
                   onAddLink: saveLink,
                   onAddScreenshot: saveImage,
                   onOpenAccount: noop,

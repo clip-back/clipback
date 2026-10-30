@@ -73,7 +73,6 @@ AppUser userFromApi(ApiUser? user, ApiUserStats? stats) {
         : _formatJoinedAt(user.createdAt),
     savedContentCount: stats?.savedCount,
     revisitedContentCount: stats?.reopenedCount,
-    appVersion: defaultUser.appVersion,
   );
 }
 

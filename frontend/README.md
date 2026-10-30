@@ -73,7 +73,7 @@ flutter build web --no-pub
 
 | 경로 | 책임 |
 | --- | --- |
-| `lib/main.dart` | 앱 시작 진입점 |
+| `lib/main.dart` | 앱 시작 진입점. 첫 화면 전에 설치된 앱의 앱 버전·빌드 번호를 한 번 읽어 앱 루트에 넘김 |
 | `lib/app/` | 의존성 조립·화면 연결·UI 효과를 처리하는 앱 View와 인증·화면 흐름을 조정하는 AppViewModel |
 | `lib/app/actions/` | 여러 Repository를 사용하는 계정 초기화·콘텐츠 변경 후 갱신 순서 |
 | `lib/data/repositories/` | 세션, 콘텐츠·카테고리·피드, 사용자·서버 통계, 계정별 최근 검색어, 네이티브 공유 Repository의 계약과 구현 |

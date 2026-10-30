@@ -38,7 +38,6 @@ const accountMember = AppUser(
   joinedAt: '2026.10.18',
   savedContentCount: 150,
   revisitedContentCount: 231,
-  appVersion: 'ver. 1.1',
 );
 const accountGuest = AppUser(
   name: '게스트',
@@ -46,7 +45,6 @@ const accountGuest = AppUser(
   joinedAt: '2026.10.18',
   savedContentCount: 0,
   revisitedContentCount: 0,
-  appVersion: 'ver. 1.1',
 );
 List<Element> _elements(Element e) => e01.archiveAllElements(e);
 Element? _find<T extends Widget>(Element e) => e01.archiveAllFind<T>(e);
@@ -241,7 +239,6 @@ Map<String, Object?> accountMeasure(Element root) {
       'providerLabel': w.user.providerLabel,
       'savedCount': w.user.savedContentCount,
       'reopenedCount': w.user.revisitedContentCount,
-      'appVersion': w.user.appVersion,
     },
     'isGuest': w.isGuest,
     'authBusy': w.busy,

@@ -13,6 +13,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
@@ -37,13 +38,13 @@ const myAssets = {
   'divider': 'assets/icons/my-stats-divider.svg',
   'menuArrow': 'assets/icons/my-menu-chevron.svg',
 };
+const myAppInfo = AppInfo(version: '0.2.0', buildNumber: '6');
 const myMember = AppUser(
   name: '정지윤',
   providerLabel: 'kakao, apple 계정 연동 중',
   joinedAt: '2026.10.18',
   savedContentCount: 150,
   revisitedContentCount: 231,
-  appVersion: 'ver. 1.1',
 );
 const myGuest = AppUser(
   name: '게스트',
@@ -51,7 +52,6 @@ const myGuest = AppUser(
   joinedAt: '2026.10.18',
   savedContentCount: 0,
   revisitedContentCount: 0,
-  appVersion: 'ver. 1.1',
 );
 
 List<Element> _elements(Element e) => e01.archiveAllElements(e);
@@ -181,6 +181,7 @@ Map<String, Object?> myMeasure(Element root) {
   final screen = _find<MyScreen>(root);
   if (screen == null) return {'active': false};
   final user = (screen.widget as MyScreen).user;
+  final appInfo = (screen.widget as MyScreen).appInfo;
   final header = _find<MyPageTopBar>(screen)!,
       profile = _find<MyProfileRow>(screen)!;
   final stats = _find<MyStatsStrip>(screen)!, list = _find<ListView>(screen)!;
@@ -304,7 +305,7 @@ Map<String, Object?> myMeasure(Element root) {
       'providerLabel': user.providerLabel,
       'savedCount': user.savedContentCount,
       'reopenedCount': user.revisitedContentCount,
-      'appVersion': user.appVersion,
+      'appVersion': appInfo == null ? '-' : 'ver. ${appInfo.version}',
     },
     'scrollOffset': p?.pixels ?? 0,
     'maxScrollExtent': p?.maxScrollExtent ?? 0,

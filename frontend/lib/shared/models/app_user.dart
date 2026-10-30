@@ -5,7 +5,6 @@ class AppUser {
     required this.joinedAt,
     required this.savedContentCount,
     required this.revisitedContentCount,
-    required this.appVersion,
   });
 
   final String name;
@@ -13,7 +12,6 @@ class AppUser {
   final String joinedAt;
   final int? savedContentCount;
   final int? revisitedContentCount;
-  final String appVersion;
 }
 
 const defaultUser = AppUser(
@@ -22,5 +20,4 @@ const defaultUser = AppUser(
   joinedAt: '-',
   savedContentCount: null,
   revisitedContentCount: null,
-  appVersion: 'ver. 1.1',
 );

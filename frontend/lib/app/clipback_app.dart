@@ -27,6 +27,7 @@ import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
@@ -46,12 +47,16 @@ class ClipbackApp extends StatefulWidget {
     this.sessionStorage,
     this.socialAuth,
     this.searchHistoryStorage,
+    this.appInfo,
     super.key,
   });
 
   final ApiSessionStorage? sessionStorage;
   final SearchHistoryStorage? searchHistoryStorage;
   final SocialAuth? socialAuth;
+
+  /// 설치된 앱의 앱 정보. 읽지 못했으면 null이다.
+  final AppInfo? appInfo;
 
   @override
   State<ClipbackApp> createState() => _ClipbackAppState();
@@ -1338,6 +1343,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           bucket: _myNoticePageStorageBucket,
           child: MyScreen(
             user: _d.account.user,
+            appInfo: widget.appInfo,
             statsMessage: _d.account.statsMessage,
             onRetryStats: _d.account.canRetryStats ? _statsRetryAction() : null,
             onAddLink: _d.save.addLink,

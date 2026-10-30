@@ -2,6 +2,7 @@ import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
+import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -84,6 +85,7 @@ abstract final class _MyAssets {
 class MyScreen extends StatelessWidget {
   const MyScreen({
     required this.user,
+    required this.appInfo,
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onOpenAccount,
@@ -96,6 +98,7 @@ class MyScreen extends StatelessWidget {
   });
 
   final AppUser user;
+  final AppInfo? appInfo;
   final String? statsMessage;
   final VoidCallback? onRetryStats;
   final SaveLinkCallback onAddLink;
@@ -223,7 +226,9 @@ class MyScreen extends StatelessWidget {
                         ),
                         MyListTile(
                           title: '앱 버전',
-                          trailingText: user.appVersion,
+                          trailingText: appInfo == null
+                              ? '-'
+                              : 'ver. ${appInfo!.version}',
                           onTap: () => showModalBottomSheet<void>(
                             context: context,
                             useSafeArea: true,
