@@ -93,7 +93,7 @@ final class ShareViewController: UIViewController {
     super.viewDidAppear(animated)
     guard !started else { return }
     started = true
-    sheet.transform = CGAffineTransform(translationX: 0, y: sheet.bounds.height)
+    lowerSheet()
     UIView.animate(withDuration: 0.25) { self.sheet.transform = .identity }
     receive()
   }
@@ -193,7 +193,7 @@ final class ShareViewController: UIViewController {
         try? store.mark(draft.id, state: "authRequired")
         // The sheet goes down before the alert; iOS cannot open the app, so the message says to.
         UIView.animate(withDuration: 0.25, animations: {
-          self.sheet.transform = CGAffineTransform(translationX: 0, y: self.sheet.bounds.height)
+          self.lowerSheet()
         }, completion: { _ in self.showAlert(Self.saveAlert(.authentication)) })
         return
       }
@@ -236,13 +236,16 @@ final class ShareViewController: UIViewController {
       }
     }
     UIView.animate(withDuration: 0.25, animations: {
-      self.sheet.transform = CGAffineTransform(translationX: 0, y: self.sheet.bounds.height)
+      self.lowerSheet()
       self.dimView.alpha = 0
     }, completion: { _ in
       // A pending preparation finishes (and discards its draft) before the extension ends.
       if !self.preparing { self.complete() }
     })
   }
+
+  /// Moves the sheet just below the screen; animated callers slide it down.
+  private func lowerSheet() { sheet.transform = CGAffineTransform(translationX: 0, y: sheet.bounds.height) }
 
   @objc private func drag(_ gesture: UIPanGestureRecognizer) {
     guard !closing, !finished else { return }
@@ -302,7 +305,7 @@ final class ShareViewController: UIViewController {
       + Self.bottomGap(toast, container: view, view: view))
     toast.alpha = 0
     UIView.animate(withDuration: 0.25, animations: {
-      self.sheet.transform = CGAffineTransform(translationX: 0, y: self.sheet.bounds.height)
+      self.lowerSheet()
     }, completion: { _ in
       UIView.animate(withDuration: 0.2) { toast.alpha = 1 }
       UIAccessibility.post(notification: .announcement, argument: "저장 완료!")
