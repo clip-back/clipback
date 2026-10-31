@@ -63,7 +63,8 @@ summary_jobs는 자동 요약 작업의 공용 테이블이다. `kind`(`youtube`
 단일 API 인스턴스의 lifespan worker가 2초마다 조회하여 한 번에 하나를 처리한다.
 외부 호출 동안 DB 연결과 잠금을 유지하지 않는다. 5분 점유와 토큰으로 오래된 결과를 차단한다.
 YouTube 조회 10초, Gemini 120초, 인스타그램 페이지 5초·대표 이미지 5초·시도 1회 90초, OpenAI 60초이며 네트워크/시간초과/429/5xx만 30초 후 한 번 재시도한다.
-점유 만료 후에도 총 시도 횟수는 최대 2회다. 프로세스 장애 시 공급자 호출의 정확히 한 번 실행은
+점유 만료 후에도 총 시도 횟수는 최대 2회다. 요약 클라이언트에서 분류되지 않은 예외가 나면 점유 만료를 기다리지 않고
+재시도 없이 `failed`/`provider_error`로 끝낸다. 프로세스 장애 시 공급자 호출의 정확히 한 번 실행은
 보장하지 않는다. 회수 로그의 possible_duplicate_call과 공급자 청구 내역을 함께 확인한다.
 
 최종 반영은 사용자→콘텐츠→작업 순서로 잠근다. 처리 중 동일 값의 분류 요청도 수동 선택으로 보존한다.
@@ -140,7 +141,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 | 5xx | `provider_error` | 30초 뒤 1회 | `server_error` |
 | 네트워크 오류 | `provider_error` | 30초 뒤 1회 | `network_error` |
 | 시간 초과 | `timeout` | 30초 뒤 1회 | `timeout` |
-| 그 밖의 상태(400 등)·응답 크기 초과·리다이렉트 한도·파싱 실패·내부망 주소 | failed / `provider_error` | 없음 | `unexpected_status`, `response_too_large`, `redirect_limit` 등, `unsafe_url` |
+| 그 밖의 상태(400 등)·응답 크기 초과·리다이렉트 한도·파싱 실패·해석할 수 없는 주소·내부망 주소 | failed / `provider_error` | 없음 | `unexpected_status`, `response_too_large`, `redirect_limit` 등, `invalid_url`, `unsafe_url` |
 
 401·403은 게시물이 아니라 우리 서버가 차단됐을 가능성이 커서 게시물 제외가 아닌 실패로 둔다. 재시도 가능한 오류도
 총 시도 2회를 넘지 않으므로 두 번째 시도의 결과가 최종 상태다.
@@ -151,7 +152,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 `provider`(실패 단계: `instagram` 페이지, `instagram_image` 대표 이미지, `openai`), `http_status`(응답이 없으면 null), `reason`(페이지 판정 사유, 위 표.
 OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
 페이지 판정을 통과해 대표 이미지 단계까지 간 시도는 성공이든 실패든 `image`(`used` 사용 여부, `reason` 미사용 사유, `http_status` 이미지 응답 상태)도 남는다.
-미사용 사유는 `no_image_url`(`og:image` 없음), `invalid_url`(해석할 수 없는 `og:image` 주소), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
+미사용 사유는 `no_image_url`(`og:image` 없음), `invalid_url`(해석할 수 없는 `og:image` 주소나 리다이렉트 주소), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
 (이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아니거나 압축 폭탄 보호 한도 초과), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
 캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
 
@@ -216,7 +217,8 @@ YOUTUBE_SUMMARY_ENABLED=false alembic check
 
 예를 들어 `provider=gemini`, `http_status=429`, `provider_status=RESOURCE_EXHAUSTED`라면
 Gemini 사용량 제한을 확인한다. `400`이나 `404`만으로 모델·요청·영상 중 원인을 확정하지 않는다.
-`youtube_summary_worker_error`는 예외 종류만 남긴다.
+`youtube_summary_worker_error`는 예외 종류만 남긴다. 요약 클라이언트의 예상 밖 예외는 `youtube_summary_result`에
+`reason=unexpected_error`, `provider=null`, 예외 종류 `exception_type`으로 남고 예외 메시지는 기록하지 않는다.
 
 이 로그는 수정 배포 이후 실행에 적용된다. 이미 failed가 된 작업은 자동 재실행하지 않으므로
 동일 링크를 새 콘텐츠로 저장하여 새 ID의 로그를 확인한다. API의 공개 오류 코드는 변경하지 않는다.
