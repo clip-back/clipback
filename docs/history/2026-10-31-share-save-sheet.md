@@ -376,3 +376,78 @@ iOS #125와 같은 표를 쓴다(분류별 iOS 원문 기준, 시트에 없는 �
 - iOS 준비 단계의 로그인 확인(`prepared`)은 `try? store.currentCredential()`이라 공유 자격 읽기 실패뿐 아니라 저장소 잠금·상태 파일 읽기 실패도
   로그인 필요로 안내한다. Android F3과 같은 구분은 이번 지적 범위가 아니어서 바꾸지 않았다.
 - Android 닫기 실패 알림창은 Activity 재생성 뒤 다시 띄우지 않는다(이번 변경 전과 같음).
+
+## 통합 화면 검증
+
+통합 브랜치 `feat/share-save-sheet` `c798434`에서 2026-10-31 19:33~21:00 KST에 실행했다. 코드는 바꾸지 않았다.
+데이터는 모두 로컬 대역 서버다. 앞 절과 같은 임시 래퍼로 실행했고, 저장소 파일은 바꾸지 않았다.
+운영 서버·실기기·실제 OAuth는 검증하지 않았다.
+변경 전 화면은 구현 시작 전 `1c7a6f8`에서 같은 기종·데이터·글자 배율·스크롤 위치로 찍었다.
+
+### 환경
+
+| 플랫폼 | 기종·OS | 조건 |
+| --- | --- | --- |
+| iOS | iPhone 16 Simulator, iOS 18.6 (Xcode 27.2) | ko-KR, 밝은 화면. 큰 글자는 `accessibility-large` |
+| Android | `Medium_Phone` Android 16 (API 36, 1080×2400) | 제스처 내비게이션, en-US. 큰 글자는 `font_scale 2.0` |
+| Android | `Clipback_Share_API_33` Android 13 (API 33, 1080×2220) | 위와 같음. 촬영 중에만 옛 앱 `com.clipback.frontend`를 비활성화했다 |
+
+두 기기 모두 OS 창 흐림이 켜져 있었다(`wm disable-blur` 결과 지원·켜짐).
+
+### 결과
+
+- 정상 흐름(세 기기 모두): 송신 앱 → OS 공유 목록 → 허투루 → 시트 → 저장하기 → "✓ 저장 완료!" → 송신 앱 복귀.
+  - 링크와 이미지가 같은 시트를 쓴다.
+  - 원본 `233:3420`·`233:3430`과 시트·손잡이·버튼·안내·토스트의 모양·색·글꼴이 맞는다.
+  - 토스트 표시 시간 실측: iOS 1.47초(영상 기준). Android 1.83~2.03초이며 시트 내림과 페이드가 포함된다.
+- 공유 목록(`233:3418`): 이름 "허투루"는 일치한다. 아이콘은 Flutter 기본 아이콘이라 다르다(결정 Q6대로 바꾸지 않음).
+- 닫기
+  - 저장 전에 끌어내리기·배경 탭으로 닫으면 저장 요청이 없고 저장 대기 공유도 늘지 않는다(iOS·API 36).
+  - Android는 뒤로가기 키와 왼쪽 가장자리 뒤로가기 제스처로 닫아도 같다.
+  - 짧게 끌었다 놓으면 시트가 원위치로 돌아온다.
+- 배경: iOS는 검정 50%만 보인다([디자인 확인 필요](../figma-ui-alignment-plan.md#figma-pending-share-backdrop)).
+  Android API 36·33은 검정 50%에 흐림이 실제로 보인다.
+- 하단 여백
+  - iOS는 34pt(하단 안전 영역, 원본 32보다 2pt 큼)다. Android는 32dp다.
+  - 홈 인디케이터와 제스처 바가 문구·버튼과 겹치지 않는다. 큰 글자에서도 같다.
+- 큰 글자: 시트와 토스트가 위로 늘어나고 잘리지 않는다.
+  - 토스트 체크 아이콘은 20 크기로 고정돼 글자보다 작아 보인다.
+  - API 36에서는 안내 문구가 어절 중간("…저 / 장할게요!")에서 줄바꿈된다.
+- 저장 중: 모양이 바뀌지 않는다.
+  - iOS는 `저장하기`가 비활성인 것을 확인했다.
+  - Android는 화면만 찍었고, 그 순간 uiautomator가 버튼을 읽지 못했다. 연속 탭에도 요청이 한 번만 가는지는
+    `ShareServiceFixtureTest.testLinkShareSavesOnceDespiteTapsWhilePreparingAndSaving`(API 36·33 실행)으로 확인했다.
+- 실패 분류 알림창(iOS·API 36)
+  - 18개 상태 모두 제목·본문·버튼이 #125·#126 문구표와 같다. 앞 촬영 12개와 추가 촬영 6개(계정 변경 2개, 쓰기 실패, 30초 제한, Android 창 재생성 뒤 결과 미확인)다.
+  - [다시 시도](500·응답 유실·422·이미지 일시 중단·30초 제한·재생성 뒤 결과 미확인)는 저장 요청이 2회 가도 저장은 1건만 늘었다.
+  - [닫기]를 누르면 410·409·413은 현재 공유를 버리고, 이미지 한도·로그인 필요·계정 변경은 저장 대기 공유로 남긴다.
+  - 쓰기 실패와 기기 보관 한도는 아무것도 보관하지 않는다.
+  - 계정 변경은 대역 래퍼에서 공유 자격 세션을 바꾸거나 기기의 공유 자격을 막아 재현했다.
+  - 쓰기 실패는 보관 폴더 권한을 읽기 전용으로 바꿔 재현했다. 권한은 촬영 뒤 원래 값으로 되돌렸다.
+- Android [허투루 열기]: 로그인 필요와 기기 보관 한도 알림창에서 공유 창이 닫히고 본앱 홈이 열린다.
+  홈에 저장 대기 공유 안내가 보이고 공유는 남아 있다.
+- 받기 거절·기기 보관 한도·저장 실패 알림창은 시트 위에 뜬다(두 플랫폼).
+  시트를 먼저 내리는 경우는 준비 단계의 로그인 필요뿐이다(spec 순서대로).
+
+### 미검증
+
+화면으로 확인하지 못한 항목과 대신 확인한 자동 테스트다. 자동 테스트는 앞 절들에서 API 36·33 또는 iPhone 16에서 실행해 통과했다.
+
+- Android 화면 회전에 따른 Activity 재생성은 회전으로는 찍지 않았다. 프로세스 종료 뒤 재생성 1건만 찍었다.
+  대신 확인: `ShareActivityTest.testRecreatedSheetStillLeavesNothingOnDragDown`, `testUnauthenticatedShareSurvivesRecreationAndCloseWithoutLauncher`,
+  `ShareServiceFixtureTest.testCloseDuringSaveAfterRecreationKeepsShareAndRetryDoesNotDuplicate`, `testRecreatedRetryAlertBackStillKeepsShare`,
+  `testRecreatedIrreversibleAlertBackStillDiscards`
+- 알림창이 뜬 상태의 뒤로가기는 찍지 않았다.
+  대신 확인: `ShareActivityTest.testBackOnFullDeviceStorageAlertStoresNothing`, `ShareServiceFixtureTest.testRecreatedRetryAlertBackStillKeepsShare`
+- 실패 알림창의 큰 글자 배율은 찍지 않았다. 확인한 자동 테스트도 없다.
+- Android API 33의 실패 알림창은 찍지 않았다. API 33에서는 `ShareActivityTest`·`ShareServiceFixtureTest`의 알림창 테스트만 실행했다.
+- Safari·사진 앱에서의 공유, 실제 백엔드(`testRealBackend*`), 실기기는 이번 작업 전체에서 검증하지 않았다.
+
+### 촬영 중 본 동작
+
+고치지 않았다.
+
+- iOS: 시트가 떠 있을 때 XCUITest `launch()`로 본앱을 띄웠다. 그러자 OS가 확장을 끝냈고, 닫지 않은 저장 전 공유가 저장 대기 공유로 남았다(0 → 1).
+  홈 화면을 거쳐 앱을 전환했을 때는 확장이 유지됐다. 실제 사용자 경로에서도 같은 일이 생기는지는 확인하지 못했다.
+- iOS: 전송 전 계정 변경으로 보관한 항목의 상태가 `authRequired`(사용자 ID 없음)다. 본앱 복구 화면에서는 로그인 필요 항목으로 이어진다.
+  [통합 리뷰 수정](#통합-리뷰-수정) F1에서 확인한 동작과 같다.
