@@ -2,6 +2,7 @@ package com.clipback.frontend.share;
 
 import android.test.InstrumentationTestCase;
 import android.app.Activity;
+import android.app.Instrumentation;
 import android.content.Intent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,6 +13,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -19,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 /** Run explicitly with the loopback share_fixture_server.py and the fixture APK. */
 public final class ShareServiceFixtureTest extends InstrumentationTestCase {
     private ShareStore store;
+    private Activity activity;
     @Override protected void setUp() throws Exception {
         super.setUp();
         assertEquals("http://10.0.2.2:18765/api/v1",ShareStore.baseUrl());
@@ -27,6 +30,7 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
         control(new JSONObject().put("next_save_status",201).put("save_delay_seconds",0).put("lose_response",false));
     }
     @Override protected void tearDown() throws Exception {
+        if(activity!=null)getInstrumentation().runOnMainSync(() -> activity.finish());
         cleanup();store.blockCredential();super.tearDown();
     }
     private void cleanup() throws Exception {
@@ -53,6 +57,7 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
     }
     private void control(JSONObject value) throws Exception { http("/__test/control",value); }
     private int saved() throws Exception {return http("/__test/state",null).getInt("saved");}
+    private int saveRequests() throws Exception {return http("/__test/state",null).getInt("save_requests");}
     private String draft() throws Exception {return store.create("https://youtu.be/dQw4w9WgXcQ","https://youtu.be/dQw4w9WgXcQ",null,null);}
     private boolean save(String id) throws Exception {
         CountDownLatch finished=new CountDownLatch(1);boolean[] success={false};
@@ -151,5 +156,74 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
     }
     public void testImageFileLimitUsesExistingShareErrorRegion() throws Exception {
         imageError(413,"image_file_too_large","이미지는 10MiB 이하만 저장할 수 있습니다.","android-share-image-file-limit");
+    }
+    private Intent sharedLink() {
+        return new Intent(getInstrumentation().getTargetContext(),ShareActivity.class).setAction(Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT,"https://youtu.be/dQw4w9WgXcQ").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+    private String onlyDraft() throws Exception {
+        assertEquals(1,store.snapshot().getJSONArray("drafts").length());return store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");
+    }
+    private void tapSaveRepeatedly() throws Exception { for(int i=0;i<3;i++)ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save")); }
+    /** The sheet goes down, the in-window completion toast shows for a moment, then the share window closes by itself. */
+    private void assertCompletedOnce(int before,int requests) throws Exception {
+        long until=System.currentTimeMillis()+15000;java.util.List<String>[] texts=new java.util.List[1];
+        while(System.currentTimeMillis()<until) {
+            getInstrumentation().runOnMainSync(() -> texts[0]=ShareActivityTest.visibleTexts(activity.getWindow().getDecorView()));
+            if(texts[0].equals(Collections.singletonList("저장 완료!")))break;Thread.sleep(20);
+        }
+        assertEquals(Collections.singletonList("저장 완료!"),texts[0]);
+        long shown=System.currentTimeMillis();assertFalse(activity.isFinishing());
+        ShareActivityTest.awaitFinishing(activity);long elapsed=System.currentTimeMillis()-shown;
+        assertTrue("The completion toast stays for about 1.5 seconds: "+elapsed,elapsed>=1000 && elapsed<4000);
+        assertEquals(requests+1,saveRequests());assertEquals(before+1,saved());assertEquals(0,store.snapshot().getJSONArray("drafts").length());
+    }
+    public void testLinkShareSavesOnceDespiteTapsWhilePreparingAndSaving() throws Exception {
+        int before=saved(),requests=saveRequests();control(new JSONObject().put("save_delay_seconds",1));
+        synchronized(ShareStore.LOCK) { activity=getInstrumentation().startActivitySync(sharedLink());tapSaveRepeatedly(); }
+        ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        assertEquals(requests,saveRequests());tapSaveRepeatedly();assertCompletedOnce(before,requests);
+    }
+    public void testImageShareUsesSameSheetAndSavesOnce() throws Exception {
+        int before=saved(),requests=saveRequests();
+        Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+        ShareTestSenderActivity.shareDirectly(getInstrumentation(),"image");
+        activity=monitor.waitForActivityWithTimeout(10000);getInstrumentation().removeMonitor(monitor);assertNotNull(activity);
+        ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        assertEquals("image",store.draft(onlyDraft()).getString("kind"));
+        java.util.List<String>[] texts=new java.util.List[1];
+        getInstrumentation().runOnMainSync(() -> texts[0]=ShareActivityTest.visibleTexts(activity.getWindow().getDecorView()));
+        assertEquals(Arrays.asList("저장하기",ShareActivityTest.GUIDE),texts[0]);
+        tapSaveRepeatedly();assertCompletedOnce(before,requests);
+    }
+    public void testCloseDuringSaveAfterRecreationKeepsShareAndRetryDoesNotDuplicate() throws Exception {
+        int before=saved(),requests=saveRequests();
+        activity=getInstrumentation().startActivitySync(sharedLink());ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        String id=onlyDraft();control(new JSONObject().put("save_delay_seconds",2).put("lose_response",true));
+        ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+        long until=System.currentTimeMillis()+5000;while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
+        assertEquals(requests+1,saveRequests());
+        Instrumentation.ActivityMonitor recreated=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+        getInstrumentation().runOnMainSync(() -> activity.recreate());
+        activity=recreated.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(recreated);assertNotNull(activity);
+        getInstrumentation().waitForIdleSync();
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);ShareActivityTest.awaitFinishing(activity);
+        assertEquals("unknown",store.draft(id).getString("state"));
+        until=System.currentTimeMillis()+40000;while(ShareService.isActive(id) && System.currentTimeMillis()<until)Thread.sleep(50);
+        assertEquals("unknown",store.draft(id).getString("state"));
+        assertTrue(save(id));assertEquals(before+1,saved());assertNull(store.draft(id));
+    }
+    private void assertFailureAlertKeepsShare(int status,String message,String state) throws Exception {
+        activity=getInstrumentation().startActivitySync(sharedLink());ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        String id=onlyDraft();control(new JSONObject().put("next_save_status",status));
+        ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+        ShareActivityTest.pressAlertButton(getInstrumentation(),ShareActivityTest.awaitAlert(getInstrumentation(),message),"닫기");
+        ShareActivityTest.awaitFinishing(activity);assertEquals(state,store.draft(id).getString("state"));
+    }
+    public void testServerFailureShowsExistingMessageInAlertAndKeepsShare() throws Exception {
+        assertFailureAlertKeepsShare(500,"지금 저장하지 못했어요. 잠시 후 같은 항목으로 다시 시도해 주세요.","failed");
+    }
+    public void testUnauthorizedSaveShowsExistingMessageInAlertAndKeepsShare() throws Exception {
+        assertFailureAlertKeepsShare(401,"로그인 상태 확인이 필요해요. 초안을 보관했습니다. 본앱을 열어 대기 중인 공유를 다시 선택해 주세요.","authRequired");
     }
 }
