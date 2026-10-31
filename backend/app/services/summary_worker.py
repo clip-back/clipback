@@ -138,6 +138,7 @@ class SummaryWorker:
                     "provider": error.provider if error else SUCCESS_PROVIDERS[kind],
                     "http_status": error.http_status if error else None,
                     "provider_status": error.provider_status if error else None,
+                    "reason": error.reason if error else None,
                     "retryable": error.retryable if error else False,
                     "usage": result.usage if result else getattr(error, "usage", {}),
                 }

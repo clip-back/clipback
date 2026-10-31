@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from openai import (
     APIConnectionError,
@@ -27,6 +28,10 @@ MAX_CAPTION_LENGTH = 2200
 # The caption follows the engagement line:
 # `38K likes, 3 comments - user on <date>: "caption".`
 CAPTION_PATTERN = re.compile(r'[^"]*?: "(.*)"\.?\s*', re.DOTALL)
+INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
+# `/p/<code>/`, `/reel/<code>/`, `/tv/<code>/`, also behind a username (`/<user>/reel/<code>/`).
+POST_PATH_PATTERN = re.compile(r"/(?:[^/]+/)?(?:p|reels?|tv)/([^/]+)")
+LOGIN_PATH_PREFIX = "/accounts/login"
 
 PROMPT = (
     "인스타그램 게시물의 캡션을 분석하여 한국어 제목과 요약을 작성하라. "
@@ -43,6 +48,7 @@ PROMPT = (
 @dataclass
 class Post:
     caption: str | None
+    image_url: str | None
 
 
 class SummaryOutput(BaseModel):
@@ -76,23 +82,47 @@ class InstagramSummaryClient:
         if self.openai is None:
             raise SummaryError("configuration_error")
         post = await self._fetch_post(target_id)
-        if post.caption is None:
-            raise SummaryError("insufficient_content", skipped=True)
+        if post.caption is None and post.image_url is None:
+            raise self._page_error(
+                "insufficient_content", skipped=True, http_status=200, reason="no_caption_or_image"
+            )
         return await self._ask_openai(post, model, categories)
 
     async def _fetch_post(self, url: str) -> Post:
-        """Stage 1: re-fetch the public post page and read its evidence."""
+        """Stage 1: re-fetch the public post page; judge it, then read its evidence."""
         try:
             page = await self.metadata.fetch_page(url)
         except UnsafeUrlError as exc:
-            raise self._page_error("provider_error") from exc
+            raise self._page_error("provider_error", reason="unsafe_url") from exc
         if page.status != "success":
             raise self._page_failure(page.failure_reason)
+        # Accessibility first: only a page for the saved post may supply evidence.
+        reason = self._unavailable_reason(url, page)
+        if reason is not None:
+            raise self._page_error(
+                "content_unavailable", skipped=True, http_status=200, reason=reason
+            )
         properties = page.properties
         return Post(
             caption=self._caption(properties.get("og:description"))
-            or self._caption(properties.get("og:title"))
+            or self._caption(properties.get("og:title")),
+            image_url=(properties.get("og:image") or "").strip() or None,
         )
+
+    @staticmethod
+    def _unavailable_reason(target: str, page) -> str | None:
+        """Why a 200 page is not the saved post's metadata; None when it is."""
+        og_url = page.properties.get("og:url") or ""
+        for candidate in (page.resolved_url, og_url):
+            if urlparse(candidate).path.startswith(LOGIN_PATH_PREFIX):
+                return "login_page"
+        parsed = urlparse(og_url)
+        match = POST_PATH_PATTERN.match(parsed.path)
+        if (parsed.hostname or "").lower() not in INSTAGRAM_HOSTS or match is None:
+            return "not_post_metadata"
+        if match.group(1) != POST_PATH_PATTERN.match(urlparse(target).path).group(1):
+            return "post_id_mismatch"
+        return None
 
     @staticmethod
     def _caption(text: str | None) -> str | None:
@@ -101,24 +131,51 @@ class InstagramSummaryClient:
         return caption[:MAX_CAPTION_LENGTH] or None
 
     @staticmethod
-    def _page_error(code: str, *, retryable: bool = False, http_status: int | None = None):
-        error = SummaryError(code, retryable=retryable)
+    def _page_error(
+        code: str,
+        *,
+        retryable: bool = False,
+        skipped: bool = False,
+        http_status: int | None = None,
+        reason: str | None = None,
+    ):
+        error = SummaryError(code, retryable=retryable, skipped=skipped)
         error.provider = "instagram"
         error.http_status = http_status
+        error.reason = reason
         return error
 
     def _page_failure(self, reason: str | None) -> SummaryError:
+        """Map a failed page fetch: 404 and non-HTML 200 are skipped, 401/403 blocks fail."""
         if reason == "timeout":
-            return self._page_error("timeout", retryable=True)
+            return self._page_error("timeout", retryable=True, reason="timeout")
         if reason in {"dns_failure", "request_failure"}:
-            return self._page_error("provider_error", retryable=True)
-        match = re.fullmatch(r"http_status_(\d{3})", reason or "")
-        if match:
-            status = int(match.group(1))
+            return self._page_error("provider_error", retryable=True, reason="network_error")
+        if reason == "non_html":
             return self._page_error(
-                "provider_error", retryable=status == 429 or status >= 500, http_status=status
+                "content_unavailable", skipped=True, http_status=200, reason="non_html"
             )
-        return self._page_error("provider_error")
+        match = re.fullmatch(r"http_status_(\d{3})", reason or "")
+        if match is None:
+            return self._page_error("provider_error", reason=reason)
+        status = int(match.group(1))
+        if status == 404:
+            return self._page_error(
+                "content_unavailable", skipped=True, http_status=status, reason="not_found"
+            )
+        if status == 429 or status >= 500:
+            return self._page_error(
+                "provider_error",
+                retryable=True,
+                http_status=status,
+                reason="rate_limited" if status == 429 else "server_error",
+            )
+        # 401/403 most likely mean this server is blocked, not that the post is gone.
+        return self._page_error(
+            "provider_error",
+            http_status=status,
+            reason="access_denied" if status in {401, 403} else "unexpected_status",
+        )
 
     async def _ask_openai(self, post: Post, model: str, categories: list[dict]) -> VideoSummary:
         """Stage 3: structured GPT call with store=False and no SDK retries."""
