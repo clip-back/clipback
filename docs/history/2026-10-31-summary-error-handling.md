@@ -50,3 +50,11 @@
 - 테스트 DB는 로컬 PostgreSQL(5432)의 이 작업 전용 DB `clipback_test_issue134`와 점검 테스트용
   `clipback_maintenance100`이며 검증 뒤 삭제했다. Docker는 사용하지 않았다.
 - 원격 CI·운영 서버 검증은 하지 않았다. 앱 화면 변경이 없어 시뮬레이터·에뮬레이터는 실행하지 않았다.
+
+## 범위 밖 발견 (고치지 않음)
+
+- `MetadataClient._validate_url`도 오류 처리 밖에서 `_strip_fragment`를 호출한다. 이미 정리된 주소만 받아
+  지금은 실패할 수 없으므로 방어 코드를 넣지 않았다.
+- 요약 클라이언트가 토큰을 쓴 뒤 예상 밖 예외를 던지면 그 사용량은 작업 `usage`에 남지 않는다. 예외 종류를 알 수 없는 경우의 한계다.
+- `docs/backend/testing.md`의 로컬 검증 안내가 실제 실행 조건과 다르다(포트·역할 예시, 점검 DB 이름, migration의
+  `YOUTUBE_SUMMARY_ENABLED=false`). 후속 [이슈 #142](https://github.com/clip-back/clipback/issues/142)로 등록했다.
