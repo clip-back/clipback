@@ -7,6 +7,11 @@ final class ShareUITests: XCTestCase {
     attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
   }
   private func tapReady(_ element: XCUIElement) {
+    waitReady(element)
+    element.tap()
+  }
+  /// Waits until the element is hittable and has stopped moving (for example, the sheet sliding in).
+  private func waitReady(_ element: XCUIElement) {
     var lastFrame = CGRect.null
     var stableSince = Date()
     let ready = NSPredicate { _, _ in
@@ -16,7 +21,6 @@ final class ShareUITests: XCTestCase {
       return Date().timeIntervalSince(stableSince) >= 0.7
     }
     XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: element)], timeout: 8), .completed)
-    element.tap()
   }
   private func openShare(_ sender: XCUIApplication, button: String) {
     let input = sender.buttons[button]
@@ -155,14 +159,46 @@ final class ShareUITests: XCTestCase {
     "https://www.youtube.com/watch?v=dQw4w9WgXcQ&fixture=\(UUID().uuidString.lowercased())"
   }
   /// Shares a unique link and fails its save with the fixture settings, leaving the category alert open.
+  /// Returns where "저장하기" was before the save.
+  @discardableResult
   private func failSave(_ sender: XCUIApplication, _ settings: [String: Any], title: String = "저장하지 못했어요",
-                        message: String, retry: Bool, button: String = "YouTube 링크 공유", timeout: TimeInterval = 10) {
+                        message: String, retry: Bool, button: String = "YouTube 링크 공유", timeout: TimeInterval = 10) -> CGRect {
     control(settings)
     openShare(sender, button: button)
     let save = sender.buttons["share.save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
-    tapReady(save)
+    waitReady(save)
+    let frame = save.frame
+    save.tap()
     assertAlert(sender, title: title, message: message, retry: retry, timeout: timeout)
+    return frame
+  }
+  /// The alert is accessibility-modal, so the lowered sheet is read from the screen: the yellow "저장하기"
+  /// must no longer be drawn where it was.
+  private func assertSheetLowered(_ host: XCUIApplication, saveFrame: CGRect) {
+    let screenshot = XCUIScreen.main.screenshot()
+    guard let image = screenshot.image.cgImage else { return XCTFail("No screenshot") }
+    let scale = CGFloat(image.width) / host.frame.width
+    let width = image.width, height = image.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+      guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+      context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+      return true
+    }
+    XCTAssertTrue(drawn)
+    let row = Int(saveFrame.midY * scale)
+    let columns = Array(stride(from: Int((saveFrame.minX + 20) * scale), to: Int((saveFrame.maxX - 20) * scale), by: 4))
+    XCTAssertFalse(columns.isEmpty, "\(saveFrame)")
+    let yellow = columns.filter { column in
+      let offset = (row * width + column) * 4
+      let (red, green, blue) = (Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2]))
+      return red - blue > 60 && green - blue > 40
+    }.count
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = "ios-share-sheet-lowered"; attachment.lifetime = .keepAlways; add(attachment)
+    XCTAssertLessThan(Double(yellow) / Double(max(columns.count, 1)), 0.2, "The sheet must go down before the login alert")
   }
   /// The extension's App Group folder, found next to this runner's own simulator container.
   private func shareIntakeDirectory() -> URL {
@@ -346,14 +382,16 @@ final class ShareUITests: XCTestCase {
     sender.launchArguments = ["--recovery-url", sharedURL]
     sender.launch()
     let requests = saveRequests()
-    // A 401 blocks the sharing credential until the main app publishes it again.
-    failSave(sender, ["next_save_status": 401], title: loginTitle, message: loginMessage, retry: false,
-             button: "Instagram 텍스트 공유")
+    // A 401 blocks the sharing credential until the main app publishes it again. The sheet goes down before the alert.
+    let saveFrame = failSave(sender, ["next_save_status": 401], title: loginTitle, message: loginMessage, retry: false,
+                             button: "Instagram 텍스트 공유")
+    assertSheetLowered(sender, saveFrame: saveFrame)
     tapReady(sender.alerts.buttons["share.close"])
     assertReturned(sender)
     // Signed out: the share is kept first, then the login alert replaces the sheet without a save request.
     openShare(sender, button: "YouTube 링크 공유")
     assertAlert(sender, title: loginTitle, message: loginMessage)
+    assertSheetLowered(sender, saveFrame: saveFrame)
     capture("ios-share-login-required")
     tapReady(sender.alerts.buttons["share.close"])
     assertReturned(sender)

@@ -197,10 +197,7 @@ final class ShareViewController: UIViewController {
       }
       guard let credential else {
         try? store.mark(draft.id, state: "authRequired")
-        // The sheet goes down before the alert; iOS cannot open the app, so the message says to.
-        UIView.animate(withDuration: 0.25, animations: {
-          self.lowerSheet()
-        }, completion: { _ in self.showAlert(Self.saveAlert(.authentication)) })
+        showLoginAlert()
         return
       }
       self.credential = credential
@@ -220,10 +217,10 @@ final class ShareViewController: UIViewController {
         self.finished = true
         self.showSavedToast()
       case .failure(let error):
-        // The sheet stays behind the alert with "저장하기" disabled.
+        // Other failures keep the sheet behind the alert with "저장하기" disabled.
         var kind = (error as? ShareFailure)?.kind
         if Self.saveAlert(kind).retry, self.accountChangedSinceSave() { kind = .accountChanged }
-        self.showAlert(Self.saveAlert(kind))
+        if kind == .authentication { self.showLoginAlert() } else { self.showAlert(Self.saveAlert(kind)) }
       }
     }
   }
@@ -397,6 +394,14 @@ final class ShareViewController: UIViewController {
       // On-device failures before sending, such as reading the kept image or the server setting.
       return Alert(title: retryTitle, message: "지금 저장하지 못했어요. 잠시 후 다시 시도해 주세요.", retry: true)
     }
+  }
+
+  /// Login required, while preparing or saving: the sheet goes down before the alert.
+  /// iOS cannot open the app, so the message says to.
+  private func showLoginAlert() {
+    UIView.animate(withDuration: 0.25, animations: {
+      self.lowerSheet()
+    }, completion: { _ in self.showAlert(Self.saveAlert(.authentication)) })
   }
 
   /// OS alert over the sheet. [다시 시도] repeats the same request; [닫기] keeps or discards the share.

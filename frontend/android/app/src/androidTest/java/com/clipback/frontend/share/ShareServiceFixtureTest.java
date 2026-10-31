@@ -266,7 +266,9 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
             "지금은 저장할 수 없어요","이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.","failed","닫기");
     }
     public void testUnauthorizedSaveShowsLoginAlertAndKeepsShare() throws Exception {
-        closeAlert(failSave(new JSONObject().put("next_save_status",401),"로그인이 필요해요",ShareActivityTest.LOGIN,"허투루 열기","닫기"));
+        android.view.accessibility.AccessibilityNodeInfo alert=failSave(new JSONObject().put("next_save_status",401),"로그인이 필요해요",ShareActivityTest.LOGIN,"허투루 열기","닫기");
+        // Login required at save time also lowers the sheet before the alert.
+        ShareActivityTest.awaitSheetHidden(getInstrumentation(),activity);closeAlert(alert);
         assertEquals("authRequired",store.draft(onlyDraft()).getString("state"));
     }
     public void testAccountChangeDuringSaveKeepsShareForOriginalAccountOnly() throws Exception {

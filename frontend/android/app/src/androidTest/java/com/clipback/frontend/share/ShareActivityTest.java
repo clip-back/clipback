@@ -204,10 +204,10 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);getInstrumentation().waitForIdleSync();assertTrue(activity.isFinishing());assertNotNull(store.draft(id));
     }
     private File storageDirectory() { return new File(getInstrumentation().getTargetContext().getNoBackupFilesDir(),"native_share"); }
-    private void awaitSheetHidden() throws Exception {
+    static void awaitSheetHidden(Instrumentation instrumentation,Activity activity) throws Exception {
         long until=System.currentTimeMillis()+5000;
         while(System.currentTimeMillis()<until) {
-            boolean[] shown={true};getInstrumentation().runOnMainSync(() -> shown[0]=tagged(activity,"share.sheet").isShown());
+            boolean[] shown={true};instrumentation.runOnMainSync(() -> shown[0]=tagged(activity,"share.sheet").isShown());
             if(!shown[0])return;Thread.sleep(50);
         }
         fail("The sheet must go down before the login alert");
@@ -219,7 +219,7 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         try {
             activity=getInstrumentation().startActivitySync(incoming());
             AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"로그인이 필요해요",LOGIN,"허투루 열기","닫기");
-            awaitSheetHidden();
+            awaitSheetHidden(getInstrumentation(),activity);
             pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);
         } finally { store.blockCredential(); }
         // Marked like any login required share, so the main app's recovery screen keeps it on close.

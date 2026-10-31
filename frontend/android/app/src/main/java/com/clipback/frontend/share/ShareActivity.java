@@ -157,10 +157,10 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             if (!valid && !draft.has("userId")) store.setState(draftId, "authRequired");
             save.setEnabled(valid && !otherUser && !otherEnvironment && !active);
             // A recreated window keeps the alert it was showing.
-            if (shown != null) { if (shown.kind == ShareFailure.Kind.LOGIN) hideSheet(); return; }
+            if (shown != null) return;
             // States without a sheet design show an OS alert.
             if (otherEnvironment) showAlert(ShareFailure.Kind.OTHER_ENVIRONMENT);
-            else if (!valid) { hideSheet(); showAlert(ShareFailure.Kind.LOGIN); }
+            else if (!valid) showAlert(ShareFailure.Kind.LOGIN);
             else if (otherUser) showAlert(ShareFailure.Kind.ACCOUNT_CHANGED);
             // A save whose process ended before its result can be confirmed again with the same request.
             else if (unconfirmed) showAlert(ShareFailure.Kind.UNCONFIRMED);
@@ -169,7 +169,6 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             try { JSONObject draft = store.draft(draftId); if (draft != null && !draft.has("userId")) store.setState(draftId, "authRequired"); }
             catch (Exception ignored) { }
             if (shown == null) showAlert(ShareFailure.Kind.LOGIN);
-            if (shown.kind == ShareFailure.Kind.LOGIN) hideSheet();
         } catch (Exception error) {
             // Other storage read/write failures cannot confirm the share is kept: 보관 실패 (Q9③).
             if (shown == null) showAlert(ShareFailure.Kind.STORAGE_FAILED);
@@ -201,6 +200,8 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     /** The #122 failure classes in an OS alert; cancelling it (back, outside tap) is the same as [닫기]. */
     private void showAlert(ShareFailure failure) {
         shown = failure;
+        // Login required, while preparing or saving, lowers the sheet before the alert.
+        if (failure.kind == ShareFailure.Kind.LOGIN) hideSheet();
         if (alert != null) alert.dismiss();
         AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(failure.kind.title).setMessage(failure.body())
             .setNegativeButton("닫기", (dialog, which) -> closeShare()).setOnCancelListener(dialog -> closeShare());
