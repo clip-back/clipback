@@ -141,7 +141,7 @@ async def test_concurrent_shares_serialize_before_external_work(
                 )) == 1
             assert await session.scalar(select(func.count()).select_from(SummaryJob).where(
                 SummaryJob.content_id == first["id"],
-            )) == (1 if kind == "youtube" else 0)
+            )) == (0 if kind == "screenshot" else 1)
             assert await session.scalar(select(func.count()).select_from(ContentAsset).where(
                 ContentAsset.content_id == first["id"],
             )) == (1 if kind == "screenshot" else 0)

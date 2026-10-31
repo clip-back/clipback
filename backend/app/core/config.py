@@ -15,6 +15,10 @@ class Settings(DeletionLedgerSettings):
     gemini_api_key: SecretStr | None = None
     youtube_data_api_key: SecretStr | None = None
     gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-zA-Z0-9._-]+$")
+    instagram_summary_enabled: bool = False
+    instagram_summary_model: str = Field(
+        default="gpt-5.4-nano-2026-03-17", pattern=r"^[a-zA-Z0-9._-]+$"
+    )
 
     project_name: str = "Clipback API"
     app_environment: Literal["local", "test", "production"] = "local"
@@ -116,6 +120,10 @@ class Settings(DeletionLedgerSettings):
                     raise ValueError(
                         f"{key.upper()} is required when YouTube summaries are enabled"
                     )
+        if self.instagram_summary_enabled and (
+            self.openai_api_key is None or not self.openai_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("OPENAI_API_KEY is required when Instagram summaries are enabled")
         return self
 
 

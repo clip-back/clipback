@@ -30,7 +30,7 @@
 - 일반 HTTP 계약과 API 목록: 이 문서
 - 자동 분류·AI 계약: [카테고리 추천 정책](../category-recommendation-policy.md)
 - Today·Weekly 선정·시간·집계·삭제 정책: [콘텐츠 재발견 정책](../content-recommendation-plan.md)
-- YouTube URL·요약 상태·worker·공급자 설정: [YouTube 안내](../youtube-summary.md)
+- YouTube·인스타그램 URL·요약 상태·오류 코드·worker·공급자 설정: [요약 안내](../youtube-summary.md)
 - 화면 상태·클라이언트 재전송: [프론트 동작 기준](../frontend/behavior.md)
 - 운영·마이그레이션·복구 실행: [Railway 운영](../railway-deployment.md)
 
@@ -39,6 +39,9 @@
 - Save link-based content from share flow or direct input.
 - Save YouTube videos/Shorts immediately and summarize eligible public videos asynchronously.
   See [YouTube API, worker and rollout guide](../youtube-summary.md); enabled by default; Gemini and YouTube API keys are required.
+- Summarize saved Instagram reels/posts (`/reel/`, `/p/`, `/tv/`) asynchronously from the public page caption with OpenAI;
+  disabled by default (`INSTAGRAM_SUMMARY_ENABLED`), see the Instagram section of the same guide.
+  `summary_error_code` also returns `content_unavailable`, `unsupported_content` and `insufficient_content` (always `skipped`).
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.
@@ -271,7 +274,7 @@ header keep existing behavior.
 - PostgreSQL transaction advisory locks serialize matching user/key requests before
   metadata, OCR or file writes. Different users cannot replay one another's receipt.
 - The receipt, content, asset, creation event and YouTube summary job commit together
-  inside the existing content service. Summary completion is not required to return
+  inside the existing content service. Instagram links get their job the same way. Summary completion is not required to return
   a saved content response.
 - Fingerprints use stable input fields and actual image bytes, not multipart
   boundaries, filenames, extracted metadata or AI output. A replay creates no new
