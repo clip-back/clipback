@@ -45,6 +45,14 @@ class PageMeta:
     names: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ImageFetch:
+    """Raw bytes of a fetched image, or the reason it could not be fetched."""
+
+    content: bytes | None = None
+    failure_reason: str | None = None
+
+
 Resolver = Callable[[str, int], Awaitable[set[str]]]
 
 
@@ -122,15 +130,43 @@ class MetadataClient:
             return PageMeta(result.resolved_url, "failed", result.failure_reason)
         return result
 
-    async def _fetch(self, url: str, finish: Callable[[str, bytes, str | None], Any]) -> Any:
+    async def fetch_image(
+        self, url: str, *, total_timeout_seconds: float, max_bytes: int
+    ) -> ImageFetch:
+        """Download one image under the same network safety rules as a page.
+
+        The caller decides whether the bytes really are an image.
+        """
+        result = await self._fetch(
+            url,
+            lambda _url, body, _encoding: body,
+            total_timeout_seconds=total_timeout_seconds,
+            max_bytes=max_bytes,
+            content_types=None,
+        )
+        if isinstance(result, bytes):
+            return ImageFetch(content=result)
+        return ImageFetch(failure_reason=result.failure_reason)
+
+    async def _fetch(
+        self,
+        url: str,
+        finish: Callable[[str, bytes, str | None], Any],
+        *,
+        total_timeout_seconds: float | None = None,
+        max_bytes: int | None = None,
+        content_types: set[str] | None = HTML_CONTENT_TYPES,
+    ) -> Any:
+        total_timeout_seconds = total_timeout_seconds or self.total_timeout_seconds
+        max_bytes = max_bytes or self.max_response_bytes
         initial_url = self._strip_fragment(url)
         current_url = initial_url
         last_safe_url = [initial_url]
-        deadline = asyncio.get_running_loop().time() + self.total_timeout_seconds
+        deadline = asyncio.get_running_loop().time() + total_timeout_seconds
 
         try:
             async with asyncio.timeout_at(deadline):
-                timeout = httpx.Timeout(self.total_timeout_seconds)
+                timeout = httpx.Timeout(total_timeout_seconds)
                 async with httpx.AsyncClient(
                     transport=_PinnedTransport(self.http_transport),
                     follow_redirects=False,
@@ -139,7 +175,13 @@ class MetadataClient:
                     trust_env=False,
                 ) as client:
                     return await self._extract(
-                        client, current_url, last_safe_url, deadline, finish
+                        client,
+                        current_url,
+                        last_safe_url,
+                        deadline,
+                        finish,
+                        max_bytes,
+                        content_types,
                     )
         except UnsafeUrlError:
             raise
@@ -159,6 +201,8 @@ class MetadataClient:
         last_safe_url: list[str],
         deadline: float,
         finish: Callable[[str, bytes, str | None], Any],
+        max_bytes: int,
+        content_types: set[str] | None,
     ) -> Any:
         current_url = initial_url
 
@@ -191,13 +235,13 @@ class MetadataClient:
                 content_type = (
                     response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 )
-                if content_type not in HTML_CONTENT_TYPES:
+                if content_types is not None and content_type not in content_types:
                     return self._failure(current_url, "non_html")
 
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body.extend(chunk)
-                    if len(body) > self.max_response_bytes:
+                    if len(body) > max_bytes:
                         return self._failure(current_url, "response_too_large")
 
                 return finish(current_url, bytes(body), response.encoding)

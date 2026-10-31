@@ -62,7 +62,7 @@ summary_jobs는 자동 요약 작업의 공용 테이블이다. `kind`(`youtube`
 상태 변경 없이 남겨 둔다. 처리할 때는 작업 종류에 맞는 요약 클라이언트를 고른다. 구현된 종류는 YouTube와 인스타그램이다.
 단일 API 인스턴스의 lifespan worker가 2초마다 조회하여 한 번에 하나를 처리한다.
 외부 호출 동안 DB 연결과 잠금을 유지하지 않는다. 5분 점유와 토큰으로 오래된 결과를 차단한다.
-YouTube 조회 10초, Gemini 120초, 인스타그램 페이지 5초, OpenAI 60초이며 네트워크/시간초과/429/5xx만 30초 후 한 번 재시도한다.
+YouTube 조회 10초, Gemini 120초, 인스타그램 페이지 5초·대표 이미지 5초·시도 1회 90초, OpenAI 60초이며 네트워크/시간초과/429/5xx만 30초 후 한 번 재시도한다.
 점유 만료 후에도 총 시도 횟수는 최대 2회다. 프로세스 장애 시 공급자 호출의 정확히 한 번 실행은
 보장하지 않는다. 회수 로그의 possible_duplicate_call과 공급자 청구 내역을 함께 확인한다.
 
@@ -94,7 +94,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 ## 인스타그램 자동 요약
 
 결정 근거는 [ADR 0002](adr/0002-instagram-summary-caption-and-image.md), 용어는 [GLOSSARY](../GLOSSARY.md)의
-자동 요약·요약 근거를 따른다. 요약 근거는 공개 게시물 페이지의 캡션이며(대표 이미지와 페이지 응답 판정은 후속 작업),
+자동 요약·요약 근거를 따른다. 요약 근거는 공개 게시물 페이지의 캡션과 대표 이미지 1장이며(페이지 응답 판정은 후속 작업),
 영상·음성은 분석하지 않으므로 릴스 요약을 영상 요약이라고 부르지 않는다.
 
 - 대상: 공유 저장(`POST /contents/share`)과 직접 입력(`POST /contents`)으로 저장에 성공한 `/reel/`, `/p/`, `/tv/` 링크.
@@ -105,8 +105,13 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 - 반영 규칙은 YouTube와 같다. 사용자가 직접 입력한 제목·요약과 선택한 카테고리는 보존하고,
   저장 시 자동 추천된 카테고리는 결과가 다르면 교체하며 `category_changed`를 남긴다. 저장 시 메타데이터로 채워진 제목·요약은 교체한다.
 - 요약 시점에 공개 게시물 페이지를 다시 받는다(메타데이터 수집의 내부망 차단·리다이렉트·응답 크기·시간 제한 재사용).
-  `og:description`(없으면 `og:title`)의 `"…"` 부분을 캡션으로 쓰며, 캡션이 없으면 GPT를 호출하지 않고
-  `skipped`/`insufficient_content`다. 캡션은 서버에 보관하지 않는다.
+  `og:description`(없으면 `og:title`)의 `"…"` 부분을 캡션으로 쓰며, `og:image`가 있으면 대표 이미지를 받아
+  GPT 요청에 base64 이미지로 함께 넣는다(캐러셀에서 몇 번째 장인지는 보장하지 않는다). 캡션과 이미지는 서버에 보관하지 않는다.
+  캡션과 대표 이미지를 모두 얻지 못하면 GPT를 호출하지 않고 `skipped`/`insufficient_content`다.
+- 대표 이미지는 페이지와 같은 내부망 차단·리다이렉트 제한으로 받는다. JPEG·PNG·WEBP로 실제 열려야 하고(업로드와 같은 기준)
+  10MB 이하여야 하며 5초 안에 받아야 한다. 해상도 상한은 두지 않는다. 내부망 주소·HTTP 오류·형식/크기/시간 초과·이미지 아님은
+  원인과 관계없이 재시도 없이 캡션만으로 진행하며(일시 장애 재시도보다 우선), 캡션도 없을 때만 `insufficient_content`다.
+- 시간 상한: 페이지 5초·1MB, 이미지 5초, GPT 60초이고 시도 1회 전체는 90초다. 90초를 넘으면 재시도 가능한 `timeout`이다.
 - OpenAI Responses API 구조화 출력(`title`/`summary`/`category_id`), `store=False`, SDK 자동 재시도 없음, 60초 상한.
   제목 120자·요약 500자와 후보 ID를 검증하고, 캡션·카테고리 이름은 명령으로 신뢰하지 않는다.
   OpenAI 401/403은 `configuration_error`, 429/5xx/네트워크/시간 초과는 30초 뒤 한 번 재시도하는 `provider_error`/`timeout`,
@@ -115,7 +120,9 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
   `content_unavailable`(비공개·삭제·로그인 필요 판정)과 게시물 ID 일치 확인은 후속 작업에서 추가하며,
   그 전에는 로그인 화면 같은 비게시물 응답을 구분하지 못하므로 운영에서 켜지 않는다.
 - 로그는 같은 `youtube_summary_*` 이벤트에 `kind=instagram`으로 남는다. 실패한 `provider`는 단계(`instagram` 페이지,
-  `openai`)이고 `http_status`·`retryable`·`usage`를 함께 기록한다. 캡션·요청 URL·응답 원문·키는 기록하지 않는다.
+  `instagram_image` 대표 이미지, `openai`)이고 `http_status`·`retryable`·`usage`를 함께 기록한다. 대표 이미지는 캡션이 없어
+  근거가 모자랄 때만 실패 단계(`insufficient_content`)로 남고, 캡션이 있으면 이미지 실패는 기록 없이 캡션만으로 진행한다.
+  캡션·이미지 주소(서명 토큰 포함)·요청 URL·응답 원문·키는 기록하지 않는다.
 
 설정:
 
@@ -155,7 +162,7 @@ YOUTUBE_SUMMARY_ENABLED=false alembic check
 
 앱 시작 시 `app` 로거의 INFO 출력을 활성화한다. HTTP 라이브러리의 요청 URL 로그는 활성화하지 않는다.
 `youtube_summary_result`의 오류는 WARNING으로 출력하며 콘텐츠 ID, 모델, `provider`
-(`youtube` 또는 `gemini`. 인스타그램은 실패 단계인 `instagram` 또는 `openai`), `http_status`, 허용된 Google 오류 식별자 `provider_status`,
+(`youtube` 또는 `gemini`. 인스타그램은 실패 단계인 `instagram`, `instagram_image` 또는 `openai`), `http_status`, 허용된 Google 오류 식별자 `provider_status`,
 `retryable`을 포함한다. 네트워크 오류처럼 HTTP 응답이 없으면 상태 코드는 null이다.
 키·요청 URL·응답 원문·공급자 오류 메시지는 기록하지 않는다.
 

@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import settings
 from app.integrations.instagram_summary_client import InstagramSummaryClient
-from app.integrations.metadata_client import MetadataClient, MetadataResult, PageMeta
+from app.integrations.metadata_client import ImageFetch, MetadataClient, MetadataResult, PageMeta
 from app.integrations.youtube_summary_client import SummaryError, VideoSummary
 from app.models.content import Content
+from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
 from app.services.summary_worker import SummaryWorker
@@ -236,12 +237,15 @@ async def test_missing_caption_is_skipped_without_calling_gpt(
     async def fetch_page(url):
         return PageMeta(url, "success", None, {"og:image": "https://cdn.example.com/a.jpg"}, {})
 
+    async def fetch_image(url, **limits):
+        return ImageFetch(failure_reason="http_status_403")
+
     async def parse(**kwargs):
         gpt_calls.append(kwargs)
 
     client = InstagramSummaryClient(
         settings,
-        SimpleNamespace(fetch_page=fetch_page),
+        SimpleNamespace(fetch_page=fetch_page, fetch_image=fetch_image),
         SimpleNamespace(responses=SimpleNamespace(parse=parse)),
     )
     run = make_worker(database_connection, client)
@@ -255,6 +259,7 @@ async def test_missing_caption_is_skipped_without_calling_gpt(
         "skipped", "insufficient_content",
     )
     assert gpt_calls == []
+    assert await database_connection.scalar(select(func.count()).select_from(ContentAsset)) == 0
     assert not await run.run_once()
 
 
