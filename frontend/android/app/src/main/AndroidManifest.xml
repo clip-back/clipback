@@ -12,7 +12,7 @@
             android:enableOnBackInvokedCallback="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
-            android:theme="@style/ShareTheme">
+            android:theme="@style/ShareSheetTheme">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

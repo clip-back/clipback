@@ -1,6 +1,8 @@
 # Android 공유 수신 검증
 
-제품 공유 수신은 Java `ShareActivity`에서 실행한다. 테스트 송신 Activity와
+제품 공유 수신은 Java `ShareActivity`에서 실행한다. 공유 메뉴로 들어오면 송신 앱 위에
+공유 저장 시트(손잡이·**저장하기**·안내 문구)를 띄우고, 본앱의 저장 대기 공유 재개는 기존 전체 화면
+`ShareRecoveryActivity`를 쓴다. 테스트 송신 Activity와
 `content://` 이미지 Provider는 `androidTest` APK에만 포함되며 제품 APK에는 들어가지 않는다.
 
 ## HTTP 대역과 네이티브 회귀 테스트
@@ -57,6 +59,13 @@ emulator -avd Clipback_Share_API_33 -memory 1536 -cores 2 \
 
 테스트는 실제 Keystore 암호화·저장 실패·계정/환경 경계·파일 정리·Activity 재생성·
 뒤로 가기·저장 직후 닫기와 HTTP 요청 공유·401·30초 제한·응답 유실 재시도를 확인한다.
+공유 저장 시트는 `ShareActivityTest`와 `ShareServiceFixtureTest`가 실제 터치·뒤로 가기로 확인한다.
+시트에는 **저장하기**와 안내 문구만 보이고, 링크·이미지 저장은 시트가 내려간 뒤 `저장 완료!` 토스트를
+약 1.5초 보여 주고 창을 닫으며 대역 `save_requests`가 1 증가한다. 준비 중·저장 중 연속 탭도 요청은 1회다.
+끌어내림·배경 탭·뒤로 가기는 저장 전이면 저장 대기 공유를 남기지 않고(재생성 후 포함), 저장 중이면
+결과 미확인으로 보관해 같은 키 재시도에서 중복 저장이 없다. 준비 중 닫기는 링크·이미지 모두 아무것도 남기지 않는다.
+로그인 필요·저장 실패는 OS 알림창에 기존 문구와 [닫기]를 보여 주며, 알림창은 UiAutomation 접근성 트리로 확인한다.
+이미지 공유 테스트는 `ShareTestSenderActivity`가 자기 프로세스에서 `ShareActivity`로 직접 공유해 실제 URI 권한을 넘긴다.
 
 이미지 한도 오류는 `ShareServiceFixtureTest#testImageQuotaUsesExistingShareErrorRegion`과
 `#testImageFileLimitUsesExistingShareErrorRegion`을 선택해 실행한다. 실제 공유 복구 Activity의
@@ -74,11 +83,14 @@ adb -s emulator-5554 shell am start -n com.huturu.app/com.clipback.frontend.Main
 adb -s emulator-5554 shell am start -n com.huturu.app.test/com.clipback.frontend.share.ShareTestSenderActivity
 ```
 
-송신 앱의 링크/이미지 버튼 → 실제 시스템 공유 목록의 허투루 → 계정·입력 확인 → 저장 →
-완료 → 닫기/시스템 뒤로 가기 → 송신 앱 복귀를 확인한다. 이미지에는 일시적인 URI 읽기
-권한만 전달한다. API 33에서는 이미지 미리보기 중 회전도 확인한다.
+송신 앱의 링크/이미지 버튼 → 실제 시스템 공유 목록의 허투루 → 송신 앱 위 공유 저장 시트 →
+**저장하기** → 시트가 내려가고 `저장 완료!` 토스트 → 송신 앱 자동 복귀를 확인한다. 저장하지 않고
+손잡이 끌어내림·배경 탭·시스템 뒤로 가기로 닫는 경우도 송신 앱으로 돌아와야 한다. 이미지에는 일시적인 URI 읽기
+권한만 전달한다. API 33에서는 시트 표시 중 회전도 확인한다. 배경은 검정 50%로 어둡게 하고,
+Android 12(API 31) 이상에서 OS 창 흐림이 켜진 경우에만 흐림을 더한다(`adb shell wm disable-blur`로 상태 확인).
 
-401 대역을 설정하고 저장하면 초안을 유지해야 한다. 본앱으로 돌아와 대기 항목을 선택하면
+401 대역을 설정하고 저장하면 시트 위 OS 알림창에 기존 문구가 뜨고, [닫기] 뒤에도 저장 대기 공유를
+유지해야 한다. 본앱으로 돌아와 대기 항목을 선택하면
 공유 복구 Activity가 열리고, 저장/닫기 후 기존 본앱 화면으로 돌아와야 한다.
 
 ```bash
@@ -89,7 +101,7 @@ adb -s emulator-5554 shell screenrecord --time-limit 60 /sdcard/share-flow.mp4
 adb -s emulator-5554 pull /sdcard/share-flow.mp4 /absolute/path/share-flow.mp4
 ```
 
-공유 목록·미리보기·성공·실패·복귀 화면을 캡처하고, 외부 송신 앱 복귀와 본앱 복구는 영상도
+공유 목록·공유 저장 시트·완료 토스트·알림창·복귀 화면을 캡처하고, 외부 송신 앱 복귀와 본앱 복구는 영상도
 보관한다. 계정/토큰 원문이나 실제 사용자 데이터가 보이는 로그는 저장하지 않는다.
 본앱 수동 저장 입력이나 검색 화면을 열어 둔 상태에서도 외부 공유가 기존 화면을 초기화하지
 않는지 확인한다. 메모리가 적은 호스트는 Gradle과 iOS Simulator/Android Emulator를

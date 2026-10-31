@@ -9,6 +9,13 @@
         <item name="android:windowSoftInputMode">adjustResize</item>
         <item name="android:windowBackground">#FFFDF8</item>
     </style>
+    <!-- The share sheet is drawn over the sending app; ShareActivity animates its own dim, sheet and toast. -->
+    <style name="ShareSheetTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
