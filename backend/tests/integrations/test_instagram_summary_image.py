@@ -17,6 +17,7 @@ from app.integrations.youtube_summary_client import SummaryError
 from tests.integrations.test_instagram_summary_client import (
     CATEGORIES,
     PAGE_HOST,
+    POST_URL,
     TARGET,
     completion,
     public_resolver,
@@ -35,7 +36,7 @@ def picture(image_format="JPEG"):
 
 
 def page(*, caption=CAPTION, image=IMAGE_URL):
-    tags = []
+    tags = [f'<meta property="og:url" content="{POST_URL}">']
     if caption is not None:
         tags.append(f'<meta property="og:description" content="{escape(caption)}">')
     if image is not None:
@@ -199,7 +200,7 @@ async def test_page_without_cover_image_requests_none():
 @pytest.mark.parametrize(
     "image,response,provider,http_status",
     [
-        (None, None, "instagram", None),
+        (None, None, "instagram", 200),
         (IMAGE_URL, httpx.Response(403), "instagram_image", 403),
         (IMAGE_URL, image_response(b"not an image"), "instagram_image", None),
     ],
@@ -215,6 +216,7 @@ async def test_no_caption_and_no_usable_image_skips_without_calling_gpt(
     error = exc.value
     assert (error.code, error.skipped, error.retryable) == ("insufficient_content", True, False)
     assert (error.provider, error.http_status) == (provider, http_status)
+    assert error.reason == "no_caption_or_image"
     assert seen["openai"] == []
 
 
@@ -244,5 +246,6 @@ async def test_image_failure_log_names_the_stage_without_the_image_address():
 
     assert record["provider"] == "instagram_image" and record["http_status"] == 403
     assert record["error_code"] == "insufficient_content"
+    assert record["reason"] == "no_caption_or_image"
     for secret in ("secret-token", "signed-token", IMAGE_HOST, "cdninstagram", "secret-body"):
         assert secret not in raw
