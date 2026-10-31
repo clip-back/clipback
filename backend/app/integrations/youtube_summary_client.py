@@ -20,6 +20,7 @@ class SummaryError(Exception):
         self.provider: str | None = None
         self.http_status: int | None = None
         self.provider_status: str | None = None
+        self.reason: str | None = None
 
 
 @dataclass

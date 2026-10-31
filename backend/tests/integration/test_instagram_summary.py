@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -14,6 +15,7 @@ from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
 from app.services.summary_worker import SummaryWorker
 from tests.integration.helpers import guest, request
+from tests.integrations.test_instagram_summary_client import page, public_resolver
 
 pytestmark = pytest.mark.asyncio
 
@@ -234,7 +236,7 @@ async def test_missing_caption_is_skipped_without_calling_gpt(
     gpt_calls = []
 
     async def fetch_page(url):
-        return PageMeta(url, "success", None, {"og:image": "https://cdn.example.com/a.jpg"}, {})
+        return PageMeta(url, "success", None, {"og:url": REEL}, {})
 
     async def parse(**kwargs):
         gpt_calls.append(kwargs)
@@ -256,6 +258,99 @@ async def test_missing_caption_is_skipped_without_calling_gpt(
     )
     assert gpt_calls == []
     assert not await run.run_once()
+
+
+def real_client(page_handler):
+    """Real client and page fetching over fake HTTP; GPT is never expected to be reached."""
+    requests = []
+
+    def handler(req):
+        requests.append(req)
+        return page_handler(req)
+
+    async def forbidden(**kwargs):
+        raise AssertionError("GPT must not be called")
+
+    metadata = MetadataClient(http_transport=httpx.MockTransport(handler), resolver=public_resolver)
+    openai = SimpleNamespace(responses=SimpleNamespace(parse=forbidden))
+    return InstagramSummaryClient(settings, metadata, openai), requests
+
+
+async def make_due(database_connection):
+    await database_connection.execute(
+        update(SummaryJob).values(next_run_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        lambda r: httpx.Response(404),
+        lambda r: page(url="https://example.com/"),
+        lambda r: page(url="https://www.instagram.com/p/OTHER99/"),
+    ],
+    ids=["404", "not_post_metadata", "post_id_mismatch"],
+)
+async def test_unavailable_post_is_skipped_without_retry(
+    api, database_connection, monkeypatch, handler
+):
+    monkeypatch.setattr(settings, "instagram_summary_enabled", True)
+    client, requests = real_client(handler)
+    run = make_worker(database_connection, client)
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == (
+        "skipped", "content_unavailable",
+    )
+    await make_due(database_connection)
+    assert not await run.run_once() and len(requests) == 1
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_blocked_page_fails_without_retry(api, database_connection, monkeypatch, status):
+    monkeypatch.setattr(settings, "instagram_summary_enabled", True)
+    client, requests = real_client(lambda r: httpx.Response(status))
+    run = make_worker(database_connection, client)
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == ("failed", "provider_error")
+    await make_due(database_connection)
+    assert not await run.run_once() and len(requests) == 1
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_transient_page_status_retries_once_then_fails(
+    api, database_connection, monkeypatch, status
+):
+    monkeypatch.setattr(settings, "instagram_summary_enabled", True)
+    client, requests = real_client(lambda r: httpx.Response(status))
+    run = make_worker(database_connection, client)
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+
+    await run.run_once()
+    queued = await detail(api, headers, content)
+    assert (queued["summary_status"], queued["summary_error_code"]) == ("queued", "provider_error")
+    wait = await database_connection.scalar(
+        select(SummaryJob.next_run_at - func.now()).where(SummaryJob.content_id == content["id"])
+    )
+    assert timedelta(seconds=25) < wait < timedelta(seconds=35)
+    assert not await run.run_once() and len(requests) == 1
+
+    await make_due(database_connection)
+    await run.run_once()
+    failed = await detail(api, headers, content)
+    assert (failed["summary_status"], failed["summary_error_code"]) == ("failed", "provider_error")
+    await make_due(database_connection)
+    assert not await run.run_once() and len(requests) == 2
 
 
 async def test_transient_gpt_failure_retries_once_after_thirty_seconds(

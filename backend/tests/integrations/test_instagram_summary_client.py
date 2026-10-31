@@ -14,13 +14,20 @@ from app.integrations.youtube_summary_client import SummaryError
 TARGET = "https://www.instagram.com/reel/ABC123/"
 CATEGORIES = [{"id": 7, "name": "맛집"}, {"id": 9, "name": "여행"}]
 PAGE_HOST = "www.instagram.com"
+POST_URL = "https://www.instagram.com/cafe/reel/ABC123/"
 
 
 def page(
     description='38K likes, 369 comments - cafe on June 16, 2026: "성수동 카페 신메뉴 출시."',
     title='카페 on Instagram: "제목 속 캡션"',
+    url=POST_URL,
+    image=None,
 ):
     tags = []
+    if url is not None:
+        tags.append(f'<meta property="og:url" content="{escape(url)}">')
+    if image is not None:
+        tags.append(f'<meta property="og:image" content="{escape(image)}">')
     if description is not None:
         tags.append(f'<meta property="og:description" content="{escape(description)}">')
     if title is not None:
@@ -292,16 +299,135 @@ async def test_transient_page_responses_are_retryable_and_skip_gpt(status, code)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [401, 403, 404, 400])
-async def test_other_page_statuses_fail_without_retry(status):
+@pytest.mark.parametrize("status,reason", [(401, "access_denied"), (403, "access_denied"),
+                                           (400, "unexpected_status")])
+async def test_blocked_or_unexpected_page_statuses_fail_without_retry(status, reason):
     client, seen = build(lambda r: httpx.Response(status), lambda r: completion())
 
     with pytest.raises(SummaryError) as exc:
         await summarize(client)
 
-    assert (exc.value.code, exc.value.retryable) == ("provider_error", False)
-    assert (exc.value.provider, exc.value.http_status) == ("instagram", status)
+    error = exc.value
+    assert (error.code, error.retryable, error.skipped) == ("provider_error", False, False)
+    assert (error.provider, error.http_status, error.reason) == ("instagram", status, reason)
     assert seen["openai"] == []
+
+
+@pytest.mark.asyncio
+async def test_missing_post_is_skipped_as_unavailable_without_retry():
+    client, seen = build(lambda r: httpx.Response(404), lambda r: completion())
+
+    with pytest.raises(SummaryError) as exc:
+        await summarize(client)
+
+    error = exc.value
+    assert (error.code, error.retryable, error.skipped) == ("content_unavailable", False, True)
+    assert (error.provider, error.http_status, error.reason) == ("instagram", 404, "not_found")
+    assert len(seen["page"]) == 1 and seen["openai"] == []
+
+
+def login_page(request):
+    """Logged-out visitors are redirected to the login screen, which has generic metadata."""
+    if request.url.path.startswith("/accounts/login"):
+        html = (
+            '<meta property="og:title" content="Instagram">'
+            '<meta property="og:description" content="Log in to see photos and videos.">'
+            '<meta property="og:url" content="https://www.instagram.com/accounts/login/">'
+        )
+        return httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+    return httpx.Response(302, headers={"location": "/accounts/login/?next=/reel/ABC123/"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler,reason",
+    [
+        (login_page, "login_page"),
+        # Generic site metadata with a caption-shaped description is still not a post.
+        (lambda r: page(url="https://example.com/news/1"), "not_post_metadata"),
+        (lambda r: page(url=None), "not_post_metadata"),
+        (lambda r: page(url="https://www.instagram.com/"), "not_post_metadata"),
+        (lambda r: page(url="https://www.instagram.com/cafe/reel/OTHER99/"), "post_id_mismatch"),
+        # Shortcodes are case-sensitive.
+        (lambda r: page(url="https://www.instagram.com/p/abc123/"), "post_id_mismatch"),
+        (
+            lambda r: httpx.Response(
+                200, headers={"content-type": "application/json"}, text="{}"
+            ),
+            "non_html",
+        ),
+    ],
+)
+async def test_ok_response_that_is_not_the_saved_post_is_skipped_as_unavailable(handler, reason):
+    client, seen = build(handler, lambda r: completion())
+
+    with pytest.raises(SummaryError) as exc:
+        await summarize(client)
+
+    error = exc.value
+    assert (error.code, error.retryable, error.skipped) == ("content_unavailable", False, True)
+    assert (error.provider, error.http_status, error.reason) == ("instagram", 200, reason)
+    assert seen["openai"] == []
+
+
+@pytest.mark.asyncio
+async def test_other_post_with_evidence_is_unavailable_not_insufficient():
+    # Accessibility is judged before evidence: a mismatched post never feeds GPT.
+    other = page(url="https://www.instagram.com/p/OTHER99/", image="https://cdn.example.com/a.jpg")
+    client, seen = build(lambda r: other, lambda r: completion())
+
+    with pytest.raises(SummaryError) as exc:
+        await summarize(client)
+
+    assert exc.value.code == "content_unavailable" and seen["openai"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url", ["https://www.instagram.com/p/ABC123/", "https://www.instagram.com/tv/ABC123/?x=1",
+            "https://instagram.com/cafe/reel/ABC123"]
+)
+async def test_same_shortcode_matches_whatever_the_link_form(url):
+    client, _ = build(lambda r: page(url=url), lambda r: completion())
+
+    assert (await summarize(client)).title == "성수동 카페 소개"
+
+
+@pytest.mark.asyncio
+async def test_matching_post_without_caption_or_image_is_insufficient_not_unavailable():
+    client, seen = build(lambda r: page(description=None, title=None), lambda r: completion())
+
+    with pytest.raises(SummaryError) as exc:
+        await summarize(client)
+
+    error = exc.value
+    assert (error.code, error.retryable, error.skipped) == ("insufficient_content", False, True)
+    assert (error.provider, error.http_status, error.reason) == (
+        "instagram", 200, "no_caption_or_image",
+    )
+    assert seen["openai"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_representative_image_alone_counts_as_post_evidence():
+    page_with_image = page(description=None, title=None, image="https://cdn.example.com/a.jpg")
+    client, _ = build(lambda r: page_with_image, lambda r: completion())
+
+    # Using the image itself is the next ticket; here it only prevents `insufficient_content`.
+    assert (await summarize(client)).title == "성수동 카페 소개"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,reason", [(429, "rate_limited"), (500, "server_error"), (503, "server_error")]
+)
+async def test_transient_page_status_reasons(status, reason):
+    client, _ = build(lambda r: httpx.Response(status), lambda r: completion())
+
+    with pytest.raises(SummaryError) as exc:
+        await summarize(client)
+
+    assert exc.value.reason == reason
 
 
 @pytest.mark.asyncio
@@ -315,6 +441,7 @@ async def test_page_network_failures_are_retryable():
     assert (timeout.value.code, timeout.value.retryable, timeout.value.provider) == (
         "timeout", True, "instagram",
     )
+    assert timeout.value.reason == "timeout"
 
     def read_timeout(request):
         raise httpx.ReadTimeout("slow")
@@ -323,6 +450,7 @@ async def test_page_network_failures_are_retryable():
     with pytest.raises(SummaryError) as stalled:
         await summarize(client)
     assert (stalled.value.code, stalled.value.retryable) == ("provider_error", True)
+    assert stalled.value.reason == "network_error"
 
     def down(request):
         raise httpx.ConnectError("down")
@@ -364,4 +492,5 @@ async def test_page_fetch_keeps_the_internal_network_block():
     assert (exc.value.code, exc.value.retryable, exc.value.provider) == (
         "provider_error", False, "instagram",
     )
+    assert exc.value.reason == "unsafe_url"
     assert seen == []

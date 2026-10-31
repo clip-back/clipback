@@ -94,7 +94,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 ## 인스타그램 자동 요약
 
 결정 근거는 [ADR 0002](adr/0002-instagram-summary-caption-and-image.md), 용어는 [GLOSSARY](../GLOSSARY.md)의
-자동 요약·요약 근거를 따른다. 요약 근거는 공개 게시물 페이지의 캡션이며(대표 이미지와 페이지 응답 판정은 후속 작업),
+자동 요약·요약 근거를 따른다. 요약 근거는 공개 게시물 페이지의 캡션이며(대표 이미지는 후속 작업),
 영상·음성은 분석하지 않으므로 릴스 요약을 영상 요약이라고 부르지 않는다.
 
 - 대상: 공유 저장(`POST /contents/share`)과 직접 입력(`POST /contents`)으로 저장에 성공한 `/reel/`, `/p/`, `/tv/` 링크.
@@ -105,17 +105,58 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 - 반영 규칙은 YouTube와 같다. 사용자가 직접 입력한 제목·요약과 선택한 카테고리는 보존하고,
   저장 시 자동 추천된 카테고리는 결과가 다르면 교체하며 `category_changed`를 남긴다. 저장 시 메타데이터로 채워진 제목·요약은 교체한다.
 - 요약 시점에 공개 게시물 페이지를 다시 받는다(메타데이터 수집의 내부망 차단·리다이렉트·응답 크기·시간 제한 재사용).
-  `og:description`(없으면 `og:title`)의 `"…"` 부분을 캡션으로 쓰며, 캡션이 없으면 GPT를 호출하지 않고
-  `skipped`/`insufficient_content`다. 캡션은 서버에 보관하지 않는다.
+  응답은 아래 [페이지 응답 판정](#페이지-응답-판정)으로 분류한다. 게시물 메타데이터이면 `og:description`(없으면 `og:title`)의
+  `"…"` 부분을 캡션으로 쓴다. 캡션은 서버에 보관하지 않는다.
 - OpenAI Responses API 구조화 출력(`title`/`summary`/`category_id`), `store=False`, SDK 자동 재시도 없음, 60초 상한.
   제목 120자·요약 500자와 후보 ID를 검증하고, 캡션·카테고리 이름은 명령으로 신뢰하지 않는다.
   OpenAI 401/403은 `configuration_error`, 429/5xx/네트워크/시간 초과는 30초 뒤 한 번 재시도하는 `provider_error`/`timeout`,
   그 밖의 형식 오류는 `invalid_response`다.
-- 인스타그램 페이지 응답은 429/5xx/네트워크/시간 초과만 재시도하고, 그 밖의 비정상 응답은 재시도 없이 `failed`/`provider_error`다.
-  `content_unavailable`(비공개·삭제·로그인 필요 판정)과 게시물 ID 일치 확인은 후속 작업에서 추가하며,
-  그 전에는 로그인 화면 같은 비게시물 응답을 구분하지 못하므로 운영에서 켜지 않는다.
-- 로그는 같은 `youtube_summary_*` 이벤트에 `kind=instagram`으로 남는다. 실패한 `provider`는 단계(`instagram` 페이지,
-  `openai`)이고 `http_status`·`retryable`·`usage`를 함께 기록한다. 캡션·요청 URL·응답 원문·키는 기록하지 않는다.
+- 로그는 같은 `youtube_summary_*` 이벤트에 `kind=instagram`으로 남는다. 항목은 [인스타그램 진단 로그](#인스타그램-진단-로그)를 따른다.
+
+### 페이지 응답 판정
+
+**게시물 메타데이터**는 응답 메타데이터의 `og:url`이 저장한 링크와 같은 게시물 ID(shortcode, 대소문자 구분)를 가리키고
+(`/p/`·`/reel/`·`/tv/`, 사용자명이 앞에 붙은 형태 포함), 캡션 또는 대표 이미지(`og:image`)가 있는 응답이다.
+접근 가능 여부(게시물 ID 일치)를 먼저 판정하고 그다음 근거 유무를 본다. 다른 게시물·로그인 화면의 캡션은 쓰지 않는다.
+
+| 인스타그램 페이지 응답 | 상태 / 오류 코드 | 재시도 | 로그 `reason` |
+| --- | --- | --- | --- |
+| 200 + 게시물 메타데이터 | 요약 진행 | — | — |
+| 200 + `og:url` 일치, 캡션·대표 이미지 모두 없음 | skipped / `insufficient_content` | 없음 | `no_caption_or_image` |
+| 200, 로그인 화면(최종 주소나 `og:url`이 `/accounts/login`) | skipped / `content_unavailable` | 없음 | `login_page` |
+| 200, `og:url`이 없거나 인스타그램 게시물 주소가 아님(일반 사이트 메타데이터) | skipped / `content_unavailable` | 없음 | `not_post_metadata` |
+| 200, `og:url`의 게시물 ID가 다름 | skipped / `content_unavailable` | 없음 | `post_id_mismatch` |
+| 200, HTML이 아닌 응답 | skipped / `content_unavailable` | 없음 | `non_html` |
+| 404 | skipped / `content_unavailable` | 없음 | `not_found` |
+| 401·403 | failed / `provider_error` | 없음 | `access_denied` |
+| 429 | `provider_error` | 30초 뒤 1회 | `rate_limited` |
+| 5xx | `provider_error` | 30초 뒤 1회 | `server_error` |
+| 네트워크 오류 | `provider_error` | 30초 뒤 1회 | `network_error` |
+| 시간 초과 | `timeout` | 30초 뒤 1회 | `timeout` |
+| 그 밖의 상태(400 등)·응답 크기 초과·리다이렉트 한도·파싱 실패·내부망 주소 | failed / `provider_error` | 없음 | `unexpected_status`, `response_too_large`, `redirect_limit` 등, `unsafe_url` |
+
+401·403은 게시물이 아니라 우리 서버가 차단됐을 가능성이 커서 게시물 제외가 아닌 실패로 둔다. 재시도 가능한 오류도
+총 시도 2회를 넘지 않으므로 두 번째 시도의 결과가 최종 상태다.
+
+### 인스타그램 진단 로그
+
+`youtube_summary_result`(오류는 WARNING)에 다음이 남는다: `kind=instagram`, `content_id`, `error_code`,
+`provider`(실패 단계: `instagram` 페이지, `openai`), `http_status`(응답이 없으면 null), `reason`(페이지 판정 사유, 위 표.
+OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
+캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
+
+차단 의심 신호 해석(서버 IP 차단은 게시물 문제가 아니므로 구분한다):
+
+- `provider=instagram`, `http_status` 401·403, `reason=access_denied`, 상태 `failed`: 서버 IP 차단이나 로그인 요구로 본다.
+  같은 공개 링크가 여러 건 이어서 나오면 차단 가능성이 크므로 `INSTAGRAM_SUMMARY_ENABLED=false`로 멈춘다.
+- `reason=login_page`(200): 로그인 벽이다. 비공개 게시물일 수도 있지만 공개 링크에서 반복되면 차단 신호다. 상태는 `skipped`라
+  `failed`가 아니므로 `error_code=content_unavailable`의 `login_page` 비율을 따로 본다.
+- `reason=not_post_metadata`·`post_id_mismatch`·`non_html`(200)이 공개 링크에서 반복되면 인스타그램이 메타데이터를 주지 않는 것이다. 차단 또는 응답 형식 변경을 의심한다.
+- `reason=not_found`(404): 삭제·비공개 게시물로 본다. 반복되면 링크 정규화나 인스타그램 응답 정책 변경을 확인한다.
+- `reason=rate_limited`·`server_error`·`network_error`·`timeout`: 일시 장애다. 한 번 재시도하며 `retryable=true`로 남는다.
+  429가 이어지면 요청 속도 제한이므로 대기열 처리량을 확인한다.
+- `reason=no_caption_or_image`: 게시물은 확인됐으나 요약 근거가 없다. 차단 신호가 아니다.
+- `provider=openai`: 인스타그램 접근은 성공했고 OpenAI 쪽 문제다(401/403은 `configuration_error`로 키·권한 확인).
 
 설정:
 
@@ -155,7 +196,7 @@ YOUTUBE_SUMMARY_ENABLED=false alembic check
 
 앱 시작 시 `app` 로거의 INFO 출력을 활성화한다. HTTP 라이브러리의 요청 URL 로그는 활성화하지 않는다.
 `youtube_summary_result`의 오류는 WARNING으로 출력하며 콘텐츠 ID, 모델, `provider`
-(`youtube` 또는 `gemini`. 인스타그램은 실패 단계인 `instagram` 또는 `openai`), `http_status`, 허용된 Google 오류 식별자 `provider_status`,
+(`youtube` 또는 `gemini`. 인스타그램은 실패 단계인 `instagram` 또는 `openai`, 판정 사유 `reason`은 [인스타그램 진단 로그](#인스타그램-진단-로그)), `http_status`, 허용된 Google 오류 식별자 `provider_status`,
 `retryable`을 포함한다. 네트워크 오류처럼 HTTP 응답이 없으면 상태 코드는 null이다.
 키·요청 URL·응답 원문·공급자 오류 메시지는 기록하지 않는다.
 

@@ -5,6 +5,7 @@ import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -12,6 +13,7 @@ import pytest
 
 from app.integrations.youtube_summary_client import YouTubeSummaryClient
 from app.services.summary_worker import SummaryWorker
+from tests.integrations.test_instagram_summary_client import page, public_resolver
 from tests.integrations.test_youtube_summary_client import config, video
 
 
@@ -192,9 +194,60 @@ async def test_worker_logs_instagram_failure_stage_without_sensitive_data(
 
 
 @pytest.mark.asyncio
-async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_summary():
-    from types import SimpleNamespace
+@pytest.mark.parametrize(
+    "page_response,error_code,http_status,reason,retryable",
+    [
+        (lambda: httpx.Response(404, text="secret-page-body"),
+         "content_unavailable", 404, "not_found", False),
+        (lambda: httpx.Response(401, text="secret-page-body"),
+         "provider_error", 401, "access_denied", False),
+        (lambda: httpx.Response(403, text="secret-page-body"),
+         "provider_error", 403, "access_denied", False),
+        (lambda: httpx.Response(429, text="secret-page-body"),
+         "provider_error", 429, "rate_limited", True),
+        (lambda: httpx.Response(502, text="secret-page-body"),
+         "provider_error", 502, "server_error", True),
+        (lambda: page(url="https://example.com/secret-other-site"),
+         "content_unavailable", 200, "not_post_metadata", False),
+        (lambda: page(url="https://www.instagram.com/p/SECRET99/"),
+         "content_unavailable", 200, "post_id_mismatch", False),
+        (lambda: page(description=None, title=None, url="https://www.instagram.com/p/ABC123/"),
+         "insufficient_content", 200, "no_caption_or_image", False),
+    ],
+)
+async def test_worker_logs_the_page_decision_without_sensitive_data(
+    page_response, error_code, http_status, reason, retryable
+):
+    from app.core.config import Settings
+    from app.integrations.instagram_summary_client import InstagramSummaryClient
+    from app.integrations.metadata_client import MetadataClient
 
+    metadata = MetadataClient(
+        http_transport=httpx.MockTransport(lambda request: page_response()),
+        resolver=public_resolver,
+    )
+    config = Settings(_env_file=None, youtube_summary_enabled=False, openai_api_key="secret-key")
+    worker, _ = instagram_worker(InstagramSummaryClient(config, metadata, SimpleNamespace()))
+
+    record, raw = await logged_record(worker)
+
+    assert (record["kind"], record["provider"], record["error_code"]) == (
+        "instagram", "instagram", error_code,
+    )
+    assert (record["http_status"], record["reason"], record["retryable"]) == (
+        http_status, reason, retryable,
+    )
+    assert record["usage"] == {}
+    # No caption, image address, request URL, response body, key or provider message.
+    for secret in (
+        "성수동", "private-caption", "cdn.example.com", "ABC123", "SECRET99", "instagram.com",
+        "secret-page-body", "secret-key", "example.com",
+    ):
+        assert secret not in raw
+
+
+@pytest.mark.asyncio
+async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_summary():
     from app.integrations.youtube_summary_client import VideoSummary
 
     async def summarize(target, model, candidates):
@@ -205,4 +258,4 @@ async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_
     record, _ = await logged_record(worker)
 
     assert record["provider"] == "openai" and record["usage"] == {"total_tokens": 150}
-    assert record["error_code"] is None
+    assert record["error_code"] is None and record["reason"] is None
