@@ -24,9 +24,12 @@ logger = logging.getLogger(__name__)
 class SummaryWorker:
     def __init__(self, session_factory, client, config: Settings, *, maintenance=None):
         self.sessions = session_factory
-        self.client = client
+        self.clients = {"youtube": client}
         self.config = config
         self.maintenance = maintenance
+
+    def enabled_kinds(self) -> list[str]:
+        return ["youtube"] if self.config.youtube_summary_enabled else []
 
     async def claim(self):
         now = datetime.now(UTC)
@@ -34,10 +37,11 @@ class SummaryWorker:
             job = await session.scalar(
                 select(SummaryJob)
                 .where(
+                    SummaryJob.kind.in_(self.enabled_kinds()),
                     or_(
                         and_(SummaryJob.status == "queued", SummaryJob.next_run_at <= now),
                         and_(SummaryJob.status == "processing", SummaryJob.lease_expires_at <= now),
-                    )
+                    ),
                 )
                 .order_by(SummaryJob.next_run_at, SummaryJob.content_id)
                 .with_for_update(skip_locked=True)
@@ -68,6 +72,7 @@ class SummaryWorker:
                 json.dumps(
                     {
                         "event": "youtube_summary_claim",
+                        "kind": job.kind,
                         "content_id": job.content_id,
                         "attempt": job.attempts,
                         "recovered": recovered,
@@ -79,14 +84,15 @@ class SummaryWorker:
             return (
                 job.content_id,
                 user_id,
-                job.video_id,
+                job.target_id,
                 job.model,
                 job.lease_token,
                 [{"id": c.id, "name": c.name} for c in candidates],
+                job.kind,
             )
 
     async def run_once(self) -> bool:
-        if not self.config.youtube_summary_enabled:
+        if not self.enabled_kinds():
             return False
         from app.services.maintenance import MaintenanceError, default_gate
         gate = self.maintenance or default_gate()
@@ -97,16 +103,16 @@ class SummaryWorker:
             return False
 
     async def _run_once(self) -> bool:
-        if not self.config.youtube_summary_enabled:
+        if not self.enabled_kinds():
             return False
         claim = await self.claim()
         if claim is None:
             return False
-        content_id, user_id, video_id, model, token, candidates = claim
+        content_id, user_id, target_id, model, token, candidates, kind = claim
         started = time.monotonic()
         result = error = None
         try:
-            result = await self.client.summarize(video_id, model, candidates)
+            result = await self.clients[kind].summarize(target_id, model, candidates)
         except SummaryError as exc:
             error = exc
         logger.log(
@@ -114,6 +120,7 @@ class SummaryWorker:
             json.dumps(
                 {
                     "event": "youtube_summary_result",
+                    "kind": kind,
                     "content_id": content_id,
                     "model": model,
                     "elapsed_seconds": round(time.monotonic() - started, 3),

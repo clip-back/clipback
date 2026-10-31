@@ -70,7 +70,9 @@ async def test_worker_logs_safe_provider_diagnostics(provider, status):
             worker = SummaryWorker(
                 None, YouTubeSummaryClient(config(), http), config(), maintenance=OpenUnitGate()
             )
-            worker.claim = AsyncMock(return_value=(12, 7, "dQw4w9WgXcQ", "model", "token", []))
+            worker.claim = AsyncMock(
+                return_value=(12, 7, "dQw4w9WgXcQ", "model", "token", [], "youtube")
+            )
             worker.finish = AsyncMock()
             await worker.run_once()
             worker.finish.assert_awaited_once()

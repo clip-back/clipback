@@ -24,7 +24,8 @@ async def setup(sessions, content_id):
         session.add(
             SummaryJob(
                 content_id=content_id,
-                video_id="dQw4w9WgXcQ",
+                kind="youtube",
+                target_id="dQw4w9WgXcQ",
                 status="queued",
                 model="test",
                 apply_title=True,
@@ -69,7 +70,7 @@ async def test_external_wait_releases_connection_and_preserves_user_action(concu
         await release.wait()
         return VideoSummary("완료", "핵심 요약.", ids[2], {})
 
-    worker.client = SimpleNamespace(summarize=summarize)
+    worker.clients["youtube"] = SimpleNamespace(summarize=summarize)
     task = asyncio.create_task(worker.run_once())
     try:
         await asyncio.wait_for(started.wait(), 5)

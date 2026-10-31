@@ -224,7 +224,8 @@ class ContentService:
                 self.content_repository.session.add(
                     SummaryJob(
                         content_id=content.id,
-                        video_id=video_id,
+                        kind="youtube",
+                        target_id=video_id,
                         status="queued" if settings.youtube_summary_enabled else "skipped",
                         error_code=None if settings.youtube_summary_enabled else "disabled",
                         model=settings.gemini_model,

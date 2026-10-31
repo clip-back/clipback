@@ -21,7 +21,7 @@ async def lifespan(_: FastAPI):
     configure_logging()
     async with httpx.AsyncClient() as http:
         worker = SummaryWorker(AsyncSessionLocal, YouTubeSummaryClient(settings, http), settings)
-        task = asyncio.create_task(worker.run()) if settings.youtube_summary_enabled else None
+        task = asyncio.create_task(worker.run()) if worker.enabled_kinds() else None
         try:
             yield
         finally:
