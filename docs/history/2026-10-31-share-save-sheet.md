@@ -159,3 +159,68 @@ Figma 파일 `svNWsTFh8Ws1Mpt8XQIcrN` Page 1의 `233:3418`(공유 메뉴)·`233:
 - 실제 시스템 공유 목록에서 허투루 선택 → 시트 → 저장 → 토스트 → 송신 앱 복귀, 끌어내림·배경 탭·뒤로가기 닫기
 - 큰 글자 배율에서 시트가 위로 늘어나 잘리지 않음, 하단 안전 영역·제스처 내비게이션 여백, 회전 재생성
 - 에뮬레이터의 흐림 적용 여부와 원본 차이
+
+## #125 iOS 실패 분류
+
+티켓 [#125](https://github.com/clip-back/clipback/issues/125), 브랜치 `feat/share-save-sheet-125-ios`, 기준 커밋 `6991d6c`(통합 브랜치).
+#123의 임시 알림창(기존 문구·[닫기]만)을 #122 분류표의 버튼·문구·보관/폐기로 바꿨다. 새 시각 디자인 없이 `UIAlertController`만 쓴다
+(전용 표현은 [디자인 확인 필요](../figma-ui-alignment-plan.md#figma-pending-share-alerts)).
+
+### 구현
+
+- 분류 전달(결정 Q4): `ShareCore`의 `ShareFailure`가 분류(`ShareFailureKind`, 받기 거절은 사유 `ShareRefusal`)와 기존 문구를 함께 넘긴다.
+  본앱 복구 화면은 지금처럼 기존 문구(`localizedDescription`)를 보여 주므로 동작·문구가 바뀌지 않는다. 공유 저장 시트만 분류로 새 문구를 고른다.
+- 문구는 #126과 같은 표를 쓴다([문구표 요약](#문구표-요약)). iOS는 [허투루 열기]가 없어 그 행에서 [닫기]만 두며,
+  Android 전용 행(재생성 때 결과 미확인 항목)은 없다. 받기 거절의 사유별 문장은 iOS 받기 경로에 다음처럼 대응한다.
+  - 항목이 하나가 아님 → "링크 하나 또는 이미지 한 장만 공유할 수 있습니다."
+  - 텍스트 5,000자 초과·링크 없음·서로 다른 링크 두 개 이상 → "공유 텍스트가 너무 깁니다."·"Instagram 또는 YouTube 링크를 공유해 주세요."·"한 번에 링크 하나만 공유해 주세요."
+  - 지원하지 않는 주소·포트·사용자 정보·길이·스킴 → "Instagram 또는 YouTube 링크만 저장할 수 있습니다."
+  - 공유한 이미지 파일을 읽지 못함 → "이미지를 읽을 수 없습니다.", 10MiB 초과 → "이미지는 10MiB 이하만 공유할 수 있습니다."
+  - PNG·JPEG·WebP 아님 → "PNG, JPEG, WebP 이미지만 지원합니다. HEIC와 동영상은 지원하지 않습니다.", 이미지 해석 실패 → "이미지 파일을 읽을 수 없습니다."
+  - 링크·텍스트 항목 읽기 실패와 그 밖의 형식 → "Instagram·YouTube 링크 또는 PNG·JPEG·WebP 이미지를 공유해 주세요."
+- 순서: 시트 표시 → 공유 내용 보관 → 보관을 마친 뒤 로그인 확인. 준비 단계 실패(받기 거절·보관 실패)는 보관 전에 끝나므로 로그인 필요보다 먼저 보인다.
+  - 준비 단계 로그인 필요(저장 계정 없음·만료·자격 읽기 실패, Q9②)는 시트를 내린 뒤 알림창을 띄운다.
+  - 저장 응답 401과 저장 시점 자격 만료는 결정 Q3대로 시트를 남긴 채("저장하기" 비활성) 알림창을 띄운다.
+- 버튼: [닫기](`share.close`, 취소 형식)와 다시 시도 가능 분류의 [다시 시도](`share.retry`). [허투루 열기]는 없다(공식 API 없음).
+  [다시 시도]는 같은 저장 대기 공유를 같은 `Idempotency-Key`로 다시 보낸다.
+- [닫기]: 되돌릴 수 없음(410·409·413)은 저장 대기 공유를 버리고 닫는다. 나머지는 #123의 닫기 규칙 그대로라, 한 번 전송했거나
+  로그인 필요로 표시한 공유는 남고 준비 단계 실패는 남길 것이 없다.
+- 다시 시도 가능 실패 때 저장 계정이 이미 바뀌었으면(revision·userId·sessionId 비교) [다시 시도] 대신 '현재 환경에서 재시도 불가' 알림창을 보인다.
+  [다시 시도]를 눌렀더라도 저장소의 기존 계정 경계가 새 계정으로 보내지 않는다.
+- 분류 근거(결정 Q9): 그 밖의 4xx(403·404·429 등)는 400/415/422와 같은 다시 시도 가능, App Group 열기·잠금 실패와 쓰기 실패는 보관 실패,
+  항목 없음은 '공유 항목이 없어요'. 공유한 이미지 파일을 읽지 못하면 받기 거절 "이미지를 읽을 수 없습니다."다.
+  전송 전 기기 안 오류는 Android와 같은 "지금 저장하지 못했어요…" 행을 쓴다.
+- 저장 규칙·서버 API는 바꾸지 않았다. 예외는 spec이 정한 '되돌릴 수 없음'의 [닫기] 시 폐기뿐이다.
+
+### 자동 검증
+
+2026-10-31 KST, iPhone 16 Simulator(iOS 18.6, Xcode 27.2), 로컬 대역 서버. 대역은 #123과 같은 임시 래퍼(저장소
+`frontend/tool/share_fixture_server.py`를 import하고 카테고리에 `last_saved_at: null`만 더함)로 실행했다. 앱은 새로 설치해
+저장 대기 공유 0개에서 시작했다. 운영 서버·실기기·실제 OAuth 검증이 아니다. 명령은 [iOS 공유 검증](../../frontend/ios/ShareVerification/README.md)과 같다.
+
+- 실패 먼저 확인: 테스트만 바꾼 상태(#123 구현)로 앱을 빌드해 새 `testImageSaveAndUnsupportedInput`·`testServerErrorRetriesWithoutDuplicate`가
+  분류 알림창 제목을 찾지 못해 실패하는 것을 확인했다. 새 `RunnerTests`는 같은 상태의 소스로 `swiftc` 타입 검사를 해 분류 타입이 없어 컴파일되지 않는 것을 확인했다.
+- `RunnerTests` 24개 통과(#123의 19개 + 새 5개).
+  - 받기 거절 사유·기기 보관 한도 분류, 저장 시점 항목 없음·계정 변경·다른 서버 환경·자격 없음 분류.
+  - HTTP 응답별 분류와 기존 문구·상태 유지(응답 유실·500·2xx 해석 실패·400·415·422·403·429·409 일시 중단·409 이미지 한도·410·409·413·401).
+    복구 화면이 보는 기존 문구가 그대로인지 함께 확인한다.
+  - 저장 중 계정 변경: 전송 전 변경은 보내지 않고 보관, 전송 뒤 실패는 원래 계정으로 보관되고 원래·새 계정 어느 쪽으로 다시 보내도 요청이 나가지 않음,
+    2xx 뒤 변경은 원래 계정 저장으로 끝남(Q7). 대역이 항상 같은 계정을 발급해 UI 테스트로는 계정 변경을 만들 수 없어 이 단위 테스트로 대신했다.
+- `ShareUITests` 로컬 묶음 14개를 한 번에 실행해 모두 통과(1,252초).
+  - 새로 쓰거나 추가: `testSocketResponseLossRetriesWithoutDuplicate`·`testSocketTimeoutRetriesWithoutDuplicate`·`testServerErrorRetriesWithoutDuplicate`·
+    `testUnprocessableLinkRetriesWithoutDuplicate`(각각 [다시 시도] → 완료 토스트 → 저장 1건·요청 2회, [닫기] → 본앱 복구 화면 저장 → 저장 1건·요청 2회),
+    `testSignedOutShareIsKeptBeforeLoginAlertAndResumesInMain`(401로 자격이 막힌 뒤 공유하면 요청 없이 보관되고 로그인 필요 알림창, 본앱 복구 화면에서 저장),
+    `testDeviceStorageFullKeepsNothingAndNeverSaysKept`(10개 보관 뒤 공유하면 보관 실패 알림창, "보관했습니다" 없음, 보관 수 10 유지, 쌓은 공유는 복구 화면에서 저장),
+    `testServerRejectionsRetryKeepOrDiscardByCategory`(일시 중단 [다시 시도] 저장, 이미지 한도 [닫기] 보관 후 복구, 410·409·413 [닫기] 뒤 남지 않음),
+    `testImageSaveAndUnsupportedInput`(받기 거절 "공유할 수 없어요" [닫기] 뒤 보관 수 변화 없음).
+  - 모든 알림창에서 제목·문구·버튼 수, [허투루 열기] 없음, "초안 삭제"·"초안을 삭제"·"같은 초안으로"가 없음을 확인한다.
+  - 회귀 기준 `testUnauthorizedDraftResumesInMainNativeModal`은 #123에서 승인한 한 줄 예외 상태 그대로 고치지 않고 통과했다.
+  - 알림창은 접근성 모달이라 준비 단계 로그인 필요에서 "시트가 내려간 뒤" 알림창이 뜨는지는 XCUITest로 구분할 수 없다(알림창 뒤 요소를 찾지 못함). 화면 확인으로 남긴다.
+- 실행하지 않은 테스트: `testSafariSharesPreparedYouTubePage`·`testPhotosSharesPreparedScreenshot`(OS 앱 사전 준비 필요),
+  `testRealBackend*` 4개(18766 실제 백엔드 필요). 실제 백엔드 이미지 오류 테스트는 새 알림창 기준으로 고쳤지만 실행하지 않았다.
+- Android 코드는 바꾸지 않았다(`git diff 6991d6c -- frontend/android` 0줄).
+
+### 미검증과 후속
+
+- 분류별 알림창 스크린샷(변경 전 상태 영역 화면과 나란히, Figma 원본 없음 명시)은 통합 후 따로 남긴다.
+- 대역 서버의 `last_saved_at` 누락은 #123과 같이 범위 밖으로 두었다.

@@ -114,13 +114,13 @@ final class ShareViewController: UIViewController {
         receiveURLs(providers, store: store)
         return
       }
-      guard providers.count == 1, let provider = providers.first else { throw ShareFailure.unsupported }
+      guard providers.count == 1, let provider = providers.first else { throw ShareFailure.refused(.notSingle) }
       if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
         let accepted = [UTType.png.identifier, UTType.jpeg.identifier, "org.webmproject.webp"]
         let type = accepted.first(where: provider.hasItemConformingToTypeIdentifier) ?? UTType.image.identifier
         loading = provider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, error in
           do {
-            guard error == nil, let url else { throw ShareFailure.unsupported }
+            guard error == nil, let url else { throw ShareFailure.refused(.imageUnreadable) }
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= ShareStore.maxImageBytes else { throw ShareFailure.fileTooLarge }
             // Copy while NSItemProvider's temporary URL and security grant are valid.
@@ -131,7 +131,7 @@ final class ShareViewController: UIViewController {
       } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
         provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] value, error in
           do {
-            guard error == nil, let url = value as? URL else { throw ShareFailure.unsupported }
+            guard error == nil, let url = value as? URL else { throw ShareFailure.refused(.other) }
             let draft = try store.createLink(url.absoluteString)
             DispatchQueue.main.async { self?.prepared(.success(draft)) }
           } catch { DispatchQueue.main.async { self?.prepared(.failure(error)) } }
@@ -139,12 +139,12 @@ final class ShareViewController: UIViewController {
       } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
         provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] value, error in
           do {
-            guard error == nil, let text = value as? String else { throw ShareFailure.unsupported }
+            guard error == nil, let text = value as? String else { throw ShareFailure.refused(.other) }
             let draft = try store.createLink(text)
             DispatchQueue.main.async { self?.prepared(.success(draft)) }
           } catch { DispatchQueue.main.async { self?.prepared(.failure(error)) } }
         }
-      } else { prepared(.failure(ShareFailure.unsupported)) }
+      } else { prepared(.failure(ShareFailure.refused(.other))) }
     } catch { prepared(.failure(error)) }
   }
   private func receiveURLs(_ providers: [NSItemProvider], store: ShareStore) {
@@ -163,7 +163,7 @@ final class ShareViewController: UIViewController {
     }
     group.notify(queue: .main) { [weak self] in
       do {
-        guard !failed else { throw ShareFailure.unsupported }
+        guard !failed else { throw ShareFailure.refused(.other) }
         // Preserve provider order even when URL reads complete out of order.
         let draft = try store.createLink(ShareInputNormalizer.singleURL(urls.compactMap { $0 }))
         self?.prepared(.success(draft))
@@ -176,7 +176,8 @@ final class ShareViewController: UIViewController {
     preparing = false
     switch result {
     case .failure(let error):
-      if closing { complete() } else { showAlert(title: "공유할 수 없습니다", error) }
+      // Nothing was kept, so these win over login required.
+      if closing { complete() } else { showAlert(Self.preparationAlert(error)) }
     case .success(let draft):
       guard !closing else {
         // Dismissed while preparing: a draft that arrived late is not kept.
@@ -187,14 +188,17 @@ final class ShareViewController: UIViewController {
       guard let store else { return }
       draftId = draft.id
       service = ShareSaveService(store: store)
-      do {
-        guard let credential = try store.currentCredential() else {
-          try store.mark(draft.id, state: "authRequired")
-          throw ShareFailure.authentication
-        }
-        self.credential = credential
-        saveButton.isEnabled = true
-      } catch { showAlert(title: nil, error) }
+      // An unreadable credential also counts as login required: the share is already kept.
+      guard let credential = try? store.currentCredential() else {
+        try? store.mark(draft.id, state: "authRequired")
+        // The sheet goes down before the alert; iOS cannot open the app, so the message says to.
+        UIView.animate(withDuration: 0.25, animations: {
+          self.sheet.transform = CGAffineTransform(translationX: 0, y: self.sheet.bounds.height)
+        }, completion: { _ in self.showAlert(Self.saveAlert(.authentication)) })
+        return
+      }
+      self.credential = credential
+      saveButton.isEnabled = true
     }
   }
 
@@ -210,8 +214,10 @@ final class ShareViewController: UIViewController {
         self.finished = true
         self.showSavedToast()
       case .failure(let error):
-        // The sheet stays behind the alert with "저장하기" disabled; [닫기] closes the share.
-        self.showAlert(title: nil, error)
+        // The sheet stays behind the alert with "저장하기" disabled.
+        var kind = (error as? ShareFailure)?.kind
+        if Self.saveAlert(kind).retry, self.accountChangedSinceSave() { kind = .accountChanged }
+        self.showAlert(Self.saveAlert(kind))
       }
     }
   }
@@ -305,11 +311,99 @@ final class ShareViewController: UIViewController {
     })
   }
 
-  /// Temporary for #123: existing messages with [닫기] only; per-category buttons follow separately.
-  private func showAlert(title: String?, _ error: Error) {
-    guard !completed else { return }
-    let alert = UIAlertController(title: title, message: error.localizedDescription, preferredStyle: .alert)
-    let close = UIAlertAction(title: "닫기", style: .default) { [weak self] _ in self?.dismissSheet() }
+  /// A retry must not go to an account that replaced the one this save started with.
+  private func accountChangedSinceSave() -> Bool {
+    guard let credential, let current = try? store?.currentCredential() else { return false }
+    return current.revision != credential.revision || current.userId != credential.userId
+      || current.sessionId != credential.sessionId
+  }
+
+  private struct Alert {
+    let title: String
+    let message: String
+    var retry = false
+    var discard = false
+  }
+
+  /// Copy shared with Android (spec #122): before anything is kept.
+  private static func preparationAlert(_ error: Error) -> Alert {
+    switch (error as? ShareFailure)?.kind {
+    case .refused(let reason)?:
+      let message: String
+      switch reason {
+      case .notSingle: message = "링크 하나 또는 이미지 한 장만 공유할 수 있습니다."
+      case .textTooLong: message = "공유 텍스트가 너무 깁니다."
+      case .noLink: message = "Instagram 또는 YouTube 링크를 공유해 주세요."
+      case .multipleLinks: message = "한 번에 링크 하나만 공유해 주세요."
+      case .unsupportedLink: message = "Instagram 또는 YouTube 링크만 저장할 수 있습니다."
+      case .imageUnreadable: message = "이미지를 읽을 수 없습니다."
+      case .imageTooLarge: message = "이미지는 10MiB 이하만 공유할 수 있습니다."
+      case .imageFormat: message = "PNG, JPEG, WebP 이미지만 지원합니다. HEIC와 동영상은 지원하지 않습니다."
+      case .imageFile: message = "이미지 파일을 읽을 수 없습니다."
+      case .other: message = "Instagram·YouTube 링크 또는 PNG·JPEG·WebP 이미지를 공유해 주세요."
+      }
+      return Alert(title: "공유할 수 없어요", message: message)
+    case .storageFull?:
+      return Alert(title: "보관하지 못했어요",
+        message: "보관 중인 공유가 가득 찼어요. 허투루 앱에서 저장 대기 공유를 저장하거나 삭제한 뒤 다시 공유해 주세요.")
+    default:
+      // Image/state writes, App Group and lock failures.
+      return Alert(title: "보관하지 못했어요", message: "공유 내용을 보관하지 못했어요. 다시 공유해 주세요.")
+    }
+  }
+
+  /// Copy shared with Android (spec #122): the share is already kept unless the alert discards it.
+  private static func saveAlert(_ kind: ShareFailureKind?) -> Alert {
+    let retryTitle = "저장하지 못했어요"
+    let changedTitle = "저장 환경이 바뀌었어요"
+    let finalTitle = "다시 저장할 수 없어요"
+    switch kind {
+    case .authentication?:
+      return Alert(title: "로그인이 필요해요", message: ShareFailure.authentication.localizedDescription)
+    case .unconfirmed?:
+      return Alert(title: retryTitle, message: "저장 결과를 확인하지 못했습니다. 다시 시도해도 중복 저장되지 않습니다.", retry: true)
+    case .paused?:
+      return Alert(title: retryTitle, message: "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", retry: true)
+    case .rejected?:
+      // 400/415/422 cannot tell a bad input from a temporary link lookup failure.
+      return Alert(title: retryTitle, message: "지금 링크 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요. "
+        + "계속 실패하면 Instagram·YouTube 링크나 PNG·JPEG·WebP 이미지인지 확인해 주세요.", retry: true)
+    case .imageQuota?:
+      return Alert(title: "지금은 저장할 수 없어요", message: "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.")
+    case .accountChanged?:
+      return Alert(title: changedTitle, message: ShareFailure.changedAccount.localizedDescription)
+    case .otherEnvironment?:
+      return Alert(title: changedTitle, message: "이 초안은 다른 서버 환경에서 전송되었습니다. 같은 서버 환경의 허투루 앱에서 다시 저장해 주세요.")
+    case .savedBeforeAccountChange?:
+      return Alert(title: changedTitle, message: "전송한 계정의 저장 결과는 보관했습니다. 계정이 변경되어 이 창을 닫아 주세요.")
+    case .deleted?:
+      return Alert(title: finalTitle, message: "이미 저장한 뒤 삭제한 콘텐츠입니다. 새로 공유해 주세요.", discard: true)
+    case .mismatch?:
+      return Alert(title: finalTitle, message: "이 초안의 저장 정보가 일치하지 않습니다. 다시 공유해 주세요.", discard: true)
+    case .tooLarge?:
+      return Alert(title: finalTitle, message: "이미지는 10MiB 이하만 저장할 수 있습니다.", discard: true)
+    case .missing?:
+      return Alert(title: "공유 항목이 없어요", message: "보관 기간이 지났거나 삭제된 초안입니다.")
+    case .refused?, .storageFull?, nil:
+      // On-device failures before sending, such as reading the kept image or the server setting.
+      return Alert(title: retryTitle, message: "지금 저장하지 못했어요. 잠시 후 다시 시도해 주세요.", retry: true)
+    }
+  }
+
+  /// OS alert over the sheet. [다시 시도] repeats the same request; [닫기] keeps or discards the share.
+  private func showAlert(_ content: Alert) {
+    guard !completed, !closing else { return }
+    let alert = UIAlertController(title: content.title, message: content.message, preferredStyle: .alert)
+    if content.retry {
+      let retry = UIAlertAction(title: "다시 시도", style: .default) { [weak self] _ in self?.save() }
+      retry.accessibilityIdentifier = "share.retry"
+      alert.addAction(retry)
+    }
+    let close = UIAlertAction(title: "닫기", style: .cancel) { [weak self] _ in
+      guard let self else { return }
+      if content.discard, let draftId = self.draftId { try? self.store?.discard(draftId) }
+      self.dismissSheet()
+    }
     close.accessibilityIdentifier = "share.close"
     alert.addAction(close)
     present(alert, animated: true)

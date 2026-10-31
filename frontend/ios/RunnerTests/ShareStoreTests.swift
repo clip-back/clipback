@@ -13,6 +13,11 @@ final class MemoryShareVault: ShareCredentialVault {
   }
 }
 
+/// The category a failure carries for the share save sheet's alert, or nil when the body succeeds.
+func failureKind(_ body: () throws -> Any) -> ShareFailureKind? {
+  do { _ = try body(); return nil } catch { return (error as? ShareFailure)?.kind }
+}
+
 final class ShareStoreTests: XCTestCase {
   private var folder: URL!
   private var vault: MemoryShareVault!
@@ -85,6 +90,45 @@ final class ShareStoreTests: XCTestCase {
     for _ in 1..<10 { _ = try store.createLink("https://youtu.be/dQw4w9WgXcQ") }
     XCTAssertThrowsError(try store.createLink("https://youtu.be/dQw4w9WgXcQ"))
     XCTAssertNotNil(try store.draft(first.id))
+  }
+  func testRefusalsAndFullStorageCarryTheirCategory() throws {
+    XCTAssertEqual(failureKind { try self.store.createLink(String(repeating: "a", count: 5001)) }, .refused(.textTooLong))
+    XCTAssertEqual(failureKind { try self.store.createLink("링크가 없는 공유 글") }, .refused(.noLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ https://youtu.be/other") }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://example.com/unsupported") }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be:1234/dQw4w9WgXcQ") }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(string: "https://youtu.be/dQw4w9WgXcQ")!,
+      URL(string: "https://youtu.be/another")!]) }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(fileURLWithPath: "/private/tmp/metadata")]) },
+      .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createImage(Data("not an image".utf8)) }, .refused(.imageFile))
+    let gif = try XCTUnwrap(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=="))
+    XCTAssertEqual(failureKind { try self.store.createImage(gif) }, .refused(.imageFormat))
+    XCTAssertEqual(failureKind { try self.store.createImage(Data(repeating: 0, count: ShareStore.maxImageBytes + 1)) },
+      .refused(.imageTooLarge))
+    XCTAssertEqual(failureKind { try self.store.createImage(fileURL: self.folder.appendingPathComponent("missing.png")) },
+      .refused(.imageUnreadable))
+    for _ in 0..<10 { _ = try store.createLink("https://youtu.be/dQw4w9WgXcQ") }
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ") }, .storageFull)
+  }
+  func testSaveTimeAccountAndEnvironmentFailuresCarryTheirCategory() throws {
+    let original = credential(try store.blockCredential())
+    XCTAssertTrue(try store.publish(original))
+    XCTAssertEqual(failureKind { try self.store.begin("missing", expected: original) }, .missing)
+    let draft = try store.createLink("https://youtu.be/dQw4w9WgXcQ")
+    _ = try store.begin(draft.id, expected: original)
+    let switched = credential(try store.blockCredential(), user: "8", session: "12")
+    XCTAssertTrue(try store.publish(switched))
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: original) }, .accountChanged)
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: switched) }, .accountChanged)
+    let otherBase = "https://other.invalid/api/v1"
+    let otherStore = try ShareStore(directory: folder, vault: vault, apiBaseUrl: otherBase)
+    let other = ShareCredential(revision: try otherStore.blockCredential(), token: "other-environment-token",
+      expiresAt: original.expiresAt, userId: "7", sessionId: "11", accountLabel: "테스트 계정", apiBaseUrl: otherBase)
+    XCTAssertTrue(try otherStore.publish(other))
+    XCTAssertEqual(failureKind { try otherStore.begin(draft.id, expected: other) }, .otherEnvironment)
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: original) }, .authentication)
+    XCTAssertEqual(try store.draft(draft.id)?.userId, "7")
   }
   func testKnownOversizedImageHasDedicatedReasonForMemoryAndFileIntake() throws {
     let bytes = Data(repeating: 0, count: ShareStore.maxImageBytes + 1)

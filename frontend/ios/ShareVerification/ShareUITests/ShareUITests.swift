@@ -132,31 +132,63 @@ final class ShareUITests: XCTestCase {
     tapReady(main.buttons["share.close"])
     XCTAssertFalse(main.buttons["share.save"].waitForExistence(timeout: 2))
   }
-  /// Save failures show the existing message in an OS alert over the sheet; [닫기] closes the share.
-  private func assertFailureAlert(_ host: XCUIApplication, message: String, timeout: TimeInterval = 10) {
-    XCTAssertTrue(host.alerts.staticTexts[message].waitForExistence(timeout: timeout), host.debugDescription)
-    // The OS alert is accessibility-modal, so the disabled "저장하기" behind it is not queryable; the alert blocks it.
-    XCTAssertTrue(host.alerts.firstMatch.exists, host.debugDescription)
+  private let unconfirmedMessage = "저장 결과를 확인하지 못했습니다. 다시 시도해도 중복 저장되지 않습니다."
+  private let loginTitle = "로그인이 필요해요"
+  private let loginMessage = "초안을 보관했습니다. 허투루 앱을 열어 로그인을 확인한 뒤 대기 항목을 선택해 주세요."
+  private let instagramURL = "https://www.instagram.com/p/fixture/"
+  /// Failures show an OS alert per category: its title, message and [다시 시도]/[닫기] only (iOS has no [허투루 열기]).
+  /// The alert is accessibility-modal, so the disabled "저장하기" behind it is not queryable; the alert blocks it.
+  private func assertAlert(_ host: XCUIApplication, title: String, message: String, retry: Bool = false,
+                           timeout: TimeInterval = 10) {
+    let alert = host.alerts[title]
+    XCTAssertTrue(alert.waitForExistence(timeout: timeout), host.debugDescription)
+    XCTAssertTrue(alert.staticTexts[message].exists, host.debugDescription)
+    XCTAssertEqual(alert.buttons.count, retry ? 2 : 1, host.debugDescription)
+    XCTAssertTrue(alert.buttons["share.close"].exists, host.debugDescription)
+    XCTAssertEqual(alert.buttons["share.retry"].exists, retry, host.debugDescription)
+    // No alert points to an action the sheet does not have.
+    for text in alert.staticTexts.allElementsBoundByIndex.map(\.label) {
+      for removed in ["초안 삭제", "초안을 삭제", "같은 초안으로"] { XCTAssertFalse(text.contains(removed), text) }
+    }
   }
-  private func retryUnconfirmedSave(_ settings: [String: Any], captureName: String) {
-    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
-    main.launch()
-    let sharedURL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&fixture=\(UUID().uuidString.lowercased())"
-    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
-    sender.launchArguments = ["--recovery-url", sharedURL]
-    sender.launch()
-    let before = savedCount()
-    let requests = saveRequests()
+  private func uniqueURL() -> String {
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ&fixture=\(UUID().uuidString.lowercased())"
+  }
+  /// Shares a unique link and fails its save with the fixture settings, leaving the category alert open.
+  private func failSave(_ sender: XCUIApplication, _ settings: [String: Any], title: String = "저장하지 못했어요",
+                        message: String, retry: Bool, button: String = "YouTube 링크 공유", timeout: TimeInterval = 10) {
     control(settings)
-    openShare(sender, button: "YouTube 링크 공유")
+    openShare(sender, button: button)
     let save = sender.buttons["share.save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
     tapReady(save)
-    assertFailureAlert(sender, message: "저장 결과를 확인하지 못했습니다. 같은 초안으로 다시 시도하면 중복 저장되지 않습니다.", timeout: 40)
+    assertAlert(sender, title: title, message: message, retry: retry, timeout: timeout)
+  }
+  /// A retryable failure saves through [다시 시도] without a duplicate, and is kept on [닫기] for the main app.
+  private func retryOrKeep(_ settings: [String: Any], message: String, captureName: String, timeout: TimeInterval = 10) {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    main.launch()
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launchArguments = ["--recovery-url", uniqueURL()]
+    sender.launch()
+    var before = savedCount()
+    var requests = saveRequests()
+    failSave(sender, settings, message: message, retry: true, timeout: timeout)
     capture(captureName)
+    tapReady(sender.alerts.buttons["share.retry"])
+    assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+    XCTAssertEqual(savedCount(), before + 1)
+    XCTAssertEqual(saveRequests(), requests + 2)
+
+    let sharedURL = uniqueURL()
+    sender.launchArguments = ["--recovery-url", sharedURL]
+    sender.launch()
+    before = savedCount()
+    requests = saveRequests()
+    failSave(sender, settings, message: message, retry: true, timeout: timeout)
     tapReady(sender.alerts.buttons["share.close"])
     assertReturned(sender)
-    // Closing keeps the unconfirmed share; retrying it with the same key does not save twice.
+    // Closing keeps the share; retrying it in the main app with the same key does not save twice.
     resumeInMain(main, label: sharedURL)
     XCTAssertEqual(savedCount(), before + 1)
     XCTAssertEqual(saveRequests(), requests + 2)
@@ -278,10 +310,71 @@ final class ShareUITests: XCTestCase {
     XCTAssertEqual(pendingShareCount(main), pending)
   }
   func testSocketTimeoutRetriesWithoutDuplicate() {
-    retryUnconfirmedSave(["save_delay_seconds": 35], captureName: "ios-share-timeout")
+    retryOrKeep(["save_delay_seconds": 35], message: unconfirmedMessage, captureName: "ios-share-timeout", timeout: 40)
   }
   func testSocketResponseLossRetriesWithoutDuplicate() {
-    retryUnconfirmedSave(["lose_response": true], captureName: "ios-share-response-lost")
+    retryOrKeep(["lose_response": true], message: unconfirmedMessage, captureName: "ios-share-response-lost")
+  }
+  func testServerErrorRetriesWithoutDuplicate() {
+    retryOrKeep(["next_save_status": 500], message: unconfirmedMessage, captureName: "ios-share-server-error")
+  }
+  func testUnprocessableLinkRetriesWithoutDuplicate() {
+    retryOrKeep(["next_save_status": 422], message: "지금 링크 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요. "
+      + "계속 실패하면 Instagram·YouTube 링크나 PNG·JPEG·WebP 이미지인지 확인해 주세요.", captureName: "ios-share-unprocessable")
+  }
+  func testSignedOutShareIsKeptBeforeLoginAlertAndResumesInMain() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    let pending = pendingShareCount(main)
+    let sharedURL = uniqueURL()
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launchArguments = ["--recovery-url", sharedURL]
+    sender.launch()
+    let requests = saveRequests()
+    // A 401 blocks the sharing credential until the main app publishes it again.
+    failSave(sender, ["next_save_status": 401], title: loginTitle, message: loginMessage, retry: false,
+             button: "Instagram 텍스트 공유")
+    tapReady(sender.alerts.buttons["share.close"])
+    assertReturned(sender)
+    // Signed out: the share is kept first, then the login alert replaces the sheet without a save request.
+    openShare(sender, button: "YouTube 링크 공유")
+    assertAlert(sender, title: loginTitle, message: loginMessage)
+    capture("ios-share-login-required")
+    tapReady(sender.alerts.buttons["share.close"])
+    assertReturned(sender)
+    XCTAssertEqual(saveRequests(), requests + 1)
+    XCTAssertEqual(pendingShareCount(main), pending + 2)
+    resumeInMain(main, label: sharedURL)
+    resumeInMain(main, label: instagramURL)
+    XCTAssertEqual(saveRequests(), requests + 3)
+    XCTAssertEqual(pendingShareCount(main), pending)
+  }
+  func testDeviceStorageFullKeepsNothingAndNeverSaysKept() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    let pending = pendingShareCount(main)
+    XCTAssertLessThan(pending, 10)
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    // Signed out after a 401, each share is kept with a login alert until the device keeps 10.
+    failSave(sender, ["next_save_status": 401], title: loginTitle, message: loginMessage, retry: false,
+             button: "Instagram 텍스트 공유")
+    tapReady(sender.alerts.buttons["share.close"])
+    assertReturned(sender)
+    for _ in (pending + 1)..<10 {
+      openShare(sender, button: "Instagram 텍스트 공유")
+      assertAlert(sender, title: loginTitle, message: loginMessage)
+      tapReady(sender.alerts.buttons["share.close"])
+      assertReturned(sender)
+    }
+    openShare(sender, button: "Instagram 텍스트 공유")
+    let title = "보관하지 못했어요"
+    assertAlert(sender, title: title, message: "보관 중인 공유가 가득 찼어요. 허투루 앱에서 저장 대기 공유를 저장하거나 삭제한 뒤 다시 공유해 주세요.")
+    XCTAssertFalse(sender.alerts[title].staticTexts.allElementsBoundByIndex.contains { $0.label.contains("보관했습니다") })
+    capture("ios-share-storage-full")
+    tapReady(sender.alerts.buttons["share.close"])
+    assertReturned(sender)
+    XCTAssertEqual(pendingShareCount(main), 10)
+    for _ in pending..<10 { resumeInMain(main, label: instagramURL) }
+    XCTAssertEqual(pendingShareCount(main), pending)
   }
   func testUnauthorizedDraftResumesInMainNativeModal() {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
@@ -334,6 +427,8 @@ final class ShareUITests: XCTestCase {
     capture("ios-share-sender-return")
   }
   func testImageSaveAndUnsupportedInput() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    let pending = pendingShareCount(main)
     let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
     sender.launch()
     let requests = saveRequests()
@@ -345,37 +440,48 @@ final class ShareUITests: XCTestCase {
     assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
     XCTAssertEqual(saveRequests(), requests + 1)
     openShare(sender, button: "지원하지 않는 공유")
-    XCTAssertTrue(sender.alerts["공유할 수 없습니다"].waitForExistence(timeout: 10), sender.debugDescription)
+    assertAlert(sender, title: "공유할 수 없어요", message: "Instagram 또는 YouTube 링크만 저장할 수 있습니다.")
     capture("ios-share-error")
     tapReady(sender.alerts.buttons["share.close"])
     assertReturned(sender)
+    XCTAssertEqual(pendingShareCount(main), pending)
   }
-  func testImageQuotaAndFileLimitAppearInAlert() {
+  func testServerRejectionsRetryKeepOrDiscardByCategory() {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
     let pending = pendingShareCount(main)
     let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
     sender.launch()
     let before = savedCount()
-    for (status, code, message, artifact) in [
-      (409, "image_uploads_paused", "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", "ios-share-image-paused"),
-      (409, "image_quota_exceeded", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", "ios-share-image-quota"),
-      (413, "image_file_too_large", "이미지는 10MiB 이하만 저장할 수 있습니다.", "ios-share-image-file-limit")
-    ] {
-      control(["next_save_status": status, "next_save_detail": ["code": code]])
-      openShare(sender, button: "스크린샷 공유")
-      let save = sender.buttons["share.save"]
-      XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
-      tapReady(save)
-      assertFailureAlert(sender, message: message)
+    // Image saving paused: [다시 시도] saves once it resumes.
+    failSave(sender, ["next_save_status": 409, "next_save_detail": ["code": "image_uploads_paused"]],
+             message: "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", retry: true, button: "스크린샷 공유")
+    capture("ios-share-image-paused")
+    tapReady(sender.alerts.buttons["share.retry"])
+    assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+    XCTAssertEqual(savedCount(), before + 1)
+    // Server image quota: kept on [닫기] to continue later in the main app.
+    failSave(sender, ["next_save_status": 409, "next_save_detail": ["code": "image_quota_exceeded"]], title: "지금은 저장할 수 없어요",
+             message: "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", retry: false, button: "스크린샷 공유")
+    capture("ios-share-image-quota")
+    tapReady(sender.alerts.buttons["share.close"])
+    assertReturned(sender)
+    // 410·409·413 cannot succeed again: [닫기] discards the share.
+    for (status, detail, message, button, artifact) in [
+      (410, nil, "이미 저장한 뒤 삭제한 콘텐츠입니다. 새로 공유해 주세요.", "YouTube 링크 공유", "ios-share-deleted"),
+      (409, nil, "이 초안의 저장 정보가 일치하지 않습니다. 다시 공유해 주세요.", "YouTube 링크 공유", "ios-share-mismatch"),
+      (413, ["code": "image_file_too_large"], "이미지는 10MiB 이하만 저장할 수 있습니다.", "스크린샷 공유", "ios-share-image-file-limit")
+    ] as [(Int, [String: String]?, String, String, String)] {
+      var settings: [String: Any] = ["next_save_status": status]
+      if let detail { settings["next_save_detail"] = detail }
+      failSave(sender, settings, title: "다시 저장할 수 없어요", message: message, retry: false, button: button)
       capture(artifact)
       tapReady(sender.alerts.buttons["share.close"])
       assertReturned(sender)
     }
-    XCTAssertEqual(savedCount(), before)
-    // Retention is unchanged for now: each failed image stays pending and resumes in the main app.
-    XCTAssertEqual(pendingShareCount(main), pending + 3)
-    for _ in 0..<3 { resumeInMain(main, label: "공유한 이미지") }
-    XCTAssertEqual(savedCount(), before + 3)
+    XCTAssertEqual(pendingShareCount(main), pending + 1)
+    resumeInMain(main, label: "공유한 이미지")
+    XCTAssertEqual(savedCount(), before + 2)
+    XCTAssertEqual(pendingShareCount(main), pending)
   }
   // Prepare Safari with simctl openurl and Photos with simctl addmedia before these OS-host tests.
   func testSafariSharesPreparedYouTubePage() {
@@ -442,23 +548,24 @@ final class ShareUITests: XCTestCase {
     main.activate()
     capture("ios-real-image-return")
   }
-  private func realImageError(_ message: String, artifact: String) {
+  private func realImageError(_ title: String, _ message: String, retry: Bool, artifact: String) {
     let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
     sender.launch()
     openShare(sender, button: "스크린샷 공유")
     let save = sender.buttons["share.save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10), sender.debugDescription)
     tapReady(save)
-    assertFailureAlert(sender, message: message, timeout: 15)
+    assertAlert(sender, title: title, message: message, retry: retry, timeout: 15)
     capture(artifact)
     tapReady(sender.alerts.buttons["share.close"])
     XCUIApplication(bundleIdentifier: "com.huturu.app").activate()
   }
   func testRealBackendImagePauseWithExistingSession() {
-    realImageError("이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", artifact: "ios-real-share-pause")
+    realImageError("저장하지 못했어요", "이미지 저장이 일시 중단되었어요. 잠시 후 다시 시도해 주세요.", retry: true, artifact: "ios-real-share-pause")
   }
   func testRealBackendImageQuotaWithExistingSession() {
-    realImageError("이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", artifact: "ios-real-share-quota")
+    realImageError("지금은 저장할 수 없어요", "이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.", retry: false,
+                   artifact: "ios-real-share-quota")
   }
   // Install share_preview.dart with SHARE_PREVIEW_REAL_BACKEND=true and port 18766 before this test.
   func testRealBackendGuestLoginThenNativeSave() {
