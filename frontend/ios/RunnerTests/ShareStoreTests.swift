@@ -6,7 +6,12 @@ import UIKit
 final class MemoryShareVault: ShareCredentialVault {
   var value: ShareCredential?
   var fails = false
-  func read() throws -> ShareCredential? { value }
+  var readFails = false
+  func read() throws -> ShareCredential? {
+    // Same error as ShareKeychain when the Keychain cannot be read.
+    if readFails { throw ShareFailure.classified(.authentication, "공유 인증 저장소를 읽을 수 없습니다. 앱에서 다시 시도해 주세요.") }
+    return value
+  }
   func write(_ credential: ShareCredential) throws {
     if fails { throw ShareFailure.message("test storage failure") }
     value = credential
@@ -50,6 +55,28 @@ final class ShareStoreTests: XCTestCase {
     vault.fails = true
     XCTAssertThrowsError(try store.publish(credential(revision)))
     XCTAssertNil(try store.currentCredential())
+  }
+  /// After a share is kept (spec #122 Q9): a missing or unreadable Keychain credential is login required,
+  /// while App Group lock and state file failures are storage failures.
+  func testSavingCredentialSeparatesLoginRequiredFromStorageFailure() throws {
+    let revision = try store.blockCredential()
+    XCTAssertTrue(try store.publish(credential(revision)))
+    XCTAssertEqual(try store.savingCredential()?.userId, "7")
+    vault.readFails = true
+    XCTAssertNil(try store.savingCredential())
+    vault.readFails = false
+    _ = try store.blockCredential()
+    XCTAssertNil(try store.savingCredential())
+
+    let state = store.directory.appendingPathComponent("state.json")
+    let kept = try Data(contentsOf: state)
+    try Data("unreadable".utf8).write(to: state)
+    XCTAssertThrowsError(try store.savingCredential()) { XCTAssertNotEqual(($0 as? ShareFailure)?.kind, .authentication) }
+    try kept.write(to: state)
+    try FileManager.default.removeItem(at: store.directory.appendingPathComponent("state.lock"))
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.directory.path) }
+    XCTAssertThrowsError(try store.savingCredential()) { XCTAssertNotEqual(($0 as? ShareFailure)?.kind, .authentication) }
   }
   func testSubmittedDraftKeepsIdentityAndOriginalAccountAcrossReopen() throws {
     let revision = try store.blockCredential()

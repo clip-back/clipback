@@ -188,8 +188,14 @@ final class ShareViewController: UIViewController {
       guard let store else { return }
       draftId = draft.id
       service = ShareSaveService(store: store)
-      // An unreadable credential also counts as login required: the share is already kept.
-      guard let credential = try? store.currentCredential() else {
+      // An unreadable Keychain credential also counts as login required: the share is already kept.
+      // Storage failures cannot confirm that, so they show 보관 실패 like Android.
+      let credential: ShareCredential?
+      do { credential = try store.savingCredential() } catch {
+        showAlert(Self.preparationAlert(error))
+        return
+      }
+      guard let credential else {
         try? store.mark(draft.id, state: "authRequired")
         // The sheet goes down before the alert; iOS cannot open the app, so the message says to.
         UIView.animate(withDuration: 0.25, animations: {
@@ -328,7 +334,7 @@ final class ShareViewController: UIViewController {
     var discard = false
   }
 
-  /// Copy shared with Android (spec #122): before anything is kept.
+  /// Copy shared with Android (spec #122): before anything is kept, or when keeping cannot be confirmed.
   private static func preparationAlert(_ error: Error) -> Alert {
     switch (error as? ShareFailure)?.kind {
     case .refused(let reason)?:

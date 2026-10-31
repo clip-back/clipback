@@ -151,6 +151,12 @@ final class ShareStore {
     }
   }
   func currentCredential() throws -> ShareCredential? { try transaction { try credential($0) } }
+  /// The account a kept share would save to. nil is login required, including an unreadable Keychain credential (Q9②);
+  /// other errors are App Group lock or state file failures (Q9③).
+  func savingCredential() throws -> ShareCredential? {
+    do { return try currentCredential() }
+    catch let failure as ShareFailure where failure.kind == .authentication { return nil }
+  }
   func draft(_ id: String) throws -> ShareDraft? {
     try transaction { state in expire(&state); return state.drafts.first { $0.id == id } }
   }
