@@ -213,17 +213,114 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
         assertEquals("unknown",store.draft(id).getString("state"));
         assertTrue(save(id));assertEquals(before+1,saved());assertNull(store.draft(id));
     }
-    private void assertFailureAlertKeepsShare(int status,String message,String state) throws Exception {
+    static final String RETRY_TITLE="저장하지 못했어요", UNCONFIRMED="저장 결과를 확인하지 못했습니다. 다시 시도해도 중복 저장되지 않습니다.",
+        CHECK_INPUT="지금 링크 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요. 계속 실패하면 Instagram·YouTube 링크나 PNG·JPEG·WebP 이미지인지 확인해 주세요.",
+        FINAL_TITLE="다시 저장할 수 없어요";
+    /** Opens the sheet, lets the next save fail as configured and returns the alert. */
+    private android.view.accessibility.AccessibilityNodeInfo failSave(JSONObject failure,String title,String message,String... buttons) throws Exception {
         activity=getInstrumentation().startActivitySync(sharedLink());ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
-        String id=onlyDraft();control(new JSONObject().put("next_save_status",status));
+        control(failure);ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+        return ShareActivityTest.awaitAlert(getInstrumentation(),title,message,buttons);
+    }
+    private void closeAlert(android.view.accessibility.AccessibilityNodeInfo alert) throws Exception {
+        ShareActivityTest.pressAlertButton(getInstrumentation(),alert,"닫기");ShareActivityTest.awaitFinishing(activity);
+    }
+    /** [닫기] keeps the share; the same key then saves once. */
+    private void assertCloseKeepsShare(JSONObject failure,String title,String message,String state,String... buttons) throws Exception {
+        int before=saved();closeAlert(failSave(failure,title,message,buttons));
+        String id=onlyDraft();assertEquals(state,store.draft(id).getString("state"));
+        control(new JSONObject().put("next_save_status",201));assertTrue(save(id));assertEquals(before+1,saved());
+    }
+    /** [다시 시도] sends the same share again and completes with a single saved content. */
+    private void assertRetrySavesOnce(JSONObject failure,String message,int requests) throws Exception {
+        int before=saved(),start=saveRequests();
+        android.view.accessibility.AccessibilityNodeInfo alert=failSave(failure,RETRY_TITLE,message,"다시 시도","닫기");
+        control(new JSONObject().put("next_save_status",201));
+        ShareActivityTest.pressAlertButton(getInstrumentation(),alert,"다시 시도");
+        assertCompletedOnce(before,start+requests-1);
+    }
+    public void testServerFailureShowsRetryAlertAndCloseKeepsShare() throws Exception {
+        assertCloseKeepsShare(new JSONObject().put("next_save_status",500),RETRY_TITLE,UNCONFIRMED,"failed","다시 시도","닫기");
+    }
+    public void testServerFailureRetrySavesOnce() throws Exception {
+        assertRetrySavesOnce(new JSONObject().put("next_save_status",500),UNCONFIRMED,2);
+    }
+    public void testUnprocessableShareShowsRetryAlertAndCloseKeepsShare() throws Exception {
+        assertCloseKeepsShare(new JSONObject().put("next_save_status",422),RETRY_TITLE,CHECK_INPUT,"failed","다시 시도","닫기");
+    }
+    public void testUnprocessableShareRetrySavesOnce() throws Exception {
+        assertRetrySavesOnce(new JSONObject().put("next_save_status",422),CHECK_INPUT,2);
+    }
+    public void testLostResponseAlertCloseKeepsShareWithoutDuplicate() throws Exception {
+        assertCloseKeepsShare(new JSONObject().put("lose_response",true),RETRY_TITLE,UNCONFIRMED,"unknown","다시 시도","닫기");
+    }
+    public void testLostResponseRetrySavesOnce() throws Exception {
+        // The first request already stored the content; the retry only confirms it.
+        assertRetrySavesOnce(new JSONObject().put("lose_response",true),UNCONFIRMED,2);
+    }
+    public void testThirtySecondDeadlineRetrySavesOnce() throws Exception {
+        assertRetrySavesOnce(new JSONObject().put("save_delay_seconds",31),UNCONFIRMED,2);
+    }
+    public void testImageQuotaAlertCloseKeepsShare() throws Exception {
+        assertCloseKeepsShare(new JSONObject().put("next_save_status",409).put("next_save_detail",new JSONObject().put("code","image_quota_exceeded")),
+            "지금은 저장할 수 없어요","이미지 보관 한도에 도달했어요. 기존 이미지를 삭제한 뒤 다시 저장해 주세요.","failed","닫기");
+    }
+    public void testUnauthorizedSaveShowsLoginAlertAndKeepsShare() throws Exception {
+        closeAlert(failSave(new JSONObject().put("next_save_status",401),"로그인이 필요해요",ShareActivityTest.LOGIN,"허투루 열기","닫기"));
+        assertEquals("authRequired",store.draft(onlyDraft()).getString("state"));
+    }
+    public void testAccountChangeDuringSaveKeepsShareForOriginalAccountOnly() throws Exception {
+        int requests=saveRequests();
+        activity=getInstrumentation().startActivitySync(sharedLink());ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        String id=onlyDraft();control(new JSONObject().put("save_delay_seconds",4).put("lose_response",true));
         ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
-        ShareActivityTest.pressAlertButton(getInstrumentation(),ShareActivityTest.awaitAlert(getInstrumentation(),message),"닫기");
-        ShareActivityTest.awaitFinishing(activity);assertEquals(state,store.draft(id).getString("state"));
+        long until=System.currentTimeMillis()+5000;while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
+        store.blockCredential();
+        closeAlert(ShareActivityTest.awaitAlert(getInstrumentation(),"저장 환경이 바뀌었어요","저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.","닫기"));
+        assertEquals("unknown",store.draft(id).getString("state"));assertEquals("7",store.draft(id).getString("userId"));
+        assertEquals(requests+1,saveRequests());
     }
-    public void testServerFailureShowsExistingMessageInAlertAndKeepsShare() throws Exception {
-        assertFailureAlertKeepsShare(500,"지금 저장하지 못했어요. 잠시 후 같은 항목으로 다시 시도해 주세요.","failed");
+    private void assertIrreversibleDiscards(int status,String message,boolean recreateAndBack) throws Exception {
+        android.view.accessibility.AccessibilityNodeInfo alert=failSave(new JSONObject().put("next_save_status",status),FINAL_TITLE,message,"닫기");
+        if(recreateAndBack) {
+            Instrumentation.ActivityMonitor recreated=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+            getInstrumentation().runOnMainSync(() -> activity.recreate());
+            activity=recreated.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(recreated);assertNotNull(activity);
+            ShareActivityTest.awaitAlert(getInstrumentation(),FINAL_TITLE,message,"닫기");
+            getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);ShareActivityTest.awaitFinishing(activity);
+        } else closeAlert(alert);
+        assertEquals(0,store.snapshot().getJSONArray("drafts").length());
     }
-    public void testUnauthorizedSaveShowsExistingMessageInAlertAndKeepsShare() throws Exception {
-        assertFailureAlertKeepsShare(401,"로그인 상태 확인이 필요해요. 초안을 보관했습니다. 본앱을 열어 대기 중인 공유를 다시 선택해 주세요.","authRequired");
+    public void testDeletedContentAlertDiscardsShare() throws Exception {
+        assertIrreversibleDiscards(410,"이미 저장한 뒤 삭제한 콘텐츠입니다. 새로 공유해 주세요.",false);
+    }
+    public void testMismatchedShareAlertDiscardsShare() throws Exception {
+        assertIrreversibleDiscards(409,"이 초안의 저장 정보가 일치하지 않습니다. 다시 공유해 주세요.",false);
+    }
+    public void testTooLargeAlertDiscardsShare() throws Exception {
+        assertIrreversibleDiscards(413,"이미지는 10MiB 이하만 저장할 수 있습니다.",false);
+    }
+    public void testRecreatedIrreversibleAlertBackStillDiscards() throws Exception {
+        assertIrreversibleDiscards(410,"이미 저장한 뒤 삭제한 콘텐츠입니다. 새로 공유해 주세요.",true);
+    }
+    public void testRecreatedRetryAlertBackStillKeepsShare() throws Exception {
+        failSave(new JSONObject().put("next_save_status",500),RETRY_TITLE,UNCONFIRMED,"다시 시도","닫기");
+        Instrumentation.ActivityMonitor recreated=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+        getInstrumentation().runOnMainSync(() -> activity.recreate());
+        activity=recreated.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(recreated);assertNotNull(activity);
+        ShareActivityTest.awaitAlert(getInstrumentation(),RETRY_TITLE,UNCONFIRMED,"다시 시도","닫기");
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);ShareActivityTest.awaitFinishing(activity);
+        assertEquals("failed",store.draft(onlyDraft()).getString("state"));
+    }
+    /** A save left "sending" by a killed process is unconfirmed when the same share window comes back. */
+    public void testRecreatedWindowWithUnconfirmedSaveOffersRetry() throws Exception {
+        int before=saved(),requests=saveRequests();
+        activity=getInstrumentation().startActivitySync(sharedLink());ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        String id=onlyDraft();store.begin(id,store.snapshot().getLong("revision"),"7");
+        Instrumentation.ActivityMonitor recreated=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+        getInstrumentation().runOnMainSync(() -> activity.recreate());
+        activity=recreated.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(recreated);assertNotNull(activity);
+        ShareActivityTest.pressAlertButton(getInstrumentation(),ShareActivityTest.awaitAlert(getInstrumentation(),RETRY_TITLE,UNCONFIRMED,"다시 시도","닫기"),"다시 시도");
+        assertCompletedOnce(before,requests);
     }
 }

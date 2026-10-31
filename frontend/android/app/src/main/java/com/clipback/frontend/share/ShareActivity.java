@@ -24,7 +24,9 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     /** The design has no duration; 1.5 seconds is the temporary value from the share sheet spec. */
     private static final long TOAST_MILLIS = 1500;
     private ShareStore store;
-    private String draftId, intakeId, alertMessage;
+    private String draftId, intakeId;
+    /** The alert on screen; restored after recreation and deciding what [닫기] keeps. */
+    private ShareFailure shown;
     private long displayedRevision;
     private String displayedUser;
     private View background, sheet, toast;
@@ -42,12 +44,15 @@ public class ShareActivity extends Activity implements ShareService.Listener {
         }
         if (saved != null) {
             draftId = saved.getString("draftId"); intakeId = saved.getString("intakeId");
-            successful = saved.getBoolean("successful"); alertMessage = saved.getString("alertMessage");
+            successful = saved.getBoolean("successful");
+            // Without a stored share, receiving again shows the same rejection or storage alert.
+            if (draftId != null && saved.getString("alertKind") != null)
+                shown = new ShareFailure(ShareFailure.Kind.valueOf(saved.getString("alertKind")), saved.getString("alertMessage"));
         }
         if (successful) complete();
         else if (draftId != null) bind();
         else receive(getIntent(), false);
-        if (!successful && alert == null && alertMessage != null) showAlert(alertMessage);
+        if (!successful && alert == null && shown != null) showAlert(shown);
     }
     private int dp(float size) { return Math.round(size * getResources().getDisplayMetrics().density); }
     /** Pretendard is read from the Flutter assets already packaged in this APK. */
@@ -139,9 +144,10 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     private void bind() {
         try {
             JSONObject draft = store.draft(draftId);
-            if (draft == null) { showAlert("이 공유 항목은 이미 저장되었거나 만료되었습니다."); return; }
+            if (draft == null) { if (shown == null) showAlert(ShareFailure.Kind.MISSING); return; }
             boolean active = ShareService.isActive(draftId);
-            if ("sending".equals(draft.optString("state")) && !active) store.setState(draftId, "unknown");
+            boolean unconfirmed = "unknown".equals(draft.optString("state")) && !active;
+            if ("sending".equals(draft.optString("state")) && !active) { store.setState(draftId, "unknown"); unconfirmed = true; }
             if (active) ShareService.observe(draftId, this);
             JSONObject state = store.snapshot(), auth = state.optJSONObject("credential"); displayedRevision = state.getLong("revision");
             boolean valid = auth != null && ShareStore.expiry(auth.getString("expiresAt")) > System.currentTimeMillis();
@@ -150,20 +156,25 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             boolean otherEnvironment = draft.has("apiBaseUrl") && !ShareStore.baseUrl().equals(draft.getString("apiBaseUrl"));
             if (!valid && !draft.has("userId")) store.setState(draftId, "authRequired");
             save.setEnabled(valid && !otherUser && !otherEnvironment && !active);
-            // States without a sheet design show the existing messages in an OS alert.
-            if (otherEnvironment) showAlert("다른 서버에서 시작한 공유입니다. 원래 앱 환경에서 확인해 주세요.");
-            else if (!valid) { hideSheet(); showAlert("초안을 보관했어요. 본앱을 열어 로그인 상태를 확인한 뒤 대기 중인 공유를 선택해 주세요."); }
-            else if (otherUser) showAlert("처음 저장을 요청한 계정에서만 재시도할 수 있습니다.");
-        } catch (Exception error) { showAlert("공유 정보를 읽지 못했습니다. 본앱에서 공유 준비를 다시 시도해 주세요."); }
+            // A recreated window keeps the alert it was showing.
+            if (shown != null) { if (shown.kind == ShareFailure.Kind.LOGIN) hideSheet(); return; }
+            // States without a sheet design show an OS alert.
+            if (otherEnvironment) showAlert(ShareFailure.Kind.OTHER_ENVIRONMENT);
+            else if (!valid) { hideSheet(); showAlert(ShareFailure.Kind.LOGIN); }
+            else if (otherUser) showAlert(ShareFailure.Kind.ACCOUNT_CHANGED);
+            // A save whose process ended before its result can be confirmed again with the same request.
+            else if (unconfirmed) showAlert(ShareFailure.Kind.UNCONFIRMED);
+        } catch (Exception error) { if (shown == null) showAlert(ShareFailure.Kind.LOGIN); } // The stored share's credential could not be read.
     }
     private void receive(Intent intent, boolean additional) {
         if (!additional && intakeId == null) intakeId = java.util.UUID.randomUUID().toString();
         final String operationId = additional ? java.util.UUID.randomUUID().toString() : intakeId;
         if (!additional) loading = true;
         INPUTS.execute(() -> {
-            String id=null, error=null;
-            try { id=ShareInput.receive(this,intent,store,operationId); } catch(Exception failure) { error=failure.getMessage(); }
-            final String received=id, message=error;
+            String id=null; ShareFailure error=null;
+            try { id=ShareInput.receive(this,intent,store,operationId); }
+            catch(Exception failure) { error=failure instanceof ShareFailure ? (ShareFailure)failure : new ShareFailure(ShareFailure.Kind.STORAGE_FAILED,failure.getMessage()); }
+            final String received=id; final ShareFailure message=error;
             runOnUiThread(() -> {
                 if (!additional) loading=false;
                 if (cancelledIntake && !additional && received != null) {
@@ -171,17 +182,35 @@ public class ShareActivity extends Activity implements ShareService.Listener {
                     return;
                 }
                 if (destroyed) return;
-                if (received==null) { if (additional) Toast.makeText(this,message,Toast.LENGTH_LONG).show(); else showAlert(message==null?"공유 내용을 확인해 주세요.":message); }
+                if (received==null) { if (additional) Toast.makeText(this,message.body(),Toast.LENGTH_LONG).show(); else showAlert(message); }
                 else if (additional) { Toast.makeText(this,"새 공유를 대기 항목에 보관했습니다. 본앱에서 확인해 주세요.",Toast.LENGTH_LONG).show(); }
                 else { draftId=received; bind(); }
             });
         });
     }
-    private void showAlert(String message) {
-        alertMessage = message;
+    private void showAlert(ShareFailure.Kind kind) { showAlert(new ShareFailure(kind, null)); }
+    /** The #122 failure classes in an OS alert; cancelling it (back, outside tap) is the same as [닫기]. */
+    private void showAlert(ShareFailure failure) {
+        shown = failure;
         if (alert != null) alert.dismiss();
-        alert = new AlertDialog.Builder(this).setMessage(message).setPositiveButton("닫기", (dialog, which) -> closeShare())
-            .setOnCancelListener(dialog -> closeShare()).show();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(failure.kind.title).setMessage(failure.body())
+            .setNegativeButton("닫기", (dialog, which) -> closeShare()).setOnCancelListener(dialog -> closeShare());
+        if (failure.kind.retries()) builder.setPositiveButton("다시 시도", (dialog, which) -> retry());
+        else if (failure.kind.opensApp()) builder.setPositiveButton("허투루 열기", (dialog, which) -> openApp());
+        alert = builder.show();
+        alert.getButton(AlertDialog.BUTTON_NEGATIVE).setTag("share.alert.close");
+        Button positive = alert.getButton(AlertDialog.BUTTON_POSITIVE);
+        if (positive != null) positive.setTag(failure.kind.retries() ? "share.alert.retry" : "share.alert.open");
+    }
+    /** Same share, same Idempotency-Key: the server confirms instead of saving twice. */
+    private void retry() {
+        shown = null; alert = null; save.setEnabled(false);
+        ShareService.execute(store, draftId, displayedRevision, displayedUser, this);
+    }
+    /** Starts the main app, then closes the share window with the [닫기] result. */
+    private void openApp() {
+        startActivity(getPackageManager().getLaunchIntentForPackage(getPackageName()));
+        closeShare();
     }
     private void complete() {
         hideSheet(); toast.setVisibility(View.VISIBLE); toast.announceForAccessibility("저장 완료!");
@@ -190,7 +219,8 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); receive(intent,true); }
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out); out.putString("draftId",draftId); out.putString("intakeId",intakeId);
-        out.putBoolean("successful",successful); out.putString("alertMessage",alertMessage);
+        out.putBoolean("successful",successful);
+        if (shown != null) { out.putString("alertKind",shown.kind.name()); out.putString("alertMessage",shown.getMessage()); }
     }
     @Override protected void onDestroy() {
         destroyed=true; ShareService.detach(this); if (alert != null) alert.dismiss();
@@ -203,14 +233,23 @@ public class ShareActivity extends Activity implements ShareService.Listener {
         if (loading && draftId == null) { cancelledIntake = true; leave(); return; }
         try {
             JSONObject draft=draftId==null?null:store.draft(draftId);
-            if(draft!=null && ShareService.isActive(draftId)) store.setState(draftId,"unknown");
-            else if (draft!=null && !draft.has("userId") && "ready".equals(draft.getString("state"))) store.discard(draftId);
+            if (draft!=null && shown!=null && shown.kind.discards()) store.discard(draftId);
+            else if(draft!=null && ShareService.isActive(draftId)) store.setState(draftId,"unknown");
+            // An unsent share closed before saving is dropped; an alert's share stays for the main app.
+            else if (draft!=null && shown==null && !draft.has("userId") && "ready".equals(draft.getString("state"))) store.discard(draftId);
             leave();
-        } catch(Exception error) { showAlert("초안을 보관하지 못했습니다. 다시 시도해 주세요."); }
+        } catch(Exception error) {
+            if (alert != null) alert.dismiss();
+            alert = new AlertDialog.Builder(this).setMessage("초안을 보관하지 못했습니다. 다시 시도해 주세요.").setPositiveButton("닫기", (dialog, which) -> closeShare())
+                .setOnCancelListener(dialog -> closeShare()).show();
+        }
     }
     @Override public void finished(String id,String message,boolean success) {
+        if(destroyed || closing || !id.equals(draftId) || !success)return;
+        successful=true; complete();
+    }
+    @Override public void failed(String id,ShareFailure failure) {
         if(destroyed || closing || !id.equals(draftId))return;
-        if(success) { successful=true; complete(); }
-        else showAlert(message);
+        showAlert(failure);
     }
 }
