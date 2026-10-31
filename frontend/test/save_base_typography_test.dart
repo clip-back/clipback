@@ -23,7 +23,7 @@ const _shortSource = '출처';
 const _longTitle = '긴 저장 콘텐츠 제목이 아주 길어서 두 줄을 넘는 경우에도 말줄임이 유지되는지 확인해요';
 const _longSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름';
 const _longCategory = '매일 다시 확인하는 아주 긴 카테고리 이름이 끝까지 보존돼요';
-const _processingCategoryMessage = '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
+const _processingCategoryMessage = '링크 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
 const _categoryHint = '분류는 상세 화면에서 변경할 수 있어요.';
 
 Finder _resultRole(String role, Finder fallback) {

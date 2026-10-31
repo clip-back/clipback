@@ -4,8 +4,9 @@ import asyncio
 import ipaddress
 import socket
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import unescape
+from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
@@ -31,6 +32,27 @@ class MetadataResult:
     description: str | None
     status: str
     failure_reason: str | None = None
+    http_status: int | None = None
+
+
+@dataclass(frozen=True)
+class PageMeta:
+    """Raw meta tag values of a fetched page (keys lower-cased, first tag wins)."""
+
+    resolved_url: str
+    status: str
+    failure_reason: str | None = None
+    http_status: int | None = None
+    properties: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ImageFetch:
+    """Raw bytes of a fetched image, or the reason it could not be fetched."""
+
+    content: bytes | None = None
+    failure_reason: str | None = None
+    http_status: int | None = None
 
 
 Resolver = Callable[[str, int], Awaitable[set[str]]]
@@ -102,14 +124,55 @@ class MetadataClient:
         self.resolver = resolver or self._resolve_host
 
     async def extract_from_url(self, url: str) -> MetadataResult:
+        return await self._fetch(url, self._to_metadata)
+
+    async def fetch_page(self, url: str) -> PageMeta:
+        result = await self._fetch(url, self._to_page)
+        if isinstance(result, MetadataResult):
+            return PageMeta(
+                result.resolved_url, "failed", result.failure_reason, result.http_status
+            )
+        return result
+
+    async def fetch_image(
+        self, url: str, *, total_timeout_seconds: float, max_bytes: int
+    ) -> ImageFetch:
+        """Download one image under the same network safety rules as a page.
+
+        The caller decides whether the bytes really are an image.
+        """
+        result = await self._fetch(
+            url,
+            lambda _url, body, _encoding: body,
+            total_timeout_seconds=total_timeout_seconds,
+            max_bytes=max_bytes,
+            content_types=None,
+        )
+        if isinstance(result, bytes):
+            return ImageFetch(content=result)
+        return ImageFetch(
+            failure_reason=result.failure_reason, http_status=result.http_status
+        )
+
+    async def _fetch(
+        self,
+        url: str,
+        finish: Callable[[str, bytes, str | None], Any],
+        *,
+        total_timeout_seconds: float | None = None,
+        max_bytes: int | None = None,
+        content_types: set[str] | None = HTML_CONTENT_TYPES,
+    ) -> Any:
+        total_timeout_seconds = total_timeout_seconds or self.total_timeout_seconds
+        max_bytes = max_bytes or self.max_response_bytes
         initial_url = self._strip_fragment(url)
         current_url = initial_url
         last_safe_url = [initial_url]
-        deadline = asyncio.get_running_loop().time() + self.total_timeout_seconds
+        deadline = asyncio.get_running_loop().time() + total_timeout_seconds
 
         try:
             async with asyncio.timeout_at(deadline):
-                timeout = httpx.Timeout(self.total_timeout_seconds)
+                timeout = httpx.Timeout(total_timeout_seconds)
                 async with httpx.AsyncClient(
                     transport=_PinnedTransport(self.http_transport),
                     follow_redirects=False,
@@ -117,7 +180,15 @@ class MetadataClient:
                     headers={"User-Agent": self.user_agent},
                     trust_env=False,
                 ) as client:
-                    return await self._extract(client, current_url, last_safe_url, deadline)
+                    return await self._extract(
+                        client,
+                        current_url,
+                        last_safe_url,
+                        deadline,
+                        finish,
+                        max_bytes,
+                        content_types,
+                    )
         except UnsafeUrlError:
             raise
         except TimeoutError:
@@ -135,7 +206,10 @@ class MetadataClient:
         initial_url: str,
         last_safe_url: list[str],
         deadline: float,
-    ) -> MetadataResult:
+        finish: Callable[[str, bytes, str | None], Any],
+        max_bytes: int,
+        content_types: set[str] | None,
+    ) -> Any:
         current_url = initial_url
 
         for redirect_count in range(self.max_redirects + 1):
@@ -162,31 +236,39 @@ class MetadataClient:
                     continue
 
                 if not 200 <= response.status_code < 300:
-                    return self._failure(current_url, f"http_status_{response.status_code}")
+                    return self._failure(
+                        current_url,
+                        f"http_status_{response.status_code}",
+                        http_status=response.status_code,
+                    )
 
                 content_type = (
                     response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 )
-                if content_type not in HTML_CONTENT_TYPES:
+                if content_types is not None and content_type not in content_types:
                     return self._failure(current_url, "non_html")
 
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body.extend(chunk)
-                    if len(body) > self.max_response_bytes:
+                    if len(body) > max_bytes:
                         return self._failure(current_url, "response_too_large")
 
-                title, description = self._parse_metadata(bytes(body), response.encoding)
-                if title is None and description is None:
-                    return self._failure(current_url, "metadata_missing")
-                return MetadataResult(
-                    resolved_url=current_url,
-                    title=title,
-                    description=description,
-                    status="success",
-                )
+                return finish(current_url, bytes(body), response.encoding)
 
         return self._failure(current_url, "redirect_limit")
+
+    def _to_metadata(self, resolved_url: str, body: bytes, encoding: str | None) -> MetadataResult:
+        title, description = self._parse_metadata(body, encoding)
+        if title is None and description is None:
+            return self._failure(resolved_url, "metadata_missing")
+        return MetadataResult(
+            resolved_url=resolved_url, title=title, description=description, status="success"
+        )
+
+    def _to_page(self, resolved_url: str, body: bytes, encoding: str | None) -> PageMeta:
+        _, properties, _ = self._collect_meta(body, encoding)
+        return PageMeta(resolved_url, "success", None, properties=properties)
 
     async def _validate_url(self, url: str) -> _ValidatedUrl:
         normalized_url = self._strip_fragment(url)
@@ -267,6 +349,27 @@ class MetadataClient:
         body: bytes,
         encoding: str | None,
     ) -> tuple[str | None, str | None]:
+        soup, properties, names = cls._collect_meta(body, encoding)
+        html_title = soup.title.get_text(" ", strip=True) if soup.title else None
+        title = cls._first_text(
+            properties.get("og:title"),
+            names.get("twitter:title"),
+            html_title,
+            max_length=120,
+        )
+        description = cls._first_text(
+            properties.get("og:description"),
+            names.get("twitter:description"),
+            names.get("description"),
+            max_length=500,
+        )
+        return title, description
+
+    @staticmethod
+    def _collect_meta(
+        body: bytes,
+        encoding: str | None,
+    ) -> tuple[BeautifulSoup, dict[str, str], dict[str, str]]:
         text = body.decode(encoding or "utf-8", errors="replace")
         soup = BeautifulSoup(text, "html.parser")
 
@@ -282,21 +385,7 @@ class MetadataClient:
                 properties.setdefault(property_name.lower(), content)
             if isinstance(name, str):
                 names.setdefault(name.lower(), content)
-
-        html_title = soup.title.get_text(" ", strip=True) if soup.title else None
-        title = cls._first_text(
-            properties.get("og:title"),
-            names.get("twitter:title"),
-            html_title,
-            max_length=120,
-        )
-        description = cls._first_text(
-            properties.get("og:description"),
-            names.get("twitter:description"),
-            names.get("description"),
-            max_length=500,
-        )
-        return title, description
+        return soup, properties, names
 
     @classmethod
     def _first_text(cls, *values: str | None, max_length: int) -> str | None:
@@ -319,11 +408,12 @@ class MetadataClient:
         return urlunparse(parsed._replace(fragment=""))
 
     @staticmethod
-    def _failure(resolved_url: str, reason: str) -> MetadataResult:
+    def _failure(resolved_url: str, reason: str, http_status: int | None = None) -> MetadataResult:
         return MetadataResult(
             resolved_url=resolved_url,
             title=None,
             description=None,
             status="failed",
             failure_reason=reason,
+            http_status=http_status,
         )

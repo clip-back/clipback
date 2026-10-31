@@ -12,7 +12,8 @@ class SummaryJob(Base):
     content_id: Mapped[int] = mapped_column(
         ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True
     )
-    video_id: Mapped[str] = mapped_column(String(11))
+    kind: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(2048))
     status: Mapped[str] = mapped_column(String(20), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_run_at: Mapped[datetime] = mapped_column(

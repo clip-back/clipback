@@ -305,7 +305,8 @@ async def test_summary_worker_finishes_admitted_result_before_freeze():
         db.add(
             SummaryJob(
                 content_id=content.id,
-                video_id="dQw4w9WgXcQ",
+                kind="youtube",
+                target_id="dQw4w9WgXcQ",
                 status="queued",
                 model="fixture",
                 apply_title=True,

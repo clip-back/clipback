@@ -48,6 +48,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationService,
 )
 from app.services.image_deletion_service import delete_image_content
+from app.services.link_url import instagram_post_type
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -130,6 +131,8 @@ class ContentService:
         recommendation_shared_text: str | None = None,
         asset: PendingContentAsset | None = None,
         share_receipt: PendingShareReceipt | None = None,
+        user_provided_title: bool = False,
+        user_provided_summary: bool = False,
     ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
@@ -137,6 +140,9 @@ class ContentService:
                 detail="original_url is required for link content",
             )
 
+        post_type = None
+        if payload.content_type == ContentType.LINK and payload.original_url:
+            post_type = instagram_post_type(str(payload.original_url))
         video_id = None
         if (
             payload.content_type == ContentType.LINK
@@ -224,12 +230,35 @@ class ContentService:
                 self.content_repository.session.add(
                     SummaryJob(
                         content_id=content.id,
-                        video_id=video_id,
+                        kind="youtube",
+                        target_id=video_id,
                         status="queued" if settings.youtube_summary_enabled else "skipped",
                         error_code=None if settings.youtube_summary_enabled else "disabled",
                         model=settings.gemini_model,
                         apply_title=not bool(payload.title and payload.title.strip()),
                         apply_summary=not bool(payload.summary and payload.summary.strip()),
+                        apply_category=not bool(payload.category_ids),
+                    )
+                )
+            if post_type is not None:
+                if not settings.instagram_summary_enabled:
+                    status, error_code = "skipped", "disabled"
+                elif post_type == "stories":
+                    status, error_code = "skipped", "unsupported_content"
+                else:
+                    status, error_code = "queued", None
+                self.content_repository.session.add(
+                    SummaryJob(
+                        content_id=content.id,
+                        kind="instagram",
+                        target_id=str(payload.original_url),
+                        status=status,
+                        error_code=error_code,
+                        model=settings.instagram_summary_model,
+                        # The payload already holds the metadata fallback, so the caller
+                        # reports whether the user typed the title and summary.
+                        apply_title=not user_provided_title,
+                        apply_summary=not user_provided_summary,
                         apply_category=not bool(payload.category_ids),
                     )
                 )

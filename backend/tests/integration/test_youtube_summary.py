@@ -3,11 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import event, func, select, update
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.integrations.youtube_summary_client import SummaryError, VideoSummary
-from app.models.content import Content
+from app.models.content import Content, ContentType
 from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
 from app.services.summary_worker import SummaryWorker
@@ -327,3 +327,57 @@ async def test_shared_text_url_overrides_source_app(api, worker):
         },
     )
     assert content["source"] == "youtube" and content["summary_status"] == "queued"
+
+
+async def test_new_youtube_job_records_kind_and_target(api, worker, database_connection):
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    job = (
+        await database_connection.execute(
+            select(SummaryJob.kind, SummaryJob.target_id).where(
+                SummaryJob.content_id == content["id"]
+            )
+        )
+    ).one()
+    assert tuple(job) == ("youtube", "dQw4w9WgXcQ")
+
+
+async def test_worker_leaves_jobs_of_a_disabled_kind_queued(api, worker, database_connection):
+    run, state = worker
+    headers, _, user = await guest(api)
+    async with AsyncSession(
+        bind=database_connection, join_transaction_mode="create_savepoint"
+    ) as session:
+        other = Content(
+            user_id=user["id"], content_type=ContentType.LINK, title="ig", summary="ig"
+        )
+        session.add(other)
+        await session.flush()
+        other_id = other.id
+        session.add(
+            SummaryJob(
+                content_id=other_id,
+                kind="instagram",
+                target_id="https://www.instagram.com/reel/ABC123/",
+                status="queued",
+                next_run_at=datetime.now(UTC) - timedelta(hours=1),
+                model="fixture",
+                apply_title=True,
+                apply_summary=True,
+                apply_category=False,
+            )
+        )
+        await session.commit()
+    youtube = await save(api, headers)
+
+    assert await run.run_once()
+    assert (await detail(api, headers, youtube))["summary_status"] == "completed"
+    assert not await run.run_once()
+
+    instagram = (
+        await database_connection.execute(
+            select(SummaryJob.status, SummaryJob.attempts).where(SummaryJob.content_id == other_id)
+        )
+    ).one()
+    assert tuple(instagram) == ("queued", 0)
+    assert state.calls == 1
