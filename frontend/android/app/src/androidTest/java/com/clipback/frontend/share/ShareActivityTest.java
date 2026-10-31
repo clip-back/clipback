@@ -309,9 +309,16 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         awaitFinishing(activity);
     }
+    /** Waits on the share window's single input worker instead of a fixed delay. */
+    private void awaitShareInputs() throws Exception {
+        java.lang.reflect.Field field=ShareActivity.class.getDeclaredField("INPUTS");field.setAccessible(true);
+        java.util.concurrent.ExecutorService inputs=(java.util.concurrent.ExecutorService)field.get(null);
+        inputs.submit(() -> { }).get(10,java.util.concurrent.TimeUnit.SECONDS);
+    }
     private void awaitPreparedDraftDiscarded() throws Exception {
-        // The held intake now stores its draft and the cancelled sheet discards it again.
-        Thread.sleep(1000);awaitDrafts(0);
+        // The held intake stores its draft first; its result then reaches the main thread, which queues the discard.
+        awaitShareInputs();getInstrumentation().waitForIdleSync();awaitShareInputs();
+        assertEquals(0,store.snapshot().getJSONArray("drafts").length());
         File[] files=new File(getInstrumentation().getTargetContext().getNoBackupFilesDir(),"native_share").listFiles((dir,name) -> name.endsWith(".image"));
         assertEquals(0,files==null?0:files.length);
     }
