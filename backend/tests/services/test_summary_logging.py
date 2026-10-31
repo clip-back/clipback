@@ -261,3 +261,20 @@ async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_
 
     assert record["provider"] == "openai" and record["usage"] == {"total_tokens": 150}
     assert record["error_code"] is None and record["reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_worker_logs_only_the_type_of_an_unexpected_exception():
+    async def summarize(target_id, model, candidates):
+        raise RuntimeError("secret-key private-caption")
+
+    worker, _ = instagram_worker(SimpleNamespace(summarize=summarize))
+
+    record, raw = await logged_record(worker)
+
+    assert (record["error_code"], record["reason"], record["retryable"]) == (
+        "provider_error", "unexpected_error", False,
+    )
+    assert record["exception_type"] == "RuntimeError"
+    worker.finish.assert_awaited_once()
+    assert "secret-key" not in raw and "private-caption" not in raw

@@ -279,6 +279,33 @@ async def test_extract_treats_parse_error_as_fallback(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_unparseable_url_ends_as_invalid_url_failure() -> None:
+    client = build_client(lambda request: pytest.fail("no request expected"))
+    url = "https://[broken/p/x/"
+
+    metadata = await client.extract_from_url(url)
+    page = await client.fetch_page(url)
+    image = await client.fetch_image(url, total_timeout_seconds=1, max_bytes=10)
+
+    assert (metadata.status, metadata.failure_reason) == ("failed", "invalid_url")
+    assert (page.status, page.failure_reason) == ("failed", "invalid_url")
+    assert (image.content, image.failure_reason) == (None, "invalid_url")
+
+
+@pytest.mark.asyncio
+async def test_unparseable_redirect_location_ends_as_invalid_url_failure() -> None:
+    client = build_client(
+        lambda request: httpx.Response(302, headers={"location": "https://[broken/p/x/"})
+    )
+
+    result = await client.extract_from_url("https://example.com/a")
+
+    assert result.status == "failed"
+    assert result.failure_reason == "invalid_url"
+    assert result.resolved_url == "https://example.com/a"
+
+
+@pytest.mark.asyncio
 async def test_fetch_page_returns_full_meta_values_without_truncation() -> None:
     long_text = "가" * 800
     html = (
