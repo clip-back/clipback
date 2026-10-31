@@ -134,6 +134,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 | 200, `og:url`의 게시물 ID가 다름 | skipped / `content_unavailable` | 없음 | `post_id_mismatch` |
 | 200, HTML이 아닌 응답 | skipped / `content_unavailable` | 없음 | `non_html` |
 | 404 | skipped / `content_unavailable` | 없음 | `not_found` |
+| 410 | skipped / `content_unavailable` | 없음 | `gone` |
 | 401·403 | failed / `provider_error` | 없음 | `access_denied` |
 | 429 | `provider_error` | 30초 뒤 1회 | `rate_limited` |
 | 5xx | `provider_error` | 30초 뒤 1회 | `server_error` |
@@ -150,7 +151,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 `provider`(실패 단계: `instagram` 페이지, `instagram_image` 대표 이미지, `openai`), `http_status`(응답이 없으면 null), `reason`(페이지 판정 사유, 위 표.
 OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
 페이지 판정을 통과해 대표 이미지 단계까지 간 시도는 성공이든 실패든 `image`(`used` 사용 여부, `reason` 미사용 사유, `http_status` 이미지 응답 상태)도 남는다.
-미사용 사유는 `no_image_url`(`og:image` 없음), `unsafe_url`(내부망 주소), `not_found`·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
+미사용 사유는 `no_image_url`(`og:image` 없음), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
 (이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아님), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
 캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
 
@@ -162,6 +163,7 @@ OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 �
   `failed`가 아니므로 `error_code=content_unavailable`의 `login_page` 비율을 따로 본다.
 - `reason=not_post_metadata`·`post_id_mismatch`·`non_html`(200)이 공개 링크에서 반복되면 인스타그램이 메타데이터를 주지 않는 것이다. 차단 또는 응답 형식 변경을 의심한다.
 - `reason=not_found`(404): 삭제·비공개 게시물로 본다. 반복되면 링크 정규화나 인스타그램 응답 정책 변경을 확인한다.
+- `reason=gone`(410): 삭제된 게시물로 보고 404와 같이 요약에서 제외한다(링크는 유지, 재시도 없음). 404와 구분해 비율을 따로 볼 수 있다.
 - `reason=rate_limited`·`server_error`·`network_error`·`timeout`: 일시 장애다. 한 번 재시도하며 `retryable=true`로 남는다.
   429가 이어지면 요청 속도 제한이므로 대기열 처리량을 확인한다.
 - `reason=no_caption_or_image`: 게시물은 확인됐으나 요약 근거가 없다. 차단 신호가 아니다.

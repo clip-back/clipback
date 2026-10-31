@@ -316,15 +316,16 @@ async def test_blocked_or_unexpected_page_statuses_fail_without_retry(status, re
 
 
 @pytest.mark.asyncio
-async def test_missing_post_is_skipped_as_unavailable_without_retry():
-    client, seen = build(lambda r: httpx.Response(404), lambda r: completion())
+@pytest.mark.parametrize("status,reason", [(404, "not_found"), (410, "gone")])
+async def test_missing_post_is_skipped_as_unavailable_without_retry(status, reason):
+    client, seen = build(lambda r: httpx.Response(status), lambda r: completion())
 
     with pytest.raises(SummaryError) as exc:
         await summarize(client)
 
     error = exc.value
     assert (error.code, error.retryable, error.skipped) == ("content_unavailable", False, True)
-    assert (error.provider, error.http_status, error.reason) == ("instagram", 404, "not_found")
+    assert (error.provider, error.http_status, error.reason) == ("instagram", status, reason)
     assert len(seen["page"]) == 1 and seen["openai"] == []
 
 

@@ -291,10 +291,11 @@ async def make_due(database_connection):
     "handler",
     [
         lambda r: httpx.Response(404),
+        lambda r: httpx.Response(410),
         lambda r: page(url="https://example.com/"),
         lambda r: page(url="https://www.instagram.com/p/OTHER99/"),
     ],
-    ids=["404", "not_post_metadata", "post_id_mismatch"],
+    ids=["404", "410", "not_post_metadata", "post_id_mismatch"],
 )
 async def test_unavailable_post_is_skipped_without_retry(
     api, database_connection, monkeypatch, handler

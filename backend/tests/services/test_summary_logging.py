@@ -199,6 +199,8 @@ async def test_worker_logs_instagram_failure_stage_without_sensitive_data(
     [
         (lambda: httpx.Response(404, text="secret-page-body"),
          "content_unavailable", 404, "not_found", False),
+        (lambda: httpx.Response(410, text="secret-page-body"),
+         "content_unavailable", 410, "gone", False),
         (lambda: httpx.Response(401, text="secret-page-body"),
          "provider_error", 401, "access_denied", False),
         (lambda: httpx.Response(403, text="secret-page-body"),

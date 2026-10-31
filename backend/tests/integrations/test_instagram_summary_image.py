@@ -269,6 +269,10 @@ def sensitive_image_response(status):
             {"used": False, "reason": "not_found", "http_status": 404},
         ),
         (
+            sensitive_image_response(410),
+            {"used": False, "reason": "gone", "http_status": 410},
+        ),
+        (
             sensitive_image_response(429),
             {"used": False, "reason": "rate_limited", "http_status": 429},
         ),
@@ -289,7 +293,7 @@ def sensitive_image_response(status):
             {"used": False, "reason": "response_too_large", "http_status": None},
         ),
     ],
-    ids=["used", "403", "404", "429", "503", "gif", "garbage", "over-10mb"],
+    ids=["used", "403", "404", "410", "429", "503", "gif", "garbage", "over-10mb"],
 )
 async def test_successful_summary_logs_the_image_stage_result(image_response_value, expected):
     client, _ = build(page(), lambda r: image_response_value)

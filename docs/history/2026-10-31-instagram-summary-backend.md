@@ -22,6 +22,9 @@
 - 미사용·중복 정리(동작 불변): `PageMeta.names` 제거, 문자열 `http_status_NNN` 되파싱을 `http_status` 필드로 대체,
   `INSTAGRAM_HOSTS`와 게시물 경로 판정을 `app/services/link_url.py`로 통합.
 - 이름: `content_service.py`의 `instagram_kind`를 `post_type`(함수 `instagram_post_type`)으로, 테스트 이름의 cover image를 대표 이미지(representative image)로 바꿨다.
+- 페이지 410 Gone(사용자 결정 2026-10-31, 명세 US16): 404처럼 `skipped`/`content_unavailable`, 재시도 없음, 로그 `reason`은 `gone`으로 구분한다.
+  대표 이미지 단계의 410은 기존대로 이미지 없이 진행하며 `image.reason`이 `gone`이다. 클라이언트 단위·통합(재시도 없이 skipped)·로깅 테스트를
+  먼저 추가해 실패를 확인한 뒤 구현했고 410 관련 검사 결과는 아래 표에 포함된다.
 - 문서: [요약 문서](../youtube-summary.md)의 진단 로그 절에 `image` 필드와 해석을 반영하고, [CHANGELOG](../../CHANGELOG.md) 미배포에 유튜브 처리 중 문구 변경을 추가했다.
   인스타그램 요약 자체는 기본 꺼짐이라 켜는 #133에서 기록한다.
 
@@ -42,7 +45,7 @@
 | 검사 | 결과 |
 | --- | --- |
 | `ruff check app scripts alembic tests` | 통과 |
-| `pytest -q --ignore=tests/deployment` | 1208개 통과, 1개 skip(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT`가 필요한 로컬 S3 CLI 테스트), 경고 3건. 점검 게이트 테스트 포함 |
+| `pytest -q --ignore=tests/deployment` | 1212개 통과, 1개 skip(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT`가 필요한 로컬 S3 CLI 테스트), 경고 3건. 점검 게이트 테스트 포함 |
 | `python -m compileall app scripts alembic tests` | 통과 |
 | `alembic upgrade head` + `alembic check` | 통과(`No new upgrade operations detected.`) |
 | `git diff --check` | 통과 |

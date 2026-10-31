@@ -230,7 +230,7 @@ class InstagramSummaryClient:
         return error
 
     def _page_failure(self, reason: str | None, http_status: int | None) -> SummaryError:
-        """Map a failed page fetch: 404 and non-HTML 200 are skipped, 401/403 blocks fail."""
+        """Map a failed page fetch: 404, 410 and non-HTML 200 are skipped, 401/403 blocks fail."""
         if reason == "timeout":
             return self._page_error("timeout", retryable=True, reason="timeout")
         if reason in {"dns_failure", "request_failure"}:
@@ -241,9 +241,12 @@ class InstagramSummaryClient:
             )
         if http_status is None:
             return self._page_error("provider_error", reason=reason)
-        if http_status == 404:
+        if http_status in {404, 410}:
             return self._page_error(
-                "content_unavailable", skipped=True, http_status=http_status, reason="not_found"
+                "content_unavailable",
+                skipped=True,
+                http_status=http_status,
+                reason=self._status_reason(http_status),
             )
         # 401/403 most likely mean this server is blocked, not that the post is gone.
         return self._page_error(
@@ -257,6 +260,8 @@ class InstagramSummaryClient:
     def _status_reason(http_status: int) -> str:
         if http_status == 404:
             return "not_found"
+        if http_status == 410:
+            return "gone"
         if http_status in {401, 403}:
             return "access_denied"
         if http_status == 429:
