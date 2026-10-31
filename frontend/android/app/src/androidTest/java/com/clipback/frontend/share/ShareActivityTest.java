@@ -18,7 +18,9 @@ import java.util.List;
 
 public final class ShareActivityTest extends InstrumentationTestCase {
     static final String GUIDE="전송한 정보는 AI가 직접 분류해서 저장할게요!";
-    static final String LOGIN="초안을 보관했어요. 본앱을 열어 로그인 상태를 확인한 뒤 대기 중인 공유를 선택해 주세요.";
+    static final String LOGIN="초안을 보관했습니다. 허투루 앱을 열어 로그인을 확인한 뒤 대기 항목을 선택해 주세요.";
+    static final String FULL="보관 중인 공유가 가득 찼어요. 허투루 앱에서 저장 대기 공유를 저장하거나 삭제한 뒤 다시 공유해 주세요.";
+    static final String MAIN_ACTIVITY="com.clipback.frontend.MainActivity";
     private ShareStore store;
     private Activity activity;
     @Override protected void setUp() throws Exception {
@@ -112,7 +114,8 @@ public final class ShareActivityTest extends InstrumentationTestCase {
     }
     /** OS alert dialogs live in their own window, so they are read through accessibility like a user would. */
     static AccessibilityNodeInfo awaitAlert(Instrumentation instrumentation,String message) throws Exception {
-        long until=System.currentTimeMillis()+10000;
+        // Covers the 30 second network deadline before a failure alert.
+        long until=System.currentTimeMillis()+40000;
         while(System.currentTimeMillis()<until) {
             AccessibilityNodeInfo root=instrumentation.getUiAutomation().getRootInActiveWindow();
             if(root!=null && !root.findAccessibilityNodeInfosByText(message).isEmpty())return root;
@@ -120,10 +123,22 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         }
         fail("Missing alert: "+message);return null;
     }
-    static void pressAlertButton(Instrumentation instrumentation,AccessibilityNodeInfo root,String label) {
+    static AccessibilityNodeInfo alertButton(AccessibilityNodeInfo root,String label) {
         for(AccessibilityNodeInfo node:root.findAccessibilityNodeInfosByText(label))
-            if(label.contentEquals(node.getText()) && node.isClickable()) { assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK));instrumentation.waitForIdleSync();return; }
-        fail("Missing alert button: "+label);
+            if(label.contentEquals(node.getText()) && node.isClickable())return node;
+        return null;
+    }
+    static void pressAlertButton(Instrumentation instrumentation,AccessibilityNodeInfo root,String label) {
+        AccessibilityNodeInfo button=alertButton(root,label);assertNotNull("Missing alert button: "+label,button);
+        assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK));instrumentation.waitForIdleSync();
+    }
+    /** Asserts the alert title, body and exactly the given buttons. */
+    static AccessibilityNodeInfo awaitAlert(Instrumentation instrumentation,String title,String message,String... buttons) throws Exception {
+        AccessibilityNodeInfo root=awaitAlert(instrumentation,message);
+        assertFalse("Missing alert title: "+title,root.findAccessibilityNodeInfosByText(title).isEmpty());
+        List<String> labels=java.util.Arrays.asList(buttons);
+        for(String label:new String[]{"닫기","다시 시도","허투루 열기"})assertEquals(label,labels.contains(label),alertButton(root,label)!=null);
+        return root;
     }
     private Activity recreate() throws Exception {
         Instrumentation.ActivityMonitor recreated=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
@@ -131,16 +146,49 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         Activity next=recreated.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(recreated);assertNotNull(next);return next;
     }
     public void testUnauthenticatedShareSurvivesRecreationAndCloseWithoutLauncher() throws Exception {
-        Instrumentation.ActivityMonitor main=getInstrumentation().addMonitor("com.clipback.frontend.MainActivity",null,false);
-        activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitAlert(getInstrumentation(),LOGIN);
+        Instrumentation.ActivityMonitor main=getInstrumentation().addMonitor(MAIN_ACTIVITY,null,false);
+        activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitAlert(getInstrumentation(),"로그인이 필요해요",LOGIN,"허투루 열기","닫기");
         String id=store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");
         assertEquals("authRequired",store.draft(id).getString("state"));
         activity=recreate();
-        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),LOGIN);assertEquals(1,store.snapshot().getJSONArray("drafts").length());
+        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"로그인이 필요해요",LOGIN,"허투루 열기","닫기");assertEquals(1,store.snapshot().getJSONArray("drafts").length());
         assertEquals(id,store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id"));
         pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);
         assertNotNull(store.draft(id));assertEquals("authRequired",store.draft(id).getString("state"));assertEquals(0,main.getHits());
         getInstrumentation().removeMonitor(main);
+    }
+    /** [허투루 열기] starts the main app (intercepted here) and closes the share window with the [닫기] result. */
+    private void openMainApp(AccessibilityNodeInfo alert) throws Exception {
+        Instrumentation.ActivityMonitor main=getInstrumentation().addMonitor(MAIN_ACTIVITY,new Instrumentation.ActivityResult(Activity.RESULT_OK,null),true);
+        try {
+            pressAlertButton(getInstrumentation(),alert,"허투루 열기");awaitFinishing(activity);
+            long until=System.currentTimeMillis()+5000;while(main.getHits()==0 && System.currentTimeMillis()<until)Thread.sleep(20);
+            assertEquals(1,main.getHits());
+        } finally { getInstrumentation().removeMonitor(main); }
+    }
+    public void testOpenAppFromLoginAlertLaunchesMainAppAndKeepsShare() throws Exception {
+        activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);
+        openMainApp(awaitAlert(getInstrumentation(),"로그인이 필요해요",LOGIN,"허투루 열기","닫기"));
+        assertEquals("authRequired",store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("state"));
+    }
+    private void fillDeviceStorage() throws Exception { for(int i=0;i<10;i++)store.create("https://youtu.be/dQw4w9WgXcQ","fixture",null,null); }
+    public void testFullDeviceStorageStoresNothingAndOpensMainApp() throws Exception {
+        // No credential either: the preparation failure wins over login required.
+        fillDeviceStorage();activity=getInstrumentation().startActivitySync(incoming());
+        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"보관하지 못했어요",FULL,"허투루 열기","닫기");
+        assertTrue("Nothing was stored",alert.findAccessibilityNodeInfosByText("보관했").isEmpty());
+        openMainApp(alert);awaitDrafts(10);
+    }
+    public void testBackOnFullDeviceStorageAlertStoresNothing() throws Exception {
+        signIn();fillDeviceStorage();activity=getInstrumentation().startActivitySync(incoming());
+        awaitAlert(getInstrumentation(),"보관하지 못했어요",FULL,"허투루 열기","닫기");activity=recreate();
+        awaitAlert(getInstrumentation(),"보관하지 못했어요",FULL,"허투루 열기","닫기");
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);awaitFinishing(activity);awaitDrafts(10);
+    }
+    public void testUnsupportedShareIsRejectedWithoutStoring() throws Exception {
+        signIn();activity=getInstrumentation().startActivitySync(incoming().putExtra(Intent.EXTRA_TEXT,"https://example.com/unsupported"));
+        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"공유할 수 없어요","Instagram 또는 YouTube 링크만 저장할 수 있습니다.","닫기");
+        pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);awaitDrafts(0);
     }
     public void testNewIntentQueuesDraftWithoutReplacingCurrentShare() throws Exception {
         signIn();activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitSaveEnabled(getInstrumentation(),activity);

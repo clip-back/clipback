@@ -64,7 +64,11 @@ emulator -avd Clipback_Share_API_33 -memory 1536 -cores 2 \
 약 1.5초 보여 주고 창을 닫으며 대역 `save_requests`가 1 증가한다. 준비 중·저장 중 연속 탭도 요청은 1회다.
 끌어내림·배경 탭·뒤로 가기는 저장 전이면 저장 대기 공유를 남기지 않고(재생성 후 포함), 저장 중이면
 결과 미확인으로 보관해 같은 키 재시도에서 중복 저장이 없다. 준비 중 닫기는 링크·이미지 모두 아무것도 남기지 않는다.
-로그인 필요·저장 실패는 OS 알림창에 기존 문구와 [닫기]를 보여 주며, 알림창은 UiAutomation 접근성 트리로 확인한다.
+로그인 필요·받기 거절·보관 실패·저장 실패는 분류별 제목·문구·버튼의 OS 알림창으로 보여 주며, 알림창은 UiAutomation 접근성 트리로 확인한다.
+알림창 테스트는 분류마다 [닫기]·뒤로가기·재생성 뒤 저장 대기 공유가 남는지(되돌릴 수 없음 410·409·413은 남지 않음),
+[다시 시도]가 대역 `saved`를 1만 늘리는지, [허투루 열기]가 본앱 실행을 요청하고 창을 닫는지 확인한다.
+[허투루 열기] 테스트는 `ActivityMonitor`로 본앱 실행을 가로채므로 실제 본앱 화면은 아래 수동 흐름에서 확인한다.
+버튼 뷰 태그는 `share.alert.close`·`share.alert.retry`·`share.alert.open`이다.
 이미지 공유 테스트는 `ShareTestSenderActivity`가 자기 프로세스에서 `ShareActivity`로 직접 공유해 실제 URI 권한을 넘긴다.
 
 이미지 한도 오류는 `ShareServiceFixtureTest#testImageQuotaUsesExistingShareErrorRegion`과
@@ -89,9 +93,22 @@ adb -s emulator-5554 shell am start -n com.huturu.app.test/com.clipback.frontend
 권한만 전달한다. API 33에서는 시트 표시 중 회전도 확인한다. 배경은 검정 50%로 어둡게 하고,
 Android 12(API 31) 이상에서 OS 창 흐림이 켜진 경우에만 흐림을 더한다(`adb shell wm disable-blur`로 상태 확인).
 
-401 대역을 설정하고 저장하면 시트 위 OS 알림창에 기존 문구가 뜨고, [닫기] 뒤에도 저장 대기 공유를
-유지해야 한다. 본앱으로 돌아와 대기 항목을 선택하면
+401 대역을 설정하고 저장하면 시트 위 '로그인 필요' 알림창이 뜨고, [닫기] 뒤에도 저장 대기 공유를
+유지해야 한다. [허투루 열기]는 본앱을 열고 공유 창을 닫는다. 본앱으로 돌아와 대기 항목을 선택하면
 공유 복구 Activity가 열리고, 저장/닫기 후 기존 본앱 화면으로 돌아와야 한다.
+
+분류별 알림창은 저장하기 직전에 대역 제어값을 넣어 띄운다(제어값은 다음 저장 요청 한 번에만 적용되고,
+이미 저장된 `Idempotency-Key`의 재전송에는 적용되지 않는다).
+
+| 분류 | 띄우는 방법 |
+| --- | --- |
+| 다시 시도 가능 | `{"next_save_status":500}`·`{"next_save_status":422}`·`{"lose_response":true}`·`{"save_delay_seconds":31}`·`{"next_save_status":409,"next_save_detail":{"code":"image_uploads_paused"}}` |
+| 나중에 이어서 | `{"next_save_status":409,"next_save_detail":{"code":"image_quota_exceeded"}}` |
+| 되돌릴 수 없음 | `{"next_save_status":410}`·`{"next_save_status":409}`·`{"next_save_status":413}` |
+| 로그인 필요 | 저장 응답 `{"next_save_status":401}`, 또는 401 직후 본앱을 열지 않고 다시 공유(자격 없음) |
+| 현재 환경에서 재시도 불가 | `{"save_delay_seconds":20,"lose_response":true}`로 저장한 뒤 응답 전(20초 안)에 본앱에서 로그아웃해 공유 자격을 차단 |
+| 받기 거절 | `adb shell am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT https://example.com/unsupported -n com.huturu.app/com.clipback.frontend.share.ShareActivity` |
+| 보관 실패(한도) | 자격 없는 상태로 링크 공유 → [닫기]를 반복해 저장 대기 공유 10개를 채운 뒤 11번째 공유 |
 
 ```bash
 curl -X POST http://127.0.0.1:18765/__test/control \
