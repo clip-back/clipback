@@ -12,7 +12,6 @@
 		23F8EBC24F47CA6292F8DA95 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F8350210D9B29AB444C8F5C4 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
-		553C326BF132AC08AD3008ED /* ShareComposerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0289D731B18BE015978ECAC1 /* ShareComposerViewController.swift */; };
 		6459ABF0EF9B2599FF3BE024 /* ShareStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8634A78D4AF7A177CA11E465 /* ShareStore.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		77C0A8B72692451FB71FB4DC /* ShareComposerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0289D731B18BE015978ECAC1 /* ShareComposerViewController.swift */; };
@@ -30,6 +29,9 @@
 		DB350EACD8C359915512C482 /* ShareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D24E1F2F75CA70109A221F /* ShareModels.swift */; };
 		E82DEF732CDE0132D21F6CA5 /* ShareStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18A98411CBA754B59A83603B /* ShareStoreTests.swift */; };
 		F1DDAFBBD160A28D9FE099E8 /* ShareBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A5F4DCE7A97B118EDDE9D6 /* ShareBridge.swift */; };
+		B62DC4B8895A8E90F63A59A8 /* Pretendard-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = 1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */; };
+		50A32759DE134D72DAD62110 /* Pretendard-SemiBold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */; };
+		9810AFA284695D1B415C99EB /* Pretendard-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -103,6 +105,9 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D5F47FAB6AC05C3B131EE549 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		F8350210D9B29AB444C8F5C4 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = Pretendard-Medium.otf; path = ../assets/fonts/Pretendard-Medium.otf; sourceTree = SOURCE_ROOT; };
+		874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = Pretendard-SemiBold.otf; path = ../assets/fonts/Pretendard-SemiBold.otf; sourceTree = SOURCE_ROOT; };
+		40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = Pretendard-LICENSE.txt; path = ../assets/fonts/Pretendard-LICENSE.txt; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -219,6 +224,9 @@
 			isa = PBXGroup;
 			children = (
 				505B4C91F8DD57446F3318F8 /* ShareViewController.swift */,
+				1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */,
+				874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */,
+				40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */,
 				87D950278F0E9EC394983B16 /* Info.plist */,
 				D5F47FAB6AC05C3B131EE549 /* ShareExtension.entitlements */,
 			);
@@ -377,6 +385,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B62DC4B8895A8E90F63A59A8 /* Pretendard-Medium.otf in Resources */,
+				50A32759DE134D72DAD62110 /* Pretendard-SemiBold.otf in Resources */,
+				9810AFA284695D1B415C99EB /* Pretendard-LICENSE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -471,7 +482,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				553C326BF132AC08AD3008ED /* ShareComposerViewController.swift in Sources */,
 				DB350EACD8C359915512C482 /* ShareModels.swift in Sources */,
 				7D6CA7E5C786999EE9384603 /* ShareSaveService.swift in Sources */,
 				6459ABF0EF9B2599FF3BE024 /* ShareStore.swift in Sources */,
