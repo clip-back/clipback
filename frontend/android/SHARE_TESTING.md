@@ -11,6 +11,8 @@
 python3 frontend/tool/share_fixture_server.py
 ```
 
+`GET /__test/state`의 `saved`는 중복을 뺀 저장 건수, `save_requests`는 대역이 받은 저장 요청 수다.
+
 다른 터미널의 `frontend/android`에서 아래를 실행한다. `JAVA_HOME`에는 현재
 Flutter/Android Studio가 사용하는 JBR 또는 호환 JDK 21 이상을 지정한다. Android SDK의
 `platform-tools`와 `emulator`가 `PATH`에 있어야 한다.

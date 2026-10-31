@@ -20,6 +20,7 @@ xcrun simctl launch "$IOS_DEVICE" com.huturu.app
 ```
 
 fixture 진입점은 loopback 테스트 API를 필수로 요구하며 운영 서버로 대체하지 않는다.
+`GET /__test/state`의 `saved`는 중복을 뺀 저장 건수, `save_requests`는 대역이 받은 저장 요청 수다.
 기본 fixture는 메모리 본앱 세션으로 기존 복원 흐름을 실행하고, 네이티브 공유 자격은 실제 공유 Keychain에 저장한다.
 
 ## 네이티브 단위 테스트
