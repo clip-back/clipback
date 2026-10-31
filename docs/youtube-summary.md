@@ -110,7 +110,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
   `og:image`가 있으면 대표 이미지를 받아 GPT 요청에 base64 이미지로 함께 넣는다(캐러셀에서 몇 번째 장인지는 보장하지 않는다).
   이미지도 서버에 보관하지 않는다. 캡션과 대표 이미지를 모두 얻지 못하면 GPT를 호출하지 않고 `skipped`/`insufficient_content`다.
 - 대표 이미지는 페이지와 같은 내부망 차단·리다이렉트 제한으로 받는다. JPEG·PNG·WEBP로 실제 열려야 하고(업로드와 같은 기준)
-  10MB 이하여야 하며 5초 안에 받아야 한다. 해상도 상한은 두지 않는다. 내부망 주소·HTTP 오류·형식/크기/시간 초과·이미지 아님은
+  10MB 이하여야 하며 5초 안에 받아야 한다. 해상도는 Pillow 기본 압축 폭탄 보호 한도(약 8,900만 화소)를 따른다. 내부망 주소·잘못된 이미지 주소·HTTP 오류·형식/크기/시간 초과·한도 초과·이미지 아님은
   원인과 관계없이 재시도 없이 캡션만으로 진행하며(일시 장애 재시도보다 우선), 캡션도 없을 때만 `insufficient_content`다.
 - 시간 상한: 페이지 5초·1MB, 이미지 5초, GPT 60초이고 시도 1회 전체는 90초다. 90초를 넘으면 재시도 가능한 `timeout`이다.
 - OpenAI Responses API 구조화 출력(`title`/`summary`/`category_id`), `store=False`, SDK 자동 재시도 없음, 60초 상한.
@@ -151,8 +151,8 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 `provider`(실패 단계: `instagram` 페이지, `instagram_image` 대표 이미지, `openai`), `http_status`(응답이 없으면 null), `reason`(페이지 판정 사유, 위 표.
 OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
 페이지 판정을 통과해 대표 이미지 단계까지 간 시도는 성공이든 실패든 `image`(`used` 사용 여부, `reason` 미사용 사유, `http_status` 이미지 응답 상태)도 남는다.
-미사용 사유는 `no_image_url`(`og:image` 없음), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
-(이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아님), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
+미사용 사유는 `no_image_url`(`og:image` 없음), `invalid_url`(해석할 수 없는 `og:image` 주소), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
+(이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아니거나 압축 폭탄 보호 한도 초과), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
 캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
 
 차단 의심 신호 해석(서버 IP 차단은 게시물 문제가 아니므로 구분한다):

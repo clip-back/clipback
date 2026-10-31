@@ -138,15 +138,22 @@ class InstagramSummaryClient:
             )
         properties = page.properties
         address = (properties.get("og:image") or "").strip()
+        image_url, image_reason = None, "no_image_url"
+        if address:
+            try:
+                image_url = urljoin(page.resolved_url, address)
+            except ValueError:
+                # A malformed address is an image failure like any other: go on caption-only.
+                image_reason = "invalid_url"
         post = Post(
             caption=self._caption(properties.get("og:description"))
             or self._caption(properties.get("og:title")),
-            image_url=urljoin(page.resolved_url, address) if address else None,
+            image_url=image_url,
         )
         if post.image_url:
             await self._attach_image(post)
         else:
-            post.image_reason = "no_image_url"
+            post.image_reason = image_reason
         return post
 
     async def _attach_image(self, post: Post) -> None:

@@ -53,6 +53,23 @@
 - 테스트 DB는 이 worktree 전용 PostgreSQL 로컬 DB와 점검 테스트용 로컬 DB다. 도커 PostgreSQL은 사용하지 않았다.
 - `tests/deployment`는 이 머신에서 멈추는 테스트가 기준선부터 있어 제외했고, 이번 변경과 관련된 배포 테스트는 없다.
 
+## 외부 리뷰 반영 (2026-10-31)
+
+통합 브랜치 리뷰(Spec 2건)를 반영했다.
+
+- 해석할 수 없는 `og:image` 주소(예: `https://[broken/image.jpg`)에서 `urljoin()`의 `ValueError`가 이미지 실패 처리 밖으로 전파되어
+  캡션 요약까지 중단되고 작업이 `processing`에 남던 문제를 고쳤다. 이제 이미지 실패(`image.reason=invalid_url`)로 보고 캡션만으로 진행한다.
+  회귀 테스트가 수정 전 같은 `ValueError`로 실패하는 것을 확인했다.
+- 해상도는 Pillow 기본 압축 폭탄 보호 한도(약 8,900만 화소)를 따르도록 명세(#127·#131)를 고쳤다(사용자 결정, 코드 변경 없음).
+  한도를 넘는 고해상도·작은 용량 PNG가 이미지 실패로 제외되고 캡션만으로 요약됨을 경고·오류 구간 각각 테스트로 고정했다.
+
+| 검사 | 결과 |
+| --- | --- |
+| `ruff check app scripts alembic tests`, `compileall` | 통과 |
+| `pytest -q --ignore=tests/deployment` | 1216개 통과, 1개 skip(로컬 S3 CLI 테스트). 점검 게이트 테스트 포함 |
+| `tests/deployment`(멈추는 `test_operator_dump_keeps_the_explicit_database_ssl_requirement` 2건 제외) | 119개 통과, 45개 skip(Docker 필요) |
+| `alembic upgrade head` + `alembic check`, `git diff --check` | 통과 |
+
 ## 미검증 범위
 
 - 실제 인스타그램 페이지·이미지 서버와 실제 OpenAI는 호출하지 않았다. 모든 검증은 대역(MockTransport, 클라이언트 대역)이다.

@@ -188,6 +188,42 @@ async def test_relative_image_address_is_resolved_against_the_page():
 
 
 @pytest.mark.asyncio
+async def test_malformed_image_address_falls_back_to_the_caption():
+    client, seen = build(page(image="https://[broken/image.jpg"), lambda r: image_response())
+
+    result = await summarize(client)
+
+    assert result.title == "성수동 카페 소개"
+    assert seen["image"] == [] and sent_images(seen) == []
+    assert "성수동 카페 신메뉴 출시." in json.dumps(sent_content(seen), ensure_ascii=False)
+
+    worker, _ = instagram_worker(build(page(image="https://[broken/image.jpg"), None)[0])
+    record, raw = await logged_record(worker)
+    assert record["error_code"] is None
+    assert record["image"] == {"used": False, "reason": "invalid_url", "http_status": None}
+    assert "broken" not in raw
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("over_limit", [1, Image.MAX_IMAGE_PIXELS + 1], ids=["warning", "error"])
+async def test_image_over_the_decompression_bomb_limit_falls_back_to_the_caption(over_limit):
+    # Pillow's default bomb guard is the resolution limit: past it the image counts as unusable.
+    width = 10_000
+    height = (Image.MAX_IMAGE_PIXELS + over_limit) // width + 1
+    buffer = BytesIO()
+    Image.new("1", (width, height)).save(buffer, "PNG")
+    content = buffer.getvalue()
+    assert len(content) <= module.MAX_IMAGE_BYTES
+    client, seen = build(page(), lambda r: image_response(content, "image/png"))
+
+    result = await summarize(client)
+
+    assert result.title == "성수동 카페 소개"
+    assert len(seen["image"]) == 1 and sent_images(seen) == []
+    assert "성수동 카페 신메뉴 출시." in json.dumps(sent_content(seen), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
 async def test_page_without_representative_image_requests_none():
     client, seen = build(page(image=None), lambda r: image_response())
 
@@ -201,6 +237,7 @@ async def test_page_without_representative_image_requests_none():
     "image,response,provider,http_status",
     [
         (None, None, "instagram", 200),
+        ("https://[broken/image.jpg", None, "instagram", 200),
         (IMAGE_URL, httpx.Response(403), "instagram_image", 403),
         (IMAGE_URL, image_response(b"not an image"), "instagram_image", None),
     ],
