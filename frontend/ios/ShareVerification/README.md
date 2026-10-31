@@ -39,11 +39,18 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 
 ## 실제 공유 UI 테스트
 
-아래 일곱 테스트가 로컬 fixture 검증 묶음이다. 30초 timeout은 서버 응답을 35초 지연시키고,
-응답 유실과 timeout 모두 동일 초안 재시도 후 서버 저장건수가 정확히 한 건 증가하는지 검사한다.
+아래 아홉 테스트가 로컬 fixture 검증 묶음이다. 공유 메뉴 경로는 공유 저장 시트(`share.sheet`)를 띄우고,
+"저장하기"(`share.save`) 뒤 완료 토스트(`share.toast`, "저장 완료!")를 거쳐 송신 앱으로 돌아오는지와
+`save_requests`가 한 번만 늘었는지 확인한다. 시트에 제목·닫기 버튼·초안 삭제·저장 계정·공유 내용·미리보기가 없는지도 검사한다.
+닫기는 손잡이 끌어내림과 배경(`share.dismiss`) 탭을 쓰며, 저장 전 닫기는 본앱의 저장 대기 공유 수가 늘지 않는지 본다.
+송신 앱의 `느린 스크린샷 공유`는 이미지를 6초 늦게 넘겨 준비 중 닫기(아무것도 보관되지 않음)와 준비·저장 중 연속 탭(요청 1회)을 재현한다.
+저장 실패·로그인 필요는 기존 문구의 OS 알림창이 시트 위에 뜨고 [닫기](`share.close`)로 닫는다.
+30초 timeout은 서버 응답을 35초 지연시키고, 응답 유실과 timeout 모두 [닫기] 뒤 보관된 공유를 본앱 복구 화면에서 다시 저장해
+서버 저장건수가 정확히 한 건 증가하는지 검사한다.
 저장 중 닫기·송신 앱 강제 종료 테스트는 서버 저장 후 응답을 각각 10초·20초 지연시킨다. 본앱의 수동 저장 창에
 입력만 남겨 두고 외부 공유를 중단한 뒤, 본앱 네이티브 모달에서 같은 초안을 재개한다.
 중복 저장이 없고 기존 수동 URL·저장 화면이 유지되는지 확인하며 본앱 저장 버튼은 누르지 않는다.
+`testUnauthorizedDraftResumesInMainNativeModal`은 본앱 복구 화면의 회귀 기준이라 수정하지 않는다.
 재실행 때 `test`로 새 러너를 빌드·설치한다. 테스트 코드를 바꾼 뒤에는 이전 러너를 제거해
 시뮬레이터가 오래된 테스트 번들을 재사용하지 않게 한다. Simulator의 기본 ad-hoc 서명을 사용한다.
 
@@ -55,6 +62,8 @@ xcodebuild -project ios/ShareVerification/ShareVerification.xcodeproj \
   -jobs 2 -parallel-testing-enabled NO \
   -only-testing:ShareUITests/ShareUITests/testExternalLinkSaveReturnsToSenderWithoutMainApp \
   -only-testing:ShareUITests/ShareUITests/testImageSaveAndUnsupportedInput \
+  -only-testing:ShareUITests/ShareUITests/testDismissBeforeSaveKeepsNoPendingShare \
+  -only-testing:ShareUITests/ShareUITests/testPreparationDismissKeepsNothingAndRepeatedTapsSaveOnce \
   -only-testing:ShareUITests/ShareUITests/testSocketResponseLossRetriesWithoutDuplicate \
   -only-testing:ShareUITests/ShareUITests/testSocketTimeoutRetriesWithoutDuplicate \
   -only-testing:ShareUITests/ShareUITests/testUnauthorizedDraftResumesInMainNativeModal \
@@ -72,8 +81,9 @@ Safari가 같은 URL을 여러 `NSItemProvider`로 제공하면 단일 링크로
 서로 다른 URL, 여러 이미지, 별도 URL과 이미지가 섞인 입력은 지원하지 않는다.
 
 이미지 계정 한도·운영 중단·파일 크기 오류는 같은 fixture 서버에서
-`testImageQuotaAndFileLimitAppearInExistingShareErrorRegion`을 선택해 검사한다.
-`next_save_status`와 `next_save_detail`을 제어해 실제 Share Extension의 기존 상태 영역을 확인하고
+`testImageQuotaAndFileLimitAppearInAlert`를 선택해 검사한다.
+`next_save_status`와 `next_save_detail`을 제어해 실제 Share Extension의 OS 알림창 문구와 [닫기] 뒤 보관을 확인하고,
+보관된 세 공유는 본앱 복구 화면에서 저장해 정리한다.
 `ios-share-image-quota`·`ios-share-image-paused`·`ios-share-image-file-limit` OS 스크린샷을 첨부한다.
 이는 네이티브 오류 전달 검증이며 서버의 실제 한도 계산은 PostgreSQL API 통합 테스트가 검증한다.
 
