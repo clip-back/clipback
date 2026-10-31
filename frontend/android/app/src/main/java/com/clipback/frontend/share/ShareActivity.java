@@ -164,7 +164,16 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             else if (otherUser) showAlert(ShareFailure.Kind.ACCOUNT_CHANGED);
             // A save whose process ended before its result can be confirmed again with the same request.
             else if (unconfirmed) showAlert(ShareFailure.Kind.UNCONFIRMED);
-        } catch (Exception error) { if (shown == null) showAlert(ShareFailure.Kind.LOGIN); } // The stored share's credential could not be read.
+        } catch (java.security.GeneralSecurityException unreadable) {
+            // Q9②: the share is kept but its credential (Keystore) cannot be read, so login is required.
+            try { JSONObject draft = store.draft(draftId); if (draft != null && !draft.has("userId")) store.setState(draftId, "authRequired"); }
+            catch (Exception ignored) { }
+            if (shown == null) showAlert(ShareFailure.Kind.LOGIN);
+            if (shown.kind == ShareFailure.Kind.LOGIN) hideSheet();
+        } catch (Exception error) {
+            // Other storage read/write failures cannot confirm the share is kept: 보관 실패 (Q9③).
+            if (shown == null) showAlert(ShareFailure.Kind.STORAGE_FAILED);
+        }
     }
     private void receive(Intent intent, boolean additional) {
         if (!additional && intakeId == null) intakeId = java.util.UUID.randomUUID().toString();
@@ -240,8 +249,10 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             leave();
         } catch(Exception error) {
             if (alert != null) alert.dismiss();
-            alert = new AlertDialog.Builder(this).setMessage("초안을 보관하지 못했습니다. 다시 시도해 주세요.").setPositiveButton("닫기", (dialog, which) -> closeShare())
-                .setOnCancelListener(dialog -> closeShare()).show();
+            // [다시 시도] repeats the close; [닫기] and cancelling leave the share window with the device's items as they are.
+            alert = new AlertDialog.Builder(this).setMessage("초안을 보관하지 못했습니다. 다시 시도해 주세요.")
+                .setPositiveButton("다시 시도", (dialog, which) -> closeShare()).setNegativeButton("닫기", (dialog, which) -> leave())
+                .setOnCancelListener(dialog -> leave()).show();
         }
     }
     @Override public void finished(String id,String message,boolean success) {

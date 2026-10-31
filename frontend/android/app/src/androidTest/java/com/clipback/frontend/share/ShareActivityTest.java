@@ -203,6 +203,58 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         activity=getInstrumentation().startActivitySync(recover);awaitText("로그인 상태 확인이 필요해요");
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);getInstrumentation().waitForIdleSync();assertTrue(activity.isFinishing());assertNotNull(store.draft(id));
     }
+    private File storageDirectory() { return new File(getInstrumentation().getTargetContext().getNoBackupFilesDir(),"native_share"); }
+    private void awaitSheetHidden() throws Exception {
+        long until=System.currentTimeMillis()+5000;
+        while(System.currentTimeMillis()<until) {
+            boolean[] shown={true};getInstrumentation().runOnMainSync(() -> shown[0]=tagged(activity,"share.sheet").isShown());
+            if(!shown[0])return;Thread.sleep(50);
+        }
+        fail("The sheet must go down before the login alert");
+    }
+    /** Q9②: the share is kept but its credential cannot be read, so login is required with the sheet lowered. */
+    public void testUnreadableCredentialAfterKeepingIsLoginRequired() throws Exception {
+        signIn();
+        java.security.KeyStore keys=java.security.KeyStore.getInstance("AndroidKeyStore");keys.load(null);keys.deleteEntry("com.huturu.app.share.v1");
+        try {
+            activity=getInstrumentation().startActivitySync(incoming());
+            AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"로그인이 필요해요",LOGIN,"허투루 열기","닫기");
+            awaitSheetHidden();
+            pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);
+        } finally { store.blockCredential(); }
+        // Marked like any login required share, so the main app's recovery screen keeps it on close.
+        awaitDrafts(1);assertEquals("authRequired",store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("state"));
+    }
+    /** Other storage failures while reading the kept share back cannot confirm it is kept: 보관 실패, not login required. */
+    public void testStorageFailureAfterKeepingIsStorageFailure() throws Exception {
+        signIn();activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitSaveEnabled(getInstrumentation(),activity);
+        store.blockCredential();
+        assertTrue(storageDirectory().setWritable(false));
+        try {
+            // The recreated window cannot record the signed-out share as login required.
+            activity=recreate();
+            AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"보관하지 못했어요","공유 내용을 보관하지 못했어요. 다시 공유해 주세요.","닫기");
+            assertTrue("Keeping was not confirmed",alert.findAccessibilityNodeInfosByText("보관했").isEmpty());
+            pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);
+        } finally { assertTrue(storageDirectory().setWritable(true)); }
+    }
+    /** A close whose storage update fails can be retried, and [닫기] leaves without looping, the share left as it is. */
+    public void testCloseStorageFailureOffersRetryAndClose() throws Exception {
+        String failed="초안을 보관하지 못했습니다. 다시 시도해 주세요.";
+        signIn();activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitSaveEnabled(getInstrumentation(),activity);
+        String id=store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");
+        assertTrue(storageDirectory().setWritable(false));
+        try {
+            // Closing an unsent share discards it, which needs a storage write.
+            getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),failed);
+            assertNotNull("Missing alert button: 다시 시도",alertButton(alert,"다시 시도"));
+            pressAlertButton(getInstrumentation(),alert,"다시 시도");
+            alert=awaitAlert(getInstrumentation(),failed);assertFalse(activity.isFinishing());
+            pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);
+        } finally { assertTrue(storageDirectory().setWritable(true)); }
+        assertNotNull(store.draft(id));
+    }
     public void testSheetShowsOnlySaveButtonAndGuide() throws Exception {
         signIn();activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitSaveEnabled(getInstrumentation(),activity);
         List<String>[] texts=new List[1];getInstrumentation().runOnMainSync(() -> texts[0]=visibleTexts(activity.getWindow().getDecorView()));
