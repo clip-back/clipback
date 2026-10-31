@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException
@@ -7,6 +8,8 @@ from app.schemas.content import ContentSource
 INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
 INSTAGRAM_CONTENT_PATH_PREFIXES = ("/p/", "/reel/", "/tv/", "/stories/")
 URL_TRAILING_CHARS = ".,;:!?)]}>"
+# `/p/<code>/`, `/reel/<code>/`, `/tv/<code>/`, also behind a username (`/<user>/reel/<code>/`).
+POST_PATH_PATTERN = re.compile(r"/(?:[^/]+/)?(?:p|reels?|tv)/([^/]+)")
 
 
 def is_instagram_url(url: str) -> bool:
@@ -29,7 +32,7 @@ def normalize_instagram_url(url: str) -> str:
     return urlunparse(("https", "www.instagram.com", path, "", "", ""))
 
 
-def instagram_post_kind(url: str) -> str | None:
+def instagram_post_type(url: str) -> str | None:
     """Return `reel`, `p`, `tv` or `stories` for a normalized Instagram content link."""
     parsed = urlparse(url)
     if (parsed.hostname or "").lower() not in INSTAGRAM_HOSTS:
@@ -38,6 +41,15 @@ def instagram_post_kind(url: str) -> str | None:
     if len(parts) >= 2 and f"/{parts[0]}/" in INSTAGRAM_CONTENT_PATH_PREFIXES:
         return parts[0]
     return None
+
+
+def instagram_post_code(url: str) -> str | None:
+    """Return the shortcode of an Instagram post link, or None when it is not one."""
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() not in INSTAGRAM_HOSTS:
+        return None
+    match = POST_PATH_PATTERN.match(parsed.path)
+    return match.group(1) if match else None
 
 
 def infer_content_source(url: str) -> ContentSource:

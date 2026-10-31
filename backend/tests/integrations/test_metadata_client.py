@@ -284,7 +284,6 @@ async def test_fetch_page_returns_full_meta_values_without_truncation() -> None:
     html = (
         f'<meta property="og:description" content="{long_text}">'
         '<meta property="og:image" content="https://cdn.example.com/a.jpg?sig=1">'
-        '<meta name="Description" content="이름 메타">'
     )
     client = build_client(
         lambda request: httpx.Response(200, headers={"content-type": "text/html"}, text=html)
@@ -296,7 +295,6 @@ async def test_fetch_page_returns_full_meta_values_without_truncation() -> None:
     assert page.resolved_url == "https://example.com/post"
     assert page.properties["og:description"] == long_text
     assert page.properties["og:image"] == "https://cdn.example.com/a.jpg?sig=1"
-    assert page.names["description"] == "이름 메타"
 
 
 @pytest.mark.asyncio
@@ -304,6 +302,7 @@ async def test_fetch_page_reports_failure_and_keeps_safety_limits() -> None:
     client = build_client(lambda request: httpx.Response(404))
     page = await client.fetch_page("https://example.com/missing")
     assert (page.status, page.failure_reason) == ("failed", "http_status_404")
+    assert page.http_status == 404
 
     async def private_resolver(hostname: str, port: int) -> set[str]:
         return {"10.0.0.5"}

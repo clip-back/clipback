@@ -94,7 +94,7 @@ def sent_images(seen):
 @pytest.mark.parametrize(
     "image_format,mime", [("JPEG", "image/jpeg"), ("PNG", "image/png"), ("WEBP", "image/webp")]
 )
-async def test_request_carries_the_caption_and_the_cover_image(image_format, mime):
+async def test_request_carries_the_caption_and_the_representative_image(image_format, mime):
     content = picture(image_format)
     client, seen = build(page(), lambda r: image_response(content, "application/octet-stream"))
 
@@ -188,7 +188,7 @@ async def test_relative_image_address_is_resolved_against_the_page():
 
 
 @pytest.mark.asyncio
-async def test_page_without_cover_image_requests_none():
+async def test_page_without_representative_image_requests_none():
     client, seen = build(page(image=None), lambda r: image_response())
 
     await summarize(client)
@@ -249,3 +249,97 @@ async def test_image_failure_log_names_the_stage_without_the_image_address():
     assert record["reason"] == "no_caption_or_image"
     for secret in ("secret-token", "signed-token", IMAGE_HOST, "cdninstagram", "secret-body"):
         assert secret not in raw
+
+
+def sensitive_image_response(status):
+    return httpx.Response(status, text="secret-body")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "image_response_value,expected",
+    [
+        (image_response(), {"used": True, "reason": None, "http_status": None}),
+        (
+            sensitive_image_response(403),
+            {"used": False, "reason": "access_denied", "http_status": 403},
+        ),
+        (
+            sensitive_image_response(404),
+            {"used": False, "reason": "not_found", "http_status": 404},
+        ),
+        (
+            sensitive_image_response(429),
+            {"used": False, "reason": "rate_limited", "http_status": 429},
+        ),
+        (
+            sensitive_image_response(503),
+            {"used": False, "reason": "server_error", "http_status": 503},
+        ),
+        (
+            image_response(picture("GIF"), "image/gif"),
+            {"used": False, "reason": "invalid_image", "http_status": None},
+        ),
+        (
+            image_response(b"not an image at all"),
+            {"used": False, "reason": "invalid_image", "http_status": None},
+        ),
+        (
+            image_response(b"x" * (10 * 1024 * 1024 + 1)),
+            {"used": False, "reason": "response_too_large", "http_status": None},
+        ),
+    ],
+    ids=["used", "403", "404", "429", "503", "gif", "garbage", "over-10mb"],
+)
+async def test_successful_summary_logs_the_image_stage_result(image_response_value, expected):
+    client, _ = build(page(), lambda r: image_response_value)
+    worker, _ = instagram_worker(client)
+
+    record, raw = await logged_record(worker)
+
+    assert record["error_code"] is None and record["provider"] == "openai"
+    assert record["image"] == expected
+    for secret in ("secret-token", "signed-token", IMAGE_HOST, "cdninstagram", "secret-body"):
+        assert secret not in raw
+
+
+@pytest.mark.asyncio
+async def test_image_stage_log_covers_missing_slow_and_internal_images(monkeypatch):
+    async def internal(hostname, port):
+        return {"10.0.0.5"} if hostname == IMAGE_HOST else {"93.184.216.34"}
+
+    async def slow(request):
+        await asyncio.sleep(1)
+        return image_response()
+
+    monkeypatch.setattr(module, "IMAGE_TIMEOUT_SECONDS", 0.05)
+    cases = [
+        (build(page(image=None), lambda r: image_response())[0], "no_image_url"),
+        (build(page(), lambda r: image_response(), resolver=internal)[0], "unsafe_url"),
+        (build(page(), slow)[0], "timeout"),
+    ]
+
+    for client, reason in cases:
+        record, _ = await logged_record(instagram_worker(client)[0])
+        assert record["image"] == {"used": False, "reason": reason, "http_status": None}
+
+
+@pytest.mark.asyncio
+async def test_failed_gpt_call_still_logs_the_image_stage_result():
+    client, _ = build(page(), lambda r: image_response(), lambda r: httpx.Response(503))
+    worker, _ = instagram_worker(client)
+
+    record, _ = await logged_record(worker)
+
+    assert (record["provider"], record["http_status"]) == ("openai", 503)
+    assert record["image"] == {"used": True, "reason": None, "http_status": None}
+
+
+@pytest.mark.asyncio
+async def test_page_stage_failure_has_no_image_stage_result():
+    client, _ = build(httpx.Response(403), lambda r: image_response())
+    worker, _ = instagram_worker(client)
+
+    record, _ = await logged_record(worker)
+
+    assert record["provider"] == "instagram" and "image" not in record

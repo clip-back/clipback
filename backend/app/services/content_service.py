@@ -48,7 +48,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationService,
 )
 from app.services.image_deletion_service import delete_image_content
-from app.services.link_url import instagram_post_kind
+from app.services.link_url import instagram_post_type
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -140,9 +140,9 @@ class ContentService:
                 detail="original_url is required for link content",
             )
 
-        instagram_kind = None
+        post_type = None
         if payload.content_type == ContentType.LINK and payload.original_url:
-            instagram_kind = instagram_post_kind(str(payload.original_url))
+            post_type = instagram_post_type(str(payload.original_url))
         video_id = None
         if (
             payload.content_type == ContentType.LINK
@@ -240,10 +240,10 @@ class ContentService:
                         apply_category=not bool(payload.category_ids),
                     )
                 )
-            if instagram_kind is not None:
+            if post_type is not None:
                 if not settings.instagram_summary_enabled:
                     status, error_code = "skipped", "disabled"
-                elif instagram_kind == "stories":
+                elif post_type == "stories":
                     status, error_code = "skipped", "unsupported_content"
                 else:
                     status, error_code = "queued", None

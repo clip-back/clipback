@@ -32,6 +32,7 @@ class MetadataResult:
     description: str | None
     status: str
     failure_reason: str | None = None
+    http_status: int | None = None
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,8 @@ class PageMeta:
     resolved_url: str
     status: str
     failure_reason: str | None = None
+    http_status: int | None = None
     properties: dict[str, str] = field(default_factory=dict)
-    names: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class ImageFetch:
 
     content: bytes | None = None
     failure_reason: str | None = None
+    http_status: int | None = None
 
 
 Resolver = Callable[[str, int], Awaitable[set[str]]]
@@ -127,7 +129,9 @@ class MetadataClient:
     async def fetch_page(self, url: str) -> PageMeta:
         result = await self._fetch(url, self._to_page)
         if isinstance(result, MetadataResult):
-            return PageMeta(result.resolved_url, "failed", result.failure_reason)
+            return PageMeta(
+                result.resolved_url, "failed", result.failure_reason, result.http_status
+            )
         return result
 
     async def fetch_image(
@@ -146,7 +150,9 @@ class MetadataClient:
         )
         if isinstance(result, bytes):
             return ImageFetch(content=result)
-        return ImageFetch(failure_reason=result.failure_reason)
+        return ImageFetch(
+            failure_reason=result.failure_reason, http_status=result.http_status
+        )
 
     async def _fetch(
         self,
@@ -230,7 +236,11 @@ class MetadataClient:
                     continue
 
                 if not 200 <= response.status_code < 300:
-                    return self._failure(current_url, f"http_status_{response.status_code}")
+                    return self._failure(
+                        current_url,
+                        f"http_status_{response.status_code}",
+                        http_status=response.status_code,
+                    )
 
                 content_type = (
                     response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -257,8 +267,8 @@ class MetadataClient:
         )
 
     def _to_page(self, resolved_url: str, body: bytes, encoding: str | None) -> PageMeta:
-        _, properties, names = self._collect_meta(body, encoding)
-        return PageMeta(resolved_url, "success", None, properties, names)
+        _, properties, _ = self._collect_meta(body, encoding)
+        return PageMeta(resolved_url, "success", None, properties=properties)
 
     async def _validate_url(self, url: str) -> _ValidatedUrl:
         normalized_url = self._strip_fragment(url)
@@ -398,11 +408,12 @@ class MetadataClient:
         return urlunparse(parsed._replace(fragment=""))
 
     @staticmethod
-    def _failure(resolved_url: str, reason: str) -> MetadataResult:
+    def _failure(resolved_url: str, reason: str, http_status: int | None = None) -> MetadataResult:
         return MetadataResult(
             resolved_url=resolved_url,
             title=None,
             description=None,
             status="failed",
             failure_reason=reason,
+            http_status=http_status,
         )

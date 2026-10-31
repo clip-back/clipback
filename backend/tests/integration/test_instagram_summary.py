@@ -237,7 +237,7 @@ async def test_missing_caption_is_skipped_without_calling_gpt(
     gpt_calls = []
 
     async def fetch_page(url):
-        return PageMeta(url, "success", None, {"og:url": REEL}, {})
+        return PageMeta(url, "success", None, properties={"og:url": REEL})
 
     async def fetch_image(url, **limits):
         return ImageFetch(failure_reason="http_status_403")
@@ -505,3 +505,48 @@ async def test_job_is_created_atomically_with_the_content(api, worker, database_
         event.remove(database_connection.sync_connection, "before_cursor_execute", fail)
     for model in (Content, ContentEvent, SummaryJob):
         assert await database_connection.scalar(select(func.count()).select_from(model)) == 0
+
+
+async def test_job_queued_before_switching_off_resumes_when_switched_on_again(
+    api, worker, monkeypatch
+):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    assert content["summary_status"] == "queued"
+
+    monkeypatch.setattr(settings, "instagram_summary_enabled", False)
+    assert not await run.run_once() and state.calls == []
+    waiting = await detail(api, headers, content)
+    assert (waiting["summary_status"], waiting["summary_error_code"]) == ("queued", None)
+
+    monkeypatch.setattr(settings, "instagram_summary_enabled", True)
+    assert await run.run_once()
+
+    assert (await detail(api, headers, content))["summary_status"] == "completed"
+    assert len(state.calls) == 1
+
+
+async def test_token_usage_of_each_attempt_is_stored_on_the_job(
+    api, worker, database_connection
+):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = SummaryError("provider_error", retryable=True)
+    state.error.usage = {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}
+
+    await run.run_once()
+    await database_connection.execute(
+        update(SummaryJob).values(next_run_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
+    state.error = None
+    await run.run_once()
+
+    usage = await database_connection.scalar(
+        select(SummaryJob.usage).where(SummaryJob.content_id == content["id"])
+    )
+    assert usage == [
+        {"attempt": 1, "tokens": {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}},
+        {"attempt": 2, "tokens": {"tokens": 42}},
+    ]

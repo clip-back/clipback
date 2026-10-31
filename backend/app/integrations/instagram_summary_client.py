@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.config import Settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
 from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.services.link_url import instagram_post_code
 
 IMAGE_TIMEOUT_SECONDS = 5
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -37,9 +38,6 @@ MAX_CAPTION_LENGTH = 2200
 # The caption follows the engagement line:
 # `38K likes, 3 comments - user on <date>: "caption".`
 CAPTION_PATTERN = re.compile(r'[^"]*?: "(.*)"\.?\s*', re.DOTALL)
-INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
-# `/p/<code>/`, `/reel/<code>/`, `/tv/<code>/`, also behind a username (`/<user>/reel/<code>/`).
-POST_PATH_PATTERN = re.compile(r"/(?:[^/]+/)?(?:p|reels?|tv)/([^/]+)")
 LOGIN_PATH_PREFIX = "/accounts/login"
 
 PROMPT = (
@@ -57,9 +55,10 @@ PROMPT = (
 @dataclass
 class Post:
     caption: str | None
-    image_url: str | None  # cover image address from og:image; never logged
-    image_data_url: str | None = None  # the downloaded, verified cover image; never stored
+    image_url: str | None  # representative image address from og:image; never logged
+    image_data_url: str | None = None  # the downloaded, verified representative image; never stored
     image_http_status: int | None = None
+    image_reason: str | None = None  # why no image was used; None when one was
 
 
 class SummaryOutput(BaseModel):
@@ -95,18 +94,30 @@ class InstagramSummaryClient:
         try:
             async with asyncio.timeout(ATTEMPT_TIMEOUT_SECONDS):
                 post = await self._fetch_post(target_id)
-                if post.caption is None and post.image_data_url is None:
-                    # A cover image that was offered but unusable is blamed on the image stage.
-                    error = self._page_error(
-                        "insufficient_content",
-                        skipped=True,
-                        http_status=post.image_http_status if post.image_url else 200,
-                        reason="no_caption_or_image",
-                    )
-                    if post.image_url:
-                        error.provider = "instagram_image"
-                    raise error
-                return await self._ask_openai(post, model, categories)
+                image = {
+                    "used": post.image_data_url is not None,
+                    "reason": post.image_reason,
+                    "http_status": post.image_http_status,
+                }
+                try:
+                    if post.caption is None and post.image_data_url is None:
+                        # A representative image that was offered but unusable is blamed on
+                        # the image stage.
+                        error = self._page_error(
+                            "insufficient_content",
+                            skipped=True,
+                            http_status=post.image_http_status if post.image_url else 200,
+                            reason="no_caption_or_image",
+                        )
+                        if post.image_url:
+                            error.provider = "instagram_image"
+                        raise error
+                    summary = await self._ask_openai(post, model, categories)
+                except SummaryError as exc:
+                    exc.image = image
+                    raise
+                summary.image = image
+                return summary
         except TimeoutError:
             # Every stage has its own limit and reports its own timeout; only the cap lands here.
             raise SummaryError("timeout", retryable=True) from None
@@ -118,7 +129,7 @@ class InstagramSummaryClient:
         except UnsafeUrlError as exc:
             raise self._page_error("provider_error", reason="unsafe_url") from exc
         if page.status != "success":
-            raise self._page_failure(page.failure_reason)
+            raise self._page_failure(page.failure_reason, page.http_status)
         # Accessibility first: only a page for the saved post may supply evidence.
         reason = self._unavailable_reason(url, page)
         if reason is not None:
@@ -134,10 +145,12 @@ class InstagramSummaryClient:
         )
         if post.image_url:
             await self._attach_image(post)
+        else:
+            post.image_reason = "no_image_url"
         return post
 
     async def _attach_image(self, post: Post) -> None:
-        """Stage 2: the cover image is optional; any problem leaves the post caption-only."""
+        """Stage 2: the representative image is optional; a problem leaves the post caption-only."""
         try:
             fetched = await self.metadata.fetch_image(
                 post.image_url,
@@ -145,15 +158,22 @@ class InstagramSummaryClient:
                 max_bytes=MAX_IMAGE_BYTES,
             )
         except UnsafeUrlError:
+            post.image_reason = "unsafe_url"
             return
         if fetched.content is None:
-            match = re.fullmatch(r"http_status_(\d{3})", fetched.failure_reason or "")
-            post.image_http_status = int(match.group(1)) if match else None
+            post.image_http_status = fetched.http_status
+            post.image_reason = (
+                self._status_reason(fetched.http_status)
+                if fetched.http_status
+                else fetched.failure_reason
+            )
             return
         mime_type = await asyncio.to_thread(self._image_mime_type, fetched.content)
-        if mime_type is not None:
-            encoded = base64.b64encode(fetched.content).decode("ascii")
-            post.image_data_url = f"data:{mime_type};base64,{encoded}"
+        if mime_type is None:
+            post.image_reason = "invalid_image"
+            return
+        encoded = base64.b64encode(fetched.content).decode("ascii")
+        post.image_data_url = f"data:{mime_type};base64,{encoded}"
 
     @staticmethod
     def _image_mime_type(content: bytes) -> str | None:
@@ -181,11 +201,10 @@ class InstagramSummaryClient:
         for candidate in (page.resolved_url, og_url):
             if urlparse(candidate).path.startswith(LOGIN_PATH_PREFIX):
                 return "login_page"
-        parsed = urlparse(og_url)
-        match = POST_PATH_PATTERN.match(parsed.path)
-        if (parsed.hostname or "").lower() not in INSTAGRAM_HOSTS or match is None:
+        code = instagram_post_code(og_url)
+        if code is None:
             return "not_post_metadata"
-        if match.group(1) != POST_PATH_PATTERN.match(urlparse(target).path).group(1):
+        if code != instagram_post_code(target):
             return "post_id_mismatch"
         return None
 
@@ -210,7 +229,7 @@ class InstagramSummaryClient:
         error.reason = reason
         return error
 
-    def _page_failure(self, reason: str | None) -> SummaryError:
+    def _page_failure(self, reason: str | None, http_status: int | None) -> SummaryError:
         """Map a failed page fetch: 404 and non-HTML 200 are skipped, 401/403 blocks fail."""
         if reason == "timeout":
             return self._page_error("timeout", retryable=True, reason="timeout")
@@ -220,27 +239,29 @@ class InstagramSummaryClient:
             return self._page_error(
                 "content_unavailable", skipped=True, http_status=200, reason="non_html"
             )
-        match = re.fullmatch(r"http_status_(\d{3})", reason or "")
-        if match is None:
+        if http_status is None:
             return self._page_error("provider_error", reason=reason)
-        status = int(match.group(1))
-        if status == 404:
+        if http_status == 404:
             return self._page_error(
-                "content_unavailable", skipped=True, http_status=status, reason="not_found"
-            )
-        if status == 429 or status >= 500:
-            return self._page_error(
-                "provider_error",
-                retryable=True,
-                http_status=status,
-                reason="rate_limited" if status == 429 else "server_error",
+                "content_unavailable", skipped=True, http_status=http_status, reason="not_found"
             )
         # 401/403 most likely mean this server is blocked, not that the post is gone.
         return self._page_error(
             "provider_error",
-            http_status=status,
-            reason="access_denied" if status in {401, 403} else "unexpected_status",
+            retryable=http_status == 429 or http_status >= 500,
+            http_status=http_status,
+            reason=self._status_reason(http_status),
         )
+
+    @staticmethod
+    def _status_reason(http_status: int) -> str:
+        if http_status == 404:
+            return "not_found"
+        if http_status in {401, 403}:
+            return "access_denied"
+        if http_status == 429:
+            return "rate_limited"
+        return "server_error" if http_status >= 500 else "unexpected_status"
 
     async def _ask_openai(self, post: Post, model: str, categories: list[dict]) -> VideoSummary:
         """Stage 3: structured GPT call with store=False and no SDK retries."""

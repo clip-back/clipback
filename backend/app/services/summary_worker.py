@@ -125,6 +125,8 @@ class SummaryWorker:
             result = await self.clients[kind].summarize(target_id, model, candidates)
         except SummaryError as exc:
             error = exc
+        outcome = error or result
+        image = {"image": outcome.image} if outcome.image is not None else {}
         logger.log(
             logging.WARNING if error else logging.INFO,
             json.dumps(
@@ -141,6 +143,7 @@ class SummaryWorker:
                     "reason": error.reason if error else None,
                     "retryable": error.retryable if error else False,
                     "usage": result.usage if result else getattr(error, "usage", {}),
+                    **image,
                 }
             ),
         )
