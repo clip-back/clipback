@@ -100,7 +100,7 @@ ID token 누락, Apple nonce·code·사용자 식별자, credential state, 로�
 세션 복원·저장·동시 갱신 회귀 테스트는 `test/session_restore_test.dart`, `test/session_persistence_test.dart`,
 `test/session_refresh_test.dart`에서 HTTP와 저장소 오류를 대체해 확인합니다.
 `test/screenshot_auth_test.dart`는 실제 multipart 본문과 파일 선택 대역으로 업로드·저장 실패를 검증합니다.
-`test/content_auto_category_test.dart`는 선택 없는 요청과 실제 서버 분류·YouTube 처리 상태 표시를 검증합니다.
+`test/content_auto_category_test.dart`는 선택 없는 요청과 실제 서버 분류·YouTube·인스타그램 처리 상태 표시를 검증합니다.
 `test/feed_pagination_test.dart`는 커서·필터·북마크 우선·실패 재시도·늦은 응답·상세 경계 탐색을 검증합니다.
 `test/screenshot_asset_test.dart`와 `test/screenshot_asset_api_test.dart`는 원본 표시·다운로드 인증·시간 초과·화면 전환 경합을 검증합니다.
 `test/content_mutation_test.dart`는 변경 중 잠금·실패 복구·늦은 조회·계정 전환·삭제 성공 시점과 상태 보존을 검증합니다.

@@ -25,6 +25,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-10-31 | [저장 결과 처리 중 문구를 링크 정보로 통일](2026-10-31-link-pending-message.md) | UI |
 | 2026-10-30 | [마이 앱 버전 표시 구현·검증](2026-10-30-app-version-display.md) | UI |
 | 2026-10-28 | [Android 내부 테스트 배포 구현·검증](2026-10-28-android-internal-test-implementation.md) | 앱 내부 배포 |
 | 2026-10-28 | [Android 내부 테스트 배포 구현 티켓 발행](2026-10-28-android-internal-test-tickets.md) | 티켓 |
