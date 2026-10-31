@@ -205,10 +205,14 @@ class InstagramSummaryClient:
     def _unavailable_reason(target: str, page) -> str | None:
         """Why a 200 page is not the saved post's metadata; None when it is."""
         og_url = page.properties.get("og:url") or ""
-        for candidate in (page.resolved_url, og_url):
-            if urlparse(candidate).path.startswith(LOGIN_PATH_PREFIX):
-                return "login_page"
-        code = instagram_post_code(og_url)
+        try:
+            for candidate in (page.resolved_url, og_url):
+                if urlparse(candidate).path.startswith(LOGIN_PATH_PREFIX):
+                    return "login_page"
+            code = instagram_post_code(og_url)
+        except ValueError:
+            # An address that does not parse cannot point at the saved post.
+            return "not_post_metadata"
         if code is None:
             return "not_post_metadata"
         if code != instagram_post_code(target):

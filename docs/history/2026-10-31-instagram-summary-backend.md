@@ -62,11 +62,15 @@
   회귀 테스트가 수정 전 같은 `ValueError`로 실패하는 것을 확인했다.
 - 해상도는 Pillow 기본 압축 폭탄 보호 한도(약 8,900만 화소)를 따르도록 명세(#127·#131)를 고쳤다(사용자 결정, 코드 변경 없음).
   한도를 넘는 고해상도·작은 용량 PNG가 이미지 실패로 제외되고 캡션만으로 요약됨을 경고·오류 구간 각각 테스트로 고정했다.
+- 200 응답의 `og:url`(또는 최종 주소)을 해석할 수 없으면(예: `https://[broken/p/abc/`) 판정 중 `ValueError`가 새어
+  작업이 `processing`에 남고 점유 만료·재시도 뒤 `failed/timeout`으로 끝나던 문제를 고쳤다. 이제 게시물 메타데이터가 아님
+  (`skipped/content_unavailable`, 사유 `not_post_metadata`, GPT 미호출)으로 판정한다. 공용 `instagram_post_code`는 바꾸지 않았다.
+  재현 테스트가 수정 전 같은 `ValueError`로 실패하는 것을 확인했다.
 
 | 검사 | 결과 |
 | --- | --- |
 | `ruff check app scripts alembic tests`, `compileall` | 통과 |
-| `pytest -q --ignore=tests/deployment` | 1216개 통과, 1개 skip(로컬 S3 CLI 테스트). 점검 게이트 테스트 포함 |
+| `pytest -q --ignore=tests/deployment` | 이미지 주소 수정 후 1216개, `og:url` 수정 후 1217개 통과. 각 1개 skip(로컬 S3 CLI 테스트). 점검 게이트 테스트 포함 |
 | `tests/deployment`(멈추는 `test_operator_dump_keeps_the_explicit_database_ssl_requirement` 2건 제외) | 119개 통과, 45개 skip(Docker 필요) |
 | `alembic upgrade head` + `alembic check`, `git diff --check` | 통과 |
 

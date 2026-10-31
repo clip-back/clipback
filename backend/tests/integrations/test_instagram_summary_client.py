@@ -350,6 +350,8 @@ def login_page(request):
         (lambda r: page(url="https://example.com/news/1"), "not_post_metadata"),
         (lambda r: page(url=None), "not_post_metadata"),
         (lambda r: page(url="https://www.instagram.com/"), "not_post_metadata"),
+        # An og:url that does not parse cannot point at the saved post.
+        (lambda r: page(url="https://[broken/p/ABC123/"), "not_post_metadata"),
         (lambda r: page(url="https://www.instagram.com/cafe/reel/OTHER99/"), "post_id_mismatch"),
         # Shortcodes are case-sensitive.
         (lambda r: page(url="https://www.instagram.com/p/abc123/"), "post_id_mismatch"),
