@@ -402,14 +402,28 @@ final class ShareViewController: UIViewController {
       retry.accessibilityIdentifier = "share.retry"
       alert.addAction(retry)
     }
-    let close = UIAlertAction(title: "닫기", style: .cancel) { [weak self] _ in
-      guard let self else { return }
-      if content.discard, let draftId = self.draftId { try? self.store?.discard(draftId) }
-      self.dismissSheet()
-    }
+    let close = UIAlertAction(title: "닫기", style: .cancel) { [weak self] _ in self?.closeAlert(discard: content.discard) }
     close.accessibilityIdentifier = "share.close"
     alert.addAction(close)
     present(alert, animated: true)
+  }
+
+  /// [닫기] of an alert. When discarding fails, like Android, [다시 시도] repeats the close and [닫기] leaves the share as it is.
+  private func closeAlert(discard: Bool) {
+    if discard, let store, let draftId {
+      do { try store.discard(draftId) } catch {
+        let alert = UIAlertController(title: nil, message: "초안을 보관하지 못했습니다. 다시 시도해 주세요.", preferredStyle: .alert)
+        let retry = UIAlertAction(title: "다시 시도", style: .default) { [weak self] _ in self?.closeAlert(discard: true) }
+        retry.accessibilityIdentifier = "share.retry"
+        alert.addAction(retry)
+        let close = UIAlertAction(title: "닫기", style: .cancel) { [weak self] _ in self?.dismissSheet() }
+        close.accessibilityIdentifier = "share.close"
+        alert.addAction(close)
+        present(alert, animated: true)
+        return
+      }
+    }
+    dismissSheet()
   }
 
   private func complete() {

@@ -164,6 +164,22 @@ final class ShareUITests: XCTestCase {
     tapReady(save)
     assertAlert(sender, title: title, message: message, retry: retry, timeout: timeout)
   }
+  /// The extension's App Group folder, found next to this runner's own simulator container.
+  private func shareIntakeDirectory() -> URL {
+    let containers = URL(fileURLWithPath: NSHomeDirectory())
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let groups = containers.appendingPathComponent("Shared/AppGroup")
+    let group = (try? FileManager.default.contentsOfDirectory(at: groups, includingPropertiesForKeys: nil))?.first {
+      NSDictionary(contentsOf: $0.appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist"))?["MCMMetadataIdentifier"]
+        as? String == "group.com.huturu.app"
+    }
+    XCTAssertNotNil(group, groups.path)
+    return group!.appendingPathComponent("ShareIntake")
+  }
+  /// A read-only folder makes every storage update of the extension fail.
+  private func setWritable(_ folder: URL, _ writable: Bool) {
+    XCTAssertNoThrow(try FileManager.default.setAttributes([.posixPermissions: writable ? 0o755 : 0o555], ofItemAtPath: folder.path))
+  }
   /// A retryable failure saves through [다시 시도] without a duplicate, and is kept on [닫기] for the main app.
   private func retryOrKeep(_ settings: [String: Any], message: String, captureName: String, timeout: TimeInterval = 10) {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
@@ -481,6 +497,42 @@ final class ShareUITests: XCTestCase {
     XCTAssertEqual(pendingShareCount(main), pending + 1)
     resumeInMain(main, label: "공유한 이미지")
     XCTAssertEqual(savedCount(), before + 2)
+    XCTAssertEqual(pendingShareCount(main), pending)
+  }
+  /// 되돌릴 수 없음 [닫기] discards the share. When that fails, as in Android's close failure, [다시 시도] repeats the close
+  /// and [닫기] leaves the share as it is.
+  func testIrreversibleCloseDiscardFailureRetriesOrKeepsShare() {
+    let main = XCUIApplication(bundleIdentifier: "com.huturu.app")
+    let pending = pendingShareCount(main)
+    let sharedURL = uniqueURL()
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launchArguments = ["--recovery-url", sharedURL]
+    sender.launch()
+    let folder = shareIntakeDirectory()
+    addTeardownBlock { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+    let failed = sender.alerts.staticTexts["초안을 보관하지 못했습니다. 다시 시도해 주세요."]
+    for retry in [true, false] {
+      failSave(sender, ["next_save_status": 410], title: "다시 저장할 수 없어요",
+               message: "이미 저장한 뒤 삭제한 콘텐츠입니다. 새로 공유해 주세요.", retry: false)
+      setWritable(folder, false)
+      tapReady(sender.alerts.buttons["share.close"])
+      XCTAssertTrue(failed.waitForExistence(timeout: 10), sender.debugDescription)
+      XCTAssertEqual(sender.alerts.buttons.count, 2, sender.debugDescription)
+      XCTAssertTrue(sender.alerts.buttons["share.retry"].exists, sender.debugDescription)
+      if retry {
+        capture("ios-share-discard-failed")
+        setWritable(folder, true)
+        tapReady(sender.alerts.buttons["share.retry"])
+        assertReturned(sender)
+      } else {
+        tapReady(sender.alerts.buttons["share.close"])
+        assertReturned(sender)
+        setWritable(folder, true)
+      }
+    }
+    // Only the share closed without a successful discard is left.
+    XCTAssertEqual(pendingShareCount(main), pending + 1)
+    resumeInMain(main, label: sharedURL)
     XCTAssertEqual(pendingShareCount(main), pending)
   }
   // Prepare Safari with simctl openurl and Photos with simctl addmedia before these OS-host tests.
