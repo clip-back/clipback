@@ -316,3 +316,63 @@ iOS #125와 같은 표를 쓴다(분류별 iOS 원문 기준, 시트에 없는 �
 - [허투루 열기] 이동 영상: 로그인 필요(자격 없는 상태로 공유)와 기기 보관 한도 초과에서 본앱이 열리고 공유 창이 닫히는지,
   로그인 뒤 "저장 대기 중인 공유 N개 → 확인" 안내로 이어지는지 확인한다.
 - [다시 시도] 뒤 완료 토스트, 알림창이 뜬 상태의 회전·뒤로가기, 큰 글자 배율에서 알림창 문구가 잘리지 않는지 확인한다.
+
+## 통합 리뷰 수정
+
+통합 브랜치 `feat/share-save-sheet`(`834cd7d`) 코드 리뷰 지적 F1~F6을 브랜치 `feat/share-save-sheet-review-fixes`에서 처리했다.
+사용자 문구(코드 문자열)·저장 규칙·서버 API는 바꾸지 않았다. 닫기 실패 알림창의 버튼만 바뀌었다(F4).
+
+### 처리
+
+- F1(iOS #125, 저장 시작 전 실패 뒤 [닫기]가 보관할 공유를 지운다는 지적): 재현되지 않아 코드를 고치지 않았다.
+  `ShareSaveService.save`는 전송 전 단계(`ShareStore.begin`의 로그인 필요·계정 변경·잠금 실패, 요청 준비, 전송 직전 계정 재확인)에서
+  난 모든 실패를 완료 콜백 전에 `authRequired`로 기록한다(`e9f526a`부터 있던 동작). 그래서 알림창 [닫기] → `dismissSheet`의
+  폐기 조건(`pending`이면서 `userId` 없음)에 걸리지 않고, 본앱 복구 화면에서 로그인 필요 공유로 이어 저장된다.
+  기록 자체가 실패하면 상태가 `pending`으로 남지만, 같은 저장소 트랜잭션을 쓰는 `dismissSheet`의 항목 읽기도 함께 실패해 지우지 않는다.
+  이 불변식을 `ShareSaveServiceTests`의 `testBlockedAccountNeverSubmitsRequest`(자격 차단 → 로그인 필요)·
+  `testAccountSwitchBeforeSendKeepsDraftUnsent`(전송 전 계정 변경)에 상태 `authRequired` 확인으로 더했다. 수정 전 코드에서 통과했다.
+  #125 절의 "전송 전 변경은 보내지 않고 보관"과 "[닫기]: … 로그인 필요로 표시한 공유는 남고"는 이 동작과 맞는다.
+- F2(iOS #125, `saveAlert`의 `.refused`·`.storageFull`): 저장 단계에서는 올 수 없어 코드를 고치지 않았다. 두 분류는 받기 단계
+  (`ShareStore.createLink`·`createImage`·`insert`, `ShareInputNormalizer`)에서만 만들어진다. 저장 단계의 오류 출처는
+  `begin`(로그인 필요·계정 변경·항목 없음·다른 서버 환경, 저장소 잠금·읽기 실패는 분류 없음), 요청 준비(서버 주소 설정 `message`, 보관 이미지 읽기 실패),
+  HTTP 응답 분류(결과 미확인·일시 중단·이미지 한도·410·409·413·그 밖의 4xx·401), `complete`(계정 변경)·전송 뒤 계정 변경뿐이다.
+  `switch`가 모든 경우를 다뤄야 해서 두 분류가 분류 없는 오류와 같은 줄에 있을 뿐이다.
+- F3(Android #126, `ShareActivity.bind()`의 모든 예외를 로그인 필요로 처리): Q9②대로 공유 자격(Keystore) 복호화 실패
+  (`GeneralSecurityException`)만 로그인 필요로 둔다. 이때 시트를 내린 뒤 알림창을 띄우고, 사용자 ID가 없는 공유는 `authRequired`로 기록해
+  본앱 복구 화면에서 닫아도 지워지지 않게 했다(자격 없음 경로와 같은 기록). 그 밖의 저장소 읽기·상태 기록·보관 파일 정리 실패는
+  보관을 확인할 수 없으므로 보관 실패(쓰기 실패) "공유 내용을 보관하지 못했어요. 다시 공유해 주세요." [닫기]로 안내한다(Q9③).
+  '전송 전 기기 안 오류'(다시 시도 가능)는 쓰지 않았다. 저장 계정을 읽기 전에 실패하면 [다시 시도]가 보낼 계정이 정해지지 않아
+  '저장 계정 변경'으로 잘못 끝나기 때문이다. [닫기]는 기존 규칙대로 알림창이 뜬 공유를 지우지 않는다(남은 공유는 본앱에서 정리 가능).
+- F4(Android #126, 닫기 처리 중 저장 실패 알림창의 반복): 문구 "초안을 보관하지 못했습니다. 다시 시도해 주세요."는 그대로 두고
+  [다시 시도](닫기를 다시 시도)와 [닫기](공유 창 종료, 기기에 남은 항목은 그대로)로 나눴다. 알림창 취소(뒤로가기·바깥 탭)는 [닫기]와 같다.
+  #126 절의 '바꾸지 않은 문구'는 문구 기준으로 여전히 맞다.
+- F5(문서): `docs/frontend/behavior.md`의 이번 변경 문장 "대기 항목"을 "저장 대기 공유"로 바꾸고 F3·F4 동작을 더했다.
+  `docs/figma-ui-alignment-plan.md`의 `figma-current-share-save-sheet` 행을 iOS·Android 공통 기준(Android 배경 흐림 조건·복구 화면 포함)으로
+  고치고, 이 행을 가리키는 '디자인 확인 필요' 행의 링크 이름을 "공유 저장 시트 기준"으로 바꿨다(앵커 유지).
+  `frontend/android/SHARE_TESTING.md`에 새 테스트 범위를 적었다.
+- F6(iOS, 사소): `ShareViewController`에서 네 번 반복된 시트 내림 변환을 `lowerSheet()`로 묶었다(동작 무변경).
+
+### 자동 검증
+
+2026-10-31 KST 로컬 대역 검증이다. 대역은 앞 절과 같은 임시 래퍼(카테고리 `last_saved_at: null`만 보충, 저장소 파일 무변경)로 실행했다.
+운영 서버·실기기·실제 OAuth는 검증하지 않았고, 화면 비교 스크린샷은 통합 후 따로 남긴다.
+
+- 재현 테스트(수정 전 코드에서 먼저 실행)
+  - Android API 36 `ShareActivityTest`의 새 3개가 모두 실패했다. `testUnreadableCredentialAfterKeepingIsLoginRequired`(Keystore 키 삭제 →
+    로그인 필요 알림창 뒤 시트가 내려가지 않음), `testStorageFailureAfterKeepingIsStorageFailure`(자격 차단·저장소 폴더 쓰기 금지 뒤 재생성 →
+    보관 실패 대신 로그인 필요 알림창), `testCloseStorageFailureOffersRetryAndClose`(쓰기 금지 상태의 뒤로가기 → [다시 시도] 없음, [닫기]가 같은 알림창 반복).
+    수정 뒤 3개 통과.
+  - iOS `RunnerTests/ShareSaveServiceTests`에 더한 상태 확인 2개는 수정 전 코드에서 통과했다(F1 비재현 근거).
+- iOS: iPhone 16 Simulator(iOS 18.6, Xcode 27.2). F6 반영 뒤 `RunnerTests` 24개 통과, `ShareUITests` 로컬 묶음 14개 통과(1,260초).
+  회귀 기준 `testUnauthorizedDraftResumesInMainNativeModal`은 승인된 한 줄 예외 상태 그대로 통과했다.
+- Android: 같은 APK로 `Medium_Phone`(API 36) 61개 통과(366초), `Clipback_Share_API_33`(API 33, `-gpu swiftshader`) 61개 통과(339초).
+  `ShareStoreTest`·`ShareActivityTest`·`ShareServiceFixtureTest` 전체이며 앞 절의 58개에 새 3개를 더했다.
+  불안정 테스트 `testAccountChangeDuringSubmittedRequestDoesNotShowSuccessForNewAccount`와 회귀 기준
+  `testRecoveryHostReturnsWithoutDiscardingAuthRequiredDraft`는 두 실행 모두 통과했다.
+- 두 플랫폼 장치는 동시에 띄우지 않았다(iOS 종료 후 API 36, 그 뒤 API 33).
+
+### 범위 밖으로 남긴 것
+
+- iOS 준비 단계의 로그인 확인(`prepared`)은 `try? store.currentCredential()`이라 공유 자격 읽기 실패뿐 아니라 저장소 잠금·상태 파일 읽기 실패도
+  로그인 필요로 안내한다. Android F3과 같은 구분은 이번 지적 범위가 아니어서 바꾸지 않았다.
+- Android 닫기 실패 알림창은 Activity 재생성 뒤 다시 띄우지 않는다(이번 변경 전과 같음).
