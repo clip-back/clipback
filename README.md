@@ -79,7 +79,7 @@ PRD·IA·User Flow·화면 정책을 공통 개발 기준으로 정리했습니�
 | App | Flutter · Dart |
 | Backend | Python · FastAPI · SQLAlchemy |
 | Database | PostgreSQL · Alembic |
-| 콘텐츠 처리 | 이미지 OCR · AI 카테고리 분류 · YouTube 비동기 요약 |
+| 콘텐츠 처리 | 이미지 OCR · AI 카테고리 분류 · YouTube·인스타그램 비동기 요약 |
 | 개발·배포 | Docker · GitHub Actions · Railway 배포 구성 |
 
 ## 저장소 구조
@@ -146,7 +146,7 @@ flutter run
 - [콘텐츠 재발견 추천 설계](docs/content-recommendation-plan.md)
 - [이미지 보관 정책·구현 범위 제안](docs/image-storage-policy.md)
 - [제품 이벤트·지표](docs/product-metrics-queries.md)
-- [YouTube 저장·요약·worker](docs/youtube-summary.md)
+- [YouTube·인스타그램 저장·요약·worker](docs/youtube-summary.md)
 - [Figma 화면 기준·디자인 확인 필요](docs/figma-ui-alignment-plan.md)
 - [시작 화면 에셋 출처](frontend/ios/Runner/Assets.xcassets/SplashA01Brand.imageset/README.md)
 

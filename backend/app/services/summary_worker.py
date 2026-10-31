@@ -20,16 +20,26 @@ from app.repositories.event_repository import EventRepository
 
 logger = logging.getLogger(__name__)
 
+# The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
+SUCCESS_PROVIDERS = {"youtube": "gemini", "instagram": "openai"}
+
 
 class SummaryWorker:
-    def __init__(self, session_factory, client, config: Settings, *, maintenance=None):
+    def __init__(
+        self, session_factory, client, config: Settings, *, instagram_client=None, maintenance=None
+    ):
         self.sessions = session_factory
-        self.clients = {"youtube": client}
+        self.clients = {"youtube": client, "instagram": instagram_client}
         self.config = config
         self.maintenance = maintenance
 
     def enabled_kinds(self) -> list[str]:
-        return ["youtube"] if self.config.youtube_summary_enabled else []
+        kinds = []
+        if self.config.youtube_summary_enabled:
+            kinds.append("youtube")
+        if self.config.instagram_summary_enabled:
+            kinds.append("instagram")
+        return kinds
 
     async def claim(self):
         now = datetime.now(UTC)
@@ -125,7 +135,7 @@ class SummaryWorker:
                     "model": model,
                     "elapsed_seconds": round(time.monotonic() - started, 3),
                     "error_code": error.code if error else None,
-                    "provider": error.provider if error else "gemini",
+                    "provider": error.provider if error else SUCCESS_PROVIDERS[kind],
                     "http_status": error.http_status if error else None,
                     "provider_status": error.provider_status if error else None,
                     "retryable": error.retryable if error else False,

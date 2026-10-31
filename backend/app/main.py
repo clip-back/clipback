@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.session import AsyncSessionLocal
 from app.integrations.ai_client import close_ai_client
+from app.integrations.instagram_summary_client import InstagramSummaryClient
+from app.integrations.metadata_client import MetadataClient
 from app.integrations.ocr_client import close_ocr_client
 from app.integrations.social_auth_client import close_social_auth_client
 from app.integrations.youtube_summary_client import YouTubeSummaryClient
@@ -20,7 +22,21 @@ from app.services.summary_worker import SummaryWorker
 async def lifespan(_: FastAPI):
     configure_logging()
     async with httpx.AsyncClient() as http:
-        worker = SummaryWorker(AsyncSessionLocal, YouTubeSummaryClient(settings, http), settings)
+        instagram = InstagramSummaryClient(
+            settings,
+            MetadataClient(
+                total_timeout_seconds=settings.metadata_total_timeout_seconds,
+                max_redirects=settings.metadata_max_redirects,
+                max_response_bytes=settings.metadata_max_response_bytes,
+                user_agent=settings.metadata_user_agent,
+            ),
+        )
+        worker = SummaryWorker(
+            AsyncSessionLocal,
+            YouTubeSummaryClient(settings, http),
+            settings,
+            instagram_client=instagram,
+        )
         task = asyncio.create_task(worker.run()) if worker.enabled_kinds() else None
         try:
             yield
@@ -29,6 +45,7 @@ async def lifespan(_: FastAPI):
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+            await instagram.close()
             await close_ai_client()
             await close_ocr_client()
             await close_social_auth_client()

@@ -4,8 +4,9 @@ import asyncio
 import ipaddress
 import socket
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import unescape
+from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
@@ -31,6 +32,17 @@ class MetadataResult:
     description: str | None
     status: str
     failure_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class PageMeta:
+    """Raw meta tag values of a fetched page (keys lower-cased, first tag wins)."""
+
+    resolved_url: str
+    status: str
+    failure_reason: str | None = None
+    properties: dict[str, str] = field(default_factory=dict)
+    names: dict[str, str] = field(default_factory=dict)
 
 
 Resolver = Callable[[str, int], Awaitable[set[str]]]
@@ -102,6 +114,15 @@ class MetadataClient:
         self.resolver = resolver or self._resolve_host
 
     async def extract_from_url(self, url: str) -> MetadataResult:
+        return await self._fetch(url, self._to_metadata)
+
+    async def fetch_page(self, url: str) -> PageMeta:
+        result = await self._fetch(url, self._to_page)
+        if isinstance(result, MetadataResult):
+            return PageMeta(result.resolved_url, "failed", result.failure_reason)
+        return result
+
+    async def _fetch(self, url: str, finish: Callable[[str, bytes, str | None], Any]) -> Any:
         initial_url = self._strip_fragment(url)
         current_url = initial_url
         last_safe_url = [initial_url]
@@ -117,7 +138,9 @@ class MetadataClient:
                     headers={"User-Agent": self.user_agent},
                     trust_env=False,
                 ) as client:
-                    return await self._extract(client, current_url, last_safe_url, deadline)
+                    return await self._extract(
+                        client, current_url, last_safe_url, deadline, finish
+                    )
         except UnsafeUrlError:
             raise
         except TimeoutError:
@@ -135,7 +158,8 @@ class MetadataClient:
         initial_url: str,
         last_safe_url: list[str],
         deadline: float,
-    ) -> MetadataResult:
+        finish: Callable[[str, bytes, str | None], Any],
+    ) -> Any:
         current_url = initial_url
 
         for redirect_count in range(self.max_redirects + 1):
@@ -176,17 +200,21 @@ class MetadataClient:
                     if len(body) > self.max_response_bytes:
                         return self._failure(current_url, "response_too_large")
 
-                title, description = self._parse_metadata(bytes(body), response.encoding)
-                if title is None and description is None:
-                    return self._failure(current_url, "metadata_missing")
-                return MetadataResult(
-                    resolved_url=current_url,
-                    title=title,
-                    description=description,
-                    status="success",
-                )
+                return finish(current_url, bytes(body), response.encoding)
 
         return self._failure(current_url, "redirect_limit")
+
+    def _to_metadata(self, resolved_url: str, body: bytes, encoding: str | None) -> MetadataResult:
+        title, description = self._parse_metadata(body, encoding)
+        if title is None and description is None:
+            return self._failure(resolved_url, "metadata_missing")
+        return MetadataResult(
+            resolved_url=resolved_url, title=title, description=description, status="success"
+        )
+
+    def _to_page(self, resolved_url: str, body: bytes, encoding: str | None) -> PageMeta:
+        _, properties, names = self._collect_meta(body, encoding)
+        return PageMeta(resolved_url, "success", None, properties, names)
 
     async def _validate_url(self, url: str) -> _ValidatedUrl:
         normalized_url = self._strip_fragment(url)
@@ -267,6 +295,27 @@ class MetadataClient:
         body: bytes,
         encoding: str | None,
     ) -> tuple[str | None, str | None]:
+        soup, properties, names = cls._collect_meta(body, encoding)
+        html_title = soup.title.get_text(" ", strip=True) if soup.title else None
+        title = cls._first_text(
+            properties.get("og:title"),
+            names.get("twitter:title"),
+            html_title,
+            max_length=120,
+        )
+        description = cls._first_text(
+            properties.get("og:description"),
+            names.get("twitter:description"),
+            names.get("description"),
+            max_length=500,
+        )
+        return title, description
+
+    @staticmethod
+    def _collect_meta(
+        body: bytes,
+        encoding: str | None,
+    ) -> tuple[BeautifulSoup, dict[str, str], dict[str, str]]:
         text = body.decode(encoding or "utf-8", errors="replace")
         soup = BeautifulSoup(text, "html.parser")
 
@@ -282,21 +331,7 @@ class MetadataClient:
                 properties.setdefault(property_name.lower(), content)
             if isinstance(name, str):
                 names.setdefault(name.lower(), content)
-
-        html_title = soup.title.get_text(" ", strip=True) if soup.title else None
-        title = cls._first_text(
-            properties.get("og:title"),
-            names.get("twitter:title"),
-            html_title,
-            max_length=120,
-        )
-        description = cls._first_text(
-            properties.get("og:description"),
-            names.get("twitter:description"),
-            names.get("description"),
-            max_length=500,
-        )
-        return title, description
+        return soup, properties, names
 
     @classmethod
     def _first_text(cls, *values: str | None, max_length: int) -> str | None:

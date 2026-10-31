@@ -21,7 +21,7 @@ Implementation status and remaining scope decisions are tracked in the
 ## 준비 사항
 
 Python 3.11 또는 3.12, Docker Compose의 PostgreSQL을 준비합니다. 아래 설치는 저장소 루트에서 시작하고, 서버·migration·검사는 가상환경이 준비된 `backend/`에서 실행합니다.
-`.env`는 로컬에서만 관리합니다. 기본 활성 상태인 YouTube 요약에는 공급자 키가 필요하며, 키 없이 로컬 실행할 때는 `.env`에 `YOUTUBE_SUMMARY_ENABLED=false`를 명시합니다. [YouTube 실행 조건](../docs/youtube-summary.md#작업운영)을 따르고 실제 비밀키를 문서나 로그에 넣지 않습니다.
+`.env`는 로컬에서만 관리합니다. 기본 활성 상태인 YouTube 요약에는 공급자 키가 필요하며, 키 없이 로컬 실행할 때는 `.env`에 `YOUTUBE_SUMMARY_ENABLED=false`를 명시합니다. 인스타그램 요약(`INSTAGRAM_SUMMARY_ENABLED`)은 기본 꺼짐이며 켜려면 `OPENAI_API_KEY`가 필요합니다. [YouTube 실행 조건](../docs/youtube-summary.md#작업운영)을 따르고 실제 비밀키를 문서나 로그에 넣지 않습니다.
 
 ## 빠른 실행
 
@@ -109,7 +109,7 @@ Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQ
 - [일일 이미지 백업·7일 보존·최신 삭제 상태의 격리 복원](../docs/backend/backup-recovery.md)
 - [MVP 범위와 남은 결정](../docs/backend-mvp-plan.md)
 - [카테고리·AI 분류 정책](../docs/category-recommendation-policy.md) · [콘텐츠 재발견 정책](../docs/content-recommendation-plan.md)
-- [YouTube 비동기 요약](../docs/youtube-summary.md) · [제품 이벤트·지표](../docs/product-metrics-queries.md)
+- [YouTube·인스타그램 비동기 요약](../docs/youtube-summary.md) · [제품 이벤트·지표](../docs/product-metrics-queries.md)
 - [작업·검증 이력](../docs/history/README.md) · [배포 절차](../docs/release-process.md)
 
 ### Railway deployment

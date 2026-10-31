@@ -51,6 +51,8 @@ async def create_content(
         user_id=current_user_id,
         payload=extraction_service.apply_to_payload(payload, extraction),
         event_metadata_json=extraction_service.build_event_metadata_json(extraction),
+        user_provided_title=bool(payload.title and payload.title.strip()),
+        user_provided_summary=bool(payload.summary and payload.summary.strip()),
     )
 
 

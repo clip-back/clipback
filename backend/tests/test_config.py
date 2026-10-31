@@ -230,3 +230,28 @@ def test_production_bucket_images_require_independent_bucket_ledger():
             s3_bucket="originals", s3_access_key_id="testing", s3_secret_access_key="testing",
             deletion_ledger_backend="local",
         )
+
+
+def test_instagram_summary_is_off_by_default_with_its_own_model():
+    settings = Settings(_env_file=None, youtube_summary_enabled=False)
+
+    assert settings.instagram_summary_enabled is False
+    assert settings.instagram_summary_model == "gpt-5.4-nano-2026-03-17"
+
+
+@pytest.mark.parametrize("key", [None, "  "])
+def test_enabled_instagram_summary_requires_openai_api_key(key):
+    with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
+        Settings(
+            _env_file=None, youtube_summary_enabled=False,
+            instagram_summary_enabled=True, openai_api_key=key,
+        )
+
+
+def test_enabled_instagram_summary_starts_with_openai_api_key():
+    settings = Settings(
+        _env_file=None, youtube_summary_enabled=False,
+        instagram_summary_enabled=True, openai_api_key="test-key",
+    )
+
+    assert settings.instagram_summary_enabled is True

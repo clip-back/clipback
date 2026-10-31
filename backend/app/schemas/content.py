@@ -101,6 +101,9 @@ class ContentRead(BaseModel):
             "video_unavailable",
             "duration_exceeded",
             "live_not_supported",
+            "content_unavailable",
+            "unsupported_content",
+            "insufficient_content",
             "disabled",
         ]
         | None

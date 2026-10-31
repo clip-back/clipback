@@ -29,6 +29,17 @@ def normalize_instagram_url(url: str) -> str:
     return urlunparse(("https", "www.instagram.com", path, "", "", ""))
 
 
+def instagram_post_kind(url: str) -> str | None:
+    """Return `reel`, `p`, `tv` or `stories` for a normalized Instagram content link."""
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() not in INSTAGRAM_HOSTS:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and f"/{parts[0]}/" in INSTAGRAM_CONTENT_PATH_PREFIXES:
+        return parts[0]
+    return None
+
+
 def infer_content_source(url: str) -> ContentSource:
     host = (urlparse(url).hostname or "").lower()
     if _matches_domain(host, "instagram.com"):

@@ -276,3 +276,49 @@ async def test_extract_treats_parse_error_as_fallback(monkeypatch) -> None:
 
     assert result.status == "failed"
     assert result.failure_reason == "parse_failure"
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_returns_full_meta_values_without_truncation() -> None:
+    long_text = "가" * 800
+    html = (
+        f'<meta property="og:description" content="{long_text}">'
+        '<meta property="og:image" content="https://cdn.example.com/a.jpg?sig=1">'
+        '<meta name="Description" content="이름 메타">'
+    )
+    client = build_client(
+        lambda request: httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+    )
+
+    page = await client.fetch_page("https://example.com/post#fragment")
+
+    assert page.status == "success"
+    assert page.resolved_url == "https://example.com/post"
+    assert page.properties["og:description"] == long_text
+    assert page.properties["og:image"] == "https://cdn.example.com/a.jpg?sig=1"
+    assert page.names["description"] == "이름 메타"
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_reports_failure_and_keeps_safety_limits() -> None:
+    client = build_client(lambda request: httpx.Response(404))
+    page = await client.fetch_page("https://example.com/missing")
+    assert (page.status, page.failure_reason) == ("failed", "http_status_404")
+
+    async def private_resolver(hostname: str, port: int) -> set[str]:
+        return {"10.0.0.5"}
+
+    with pytest.raises(UnsafeUrlError):
+        await build_client(
+            lambda request: httpx.Response(200), resolver=private_resolver
+        ).fetch_page("https://example.com")
+
+    too_large = build_client(
+        lambda request: httpx.Response(
+            200, headers={"content-type": "text/html"}, content=b"x" * 11
+        ),
+        max_response_bytes=10,
+    )
+    assert (await too_large.fetch_page("https://example.com")).failure_reason == (
+        "response_too_large"
+    )
