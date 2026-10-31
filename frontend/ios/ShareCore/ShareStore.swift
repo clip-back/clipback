@@ -25,7 +25,7 @@ struct ShareKeychain: ShareCredentialVault {
     let status = SecItemCopyMatching(query as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
     guard status == errSecSuccess, let data = result as? Data else {
-      throw ShareFailure.message("공유 인증 저장소를 읽을 수 없습니다. 앱에서 다시 시도해 주세요.")
+      throw ShareFailure.classified(.authentication, "공유 인증 저장소를 읽을 수 없습니다. 앱에서 다시 시도해 주세요.")
     }
     return try JSONDecoder().decode(ShareCredential.self, from: data)
   }
@@ -151,6 +151,12 @@ final class ShareStore {
     }
   }
   func currentCredential() throws -> ShareCredential? { try transaction { try credential($0) } }
+  /// The account a kept share would save to. nil is login required, including an unreadable Keychain credential (Q9②);
+  /// other errors are App Group lock or state file failures (Q9③).
+  func savingCredential() throws -> ShareCredential? {
+    do { return try currentCredential() }
+    catch let failure as ShareFailure where failure.kind == .authentication { return nil }
+  }
   func draft(_ id: String) throws -> ShareDraft? {
     try transaction { state in expire(&state); return state.drafts.first { $0.id == id } }
   }
@@ -161,16 +167,17 @@ final class ShareStore {
   }
 
   func createLink(_ text: String) throws -> ShareDraft {
-    guard text.count <= 5000,
-          let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
-      throw ShareFailure.unsupported
+    guard text.count <= 5000 else { throw ShareFailure.refused(.textTooLong) }
+    guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+      throw ShareFailure.refused(.other)
     }
     let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
     let urls = matches.compactMap(\.url).filter { ["https", "http"].contains($0.scheme?.lowercased() ?? "") }
-    guard urls.count == 1, let url = urls.first, url.absoluteString.count <= 2048,
-          Self.supportedHost(url.host), url.user == nil, url.password == nil,
+    guard let url = urls.first else { throw ShareFailure.refused(.noLink) }
+    guard urls.count == 1 else { throw ShareFailure.refused(.multipleLinks) }
+    guard url.absoluteString.count <= 2048, Self.supportedHost(url.host), url.user == nil, url.password == nil,
           url.port == nil || url.port == (url.scheme?.lowercased() == "https" ? 443 : 80) else {
-      throw ShareFailure.unsupported
+      throw ShareFailure.refused(.unsupportedLink)
     }
     let draft = ShareDraft(id: UUID().uuidString.lowercased(), kind: "link", label: url.absoluteString,
       createdAt: Date(), url: url.absoluteString, rawText: text, byteCount: text.utf8.count, state: "pending")
@@ -183,13 +190,16 @@ final class ShareStore {
   }
 
   func createImage(fileURL: URL) throws -> ShareDraft {
-    let file = try FileHandle(forReadingFrom: fileURL)
-    defer { try? file.close() }
     var data = Data()
-    while let chunk = try file.read(upToCount: min(64 * 1024, Self.maxImageBytes + 1 - data.count)), !chunk.isEmpty {
-      data.append(chunk)
-      guard data.count <= Self.maxImageBytes else { throw ShareFailure.fileTooLarge }
-    }
+    do {
+      let file = try FileHandle(forReadingFrom: fileURL)
+      defer { try? file.close() }
+      while let chunk = try file.read(upToCount: min(64 * 1024, Self.maxImageBytes + 1 - data.count)), !chunk.isEmpty {
+        data.append(chunk)
+        guard data.count <= Self.maxImageBytes else { throw ShareFailure.fileTooLarge }
+      }
+    } catch let failure as ShareFailure { throw failure }
+    catch { throw ShareFailure.refused(.imageUnreadable) }
     return try createImage(data)
   }
 
@@ -197,7 +207,7 @@ final class ShareStore {
     guard data.count <= Self.maxImageBytes else { throw ShareFailure.fileTooLarge }
     guard !data.isEmpty,
           let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-          CGImageSourceGetCount(imageSource) == 1 else { throw ShareFailure.unsupported }
+          CGImageSourceGetCount(imageSource) == 1 else { throw ShareFailure.refused(.imageFile) }
     let header = [UInt8](data.prefix(12))
     let mime: String
     let ext: String
@@ -205,7 +215,7 @@ final class ShareStore {
     else if header.starts(with: [255, 216, 255]) { mime = "image/jpeg"; ext = "jpg" }
     else if header.count == 12, String(bytes: header[0..<4], encoding: .ascii) == "RIFF",
             String(bytes: header[8..<12], encoding: .ascii) == "WEBP" { mime = "image/webp"; ext = "webp" }
-    else { throw ShareFailure.unsupported }
+    else { throw ShareFailure.refused(.imageFormat) }
     let id = UUID().uuidString.lowercased()
     let draft = ShareDraft(id: id, kind: "image", label: "공유한 이미지", createdAt: Date(),
       imageName: "\(id).\(ext)", mimeType: mime, byteCount: data.count, state: "pending")
@@ -218,7 +228,7 @@ final class ShareStore {
       expire(&state)
       guard state.drafts.count < 10,
             state.drafts.reduce(0, { $0 + $1.byteCount }) + draft.byteCount <= 100 * 1024 * 1024 else {
-        throw ShareFailure.message("보관 가능한 초안이 가득 찼습니다. 앱에서 대기 항목을 저장하거나 삭제해 주세요.")
+        throw ShareFailure.classified(.storageFull, "보관 가능한 초안이 가득 찼습니다. 앱에서 대기 항목을 저장하거나 삭제해 주세요.")
       }
       if let image, let url = imageURL(draft) { try image.write(to: url, options: .atomic) }
       state.drafts.append(draft)
@@ -232,11 +242,11 @@ final class ShareStore {
       guard current.revision == expected.revision, current.userId == expected.userId,
             current.sessionId == expected.sessionId else { throw ShareFailure.changedAccount }
       guard let index = state.drafts.firstIndex(where: { $0.id == id }) else {
-        throw ShareFailure.message("보관 기간이 지났거나 삭제된 초안입니다.")
+        throw ShareFailure.classified(.missing, "보관 기간이 지났거나 삭제된 초안입니다.")
       }
       if let userId = state.drafts[index].userId, userId != current.userId { throw ShareFailure.changedAccount }
       if let base = state.drafts[index].apiBaseUrl, base != expectedBaseURL {
-        throw ShareFailure.message("이 초안은 다른 서버 환경에서 전송되었습니다. 같은 서버 환경에서 다시 시도해 주세요.")
+        throw ShareFailure.classified(.otherEnvironment, "이 초안은 다른 서버 환경에서 전송되었습니다. 같은 서버 환경에서 다시 시도해 주세요.")
       }
       state.drafts[index].apiBaseUrl = expectedBaseURL
       state.drafts[index].userId = current.userId

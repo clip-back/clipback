@@ -48,7 +48,7 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 [원본 조회 동작](../docs/frontend/behavior.md#저장된-스크린샷-원본-조회)을 따릅니다.
 
 운영자가 이미지 저장을 일시 중단하면 본앱·네이티브 공유의 기존 오류 영역에 재시도 사유를
-표시합니다. 선택·초안은 유지하며 기존 원본 열람·삭제와 완료된 공유의 재전송은 계속 가능합니다.
+표시합니다. iOS·Android 공유 메뉴의 공유 저장 시트에서는 같은 문구를 OS 알림창으로 표시하며, 분류별 [다시 시도]·[닫기]를 둡니다. 선택·초안은 유지하며 기존 원본 열람·삭제와 완료된 공유의 재전송은 계속 가능합니다.
 서버 스위치·관측 사용량의 의미는 [이미지 운영 안내](../docs/backend/image-storage-operations.md)를 따릅니다.
 
 ## 기본 검증
@@ -115,7 +115,11 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - Today·Weekly, 최근 검색어, 시스템 뒤로가기는 기준 커밋에 연결되어 있습니다. 작업별 실제 검증과 한계는 이력 목차를 확인합니다.
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
-- 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다. Dart API 오류 검사는
+- iOS·Android 공유 메뉴는 송신 앱 위에 공유 저장 시트(손잡이·저장하기·안내 문구)를 띄우고, 저장 뒤
+  `✓ 저장 완료!` 토스트를 보여 준 다음 송신 앱으로 돌아갑니다. 본앱의 저장 대기 공유 재개는 기존 전체 화면 작성기를 씁니다.
+  오류·로그인 필요는 분류별 OS 알림창([닫기]·[다시 시도], Android는 [허투루 열기] 추가)으로 안내합니다.
+  화면 동작은 [모바일 공유 저장](../docs/frontend/behavior.md#모바일-공유-저장)을 따릅니다.
+- 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다(iOS·Android 공유 저장 시트는 OS 알림창). Dart API 오류 검사는
   `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
   [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
 - 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.

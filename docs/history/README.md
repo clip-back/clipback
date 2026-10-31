@@ -27,6 +27,7 @@
 | --- | --- | --- |
 | 2026-10-31 | [인스타그램 요약 백엔드 구현과 리뷰 수정](2026-10-31-instagram-summary-backend.md) | 백엔드 |
 | 2026-10-31 | [저장 결과 처리 중 문구를 링크 정보로 통일](2026-10-31-link-pending-message.md) | UI |
+| 2026-10-31 | [공유 저장 시트와 완료 토스트 구현·검증](2026-10-31-share-save-sheet.md) | 공유 |
 | 2026-10-30 | [마이 앱 버전 표시 구현·검증](2026-10-30-app-version-display.md) | UI |
 | 2026-10-28 | [Android 내부 테스트 배포 구현·검증](2026-10-28-android-internal-test-implementation.md) | 앱 내부 배포 |
 | 2026-10-28 | [Android 내부 테스트 배포 구현 티켓 발행](2026-10-28-android-internal-test-tickets.md) | 티켓 |

@@ -21,6 +21,7 @@ CATEGORY = {"id": 99, "name": "미분류", "color": "#B5BDC3", "is_default": Tru
 LOCK = threading.Lock()
 RECEIPTS: dict[str, tuple[str, dict]] = {}
 CONTROL: dict = {}
+SAVE_REQUESTS = 0
 
 
 def content(ident: int, url: str | None = None) -> dict:
@@ -58,7 +59,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.removeprefix("/api/v1")
         query = parse_qs(parsed.query)
         if path == "/__test/state":
-            return self.reply({"saved": len(RECEIPTS), "records": len(RECORDS)})
+            return self.reply({"saved": len(RECEIPTS), "records": len(RECORDS),
+                               "save_requests": SAVE_REQUESTS})
         if path == "/users/me":
             return self.reply({"id": 7, "display_name": "공유 테스트 계정", "email": None,
                                "is_guest": True, "linked_providers": [],
@@ -84,6 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply({"detail": "Unsupported fixture route"}, 404)
 
     def do_POST(self):
+        global SAVE_REQUESTS
         path = urlparse(self.path).path.removeprefix("/api/v1")
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         if path == "/__test/control":
@@ -104,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({})
         if path not in ("/contents/share", "/uploads/screenshots", "/contents"):
             return self.reply({"detail": "Unsupported fixture route"}, 404)
+        with LOCK:
+            SAVE_REQUESTS += 1
         if not self.headers.get("Authorization", "").startswith("Bearer "):
             return self.reply({"detail": "본앱에서 로그인 상태를 확인해 주세요."}, 401)
         key = self.headers.get("Idempotency-Key", "")

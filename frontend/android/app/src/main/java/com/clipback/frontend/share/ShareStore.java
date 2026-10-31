@@ -148,10 +148,10 @@ public final class ShareStore {
         UUID.fromString(id);
         JSONObject state = read(); expire(state); JSONArray drafts = state.getJSONArray("drafts");
         for (int i=0; i<drafts.length(); i++) if (id.equals(drafts.getJSONObject(i).getString("id"))) return id;
-        if (drafts.length() >= 10) throw new IOException("보관 중인 공유가 10개입니다. 본앱에서 먼저 저장하거나 삭제해 주세요.");
+        if (drafts.length() >= 10) throw new ShareFailure(ShareFailure.Kind.STORAGE_FULL, "보관 중인 공유가 10개입니다. 본앱에서 먼저 저장하거나 삭제해 주세요.");
         long total = bytes == null ? 0 : bytes.length;
         for (int i=0; i<drafts.length(); i++) total += imageFile(drafts.getJSONObject(i).getString("id")).length();
-        if (total > MAX_TOTAL) throw new IOException("공유 보관 공간이 가득 찼습니다. 본앱에서 대기 항목을 정리해 주세요.");
+        if (total > MAX_TOTAL) throw new ShareFailure(ShareFailure.Kind.STORAGE_FULL, "공유 보관 공간이 가득 찼습니다. 본앱에서 대기 항목을 정리해 주세요.");
         JSONObject draft = new JSONObject().put("id", id).put("createdAt", System.currentTimeMillis())
             .put("kind", bytes == null ? "link" : "image").put("state", "ready")
             .put("label", bytes == null ? url : "스크린샷");
@@ -181,19 +181,19 @@ public final class ShareStore {
     public JSONObject begin(String id, long expectedRevision, String expectedUser) throws Exception { synchronized (LOCK) {
         JSONObject state = read(); JSONObject auth = credential(state);
         if (auth == null || expiry(auth.getString("expiresAt")) <= System.currentTimeMillis())
-            throw new IOException("본앱에서 로그인 상태를 확인한 뒤 대기 중인 공유를 다시 열어 주세요.");
+            throw new ShareFailure(ShareFailure.Kind.LOGIN, "본앱에서 로그인 상태를 확인한 뒤 대기 중인 공유를 다시 열어 주세요.");
         if (state.getLong("revision") != expectedRevision || !auth.getString("userId").equals(expectedUser))
-            throw new IOException("저장 계정이 변경되었습니다. 계정을 확인한 뒤 다시 시도해 주세요.");
-        if (!baseUrl().equals(auth.getString("apiBaseUrl").replaceAll("/+$", ""))) throw new IOException("앱 환경이 변경되었습니다. 본앱에서 다시 준비해 주세요.");
+            throw new ShareFailure(ShareFailure.Kind.ACCOUNT_CHANGED, "저장 계정이 변경되었습니다. 계정을 확인한 뒤 다시 시도해 주세요.");
+        if (!baseUrl().equals(auth.getString("apiBaseUrl").replaceAll("/+$", ""))) throw new ShareFailure(ShareFailure.Kind.OTHER_ENVIRONMENT, "앱 환경이 변경되었습니다. 본앱에서 다시 준비해 주세요.");
         JSONArray drafts = state.getJSONArray("drafts");
         for (int i=0; i<drafts.length(); i++) {
             JSONObject item = drafts.getJSONObject(i); if (!id.equals(item.getString("id"))) continue;
-            if (item.has("userId") && !item.getString("userId").equals(expectedUser)) throw new IOException("처음 저장을 요청한 계정에서만 재시도할 수 있습니다.");
-            if (item.has("apiBaseUrl") && !baseUrl().equals(item.getString("apiBaseUrl"))) throw new IOException("다른 서버에서 시작한 공유입니다. 원래 앱 환경에서 확인해 주세요.");
+            if (item.has("userId") && !item.getString("userId").equals(expectedUser)) throw new ShareFailure(ShareFailure.Kind.ACCOUNT_CHANGED, "처음 저장을 요청한 계정에서만 재시도할 수 있습니다.");
+            if (item.has("apiBaseUrl") && !baseUrl().equals(item.getString("apiBaseUrl"))) throw new ShareFailure(ShareFailure.Kind.OTHER_ENVIRONMENT, "다른 서버에서 시작한 공유입니다. 원래 앱 환경에서 확인해 주세요.");
             item.put("userId", expectedUser).put("apiBaseUrl", baseUrl()).put("state", "sending"); write(state);
             return new JSONObject().put("draft", item).put("credential", auth).put("revision", expectedRevision);
         }
-        throw new IOException("공유 항목이 만료되었거나 삭제되었습니다.");
+        throw new ShareFailure(ShareFailure.Kind.MISSING, "공유 항목이 만료되었거나 삭제되었습니다.");
     }}
     public boolean sameAccount(long revision, String user) throws Exception { synchronized (LOCK) {
         JSONObject state = read(); JSONObject auth = credential(state);

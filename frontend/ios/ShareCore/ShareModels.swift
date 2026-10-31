@@ -11,8 +11,10 @@ enum ShareInputNormalizer {
 
   static func singleURL(_ urls: [URL]) throws -> String {
     guard let first = urls.first,
-          urls.allSatisfy({ ["https", "http"].contains($0.scheme?.lowercased() ?? "") }),
-          urls.allSatisfy({ $0 == first || sameYouTubePage(first, $0) }) else { throw ShareFailure.unsupported }
+          urls.allSatisfy({ ["https", "http"].contains($0.scheme?.lowercased() ?? "") }) else {
+      throw ShareFailure.refused(.unsupportedLink)
+    }
+    guard urls.allSatisfy({ $0 == first || sameYouTubePage(first, $0) }) else { throw ShareFailure.refused(.multipleLinks) }
     return first.absoluteString
   }
 
@@ -93,15 +95,40 @@ struct ShareDiskState: Codable {
   var receipts: [ShareReceipt] = []
 }
 
+/// Why a share was not accepted; the share save sheet words each reason.
+enum ShareRefusal {
+  case notSingle, textTooLong, noLink, multipleLinks, unsupportedLink, imageUnreadable, imageTooLarge, imageFormat, imageFile, other
+}
+
+/// The category the share save sheet picks its alert by. The recovery screen keeps showing the existing message.
+enum ShareFailureKind: Equatable {
+  case refused(ShareRefusal)
+  case storageFull
+  case authentication
+  case unconfirmed, paused, rejected
+  case imageQuota
+  case accountChanged, otherEnvironment, savedBeforeAccountChange
+  case deleted, mismatch, tooLarge
+  case missing
+}
+
 enum ShareFailure: LocalizedError {
   case message(String)
+  case classified(ShareFailureKind, String)
   var errorDescription: String? {
-    switch self { case .message(let message): return message }
+    switch self { case .message(let message), .classified(_, let message): return message }
   }
-  static let authentication = ShareFailure.message("초안을 보관했습니다. 허투루 앱을 열어 로그인을 확인한 뒤 대기 항목을 선택해 주세요.")
-  static let changedAccount = ShareFailure.message("저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.")
-  static let unsupported = ShareFailure.message("Instagram·YouTube 링크 하나 또는 PNG·JPEG·WebP 이미지 한 장(10MiB 이하)을 공유해 주세요.")
-  static let fileTooLarge = ShareFailure.message("이미지는 10MiB 이하만 저장할 수 있습니다.")
+  var kind: ShareFailureKind? {
+    if case .classified(let kind, _) = self { return kind }
+    return nil
+  }
+  static let authentication = ShareFailure.classified(.authentication, "초안을 보관했습니다. 허투루 앱을 열어 로그인을 확인한 뒤 대기 항목을 선택해 주세요.")
+  static let changedAccount = ShareFailure.classified(.accountChanged, "저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.")
+  static let fileTooLarge = refused(.imageTooLarge)
+  static func refused(_ reason: ShareRefusal) -> ShareFailure {
+    .classified(.refused(reason), reason == .imageTooLarge ? "이미지는 10MiB 이하만 저장할 수 있습니다."
+      : "Instagram·YouTube 링크 하나 또는 PNG·JPEG·WebP 이미지 한 장(10MiB 이하)을 공유해 주세요.")
+  }
 }
 
 enum ShareConfiguration {

@@ -6,11 +6,21 @@ import UIKit
 final class MemoryShareVault: ShareCredentialVault {
   var value: ShareCredential?
   var fails = false
-  func read() throws -> ShareCredential? { value }
+  var readFails = false
+  func read() throws -> ShareCredential? {
+    // Same error as ShareKeychain when the Keychain cannot be read.
+    if readFails { throw ShareFailure.classified(.authentication, "공유 인증 저장소를 읽을 수 없습니다. 앱에서 다시 시도해 주세요.") }
+    return value
+  }
   func write(_ credential: ShareCredential) throws {
     if fails { throw ShareFailure.message("test storage failure") }
     value = credential
   }
+}
+
+/// The category a failure carries for the share save sheet's alert, or nil when the body succeeds.
+func failureKind(_ body: () throws -> Any) -> ShareFailureKind? {
+  do { _ = try body(); return nil } catch { return (error as? ShareFailure)?.kind }
 }
 
 final class ShareStoreTests: XCTestCase {
@@ -45,6 +55,28 @@ final class ShareStoreTests: XCTestCase {
     vault.fails = true
     XCTAssertThrowsError(try store.publish(credential(revision)))
     XCTAssertNil(try store.currentCredential())
+  }
+  /// After a share is kept (spec #122 Q9): a missing or unreadable Keychain credential is login required,
+  /// while App Group lock and state file failures are storage failures.
+  func testSavingCredentialSeparatesLoginRequiredFromStorageFailure() throws {
+    let revision = try store.blockCredential()
+    XCTAssertTrue(try store.publish(credential(revision)))
+    XCTAssertEqual(try store.savingCredential()?.userId, "7")
+    vault.readFails = true
+    XCTAssertNil(try store.savingCredential())
+    vault.readFails = false
+    _ = try store.blockCredential()
+    XCTAssertNil(try store.savingCredential())
+
+    let state = store.directory.appendingPathComponent("state.json")
+    let kept = try Data(contentsOf: state)
+    try Data("unreadable".utf8).write(to: state)
+    XCTAssertThrowsError(try store.savingCredential()) { XCTAssertNotEqual(($0 as? ShareFailure)?.kind, .authentication) }
+    try kept.write(to: state)
+    try FileManager.default.removeItem(at: store.directory.appendingPathComponent("state.lock"))
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.directory.path) }
+    XCTAssertThrowsError(try store.savingCredential()) { XCTAssertNotEqual(($0 as? ShareFailure)?.kind, .authentication) }
   }
   func testSubmittedDraftKeepsIdentityAndOriginalAccountAcrossReopen() throws {
     let revision = try store.blockCredential()
@@ -85,6 +117,45 @@ final class ShareStoreTests: XCTestCase {
     for _ in 1..<10 { _ = try store.createLink("https://youtu.be/dQw4w9WgXcQ") }
     XCTAssertThrowsError(try store.createLink("https://youtu.be/dQw4w9WgXcQ"))
     XCTAssertNotNil(try store.draft(first.id))
+  }
+  func testRefusalsAndFullStorageCarryTheirCategory() throws {
+    XCTAssertEqual(failureKind { try self.store.createLink(String(repeating: "a", count: 5001)) }, .refused(.textTooLong))
+    XCTAssertEqual(failureKind { try self.store.createLink("링크가 없는 공유 글") }, .refused(.noLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ https://youtu.be/other") }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://example.com/unsupported") }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be:1234/dQw4w9WgXcQ") }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(string: "https://youtu.be/dQw4w9WgXcQ")!,
+      URL(string: "https://youtu.be/another")!]) }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(fileURLWithPath: "/private/tmp/metadata")]) },
+      .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createImage(Data("not an image".utf8)) }, .refused(.imageFile))
+    let gif = try XCTUnwrap(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=="))
+    XCTAssertEqual(failureKind { try self.store.createImage(gif) }, .refused(.imageFormat))
+    XCTAssertEqual(failureKind { try self.store.createImage(Data(repeating: 0, count: ShareStore.maxImageBytes + 1)) },
+      .refused(.imageTooLarge))
+    XCTAssertEqual(failureKind { try self.store.createImage(fileURL: self.folder.appendingPathComponent("missing.png")) },
+      .refused(.imageUnreadable))
+    for _ in 0..<10 { _ = try store.createLink("https://youtu.be/dQw4w9WgXcQ") }
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ") }, .storageFull)
+  }
+  func testSaveTimeAccountAndEnvironmentFailuresCarryTheirCategory() throws {
+    let original = credential(try store.blockCredential())
+    XCTAssertTrue(try store.publish(original))
+    XCTAssertEqual(failureKind { try self.store.begin("missing", expected: original) }, .missing)
+    let draft = try store.createLink("https://youtu.be/dQw4w9WgXcQ")
+    _ = try store.begin(draft.id, expected: original)
+    let switched = credential(try store.blockCredential(), user: "8", session: "12")
+    XCTAssertTrue(try store.publish(switched))
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: original) }, .accountChanged)
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: switched) }, .accountChanged)
+    let otherBase = "https://other.invalid/api/v1"
+    let otherStore = try ShareStore(directory: folder, vault: vault, apiBaseUrl: otherBase)
+    let other = ShareCredential(revision: try otherStore.blockCredential(), token: "other-environment-token",
+      expiresAt: original.expiresAt, userId: "7", sessionId: "11", accountLabel: "테스트 계정", apiBaseUrl: otherBase)
+    XCTAssertTrue(try otherStore.publish(other))
+    XCTAssertEqual(failureKind { try otherStore.begin(draft.id, expected: other) }, .otherEnvironment)
+    XCTAssertEqual(failureKind { try self.store.begin(draft.id, expected: original) }, .authentication)
+    XCTAssertEqual(try store.draft(draft.id)?.userId, "7")
   }
   func testKnownOversizedImageHasDedicatedReasonForMemoryAndFileIntake() throws {
     let bytes = Data(repeating: 0, count: ShareStore.maxImageBytes + 1)

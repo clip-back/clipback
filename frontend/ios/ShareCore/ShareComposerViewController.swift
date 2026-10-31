@@ -1,7 +1,7 @@
 import ImageIO
 import UIKit
 
-/// Extension-safe composer, embedded by either the extension or the main application's modal host.
+/// Extension-safe composer for pending-share recovery in the main application's modal host.
 final class ShareComposerViewController: UIViewController {
   private let store: ShareStore
   private let draftId: String
