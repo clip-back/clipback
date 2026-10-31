@@ -41,7 +41,7 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 
 ## 실제 공유 UI 테스트
 
-아래 열네 테스트가 로컬 fixture 검증 묶음이다. 공유 메뉴 경로는 공유 저장 시트(`share.sheet`)를 띄우고,
+아래 열다섯 테스트가 로컬 fixture 검증 묶음이다. 공유 메뉴 경로는 공유 저장 시트(`share.sheet`)를 띄우고,
 "저장하기"(`share.save`) 뒤 완료 토스트(`share.toast`, "저장 완료!")를 거쳐 송신 앱으로 돌아오는지와
 `save_requests`가 한 번만 늘었는지 확인한다. 시트에 제목·닫기 버튼·초안 삭제·저장 계정·공유 내용·미리보기가 없는지도 검사한다.
 닫기는 손잡이 끌어내림과 배경(`share.dismiss`) 탭을 쓰며, 저장 전 닫기는 본앱의 저장 대기 공유 수가 늘지 않는지 본다.
@@ -51,7 +51,8 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 응답 유실·30초 timeout(서버 응답 35초 지연)·500·422는 [다시 시도]로 저장 1건·요청 2회(중복 없음)인지,
 [닫기] 뒤 보관된 공유를 본앱 복구 화면에서 다시 저장해 저장 1건·요청 2회인지 각각 검사한다.
 로그인 필요는 401로 공유 자격을 막은 뒤 다음 공유가 보관된 다음 알림창이 뜨고 저장 요청이 없는지, [닫기] 뒤 본앱 복구 화면에서
-이어 저장되는지 본다. 같은 방법으로 기기에 10개를 보관한 뒤 공유하면 보관 실패 알림창에 "보관했습니다"가 없고 보관 수가 늘지 않는지 보며,
+이어 저장되는지 본다. 저장 응답 401과 이 준비 단계 모두 알림창 전에 시트가 내려갔는지는 알림창이 접근성 모달이라
+화면 캡처에서 원래 "저장하기" 자리에 노란색이 남지 않았는지로 확인한다. 같은 방법으로 기기에 10개를 보관한 뒤 공유하면 보관 실패 알림창에 "보관했습니다"가 없고 보관 수가 늘지 않는지 보며,
 쌓은 공유는 본앱 복구 화면에서 저장해 정리한다. 지원하지 않는 공유는 받기 거절 알림창 [닫기] 뒤 보관 수가 늘지 않는지 본다.
 저장 중 닫기·송신 앱 강제 종료 테스트는 서버 저장 후 응답을 각각 10초·20초 지연시킨다. 본앱의 수동 저장 창에
 입력만 남겨 두고 외부 공유를 중단한 뒤, 본앱 네이티브 모달에서 같은 초안을 재개한다.
@@ -77,6 +78,7 @@ xcodebuild -project ios/ShareVerification/ShareVerification.xcodeproj \
   -only-testing:ShareUITests/ShareUITests/testSignedOutShareIsKeptBeforeLoginAlertAndResumesInMain \
   -only-testing:ShareUITests/ShareUITests/testDeviceStorageFullKeepsNothingAndNeverSaysKept \
   -only-testing:ShareUITests/ShareUITests/testServerRejectionsRetryKeepOrDiscardByCategory \
+  -only-testing:ShareUITests/ShareUITests/testIrreversibleCloseDiscardFailureRetriesOrKeepsShare \
   -only-testing:ShareUITests/ShareUITests/testUnauthorizedDraftResumesInMainNativeModal \
   -only-testing:ShareUITests/ShareUITests/testCloseDuringSaveRecoversWithoutDuplicateAndPreservesManualInput \
   -only-testing:ShareUITests/ShareUITests/testSenderTerminationDuringSaveRecoversWithoutDuplicateAndPreservesManualInput \
@@ -94,6 +96,9 @@ Safari가 같은 URL을 여러 `NSItemProvider`로 제공하면 단일 링크로
 이미지 계정 한도·운영 중단·파일 크기 오류와 410·409는 위 묶음의 `testServerRejectionsRetryKeepOrDiscardByCategory`가 검사한다.
 `next_save_status`와 `next_save_detail`을 제어해 실제 Share Extension의 분류별 알림창을 확인한다. 일시 중단은 [다시 시도]로 저장하고,
 이미지 한도는 [닫기] 뒤 보관해 본앱 복구 화면에서 저장하며, 410·409·413은 [닫기] 뒤 남지 않는지 본다.
+`testIrreversibleCloseDiscardFailureRetriesOrKeepsShare`는 410 알림창의 [닫기] 직전에 러너가 Simulator의 App Group `ShareIntake` 폴더를
+읽기 전용(555)으로 바꿔 버리기 실패를 만든다. 실패 알림창의 [다시 시도]는 권한을 되돌린 뒤 버리고, [닫기]는 공유를 남기는지
+(본앱 저장 대기 공유 수와 복구 화면 저장) 확인하며 끝나면 권한을 755로 되돌린다.
 `ios-share-image-paused`·`ios-share-image-quota`·`ios-share-deleted`·`ios-share-mismatch`·`ios-share-image-file-limit` OS 스크린샷을 첨부한다.
 이는 네이티브 오류 전달 검증이며 서버의 실제 한도 계산은 PostgreSQL API 통합 테스트가 검증한다.
 

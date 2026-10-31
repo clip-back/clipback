@@ -451,3 +451,79 @@ iOS #125와 같은 표를 쓴다(분류별 iOS 원문 기준, 시트에 없는 �
   홈 화면을 거쳐 앱을 전환했을 때는 확장이 유지됐다. 실제 사용자 경로에서도 같은 일이 생기는지는 확인하지 못했다.
 - iOS: 전송 전 계정 변경으로 보관한 항목의 상태가 `authRequired`(사용자 ID 없음)다. 본앱 복구 화면에서는 로그인 필요 항목으로 이어진다.
   [통합 리뷰 수정](#통합-리뷰-수정) F1에서 확인한 동작과 같다.
+
+## 코드 리뷰 2차 수정
+
+통합 브랜치 `feat/share-save-sheet`(`9c895a7`)의 코드 리뷰 지적과 2026-10-31 사용자 결정 변경을 브랜치 `feat/share-save-sheet-review2`에서 처리했다.
+서버 API와 저장 규칙은 바꾸지 않았다. 새 문구도 만들지 않았다. 바뀐 동작은 아래 세 가지다.
+
+### 처리
+
+- iOS 되돌릴 수 없음 [닫기]의 폐기 실패(#125): 410·409·413 알림창의 [닫기]가 `store.discard` 오류를 무시하고 닫았다.
+  그래서 공유가 저장 대기 공유로 남았는데도 안내가 없었다. 이제 Android `closeShare`의 같은 경로(통합 리뷰 F4)와 같은 알림창을 띄운다.
+  제목 없이 "초안을 보관하지 못했습니다. 다시 시도해 주세요."와 [다시 시도]·[닫기]를 보여 준다.
+  [다시 시도]는 버리기를 다시 하고, [닫기]는 남은 공유를 그대로 둔 채 닫는다.
+- iOS 보관 후 계정 확인의 오류 구분(#125): 준비 단계에서 `try? store.currentCredential()`가 모든 오류를 로그인 필요로 안내했다.
+  이제 `ShareStore.savingCredential()`이 오류를 나눈다. Android `ShareActivity.bind()`(통합 리뷰 F3)와 같은 구분이다.
+  - 로그인 필요: 자격 없음·만료, Keychain 읽기 실패(`.authentication` 분류, Q9②). 사용자 ID 없는 공유는 지금처럼 `authRequired`로 기록한다.
+  - 보관 실패(쓰기 실패) "공유 내용을 보관하지 못했어요. 다시 공유해 주세요." [닫기]: App Group 잠금·상태 파일 읽기/쓰기 실패(Q9③).
+    이때 시트는 내리지 않는다(Android와 같음). [닫기]는 iOS의 기존 닫기 규칙을 따른다.
+    그동안 저장소가 회복돼 공유를 읽을 수 있으면 저장 전 미연결 공유로 보고 버린다. Android는 알림창이 뜬 공유를 남긴다.
+    두 플랫폼 모두 기존 닫기 규칙을 그대로 둔 결과다.
+- 저장 시점 로그인 필요(#123·#125, #124·#126): 사용자 결정 변경으로 결정 Q3의 "저장 응답 401은 시트를 남김"을 대체한다.
+  저장 응답 401과 전송 직전 자격 만료도 준비 단계처럼 시트를 내린 뒤 로그인 필요 알림창을 띄운다.
+  iOS는 `showLoginAlert()`, Android는 `showAlert`의 로그인 필요 분기 한 곳에서 시트를 내린다.
+  Android의 준비 단계·재생성·Keystore 읽기 실패 경로에 따로 있던 `hideSheet()` 호출은 이 공통 처리로 옮겼다.
+  [통합 화면 검증](#통합-화면-검증)의 "시트를 먼저 내리는 경우는 준비 단계의 로그인 필요뿐"은 이 변경 전의 결과다.
+- Android 준비 중 닫기 테스트의 고정 대기(#124, 테스트만 변경): `awaitPreparedDraftDiscarded`가 `Thread.sleep(1000)` 뒤 부재만 확인했다.
+  이제 `ShareActivity`의 입력 작업 큐(단일 스레드 `INPUTS`, 리플렉션으로 접근)에 빈 작업을 넣어 받기가 끝났음을 확인한다.
+  이어서 메인 스레드가 넘긴 버리기 작업도 같은 방법으로 끝났음을 확인한 뒤 저장 대기 공유·이미지 파일 부재를 본다.
+- 회귀 기준 `testUnauthorizedDraftResumesInMainNativeModal`은 고치지 않았다. #123에서 승인한 한 줄 예외 상태 그대로 통과했다.
+  iOS 시트 숨김 검증은 다른 테스트에 넣었다. 저장 응답 401 경로는 `testSignedOutShareIsKeptBeforeLoginAlertAndResumesInMain`에 넣었다.
+  알림창이 접근성 모달이라 시트 요소를 찾을 수 없어서 화면 캡처로 확인한다. 원래 "저장하기" 자리 가로줄에 노란 픽셀이 20% 미만이어야 한다.
+  같은 테스트의 준비 단계 로그인 필요도 이 방법으로 확인한다(#125 절에서 XCUITest로 구분할 수 없다고 남긴 항목).
+  이를 위해 `tapReady`의 대기 부분을 `waitReady`로 나눠 저장 전 버튼 위치를 읽는다.
+
+### 자동 검증
+
+2026-10-31 21:28~22:25 KST 로컬 대역 검증이다. 대역은 앞 절과 같은 임시 래퍼로 실행했다(카테고리 `last_saved_at: null`만 보충, 저장소 파일 무변경).
+운영 서버·실기기·실제 OAuth는 검증하지 않았다. 두 플랫폼 장치는 동시에 띄우지 않았다.
+
+- 재현 테스트(수정 전 제품 코드에서 먼저 실행)
+  - iOS 새 `testIrreversibleCloseDiscardFailureRetriesOrKeepsShare`: 실패했다. 410 알림창 [닫기] 직전에 러너가 App Group
+    `ShareIntake` 폴더를 555로 바꾸자, 실패 알림창 없이 닫히고 `failed` 상태 공유가 남았다. 수정 뒤 통과했다.
+    통과 조건은 [다시 시도]로 버려져 남지 않는 것, [닫기]로 남은 공유가 본앱 복구 화면에서 저장되는 것이다.
+  - iOS `testSignedOutShareIsKeptBeforeLoginAlertAndResumesInMain`: 저장 응답 401 뒤 노란 픽셀 비율이 0.93으로 실패했다. 수정 뒤 통과했다.
+  - iOS `RunnerTests/ShareStoreTests.testSavingCredentialSeparatesLoginRequiredFromStorageFailure`: 수정 전에는 `savingCredential`이 없어
+    컴파일되지 않았다. 수정 뒤 통과했다. 이 테스트는 Keychain 읽기 실패를 로그인 필요(nil)로, 깨진 `state.json`과 잠금 파일 생성 실패를
+    로그인 필요가 아닌 오류로 받는지 확인한다. 이 경로는 보관 직후에만 생겨 UI 테스트로 만들 수 없어 저장소 단위로 확인했다.
+  - Android API 36 `ShareServiceFixtureTest.testUnauthorizedSaveShowsLoginAlertAndKeepsShare`: "The sheet must go down before the login alert"로
+    실패했다. 수정 뒤 통과했다.
+  - Android 준비 중 닫기 테스트: 제품 코드에 임시 변이를 넣어 비교했다(커밋 안 함). 변이는 받기 시작을 1.5초·4초 늦추고 취소 뒤 버리기를 뺀 것이다.
+    새 대기 방식은 링크·이미지(1.5초)와 링크(4초)에서 남은 공유 1개를 잡아 실패했다.
+    예전 고정 1초 대기는 4초 지연에서 아무것도 만들어지기 전에 확인해 통과했다.
+    4초 지연의 이미지는 늦은 받기가 공유를 만들지 않아 새 방식에서도 통과했다(창이 닫힌 뒤 이미지 URI를 읽지 못한 것으로 보이며 원인은 확인하지 않음).
+- iOS: iPhone 16 Simulator(iOS 18.6, Xcode 27.2).
+  - 항목별: 위 UI 테스트 2개와 회귀 기준 1개를 함께 실행해 3개 통과(223초).
+  - 전체: `RunnerTests` 25개 통과(24 + 새 1개). `ShareUITests` 로컬 묶음 15개(14 + 새 1개, Safari·사진·`testRealBackend*` 제외)도 모두 통과했다(1,354초).
+- Android: `Medium_Phone`(API 36, Android 16) 한 기기만 실행했다. API 33은 이번에 실행하지 않았다.
+  - 항목별: 바꾼 테스트와 시트 내림 관련 5개 통과.
+  - 전체: `ShareStoreTest`·`ShareActivityTest`·`ShareServiceFixtureTest` 61개 통과(356초).
+
+### 재촬영
+
+저장 응답 401만 다시 찍었다. 조건은 [통합 화면 검증](#통합-화면-검증)의 `b-auth-401`과 같다.
+링크 공유 → 대역 `{"next_save_status":401}` → 저장하기 순서이며, 원본 그대로 저장했다.
+
+| 플랫폼 | 변경 전 | 변경 후 | 결과 |
+| --- | --- | --- | --- |
+| iOS (iPhone 16, iOS 18.6) | `b-auth-401.png` | `b-auth-401-v2.png` | 시트가 내려가 화면 아래에 없고, OS 공유 시트 위에 알림창만 보인다. 제목·문구·[닫기]는 같다 |
+| Android (API 36) | `b-auth-401.png` | `b-auth-401-v2.png` | 시트가 내려가 화면 아래에 없고, 송신 앱 위에 알림창만 보인다. 제목·문구·[닫기][허투루 열기]는 같다. [닫기] 뒤 `authRequired` 1개 보관 |
+
+Figma 기준 화면은 없다([디자인 확인 필요](../figma-ui-alignment-plan.md#figma-pending-share-alerts)).
+
+### 한계
+
+- Android에서 draftId가 없는 준비 실패 알림창(받기 거절·보관 실패)이 떠 있는 동안 Activity가 재생성되는 경우가 있다.
+  이때는 같은 공유를 다시 받아 같은 알림창을 띄운다(`ShareActivity.onCreate`). 그 사이 저장 공간이 확보되면 결과가 달라질 수 있다.
+  예를 들어 기기 보관 한도 알림창이 재생성 뒤 보관 성공으로 바뀌어 시트가 뜰 수 있다. 드문 경우라 고치지 않았다.
