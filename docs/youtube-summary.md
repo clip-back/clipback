@@ -149,6 +149,9 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 `youtube_summary_result`(오류는 WARNING)에 다음이 남는다: `kind=instagram`, `content_id`, `error_code`,
 `provider`(실패 단계: `instagram` 페이지, `instagram_image` 대표 이미지, `openai`), `http_status`(응답이 없으면 null), `reason`(페이지 판정 사유, 위 표.
 OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
+페이지 판정을 통과해 대표 이미지 단계까지 간 시도는 성공이든 실패든 `image`(`used` 사용 여부, `reason` 미사용 사유, `http_status` 이미지 응답 상태)도 남는다.
+미사용 사유는 `no_image_url`(`og:image` 없음), `unsafe_url`(내부망 주소), `not_found`·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
+(이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아님), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
 캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
 
 차단 의심 신호 해석(서버 IP 차단은 게시물 문제가 아니므로 구분한다):
@@ -162,8 +165,9 @@ OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 �
 - `reason=rate_limited`·`server_error`·`network_error`·`timeout`: 일시 장애다. 한 번 재시도하며 `retryable=true`로 남는다.
   429가 이어지면 요청 속도 제한이므로 대기열 처리량을 확인한다.
 - `reason=no_caption_or_image`: 게시물은 확인됐으나 요약 근거가 없다. 차단 신호가 아니다.
-- `provider=instagram_image`(`reason=no_caption_or_image`): 캡션이 없고 대표 이미지도 받지 못했다. `http_status`가 401·403이면
-  이미지 서버(CDN) 차단 가능성을 본다. 캡션이 있으면 이미지 실패는 기록 없이 캡션만으로 요약하므로 이 단계는 나타나지 않는다.
+- `image.used=false`, `image.http_status` 401·403(`image.reason=access_denied`): 이미지 서버(CDN)가 서버 IP를 막는 신호다. 캡션이 있으면 요약은
+  캡션만으로 성공하므로(`error_code=null`) 이 필드로만 구분된다. 반복되면 대표 이미지를 받을 수 없는 것으로 판단한다.
+- `provider=instagram_image`(`reason=no_caption_or_image`): 캡션이 없고 대표 이미지도 받지 못해 요약하지 못했다. 원인은 같은 기록의 `image`와 `http_status`로 본다.
 - `provider=openai`: 인스타그램 접근은 성공했고 OpenAI 쪽 문제다(401/403은 `configuration_error`로 키·권한 확인).
 
 설정:
