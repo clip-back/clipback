@@ -143,6 +143,8 @@ final class ShareSaveServiceTests: XCTestCase {
     }
     wait(for: [finished], timeout: 5)
     XCTAssertNil(try store.draft(draft.id)?.userId)
+    // Not left "pending": the share sheet's [닫기] after this alert keeps the share for the main app.
+    XCTAssertEqual(try store.draft(draft.id)?.state, "authRequired")
   }
   func testMalformedSuccessPreservesUnknownResultForRetry() throws {
     let draft = try store.createLink("https://youtu.be/dQw4w9WgXcQ")
@@ -210,6 +212,7 @@ final class ShareSaveServiceTests: XCTestCase {
     XCTAssertEqual((failure(draft.id, expected: credential) as? ShareFailure)?.kind, .accountChanged)
     XCTAssertNotNil(try store.draft(draft.id))
     XCTAssertNil(try store.draft(draft.id)?.userId)
+    XCTAssertEqual(try store.draft(draft.id)?.state, "authRequired")
   }
   func testAccountSwitchAfterFailedSendKeepsDraftAndNeverSendsWithNewAccount() throws {
     let draft = try store.createLink("https://youtu.be/dQw4w9WgXcQ")
