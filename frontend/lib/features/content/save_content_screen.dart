@@ -861,12 +861,13 @@ class SavedContentConfirmation extends StatelessWidget {
   Widget build(BuildContext context) {
     final linkLabel = originalUrl.isEmpty ? content.originalUrl : originalUrl;
     final isPhoto = photoBytes != null;
-    final processingVideo =
-        content.source == sourceLabel('youtube') &&
+    final processingLink =
+        (content.source == sourceLabel('youtube') ||
+            content.source == sourceLabel('instagram')) &&
         (content.summaryStatus == 'queued' ||
             content.summaryStatus == 'processing');
-    final categoryMessage = processingVideo
-        ? '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.'
+    final categoryMessage = processingLink
+        ? '링크 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.'
         : content.category.name == catUncategorized.name
         ? '아직 분류되지 않았어요.'
         : '저장된 카테고리';

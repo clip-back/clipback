@@ -22,6 +22,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _contents = '/api/v1/contents';
 const _upload = '/api/v1/uploads/screenshots';
 const _videoUrl = 'https://youtu.be/dQw4w9WgXcQ';
+const _instagramUrl = 'https://www.instagram.com/p/summary-pending/';
+const _sourceUrls = {'youtube': _videoUrl, 'instagram': _instagramUrl};
+const _sourceLabels = {'youtube': '유튜브', 'instagram': '인스타그램'};
 const _first = {
   'id': 101,
   'name': '첫 카테고리',
@@ -54,7 +57,7 @@ const _hashCategory = {
   'content_count': 0,
   'last_saved_at': null,
 };
-const _pendingMessage = '동영상 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
+const _pendingMessage = '링크 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
 const _unclassifiedMessage = '아직 분류되지 않았어요.';
 const _classifiedMessage = '저장된 카테고리';
 const _changeHint = '분류는 상세 화면에서 변경할 수 있어요.';
@@ -130,7 +133,7 @@ class _Server {
           ..._content(screenshot: request.url.path == _upload),
           'categories': [category],
           if (source != null) 'source': source,
-          if (source == 'youtube') 'original_url': _videoUrl,
+          if (_sourceUrls[source] case final url?) 'original_url': url,
           if (summaryStatus != null) 'summary_status': summaryStatus,
         };
         response = _json(saved!, 201);
@@ -556,44 +559,65 @@ void main() {
     );
   }
 
-  for (final category in [_uncategorized, _recommended]) {
-    for (final status in [
-      'queued',
-      'processing',
-      'failed',
-      'skipped',
-      'completed',
-    ]) {
-      testWidgets(
-        'YouTube $status with ${category['name']} reports returned state without success claims',
-        (tester) async {
-          final server = _Server(
-            source: 'youtube',
-            summaryStatus: status,
-            category: category,
-          );
-          await _withApp(tester, server, () async {
-            await _saveLink(tester, url: _videoUrl);
-            final content = tester
-                .widget<SavedContentConfirmation>(
-                  find.byType(SavedContentConfirmation),
-                )
-                .content;
-            expect(content.source, '유튜브');
-            expect(content.summaryStatus, status);
-            expect(content.category.id, category['id']);
-            final expected = ['queued', 'processing'].contains(status)
-                ? _pendingMessage
-                : category['is_default'] == true
-                ? _unclassifiedMessage
-                : _classifiedMessage;
-            expect(find.text(expected), findsOneWidget);
-            expect(find.text('허투루가 자동으로 분류했어요!'), findsNothing);
-            expect(find.text(_changeHint), findsOneWidget);
-            _expectNoClassificationWrites(server);
-          });
-        },
-      );
+  for (final source in ['youtube', 'instagram']) {
+    for (final category in [_uncategorized, _recommended]) {
+      for (final status in [
+        'not_requested',
+        'queued',
+        'processing',
+        'failed',
+        'skipped',
+        'completed',
+      ]) {
+        testWidgets(
+          '$source $status with ${category['name']} reports returned state without success claims',
+          (tester) async {
+            final server = _Server(
+              source: source,
+              summaryStatus: status,
+              category: category,
+            );
+            await _withApp(tester, server, () async {
+              await _saveLink(tester, url: _sourceUrls[source]!);
+              final content = tester
+                  .widget<SavedContentConfirmation>(
+                    find.byType(SavedContentConfirmation),
+                  )
+                  .content;
+              expect(content.source, _sourceLabels[source]);
+              expect(content.summaryStatus, status);
+              expect(content.category.id, category['id']);
+              final expected = ['queued', 'processing'].contains(status)
+                  ? _pendingMessage
+                  : category['is_default'] == true
+                  ? _unclassifiedMessage
+                  : _classifiedMessage;
+              expect(find.text(expected), findsOneWidget);
+              if (expected != _pendingMessage) {
+                expect(find.text(_pendingMessage), findsNothing);
+              }
+              expect(find.text('허투루가 자동으로 분류했어요!'), findsNothing);
+              expect(find.text(_changeHint), findsOneWidget);
+              _expectNoClassificationWrites(server);
+            });
+          },
+        );
+      }
+    }
+  }
+
+  for (final source in ['web', 'tiktok']) {
+    for (final status in ['queued', 'processing']) {
+      testWidgets('$source $status does not show the link processing message', (
+        tester,
+      ) async {
+        final server = _Server(source: source, summaryStatus: status);
+        await _withApp(tester, server, () async {
+          await _saveLink(tester);
+          expect(find.text(_classifiedMessage), findsOneWidget);
+          expect(find.text(_pendingMessage), findsNothing);
+        });
+      });
     }
   }
 
