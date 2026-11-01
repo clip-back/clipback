@@ -16,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-validation-${{ github.event.pull_request.number || github.ref }}
+  # 이벤트 종류를 넣어 예약·수동 실행과 main push 실행이 서로 취소하지 않게 한다.
+  group: backend-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:

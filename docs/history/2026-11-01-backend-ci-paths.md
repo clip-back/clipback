@@ -22,7 +22,10 @@
     PR은 GitHub API로 변경 파일을 받으므로 job 권한에 `pull-requests: read`를 더했고, main push는 git으로
     직전 커밋과 비교하므로 push에서만 checkout한다. 예약·수동 실행에서는 판정 단계를 건너뛴다.
   - `deployment`·`operator-recovery`: `needs: changes`와 `if`(예약·수동 실행이거나 해당 판정이 `true`) 추가.
-  - 기존 concurrency·timeout·이미지 버전은 바꾸지 않았다.
+  - concurrency group에 `github.event_name`을 넣었다(사용자 확인 2026-11-01). 예약 실행이 main push와 같은 그룹
+    (`refs/heads/main`)을 쓰면 `cancel-in-progress: true` 때문에 04:00 KST에 진행 중인 main push 검사를 취소하거나
+    반대로 취소될 수 있어서다. 같은 PR끼리, 같은 브랜치 push끼리의 취소 동작은 그대로다.
+  - 기존 timeout·이미지 버전은 바꾸지 않았다.
 - `git diff` 스크립트 대신 paths-filter를 쓴 이유: PR·push의 비교 기준(PR base, push 직전 커밋)과 얕은 checkout의
   추가 fetch를 직접 다루지 않아도 되고, 규칙을 glob 목록으로 읽을 수 있다. 외부 action 의존은 커밋 SHA 고정으로 제한했다.
 - [백엔드 테스트 안내](../backend/testing.md#원본-운영자점검복원-통합-검사)에 job별 실행 조건을 추가했다.
@@ -164,12 +167,10 @@ print(*sorted(str(p) for p in seen if str(p).startswith('app/')), sep='\n')
 - 무관 변경의 main push: 두 job 판정이 push 직전 커밋 기준으로 나오는지, Railway의 "CI 통과 후 배포"가
   건너뛴 job을 막힘 없이 처리하는지 본다.
 - 수동 실행(`workflow_dispatch`)과 첫 예약 실행(04:00 KST): 모든 job이 실행되는지 본다.
+- 예약·수동 실행 중 main push가 들어와도 서로 취소되지 않고, 같은 PR의 새 push는 이전 실행을 취소하는지 본다.
 
 ## 남은 위험
 
-- 예약 실행은 main push와 같은 concurrency 그룹(`refs/heads/main`)을 쓰고 `cancel-in-progress: true`다.
-  04:00 KST에 main push 실행이 진행 중이면 예약 실행이 그것을 취소하거나 반대로 취소될 수 있다.
-  concurrency는 이번 범위에서 바꾸지 않았다.
 - 야간 실행 실패를 누가 확인할지는 이슈의 "확인할 점"으로 남아 있다. GitHub 기본 알림은 예약 workflow의
   실패를 workflow의 cron 구문을 마지막으로 수정한 사용자에게 보낸다.
 - main에 필수 검사를 켜면 건너뛴 job이 어떻게 보고되는지 다시 정해야 한다(이슈 "확인할 점").
