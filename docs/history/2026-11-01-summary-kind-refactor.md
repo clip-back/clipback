@@ -72,3 +72,21 @@ spec대로 호환 단계 없이 한 커밋에서 반환형, `_run_once`의 소�
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1466개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | `backend/app/main.py`·`config.py`·`models`·`alembic`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #150 요약 공통 module 추가 (이름 정리 확장 단계)
+
+종류에 중립인 말단 module `app/integrations/summary.py`를 추가하고 `SummaryError`(그대로)와
+`SummaryResult`(`VideoSummary`의 새 이름, 필드 같음)를 옮겼다. 이 module은 종류 module이나 client를 import하지 않는다.
+유튜브 client module은 공통 module에서 두 이름을 가져오고 옛 이름 `VideoSummary = SummaryResult`·`SummaryError`를
+다시 내보낸다. 그래서 기존 import는 수정 없이 같은 객체를 가리킨다. 새 package는 만들지 않았다.
+
+`tests/integrations/test_summary.py`를 먼저 작성해 import 실패(red)를 확인했다. 두 종류의 client가 공통
+`SummaryResult`를 돌려주고 공통 `SummaryError`를 던지는지 본다. 옛 이름 재수출 확인 테스트는 #152에서 재수출과 함께 지운다.
+리뷰 반영: 재수출 주석이 두 이름을 모두 가리키게 하고, 테스트 파일 이름을 폴더 관례(`test_<module>.py`)에 맞췄다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(`tests/integrations` 전체, 요약 통합·로그·동시성·점검·weekly, #148 고정) | 451개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1469개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
