@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from scripts import recovery_point
+
 # Old API images run the probe, which imports CheckError from this module (ADR 0004).
 from scripts.operator_errors import CheckError, require, sha256_file
 from scripts.recovery_point import load_backup, validate_archive  # noqa: F401
@@ -364,7 +366,7 @@ def check(directory, credentials_file, image, drill=None):
     report = {"passed": False, "cleanup_passed": False, "maintenance_verified": False,
               "live_deletion_ledger_verified": False}
     try:
-        manifest, paths = load_backup(directory)
+        manifest, paths = recovery_point.load_backup(directory)
         credentials = private_json(credentials_file)
         report.update(backup_id=manifest["backup_id"], origin=manifest["origin"])
         report["manifest_sha256"] = sha256_file(directory / "manifest.json")

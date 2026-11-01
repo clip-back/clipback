@@ -22,10 +22,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from scripts import recovery_point
-from scripts.check_backup_restore import CheckError, load_backup, require, sha256_file
+from scripts.check_backup_restore import CheckError, require, sha256_file
 from scripts.recovery_point import (
     canonical_json,
     completed_points,
+    load_backup,
     original_key,
     point_dump_key,
     point_manifest_key,

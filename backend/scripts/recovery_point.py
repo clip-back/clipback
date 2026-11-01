@@ -120,8 +120,13 @@ def validate_archive(path):
     return files, size
 
 
+def read_downloaded_manifest(directory):
+    """The folder's manifest JSON as written, without checking it or the files."""
+    return json.loads((directory / "manifest.json").read_text())
+
+
 def load_backup(directory):
-    manifest = json.loads((directory / "manifest.json").read_text())
+    manifest = read_downloaded_manifest(directory)
     require(
         isinstance(manifest, dict) and manifest.get("format_version") in {1, 2}, "invalid_manifest"
     )

@@ -27,7 +27,8 @@ from app.services.image_deletion_service import (  # noqa: E402
     matches_deletion_identity,
     migration_operation_id,
 )
-from scripts.check_backup_restore import load_backup, require, sha256_file  # noqa: E402
+from scripts.check_backup_restore import require, sha256_file  # noqa: E402
+from scripts.recovery_point import load_backup  # noqa: E402
 
 MIGRATION_LOCK = 74264005
 

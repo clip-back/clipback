@@ -131,3 +131,13 @@ def test_downloaded_point_rejects_a_contract_violation(tmp_path):
     directory = write_folder(tmp_path / "backup", change=lambda value: value.update(origin="x"))
     with pytest.raises(CheckError, match="^invalid_manifest$"):
         recovery_point.load_backup(directory)
+
+
+def test_downloaded_manifest_is_read_without_checking_the_folder(tmp_path):
+    """The restore run reads its copied manifest as is; the copy was checked at prepare."""
+    directory = tmp_path / "copied"
+    directory.mkdir()
+    (directory / "manifest.json").write_text('{"deletion_checkpoint": null, "origin": "x"}')
+    assert recovery_point.read_downloaded_manifest(directory) == {
+        "deletion_checkpoint": None, "origin": "x",
+    }

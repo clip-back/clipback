@@ -288,3 +288,35 @@ origin/main(`5f2a87c`, #147 요약 리팩터링)을 먼저 merge했다(`fc3930b`
   `recovery_probe.py`와 #161·#162 고정 테스트 파일 diff 없음(#161의 게시 결과 고정 테스트 포함 수정 없이 통과).
 - `pytest -q -rs`: 1618 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
 - Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.
+
+## #165 격리 복원 검사·restore-check·restore_execution·image_migration을 복구 지점 module로(이전, 폴더 쪽)
+
+- 격리 복원 검사(`check_backup_restore.check`), `restore-check`(`check_latest_restore`), `restore_execution prepare`,
+  `image_migration`의 복구 지점 확인이 내려받은 폴더 검사 `load_backup`을 복구 지점 module에서 가져온다.
+  #164에서 빠졌던 `download`(`materialize_backup`) 끝의 폴더 검사도 같이 옮겼다.
+- `restore_execution run`은 작업 폴더에 복사한 manifest를 검증 없이 JSON으로만 읽어 `deletion_checkpoint`를 꺼낸다.
+  여기에 `load_backup`을 쓰면 파일 해시·디스크 여유 검사가 더해져 동작이 바뀐다. 그래서 module에 검증 없는 읽기
+  `read_downloaded_manifest(directory)`를 더해 이 자리와 `load_backup`의 첫 줄에 같이 썼다(테스트를 먼저 추가해 실패를 확인했다).
+- 명령별 규칙은 명령에 남겼다: 이관의 `migration_requires_v2_backup`, 각 CLI의 일반 오류 코드 매핑.
+- `check_backup_restore`의 `load_backup`·`validate_archive` 재수출은 아직 이 이름을 쓰는 테스트를 위해 #166까지 남긴다.
+
+### 리뷰 반영
+
+`/code-review`는 정확성 문제를 찾지 못했다. ADR 0004 주석이 `CheckError` 재수출 줄 바로 위에 오도록 위치만 고쳤다.
+`check()`가 `recovery_point.load_backup`을 module 이름으로 부르는 형태는 #166에서 `check_backup_restore.load_backup` 이름을
+완전히 없애기 위해 유지한다. 다음은 지금 동작이라 반영하지 않고 범위 밖 발견으로 보고한다.
+
+- `restore_execution run`이 작업 폴더의 manifest 사본을 다시 검사하지 않는다(prepare 이후 사본이 바뀌면 그대로 믿는다).
+- `restore-check`가 같은 폴더에 `load_backup`을 두 번 실행해 dump·archive를 두 번 해시한다.
+- 격리 복원 검사와 이관이 `load_backup`으로 검사한 뒤 `manifest.json`을 따로 다시 읽어 해시한다.
+- 다운로드 폴더의 `manifest.json` 파일 이름이 여러 호출 쪽에 문자열로 남아 있다(파싱은 모두 module을 거친다).
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경으로 실행했다.
+
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`: 통과.
+  `recovery_probe.py`와 #161·#162 고정 테스트 파일 diff 없음.
+- `pytest -q -rs`: 1619 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
+  이관 경로 테스트 `tests/integration/test_image_migration.py`는 `TEST_DATABASE_URL`로 skip 없이 통과했다.
+- Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.

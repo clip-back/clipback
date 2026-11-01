@@ -11,13 +11,14 @@ from pathlib import Path
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from scripts.check_backup_restore import CheckError, RestoreDrill, check, load_backup, require
+from scripts.check_backup_restore import CheckError, RestoreDrill, check, require
 from scripts.image_backup import BackupBucket, create_backup
 from scripts.recovery_point import (
     ORIGINALS_PREFIX,
     POINTS_PREFIX,
     canonical_json,
     completed_points,
+    load_backup,
     original_key,
     point_dump_key,
     point_id,
