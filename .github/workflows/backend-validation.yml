@@ -269,6 +269,7 @@ jobs:
             tests/deployment/test_maintenance_docker.py \
             tests/deployment/test_live_restore_docker.py \
             tests/deployment/test_image_backup_docker.py \
+            tests/deployment/test_image_migration_docker.py \
             tests/deployment/test_multiuser_image_restore_docker.py \
             tests/deployment/test_backup_restore_docker.py \
             tests/deployment/test_postgres_restore_ready_docker.py

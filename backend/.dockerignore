@@ -20,6 +20,8 @@
 !scripts/recovery_probe.py
 !scripts/recovery_deletions.py
 !scripts/check_backup_restore.py
+!scripts/operator_errors.py
+!scripts/recovery_point.py
 **/__pycache__/
 **/*.pyc
 

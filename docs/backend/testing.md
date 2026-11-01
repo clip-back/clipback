@@ -42,7 +42,8 @@ session factory and use actual original bytes with the public backup publish/mat
 boundary. Their dump and trusted restore report are explicitly synthetic fixtures; they
 do not use the default `DATABASE_URL` or require a host `pg_dump` executable. Actual paired
 PostgreSQL dump, isolated restoration and the operator CLI gate are covered separately by
-`tests/deployment/test_image_migration_docker.py` with the Docker opt-in below.
+`tests/deployment/test_image_migration_docker.py`, which the `operator-recovery` CI job runs
+with the image variables described in "원본 운영자·점검·복원 통합 검사" below.
 
 Use a dedicated test database, never an application database:
 
@@ -164,7 +165,7 @@ GitHub Actions의 migration job은 PostgreSQL 18에서 기존 테스트 DB와 �
 
 기존 PostgreSQL 16 배포·삭제 기록 초기화 호환 검사는 유지한다. 별도 `operator-recovery` job은
 같은 커밋 revision 라벨의 API와 PostgreSQL 18 운영자 이미지를 빌드하고, 수동 백업·비공개 원본
-읽기·점검·권위 있는 복원 제어·기존 백업/다중 사용자 복원·DB 준비 검사를 실행한다.
+읽기·점검·권위 있는 복원 제어·기존 백업/다중 사용자 복원·원본 이관·DB 준비 검사를 실행한다.
 이는 합성 Docker 환경이며 실제 Railway 성공이나 Mac SSH 연결의 증거가 아니다.
 
 `lint`·`test`·`migration`은 모든 실행에서 돈다. `deployment`·`operator-recovery`는 PR과 main push에서

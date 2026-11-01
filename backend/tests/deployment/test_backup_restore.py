@@ -13,11 +13,10 @@ from scripts.check_backup_restore import (
     Docker,
     RestoreDrill,
     check,
-    load_backup,
     private_json,
     sha256_file,
-    validate_archive,
 )
+from scripts.recovery_point import load_backup, validate_archive
 
 
 def archive_file(path, entries):
