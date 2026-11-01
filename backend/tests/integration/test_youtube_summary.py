@@ -195,9 +195,9 @@ async def test_lease_recovery_fencing_and_exhaustion(api, worker, database_conne
         update(SummaryJob).values(lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
     )
     second = await run.claim()
-    assert second and second[4] != first[4]
+    assert second and second.lease_token != first.lease_token
     await run.finish(
-        content["id"], user["id"], first[4], VideoSummary("old", "old", None, {}), None
+        content["id"], user["id"], first.lease_token, VideoSummary("old", "old", None, {}), None
     )
     assert (await detail(api, headers, content))["summary_status"] == "processing"
     await database_connection.execute(

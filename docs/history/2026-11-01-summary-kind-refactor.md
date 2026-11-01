@@ -55,3 +55,20 @@ worker 반복 오류 테스트에 가짜 client를 넘기고 단위 테스트용
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1466개 통과, 46개 skip(Docker·빌드 이미지가 필요한 `tests/deployment` 45개, `CLIPBACK_IMAGE_TEST_S3_ENDPOINT`가 필요한 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | `git diff --check` | 통과 |
 | "바뀌지 않는 것" 확인 | `backend/app`·`backend/alembic`·`.github` diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #149 점유한 작업을 이름 있는 값으로 전달
+
+`SummaryWorker.claim()`이 7칸 위치 tuple 대신 변경 불가 dataclass `ClaimedJob`
+(`content_id`, `user_id`, `target_id`, `model`, `lease_token`, `candidates`, `kind`)을 돌려준다.
+spec대로 호환 단계 없이 한 커밋에서 반환형, `_run_once`의 소비부, `test_summary_logging`의 `claim` mock 2곳,
+`test_youtube_summary`의 `[4]` 위치 접근 3곳(→ `.lease_token`)을 함께 옮겼다. `claim()`이 None을 돌려주는 조건은 그대로다.
+
+테스트를 먼저 바꿔 `ClaimedJob` import 실패(red)를 확인한 뒤 구현했다. #148 고정 테스트는 수정하지 않았다.
+리뷰 반영: `_run_once`의 점유 결과 변수 이름을 ORM `SummaryJob`(`job`)과 구분되게 `claimed`로 했다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(통합·로그·client·동시성·#148 고정) | 237개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1466개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | `backend/app/main.py`·`config.py`·`models`·`alembic`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
