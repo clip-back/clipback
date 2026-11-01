@@ -1,7 +1,8 @@
-"""Recovery point key layout, identifier formats and manifest reading (ADR 0004).
+"""Recovery point key layout, identifier formats and the manifest contract (ADR 0004).
 
 Published points live in the backup Bucket; downloaded points are private folders that the
-isolated restore check reads. The store argument is the backup Bucket adapter, which only
+isolated restore check reads. Both are checked against one manifest contract, and every
+violation is `invalid_manifest`. The store argument is the backup Bucket adapter, which only
 performs S3 reads and writes.
 """
 
@@ -13,7 +14,7 @@ import tempfile
 from datetime import datetime
 from pathlib import PurePosixPath
 
-from scripts.operator_errors import require, sha256_file
+from scripts.operator_errors import CheckError, require, sha256_file
 
 BACKUP_ID = r"[A-Za-z0-9._-]{1,100}"
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -50,15 +51,28 @@ def receipt_key(backup_id):
 def receipt_backup_id(key):
     """The backup ID named by a cleanup receipt key, or None for a malformed name."""
     match = re.fullmatch(rf"{re.escape(RECEIPTS_PREFIX)}({BACKUP_ID})\.json", key)
-    return match[1] if match else None
+    return match[1] if match and is_backup_id(match[1]) else None
+
+
+def is_backup_id(value):
+    """Letters, digits, dots, underscores and hyphens; `.` and `..` alone would be path steps."""
+    return (
+        isinstance(value, str)
+        and bool(re.fullmatch(BACKUP_ID, value))
+        and value not in {".", ".."}
+    )
+
+
+def is_sha256(value):
+    return isinstance(value, str) and bool(SHA256.fullmatch(value))
 
 
 def require_backup_id(value, code):
-    require(bool(re.fullmatch(BACKUP_ID, value)), code)
+    require(is_backup_id(value), code)
 
 
 def require_app_commit(value, code):
-    require(bool(re.fullmatch(r"[0-9a-f]{40}", value)), code)
+    require(isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{40}", value)), code)
 
 
 def canonical_json(value):
@@ -71,20 +85,49 @@ def completed_points(store):
         point_id(entry["key"])
         for entry in store.list_objects(POINTS_PREFIX)
         if re.fullmatch(rf"{POINTS_PREFIX}{BACKUP_ID}/manifest\.json", entry["key"])
+        and is_backup_id(point_id(entry["key"]))
     )
 
 
-def read_point_manifest(store, backup_id):
+def _parse_manifest(raw):
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise CheckError("invalid_manifest") from exc
+
+
+def read_point_json(store, backup_id):
+    """A published point manifest as JSON, before the contract check."""
     require_backup_id(backup_id, "invalid_backup_id")
-    return json.loads(store.read(point_manifest_key(backup_id)))
+    return _parse_manifest(store.read(point_manifest_key(backup_id)))
+
+
+def read_point_manifest(store, backup_id):
+    """A published point manifest that keeps the contract for this backup ID."""
+    manifest = read_point_json(store, backup_id)
+    check_point_manifest(manifest, backup_id)
+    return manifest
+
+
+def point_unchanged(store, backup_id, manifest):
+    """Whether the published manifest still equals `manifest`; the reread is not checked."""
+    try:
+        return json.loads(store.read(point_manifest_key(backup_id))) == manifest
+    except ValueError:
+        return False
 
 
 def read_retiring_points(store):
-    """Yield (backup ID, receipt key, manifest) per cleanup receipt, one receipt at a time."""
+    """Yield (backup ID, receipt key, manifest) per cleanup receipt, one receipt at a time.
+
+    The receipt name and a JSON object are checked here; the caller checks the contract.
+    """
     for item in store.list_objects(RECEIPTS_PREFIX):
         identifier = receipt_backup_id(item["key"])
         require(identifier is not None, "invalid_gc_receipt")
-        yield identifier, item["key"], json.loads(store.read(item["key"]))
+        manifest = _parse_manifest(store.read(item["key"]))
+        require(isinstance(manifest, dict), "invalid_manifest")
+        yield identifier, item["key"], manifest
 
 
 def validate_archive(path):
@@ -124,39 +167,86 @@ def read_downloaded_manifest(directory):
     return json.loads((directory / "manifest.json").read_text())
 
 
+MANIFEST_FIELDS = {
+    "format_version",
+    "backup_id",
+    "origin",
+    "captured_at",
+    "app_commit",
+    "postgres_major",
+    "migration_revisions",
+    "tables",
+    "category_links_sha256",
+    "assets",
+    "sample",
+    "database",
+    "extra_file_count",
+}
+SAMPLE_FIELDS = {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"}
+
+
+def _field(value, key):
+    """A required field; a missing field or a parent that is not an object breaks the contract."""
+    require(isinstance(value, dict) and key in value, "invalid_manifest")
+    return value[key]
+
+
+def _aware_time(value):
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except (TypeError, ValueError):
+        return False
+
+
+def check_point_manifest(manifest, backup_id):
+    """Raise `invalid_manifest` unless a published manifest or receipt keeps the contract."""
+    _check_manifest(manifest, backup_id=backup_id)
+
+
 def load_backup(directory):
-    manifest = read_downloaded_manifest(directory)
+    """Check a downloaded folder and return (manifest, file paths)."""
+    try:
+        manifest = read_downloaded_manifest(directory)
+    except ValueError as exc:
+        raise CheckError("invalid_manifest") from exc
+    paths, expanded_size = _check_manifest(manifest, directory=directory)
+    # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
+    required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
+    require(shutil.disk_usage(tempfile.gettempdir()).free >= required, "insufficient_disk_space")
+    return manifest, paths
+
+
+def _check_manifest(manifest, *, backup_id=None, directory=None):
+    """The one manifest contract for published points and downloaded folders.
+
+    A published point is format 2, names `backup_id` and has no `images` entry. A downloaded
+    folder also checks its files in the restore check's stage order: top-level fields, the
+    database and images files, archive safety, then each asset, then the sample's asset.
+    Format 1 folders are still read without the format 2 checks.
+    """
     require(
-        isinstance(manifest, dict) and manifest.get("format_version") in {1, 2}, "invalid_manifest"
+        isinstance(manifest, dict)
+        and manifest.get("format_version") in ((1, 2) if directory else (2,)),
+        "invalid_manifest",
     )
     version = manifest["format_version"]
-    allowed = {
-        "format_version",
-        "backup_id",
-        "origin",
-        "captured_at",
-        "app_commit",
-        "postgres_major",
-        "migration_revisions",
-        "tables",
-        "category_links_sha256",
-        "assets",
-        "sample",
-        "database",
-        "images",
-        "extra_file_count",
-    }
+    allowed = set(MANIFEST_FIELDS)
+    if directory:
+        allowed.add("images")
     if version == 2:
         allowed.add("deletion_checkpoint")
     require(set(manifest).issubset(allowed), "invalid_manifest")
-    require(manifest.get("origin") in {"production", "synthetic"}, "invalid_manifest")
-    require_backup_id(manifest.get("backup_id", ""), "invalid_manifest")
-    require_app_commit(manifest.get("app_commit", ""), "invalid_manifest")
-    captured = datetime.fromisoformat(manifest["captured_at"])
-    require(captured.tzinfo is not None, "invalid_manifest")
-    major = manifest["postgres_major"]
+    require(manifest.get("origin") in ("production", "synthetic"), "invalid_manifest")
+    if backup_id is None:
+        require_backup_id(manifest.get("backup_id"), "invalid_manifest")
+    else:
+        require(manifest.get("backup_id") == backup_id, "invalid_manifest")
+    require_app_commit(manifest.get("app_commit"), "invalid_manifest")
+    require(_aware_time(_field(manifest, "captured_at")), "invalid_manifest")
+    major = _field(manifest, "postgres_major")
     require(type(major) is int and 13 <= major <= 30, "invalid_manifest")
-    revisions, tables = manifest["migration_revisions"], manifest["tables"]
+    revisions = _field(manifest, "migration_revisions")
+    tables = _field(manifest, "tables")
     require(
         isinstance(revisions, list)
         and revisions
@@ -169,51 +259,57 @@ def load_backup(directory):
         and all(isinstance(k, str) and type(v) is int and v >= 0 for k, v in tables.items()),
         "invalid_manifest",
     )
-    require(bool(SHA256.fullmatch(manifest["category_links_sha256"])), "invalid_manifest")
-    sample = manifest["sample"]
-    paths = {}
+    require(is_sha256(_field(manifest, "category_links_sha256")), "invalid_manifest")
+    sample = _field(manifest, "sample")
     if sample is None:
-        require(version == 2 and not manifest["assets"], "invalid_manifest")
+        require(version == 2 and not _field(manifest, "assets"), "invalid_manifest")
     else:
+        require(isinstance(sample, dict) and set(sample) == SAMPLE_FIELDS, "invalid_manifest")
         require(
-            isinstance(sample, dict)
-            and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
+            all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
             "invalid_manifest",
         )
-        require(
-            set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
-            "invalid_manifest",
-        )
-        require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
+        require(_aware_time(sample["saved_at"]), "invalid_manifest")
         require(
             isinstance(sample["category_ids"], list)
             and all(type(v) is int and v > 0 for v in sample["category_ids"]),
             "invalid_manifest",
         )
-        require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
-    for role, filename in (("database", "database.dump"), ("images", "images.tar")):
-        entry = manifest[role]
-        require(entry["file"] == filename, "invalid_manifest")
-        path = directory / filename
-        require(not path.is_symlink() and path.is_file(), "invalid_backup_file")
-        require(type(entry["size_bytes"]) is int and entry["size_bytes"] > 0, "invalid_manifest")
-        require(bool(SHA256.fullmatch(entry["sha256"])), "invalid_manifest")
-        require(
-            path.stat().st_size == entry["size_bytes"] and sha256_file(path) == entry["sha256"],
-            "backup_hash_mismatch",
-        )
-        paths[role] = path
-    files, expanded_size = validate_archive(paths["images"])
-    assets = manifest["assets"]
+        require(is_sha256(sample["content_sha256"]), "invalid_manifest")
+    paths = {}
+    roles = [("database", "database.dump")]
+    if directory:
+        roles.append(("images", "images.tar"))
+    for role, filename in roles:
+        entry = _field(manifest, role)
+        require(_field(entry, "file") == filename, "invalid_manifest")
+        if version == 2 and role == "database":
+            require(
+                _field(entry, "backup_key") == point_dump_key(manifest["backup_id"]),
+                "invalid_manifest",
+            )
+        if directory:
+            path = directory / filename
+            require(not path.is_symlink() and path.is_file(), "invalid_backup_file")
+        size = _field(entry, "size_bytes")
+        require(type(size) is int and size > 0, "invalid_manifest")
+        require(is_sha256(_field(entry, "sha256")), "invalid_manifest")
+        if directory:
+            require(
+                path.stat().st_size == size and sha256_file(path) == entry["sha256"],
+                "backup_hash_mismatch",
+            )
+            paths[role] = path
+    if directory:
+        files, expanded_size = validate_archive(paths["images"])
+    assets = _field(manifest, "assets")
     require(isinstance(assets, list), "invalid_manifest")
-    seen = set()
+    seen, tar_files, tar_directories = set(), set(), set()
     for asset in assets:
-        require(
-            type(asset["id"]) is int and asset["id"] > 0 and asset["id"] not in seen,
-            "invalid_manifest",
-        )
-        seen.add(asset["id"])
-        key = asset["storage_key"]
+        asset_id = _field(asset, "id")
+        require(type(asset_id) is int and asset_id > 0 and asset_id not in seen, "invalid_manifest")
+        seen.add(asset_id)
+        key = _field(asset, "storage_key")
         require(
             isinstance(key, str)
             and key
@@ -222,15 +318,14 @@ def load_backup(directory):
             and "\\" not in key,
             "invalid_manifest",
         )
+        size = _field(asset, "size_bytes")
         require(
-            type(asset["size_bytes"]) is int
-            and asset["size_bytes"] >= 0
-            and bool(SHA256.fullmatch(asset["sha256"])),
+            type(size) is int and size >= 0 and is_sha256(_field(asset, "sha256")),
             "invalid_manifest",
         )
         prefix = "screenshots/"
         if version == 2:
-            require(asset.get("storage_backend") in {"local", "s3"}, "invalid_manifest")
+            require(asset.get("storage_backend") in ("local", "s3"), "invalid_manifest")
             require(
                 type(asset.get("content_id")) is int and asset["content_id"] > 0, "invalid_manifest"
             )
@@ -239,9 +334,18 @@ def load_backup(directory):
             )
             if asset["storage_backend"] == "s3":
                 prefix = "s3/"
-        require(prefix + key in files, "missing_asset")
+            # download writes one tar member per asset; equal or nested paths cannot coexist.
+            tar_path = PurePosixPath(prefix + key)
+            require(
+                tar_path not in tar_files
+                and tar_path not in tar_directories
+                and not tar_files.intersection(tar_path.parents),
+                "invalid_manifest",
+            )
+            tar_files.add(tar_path)
+            tar_directories.update(tar_path.parents)
+        if directory:
+            require(prefix + key in files, "missing_asset")
     require(sample is None or sample["asset_id"] in seen, "invalid_manifest")
-    # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
-    required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
-    require(shutil.disk_usage(tempfile.gettempdir()).free >= required, "insufficient_disk_space")
-    return manifest, paths
+    if directory:
+        return paths, expanded_size

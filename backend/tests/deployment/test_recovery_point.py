@@ -8,7 +8,14 @@ from moto import mock_aws
 
 from scripts import recovery_point
 from scripts.operator_errors import CheckError
-from tests.deployment.test_recovery_point_bucket_outputs import BUCKET, canonical, manifest
+from tests.deployment.test_recovery_point_bucket_outputs import (
+    BUCKET,
+    CORRUPTIONS,
+    TAR_COLLISIONS,
+    asset,
+    canonical,
+    manifest,
+)
 from tests.deployment.test_recovery_point_folder_outputs import write_folder
 
 SHA = "c" * 64
@@ -58,17 +65,18 @@ def test_receipt_key_round_trips_to_backup_id(backup_id):
 @pytest.mark.parametrize("key", [
     "gc/points/bad id.json", "gc/points/.json", "gc/points/" + "x" * 101 + ".json",
     "gc/points/a.txt", "gc/points/nested/a.json", "points/a/manifest.json",
+    "gc/points/..json", "gc/points/...json",
 ])
 def test_receipt_key_with_wrong_name_has_no_backup_id(key):
     assert recovery_point.receipt_backup_id(key) is None
 
 
-@pytest.mark.parametrize("value", ["daily-1", "A.b_c-1", "x" * 100])
+@pytest.mark.parametrize("value", ["daily-1", "A.b_c-1", "x" * 100, "...", ".a", "a.."])
 def test_backup_id_format_accepts_identifiers(value):
     recovery_point.require_backup_id(value, "invalid_backup_id")
 
 
-@pytest.mark.parametrize("value", ["", "bad id", "a/b", "x" * 101])
+@pytest.mark.parametrize("value", ["", "bad id", "a/b", "x" * 101, ".", "..", None, 1, ["a"]])
 def test_backup_id_format_reports_the_callers_code(value):
     for code in ("invalid_backup_id", "backup_id_required", "invalid_manifest"):
         with pytest.raises(CheckError, match=f"^{code}$"):
@@ -77,7 +85,7 @@ def test_backup_id_format_reports_the_callers_code(value):
 
 def test_app_commit_format_requires_a_full_lowercase_sha():
     recovery_point.require_app_commit("a" * 40, "invalid_manifest")
-    for value in ("", "a" * 39, "A" * 40, "main"):
+    for value in ("", "a" * 39, "A" * 40, "main", None, 1, ["a" * 40]):
         with pytest.raises(CheckError, match="^app_commit_required$"):
             recovery_point.require_app_commit(value, "app_commit_required")
 
@@ -101,30 +109,177 @@ def test_completed_points_need_the_exact_manifest_key(store):
     assert recovery_point.completed_points(store) == ["published"]
 
 
+def test_completed_points_skip_path_step_ids(store):
+    """`.` and `..` are not backup IDs, so their manifests do not mark completed points."""
+    put(store, "points/./manifest.json", b"{}")
+    put(store, "points/../manifest.json", b"{}")
+    put(store, recovery_point.point_manifest_key("..."), b"{}")
+    assert recovery_point.completed_points(store) == ["..."]
+
+
+POINT = "2026-11-01T00:00:00+00:00"
+
+
 def test_point_manifest_is_read_by_checked_id(store):
-    value = manifest("point", "2026-11-01T00:00:00+00:00")
+    value = manifest("point", POINT)
     put(store, recovery_point.point_manifest_key("point"), canonical(value))
     assert recovery_point.read_point_manifest(store, "point") == value
-    with pytest.raises(CheckError, match="^invalid_backup_id$"):
-        recovery_point.read_point_manifest(store, "bad id")
+    for identifier in ("bad id", "..", "."):
+        with pytest.raises(CheckError, match="^invalid_backup_id$"):
+            recovery_point.read_point_manifest(store, identifier)
     with pytest.raises(FileNotFoundError):
         recovery_point.read_point_manifest(store, "missing")
 
 
+def corrupted(case, backup_id="target"):
+    change = CORRUPTIONS[case]
+    if isinstance(change, bytes):
+        return change
+    value = manifest(backup_id, POINT)
+    change(value)
+    return canonical(value)
+
+
+@pytest.mark.parametrize("case", CORRUPTIONS)
+def test_point_manifest_that_breaks_the_contract_is_invalid(case, store):
+    put(store, recovery_point.point_manifest_key("target"), corrupted(case))
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.read_point_manifest(store, "target")
+
+
+@pytest.mark.parametrize("value", [None, 1, True, [], {}, "C" * 64, "c" * 63])
+@pytest.mark.parametrize("field", [("assets", 0, "sha256"), ("database", "sha256"),
+                                   ("category_links_sha256",), ("sample", "content_sha256")])
+def test_digest_that_is_not_a_lowercase_sha256_is_invalid(field, value):
+    point = manifest("target", POINT)
+    parent = point
+    for key in field[:-1]:
+        parent = parent[key]
+    parent[field[-1]] = value
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.check_point_manifest(point, "target")
+
+
+@pytest.mark.parametrize("value", [None, 1, [], {}, "2026-11-01"])
+def test_captured_at_that_is_not_an_aware_time_is_invalid(value):
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.check_point_manifest({**manifest("target", POINT), "captured_at": value},
+                                            "target")
+
+
+@pytest.mark.parametrize("change", [
+    lambda value: value.update(assets=[1]),
+    lambda value: value.update(database=[]),
+    lambda value: value.update(sample=[]),
+    lambda value: value.update(origin=["synthetic"]),
+    lambda value: value.update(format_version=[2]),
+    lambda value: value["assets"][0].update(storage_backend=["s3"]),
+], ids=["asset_not_object", "database_not_object", "sample_not_object", "origin_array",
+        "format_version_array", "storage_backend_array"])
+def test_values_of_the_wrong_json_type_are_invalid(change):
+    point = manifest("target", POINT)
+    change(point)
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.check_point_manifest(point, "target")
+
+
+def test_point_manifest_names_the_requested_backup_id():
+    recovery_point.check_point_manifest(manifest("target", POINT), "target")
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.check_point_manifest(manifest("target", POINT), "other")
+
+
+def test_published_point_without_assets_may_have_no_sample():
+    recovery_point.check_point_manifest({**manifest("target", POINT), "assets": [],
+                                         "sample": None}, "target")
+
+
+@pytest.mark.parametrize("case", TAR_COLLISIONS)
+def test_colliding_asset_tar_paths_are_invalid(case):
+    first, second = TAR_COLLISIONS[case]
+    point = manifest("target", POINT, [asset(1, "s3", first, b"one"),
+                                       asset(2, "s3", second, b"two")])
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.check_point_manifest(point, "target")
+
+
+@pytest.mark.parametrize("first,second", [
+    (("local", "u/1.png"), ("s3", "u/1.png")),
+    (("s3", "u/1.png"), ("s3", "u/1.png2")),
+    (("s3", "u/1"), ("s3", "u/10/x")),
+])
+def test_distinct_asset_tar_paths_are_accepted(first, second):
+    """Local and Bucket originals live under different tar roots; only real overlaps clash."""
+    point = manifest("target", POINT, [asset(1, *first, b"one"), asset(2, *second, b"two")])
+    recovery_point.check_point_manifest(point, "target")
+
+
+def test_point_json_is_read_before_the_contract(store):
+    """maintain reads every manifest first and checks the format version before the contract."""
+    put(store, recovery_point.point_manifest_key("old"), b'{"format_version": 1}')
+    put(store, recovery_point.point_manifest_key("array"), b"[]")
+    put(store, recovery_point.point_manifest_key("broken"), b"not json")
+    assert recovery_point.read_point_json(store, "old") == {"format_version": 1}
+    assert recovery_point.read_point_json(store, "array") == []
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.read_point_json(store, "broken")
+    with pytest.raises(CheckError, match="^invalid_backup_id$"):
+        recovery_point.read_point_json(store, "..")
+
+
+def test_point_unchanged_compares_the_reread_without_the_contract(store):
+    value = {"format_version": 1}
+    key = recovery_point.point_manifest_key("target")
+    put(store, key, json.dumps(value).encode())
+    assert recovery_point.point_unchanged(store, "target", value) is True
+    put(store, key, b'{"format_version": 1, "x": 1}')
+    assert recovery_point.point_unchanged(store, "target", value) is False
+    put(store, key, b"not json")
+    assert recovery_point.point_unchanged(store, "target", value) is False
+    store.client.delete_object(Bucket=BUCKET, Key=key)
+    with pytest.raises(FileNotFoundError):
+        recovery_point.point_unchanged(store, "target", value)
+
+
 def test_retiring_points_yield_receipt_id_key_and_manifest_in_order(store):
-    first = manifest("first", "2026-11-01T00:00:00+00:00")
+    first = manifest("first", POINT)
+    second = manifest("second", POINT)
     put(store, recovery_point.receipt_key("first"), canonical(first))
-    put(store, recovery_point.receipt_key("second"), b"[]")
+    put(store, recovery_point.receipt_key("second"), canonical(second))
     assert list(recovery_point.read_retiring_points(store)) == [
         ("first", "gc/points/first.json", first),
-        ("second", "gc/points/second.json", []),
+        ("second", "gc/points/second.json", second),
     ]
 
 
-def test_retiring_points_stop_at_a_receipt_with_a_wrong_name(store):
-    put(store, "gc/points/bad name.json", b"{}")
+@pytest.mark.parametrize("key", ["gc/points/bad name.json", "gc/points/..json"])
+def test_retiring_points_stop_at_a_receipt_with_a_wrong_name(key, store):
+    put(store, key, b"{}")
     with pytest.raises(CheckError, match="^invalid_gc_receipt$"):
         list(recovery_point.read_retiring_points(store))
+
+
+@pytest.mark.parametrize("body", [b"not json", b"[]"])
+def test_retiring_points_stop_at_a_receipt_that_is_not_a_json_object(body, store):
+    put(store, recovery_point.receipt_key("first"), body)
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        list(recovery_point.read_retiring_points(store))
+
+
+def test_receipt_name_is_checked_before_its_content(store):
+    """Receipts are read in key order; each one's name comes before its JSON."""
+    put(store, "gc/points/a b.json", b"not json")
+    with pytest.raises(CheckError, match="^invalid_gc_receipt$"):
+        list(recovery_point.read_retiring_points(store))
+
+
+@pytest.mark.parametrize("case", CORRUPTIONS)
+def test_receipt_content_keeps_the_same_contract(case, store):
+    body = corrupted(case)
+    put(store, recovery_point.receipt_key("target"), body)
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        for identifier, _, value in recovery_point.read_retiring_points(store):
+            recovery_point.check_point_manifest(value, identifier)
 
 
 def test_downloaded_point_returns_manifest_and_file_paths(tmp_path):
@@ -136,6 +291,27 @@ def test_downloaded_point_returns_manifest_and_file_paths(tmp_path):
 
 def test_downloaded_point_rejects_a_contract_violation(tmp_path):
     directory = write_folder(tmp_path / "backup", change=lambda value: value.update(origin="x"))
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.load_backup(directory)
+
+
+@pytest.mark.parametrize("body", [b"not json", b"\xff"])
+def test_downloaded_manifest_that_is_not_json_is_invalid(body, tmp_path):
+    directory = write_folder(tmp_path / "backup", change=body)
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.load_backup(directory)
+
+
+def test_downloaded_point_needs_its_images_entry(tmp_path):
+    directory = write_folder(tmp_path / "backup", change=lambda value: value.pop("images"))
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
+        recovery_point.load_backup(directory)
+
+
+def test_downloaded_point_checks_the_database_key_before_the_dump_hash(tmp_path):
+    directory = write_folder(tmp_path / "backup", change=lambda value: value["database"].update(
+        backup_key="points/other/database.dump"))
+    (directory / "database.dump").write_bytes(b"changed dump!!")
     with pytest.raises(CheckError, match="^invalid_manifest$"):
         recovery_point.load_backup(directory)
 

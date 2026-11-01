@@ -1,10 +1,11 @@
-"""Current operator output for downloaded recovery point folders (#162).
+"""Operator output for downloaded recovery point folders (#162, unified in #167).
 
 The isolated restore check, `image_backup_jobs restore-check` and `restore_execution prepare` run
 in-process through their real `main()`. A fake `docker` on PATH always fails, so a folder whose
 manifest passes every pre-Docker check reports `docker_command_failed`. For `restore-check` only
-the DB lock and deletion ledger wiring are replaced. Expected values are the outputs measured on
-main 06bc24d; the structural migration (#163-#166) must keep them unchanged.
+the DB lock and deletion ledger wiring are replaced. #162 fixed the outputs measured on main
+06bc24d; #167 changed only the expected values listed in spec #156's tables: a format 2 folder
+keeps the published contract plus its `images` entry, and the check stages keep their order.
 """
 
 import io
@@ -207,7 +208,6 @@ def outputs(directory, credentials, monkeypatch, capsys, tmp_path):
     }
 
 
-GENERIC = "generic"
 # The isolated check report always has the elapsed time. The backup ID, origin and manifest digest
 # appear only after the folder and the credentials file both pass their checks.
 CLOSED = {"cleanup_passed": True, "elapsed_seconds": SECONDS,
@@ -220,14 +220,7 @@ def expected(code):
     """Expected outputs when the folder check fails with `code` in every command.
 
     `docker_command_failed` means the folder passed every manifest and file check.
-    `generic` means a non-CheckError escaped, which each CLI maps to its own code.
     """
-    if code == GENERIC:
-        return {
-            "check": (1, {**CLOSED, "error": "invalid_input_or_check_failed"}),
-            "restore-check": (1, {"error": "backup_job_failed", "passed": False}),
-            "prepare": (1, {"error": "restore_preflight_failed", "passed": False}),
-        }
     if code == "docker_command_failed":
         return {
             "check": (1, {**LOADED, "error": code}),
@@ -242,30 +235,22 @@ def expected(code):
 
 
 PASSED, INVALID = "docker_command_failed", "invalid_manifest"
-# case: (change from #161's published-manifest table or a folder-specific one, expected code)
+# Changes from #161's published-manifest table, with the published-only cases replaced by
+# folder ones. Every one breaks the contract, so every command reports invalid_manifest.
 CORRUPTIONS = {
-    "not_json": (PUBLISHED["not_json"], GENERIC),
-    "not_object": (PUBLISHED["not_object"], INVALID),
-    "missing_database": (PUBLISHED["missing_database"], GENERIC),
-    "missing_assets": (PUBLISHED["missing_assets"], GENERIC),
-    "missing_captured_at": (PUBLISHED["missing_captured_at"], GENERIC),
-    "missing_postgres_major": (PUBLISHED["missing_postgres_major"], GENERIC),
-    "missing_migration_revisions": (PUBLISHED["missing_migration_revisions"], GENERIC),
-    "missing_asset_sha256": (PUBLISHED["missing_asset_sha256"], GENERIC),
-    "app_commit_not_sha": (PUBLISHED["app_commit_not_sha"], INVALID),
-    "origin_unknown": (PUBLISHED["origin_unknown"], INVALID),
-    "unknown_field": (PUBLISHED["unknown_field"], INVALID),
-    "missing_images": (delete("images"), GENERIC),
-    "tables_negative": (PUBLISHED["tables_negative"], INVALID),
-    "asset_content_id_missing": (PUBLISHED["asset_content_id_missing"], INVALID),
-    "captured_at_without_timezone": (PUBLISHED["captured_at_without_timezone"], INVALID),
-    "asset_size_string": (PUBLISHED["asset_size_string"], INVALID),
-    "database_size_string": (PUBLISHED["database_size_string"], INVALID),
-    "database_backup_key_elsewhere": (PUBLISHED["database_backup_key_elsewhere"], PASSED),
-    "format_version_3": (assign("format_version", value=3), INVALID),
-    "backup_id_not_identifier": (assign("backup_id", value="bad id"), INVALID),
-    "asset_backend_unknown": (PUBLISHED["asset_backend_unknown"], INVALID),
-    "asset_backup_key_elsewhere": (PUBLISHED["asset_backup_key_elsewhere"], INVALID),
+    case: PUBLISHED[case] for case in (
+        "not_json", "not_object", "missing_database", "missing_assets", "missing_captured_at",
+        "missing_postgres_major", "missing_migration_revisions", "missing_asset_sha256",
+        "app_commit_not_sha", "origin_unknown", "unknown_field", "tables_negative",
+        "asset_content_id_missing", "captured_at_without_timezone", "asset_size_string",
+        "database_size_string", "database_backup_key_elsewhere", "asset_backend_unknown",
+        "asset_backup_key_elsewhere",
+    )
+} | {
+    "missing_images": delete("images"),
+    "format_version_3": assign("format_version", value=3),
+    "backup_id_not_identifier": assign("backup_id", value="bad id"),
+    "backup_id_parent_step": assign("backup_id", value=".."),
 }
 
 
@@ -278,22 +263,29 @@ def test_complete_folder_reaches_docker(failing_docker, credentials, ledger, mon
 @pytest.mark.parametrize("case", CORRUPTIONS)
 def test_corrupted_manifest_outputs(case, failing_docker, credentials, ledger, monkeypatch,
                                     capsys, tmp_path):
-    change, code = CORRUPTIONS[case]
-    directory = write_folder(tmp_path / "backup", change=change,
+    directory = write_folder(tmp_path / "backup", change=CORRUPTIONS[case],
                              checkpoint=ledger.read_checkpoint_tip())
-    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(code)
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
+
+
+def colliding_assets(case):
+    first, second = TAR_COLLISIONS.get(case) or case
+    return [(asset(1, "s3", first, b"one"), b"one"), (asset(2, "s3", second, b"two"), b"two")]
 
 
 @pytest.mark.parametrize("case,code", [
-    ("same_storage_key", PASSED),
+    ("same_storage_key", INVALID),
+    # The archive membership check compares the key as written, so `u/./1.png` is already
+    # missing at the first asset, before the second one collides with it (stage order kept).
     ("same_after_normalizing", "missing_asset"),
-    ("parent_and_child", "missing_asset"),
-])
+    (("u/1.png", "u/./1.png"), INVALID),
+    ("parent_and_child", INVALID),
+], ids=["same_storage_key", "same_after_normalizing", "same_after_normalizing_second",
+        "parent_and_child"])
 def test_colliding_asset_tar_path_outputs(case, code, failing_docker, credentials, ledger,
                                           monkeypatch, capsys, tmp_path):
-    first, second = TAR_COLLISIONS[case]
-    assets = [(asset(1, "s3", first, b"one"), b"one"), (asset(2, "s3", second, b"two"), b"two")]
-    directory = write_folder(tmp_path / "backup", assets, checkpoint=ledger.read_checkpoint_tip())
+    directory = write_folder(tmp_path / "backup", colliding_assets(case),
+                             checkpoint=ledger.read_checkpoint_tip())
     assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(code)
 
 
@@ -330,7 +322,7 @@ def test_non_string_asset_sha256_outputs(sha256, failing_docker, credentials, le
     change = assign("assets", 0, "sha256", value=sha256)
     directory = write_folder(tmp_path / "backup", change=change,
                              checkpoint=ledger.read_checkpoint_tip())
-    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(GENERIC)
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
 
 
 @pytest.mark.parametrize("damage,change,code", [
@@ -349,12 +341,18 @@ def test_non_string_asset_sha256_outputs(sha256, failing_docker, credentials, le
     (asset_outside_archive(0), assign("assets", 1, "content_id", value=0), "missing_asset"),
     (asset_outside_archive(1), assign("assets", 1, "content_id", value=0), INVALID),
     (asset_outside_archive(0), assign("sample", "asset_id", value=9), "missing_asset"),
+    # The format 2 database key is checked with the database entry, before its file hash.
+    (change_dump_bytes, assign("database", "backup_key", value="points/other/database.dump"),
+     INVALID),
+    (images_missing_and_dump_changed,
+     assign("database", "backup_key", value="points/other/database.dump"), INVALID),
 ], ids=[
     "images_file_missing", "images_hash_mismatch", "database_hash_mismatch", "archive_symlink",
     "asset_not_in_archive", "sample_asset_unknown", "top_level_violation_and_database_hash",
     "images_file_missing_and_database_hash", "database_hash_and_asset_violation",
     "unsafe_archive_and_asset_violation", "missing_asset_and_later_asset_violation",
     "asset_violation_and_its_missing_archive_entry", "missing_asset_and_sample_unknown",
+    "database_key_violation_and_database_hash", "database_key_violation_and_images_file_missing",
 ])
 def test_folder_check_order_outputs(damage, change, code, failing_docker, credentials, ledger,
                                     monkeypatch, capsys, tmp_path):
@@ -365,28 +363,72 @@ def test_folder_check_order_outputs(damage, change, code, failing_docker, creden
     assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(code)
 
 
-def test_format_version_1_folder_is_still_accepted(failing_docker, credentials, ledger,
-                                                   monkeypatch, capsys, tmp_path):
-    """Old folders pass the folder checks; restore-check still needs a deletion checkpoint."""
-    directory = tmp_path / "backup"
+@pytest.mark.parametrize("damage,assets,code", [
+    (change_dump_bytes, colliding_assets("same_storage_key"), "backup_hash_mismatch"),
+    (unsafe_member, colliding_assets("same_storage_key"), "unsafe_archive"),
+    (asset_outside_archive(0),
+     [(asset(3, "local", "x.png", b"x"), b"x"), *colliding_assets("same_storage_key")],
+     "missing_asset"),
+], ids=["database_hash_and_collision", "unsafe_archive_and_collision",
+        "missing_asset_and_later_collision"])
+def test_tar_path_collision_keeps_the_asset_stage_order(damage, assets, code, failing_docker,
+                                                        credentials, ledger, monkeypatch, capsys,
+                                                        tmp_path):
+    """A collision is an asset field check: after files and archive safety, per asset in turn."""
+    directory = write_folder(tmp_path / "backup", assets, checkpoint=ledger.read_checkpoint_tip())
+    damage(directory)
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(code)
+
+
+def format_version_1_folder(directory, assets):
     directory.mkdir(mode=0o700)
     (directory / "database.dump").write_bytes(DUMP)
-    write_archive(directory / "images.tar", HEALTHY_ASSETS[:1])
+    write_archive(directory / "images.tar", assets)
     archive = (directory / "images.tar").read_bytes()
-    value = manifest(HEALTHY_ASSETS[:1])
+    value = manifest(assets)
     del value["deletion_checkpoint"]
     value.update(
         format_version=1,
-        assets=[{key: value["assets"][0][key] for key in ("id", "storage_key", "size_bytes",
-                                                          "sha256")}],
+        assets=[{key: item[key] for key in ("id", "storage_key", "size_bytes", "sha256")}
+                for item in value["assets"]],
         database={key: value["database"][key] for key in ("file", "size_bytes", "sha256")},
         images={"file": "images.tar", "size_bytes": len(archive), "sha256": digest(archive)},
     )
     (directory / "manifest.json").write_text(json.dumps(value))
+    return directory
+
+
+def test_format_version_1_folder_is_still_accepted(failing_docker, credentials, ledger,
+                                                   monkeypatch, capsys, tmp_path):
+    """Old folders pass the folder checks; restore-check still needs a deletion checkpoint."""
+    directory = format_version_1_folder(tmp_path / "backup", HEALTHY_ASSETS[:1])
     assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == {
         **expected(PASSED),
         "restore-check": (1, {"error": "deletion_checkpoint_required", "passed": False}),
     }
+
+
+def test_format_version_1_folder_gets_no_tar_path_collision_check(
+    failing_docker, credentials, ledger, monkeypatch, capsys, tmp_path
+):
+    """Format 1 keeps its old rules: two assets may name the same local file."""
+    assets = [(asset(1, "local", "a.png", LOCAL_BYTES), LOCAL_BYTES),
+              (asset(2, "local", "a.png", LOCAL_BYTES), LOCAL_BYTES)]
+    directory = format_version_1_folder(tmp_path / "backup", assets)
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == {
+        **expected(PASSED),
+        "restore-check": (1, {"error": "deletion_checkpoint_required", "passed": False}),
+    }
+
+
+def test_format_version_1_folder_with_a_missing_field_is_a_contract_violation(
+    failing_docker, credentials, ledger, monkeypatch, capsys, tmp_path
+):
+    directory = format_version_1_folder(tmp_path / "backup", HEALTHY_ASSETS[:1])
+    value = json.loads((directory / "manifest.json").read_bytes())
+    del value["postgres_major"]
+    (directory / "manifest.json").write_text(json.dumps(value))
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
 
 
 def test_check_backup_restore_exports_errors_shared_by_operator_scripts():

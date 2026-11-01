@@ -29,6 +29,7 @@ from scripts.recovery_point import (
     original_key,
     point_dump_key,
     point_manifest_key,
+    point_unchanged,
     read_point_manifest,
     receipt_key,
     require_app_commit,
@@ -37,12 +38,11 @@ from scripts.recovery_point import (
 
 
 def materialize_backup(store, backup_id, directory):
-    """Download a complete point into a new private directory; no source is changed."""
+    """Download a complete point into a new private directory; no source is changed.
+
+    The manifest is checked against the contract before the directory is created.
+    """
     manifest = read_point_manifest(store, backup_id)
-    require(
-        manifest.get("format_version") == 2 and manifest.get("backup_id") == backup_id,
-        "invalid_manifest",
-    )
     directory.mkdir(mode=0o700)
     database = directory / "database.dump"
     store.download_verified(
@@ -54,9 +54,6 @@ def materialize_backup(store, backup_id, directory):
     archive_path = directory / "images.tar"
     with tarfile.open(archive_path, "w") as archive:
         for asset in manifest["assets"]:
-            require(
-                asset.get("backup_key") == original_key(asset["sha256"]), "invalid_manifest"
-            )
             content = store.read(asset["backup_key"])
             require(
                 len(content) == asset["size_bytes"]
@@ -241,25 +238,12 @@ class BackupBucket:
 def verify_backup(store, backup_id):
     """Read every referenced object without writing a local DB/image copy."""
     manifest = read_point_manifest(store, backup_id)
-    require(manifest.get("format_version") == 2 and manifest.get("backup_id") == backup_id,
-            "invalid_manifest")
     database, assets = manifest["database"], manifest["assets"]
-    require(database["backup_key"] == point_dump_key(backup_id), "invalid_manifest")
-    require(isinstance(assets, list), "invalid_manifest")
-    for asset in assets:
-        known_backend = asset.get("storage_backend") in {"local", "s3"}
-        if known_backend and not isinstance(asset["sha256"], str):
-            # Same failure as the string concatenation this replaced; #167 unifies it.
-            raise TypeError("asset sha256 is not a string")
-        require(known_backend and asset.get("backup_key") == original_key(asset["sha256"]),
-                "invalid_manifest")
     objects = [database, *assets]
     for item in objects:
-        require(type(item["size_bytes"]) is int and item["size_bytes"] >= 0
-                and bool(re.fullmatch(r"[0-9a-f]{64}", item["sha256"])), "invalid_manifest")
         store.verify_object(item["backup_key"], item["size_bytes"], item["sha256"])
     # Detect retirement/replacement during verification without taking a write lock.
-    require(read_point_manifest(store, backup_id) == manifest, "backup_point_changed")
+    require(point_unchanged(store, backup_id, manifest), "backup_point_changed")
     return {
         "passed": True, "backup_id": backup_id, "captured_at": manifest["captured_at"],
         "asset_counts": dict(Counter(a["storage_backend"] for a in assets)),
