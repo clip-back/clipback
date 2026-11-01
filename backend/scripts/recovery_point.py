@@ -70,8 +70,7 @@ def completed_points(store):
     return sorted(
         point_id(entry["key"])
         for entry in store.list_objects(POINTS_PREFIX)
-        # The unescaped "." is kept as published; tightening it is a behavior change.
-        if re.fullmatch(rf"{POINTS_PREFIX}{BACKUP_ID}/manifest.json", entry["key"])
+        if re.fullmatch(rf"{POINTS_PREFIX}{BACKUP_ID}/manifest\.json", entry["key"])
     )
 
 

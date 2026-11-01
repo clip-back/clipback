@@ -324,3 +324,68 @@ def test_unsupported_database_ssl_option_does_not_silently_downgrade(tmp_path):
         dump_database("postgresql://synthetic@localhost/synthetic?ssl=custom-context",
                       "snapshot", tmp_path / "dump", postgres_major=17)
     assert not (tmp_path / "dump").exists()
+
+
+@pytest.mark.asyncio
+async def test_lookalike_manifest_does_not_take_the_backup_id(recovery_store, tmp_path):
+    """Publishing checks the same exact completion manifest key (#169)."""
+    store, client = recovery_store
+    client.put_object(Bucket="private-backup", Key="points/first/manifestXjson", Body=b"{}")
+    (tmp_path / "a.png").write_bytes(b"image")
+    dump = tmp_path / "database.dump"
+    dump.write_bytes(b"dump")
+    storage = StorageRouter(
+        Settings(_env_file=None, youtube_summary_enabled=False, storage_root=tmp_path)
+    )
+    manifest = await publish_backup(
+        store, backup_id="first", snapshot=source_snapshot(), database=dump, storage=storage,
+        captured_at=datetime.now(UTC).isoformat(), app_commit="a" * 40, postgres_major=17,
+        origin="synthetic",
+    )
+    assert read_point_manifest(store, "first") == manifest
+    assert completed_points(store) == ["first"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name, created_expected", [
+    ("manifestXjson", True), ("manifest.json", False),
+])
+async def test_daily_job_skips_only_a_completed_point_for_today(
+    recovery_store, monkeypatch, name, created_expected
+):
+    """A look-alike manifest is not today's point (#169); only runtime and creation are fake."""
+    from contextlib import asynccontextmanager
+
+    import app.integrations.deletion_ledger as deletion_ledger
+    import app.services.maintenance as maintenance
+    import scripts.image_backup_jobs as jobs
+    import scripts.operator_runtime as operator_runtime
+    from tests.support.maintenance import OpenUnitGate
+
+    store, client = recovery_store
+    today = "daily-" + datetime.now(UTC).date().isoformat()
+    client.put_object(Bucket="private-backup", Key=f"points/{today}/{name}", Body=b"{}")
+    created = []
+
+    class Runtime:
+        config = sessions = engine = None
+
+        async def close(self):
+            pass
+
+    @asynccontextmanager
+    async def unlocked(*args, **kwargs):
+        yield
+
+    async def create_backup(store, *, backup_id, **kwargs):
+        created.append(backup_id)
+        return {"assets": []}
+
+    monkeypatch.setattr(operator_runtime, "OperatorRuntime", Runtime)
+    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger", lambda config=None: None)
+    monkeypatch.setattr(maintenance, "MaintenanceGate", lambda sessions: OpenUnitGate())
+    monkeypatch.setattr(jobs, "source_lock", unlocked)
+    monkeypatch.setattr(jobs, "create_backup", create_backup)
+    report = await jobs.run_job(store, command="daily")
+    assert report["backup_created"] is created_expected and report["backup_id"] == today
+    assert created == ([today] if created_expected else [])
