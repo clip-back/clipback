@@ -8,7 +8,7 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.integrations.youtube_summary_client import VideoSummary
+from app.integrations.summary import SummaryResult
 from app.models.content import Content
 from app.models.content_category import content_categories
 from app.models.content_event import ContentEvent
@@ -461,7 +461,7 @@ async def test_summary_worker_keeps_uncategorized_save_snapshot_out_of_weekly_ac
     worker = SummaryWorker(sessions, SimpleNamespace(), settings)
     await worker.finish(
         content["id"], user["id"], lease_token,
-        VideoSummary("자동 분류한 영상", "영상 요약", category_id, {}), None,
+        SummaryResult("자동 분류한 영상", "영상 요약", category_id, {}), None,
     )
     detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
     assert detail["summary_status"] == "completed"

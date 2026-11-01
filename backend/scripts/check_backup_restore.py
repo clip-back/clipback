@@ -5,44 +5,27 @@ The input backup is read-only; credentials and database output are never logged.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
 import secrets
-import shutil
 import stat
 import subprocess
-import tarfile
 import tempfile
 import time
-from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from uuid import uuid4
+
+from scripts import recovery_point
+
+# Old API images run the probe, which imports CheckError from this module (ADR 0004).
+from scripts.operator_errors import CheckError, require, sha256_file
 
 PROBE = Path(__file__).with_name("recovery_probe.py").read_text()
 DELETE_PROBE = Path(__file__).with_name("recovery_deletions.py").read_text()
 OWNER_LABEL = "clipback.recovery.owner"
 REVISION_LABEL = "org.opencontainers.image.revision"
-SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 SNAPSHOT_KEYS = ("migration_revisions", "tables", "category_links_sha256", "assets", "sample")
-
-
-class CheckError(Exception):
-    """A fixed public error code, without subprocess output or private data."""
-
-
-def require(condition, code):
-    if not condition:
-        raise CheckError(code)
-
-
-def sha256_file(path):
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def private_json(path):
@@ -59,164 +42,6 @@ def private_json(path):
         "invalid_credentials",
     )
     return value
-
-
-def validate_archive(path):
-    """Reject links, special files, ambiguous paths and duplicate file entries."""
-    files, directories, size = set(), set(), 0
-    with tarfile.open(path, "r:*") as archive:
-        for member in archive:
-            name = member.name
-            normalized = PurePosixPath(name)
-            require(
-                not normalized.is_absolute() and ".." not in normalized.parts and "\\" not in name,
-                "unsafe_archive",
-            )
-            require(member.isfile() or member.isdir(), "unsafe_archive")
-            require(not member.issparse() and member.size >= 0, "unsafe_archive")
-            key = str(normalized)
-            if key == ".":
-                require(member.isdir(), "unsafe_archive")
-                continue
-            parents = {str(parent) for parent in normalized.parents} - {"."}
-            require(not parents.intersection(files), "unsafe_archive")
-            if member.isfile():
-                require(key not in files and key not in directories, "unsafe_archive")
-                require(
-                    not any(p.startswith(key + "/") for p in files | directories), "unsafe_archive"
-                )
-                files.add(key)
-                size += member.size
-            else:
-                require(key not in files, "unsafe_archive")
-                directories.add(key)
-    return files, size
-
-
-def load_backup(directory):
-    manifest = json.loads((directory / "manifest.json").read_text())
-    require(
-        isinstance(manifest, dict) and manifest.get("format_version") in {1, 2}, "invalid_manifest"
-    )
-    version = manifest["format_version"]
-    allowed = {
-        "format_version",
-        "backup_id",
-        "origin",
-        "captured_at",
-        "app_commit",
-        "postgres_major",
-        "migration_revisions",
-        "tables",
-        "category_links_sha256",
-        "assets",
-        "sample",
-        "database",
-        "images",
-        "extra_file_count",
-    }
-    if version == 2:
-        allowed.add("deletion_checkpoint")
-    require(set(manifest).issubset(allowed), "invalid_manifest")
-    require(manifest.get("origin") in {"production", "synthetic"}, "invalid_manifest")
-    require(
-        bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", manifest.get("backup_id", ""))),
-        "invalid_manifest",
-    )
-    require(bool(re.fullmatch(r"[0-9a-f]{40}", manifest.get("app_commit", ""))), "invalid_manifest")
-    captured = datetime.fromisoformat(manifest["captured_at"])
-    require(captured.tzinfo is not None, "invalid_manifest")
-    major = manifest["postgres_major"]
-    require(type(major) is int and 13 <= major <= 30, "invalid_manifest")
-    revisions, tables = manifest["migration_revisions"], manifest["tables"]
-    require(
-        isinstance(revisions, list)
-        and revisions
-        and all(isinstance(v, str) and v for v in revisions),
-        "invalid_manifest",
-    )
-    require(
-        isinstance(tables, dict)
-        and tables
-        and all(isinstance(k, str) and type(v) is int and v >= 0 for k, v in tables.items()),
-        "invalid_manifest",
-    )
-    require(bool(SHA256.fullmatch(manifest["category_links_sha256"])), "invalid_manifest")
-    sample = manifest["sample"]
-    paths = {}
-    if sample is None:
-        require(version == 2 and not manifest["assets"], "invalid_manifest")
-    else:
-        require(
-            isinstance(sample, dict)
-            and all(type(sample[k]) is int and sample[k] > 0 for k in ("content_id", "asset_id")),
-            "invalid_manifest",
-        )
-        require(
-            set(sample) == {"content_id", "asset_id", "saved_at", "category_ids", "content_sha256"},
-            "invalid_manifest",
-        )
-        require(datetime.fromisoformat(sample["saved_at"]).tzinfo is not None, "invalid_manifest")
-        require(
-            isinstance(sample["category_ids"], list)
-            and all(type(v) is int and v > 0 for v in sample["category_ids"]),
-            "invalid_manifest",
-        )
-        require(bool(SHA256.fullmatch(sample["content_sha256"])), "invalid_manifest")
-    for role, filename in (("database", "database.dump"), ("images", "images.tar")):
-        entry = manifest[role]
-        require(entry["file"] == filename, "invalid_manifest")
-        path = directory / filename
-        require(not path.is_symlink() and path.is_file(), "invalid_backup_file")
-        require(type(entry["size_bytes"]) is int and entry["size_bytes"] > 0, "invalid_manifest")
-        require(bool(SHA256.fullmatch(entry["sha256"])), "invalid_manifest")
-        require(
-            path.stat().st_size == entry["size_bytes"] and sha256_file(path) == entry["sha256"],
-            "backup_hash_mismatch",
-        )
-        paths[role] = path
-    files, expanded_size = validate_archive(paths["images"])
-    assets = manifest["assets"]
-    require(isinstance(assets, list), "invalid_manifest")
-    seen = set()
-    for asset in assets:
-        require(
-            type(asset["id"]) is int and asset["id"] > 0 and asset["id"] not in seen,
-            "invalid_manifest",
-        )
-        seen.add(asset["id"])
-        key = asset["storage_key"]
-        require(
-            isinstance(key, str)
-            and key
-            and not PurePosixPath(key).is_absolute()
-            and ".." not in PurePosixPath(key).parts
-            and "\\" not in key,
-            "invalid_manifest",
-        )
-        require(
-            type(asset["size_bytes"]) is int
-            and asset["size_bytes"] >= 0
-            and bool(SHA256.fullmatch(asset["sha256"])),
-            "invalid_manifest",
-        )
-        prefix = "screenshots/"
-        if version == 2:
-            require(asset.get("storage_backend") in {"local", "s3"}, "invalid_manifest")
-            require(
-                type(asset.get("content_id")) is int and asset["content_id"] > 0, "invalid_manifest"
-            )
-            require(
-                asset.get("backup_key") == f"originals/sha256/{asset['sha256']}", "invalid_manifest"
-            )
-            if asset["storage_backend"] == "s3":
-                prefix = "s3/"
-        require(prefix + key in files, "missing_asset")
-    require(sample is None or sample["asset_id"] in seen, "invalid_manifest")
-    # Reserve space for unpacked files, a generously sized restored DB, and runtime overhead.
-    required = expanded_size + paths["database"].stat().st_size * 6 + 1024**3
-    require(shutil.disk_usage(tempfile.gettempdir()).free >= required, "insufficient_disk_space")
-    return manifest, paths
 
 
 class Docker:
@@ -540,7 +365,7 @@ def check(directory, credentials_file, image, drill=None):
     report = {"passed": False, "cleanup_passed": False, "maintenance_verified": False,
               "live_deletion_ledger_verified": False}
     try:
-        manifest, paths = load_backup(directory)
+        manifest, paths = recovery_point.load_backup(directory)
         credentials = private_json(credentials_file)
         report.update(backup_id=manifest["backup_id"], origin=manifest["origin"])
         report["manifest_sha256"] = sha256_file(directory / "manifest.json")

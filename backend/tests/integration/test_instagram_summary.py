@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.core.config import settings
 from app.integrations.instagram_summary_client import InstagramSummaryClient
 from app.integrations.metadata_client import ImageFetch, MetadataClient, MetadataResult, PageMeta
-from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.integrations.summary import SummaryError, SummaryResult
 from app.models.content import Content
 from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent
@@ -52,7 +52,7 @@ def worker(database_connection, monkeypatch, api):
         if state.error:
             raise state.error
         # The last candidate differs from the category recommended at save time.
-        return VideoSummary("릴스 제목", "캡션 핵심 안내.", candidates[-1]["id"], {"tokens": 42})
+        return SummaryResult("릴스 제목", "캡션 핵심 안내.", candidates[-1]["id"], {"tokens": 42})
 
     return make_worker(database_connection, SimpleNamespace(summarize=summarize)), state
 
@@ -332,6 +332,20 @@ async def test_blocked_page_fails_without_retry(api, database_connection, monkey
     assert not await run.run_once() and len(requests) == 1
 
 
+async def test_unexpected_client_exception_fails_immediately(api, worker, database_connection):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = RuntimeError("unexpected")
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == ("failed", "provider_error")
+    await make_due(database_connection)
+    assert not await run.run_once() and len(state.calls) == 1
+
+
 @pytest.mark.parametrize("status", [429, 500, 503])
 async def test_transient_page_status_retries_once_then_fails(
     api, database_connection, monkeypatch, status
@@ -399,7 +413,7 @@ async def test_mixed_queue_processes_each_kind_with_its_own_client(
     def client(kind):
         async def summarize(target_id, model, candidates):
             calls.append((kind, target_id))
-            return VideoSummary(f"{kind} 제목", f"{kind} 요약", None, {})
+            return SummaryResult(f"{kind} 제목", f"{kind} 요약", None, {})
 
         return SimpleNamespace(summarize=summarize)
 
@@ -426,7 +440,7 @@ async def test_instagram_only_worker_leaves_youtube_jobs_queued(
     monkeypatch.setattr(settings, "youtube_summary_enabled", False)
 
     async def summarize(target_id, model, candidates):
-        return VideoSummary("릴스 제목", "릴스 요약", None, {})
+        return SummaryResult("릴스 제목", "릴스 요약", None, {})
 
     async def forbidden(*args):
         raise AssertionError("youtube must not run")

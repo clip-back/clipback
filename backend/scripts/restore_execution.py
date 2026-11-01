@@ -32,10 +32,10 @@ from scripts.check_backup_restore import (
     Docker,
     RestoreDrill,
     check,
-    load_backup,
     private_json,
     require,
 )
+from scripts.recovery_point import load_backup, read_downloaded_manifest
 
 MAX_SECONDS = 30 * 60
 OWNER = re.compile(r"clipback-recovery-[0-9a-f]{32}\Z")
@@ -457,7 +457,7 @@ async def run_restore(workspace, *, timeout_seconds=MAX_SECONDS):
                 text("SELECT pg_advisory_lock_shared(:key)"), {"key": LEDGER_WRITE_LOCK}
             )
             lock_acquired = True
-            manifest = json.loads((workspace / "backup" / "manifest.json").read_text())
+            manifest = read_downloaded_manifest(workspace / "backup")
             from scripts.image_backup_jobs import latest_deletions
 
             checkpoint, events = await asyncio.to_thread(

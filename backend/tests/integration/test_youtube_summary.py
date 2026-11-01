@@ -6,7 +6,7 @@ from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.integrations.summary import SummaryError, SummaryResult
 from app.models.content import Content, ContentType
 from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
@@ -28,7 +28,7 @@ def worker(database_connection, monkeypatch, api):
             await state.action()
         if state.error:
             raise state.error
-        return VideoSummary("영상 제목", "핵심 사실 안내.", candidates[0]["id"], {"tokens": 42})
+        return SummaryResult("영상 제목", "핵심 사실 안내.", candidates[0]["id"], {"tokens": 42})
 
     factory = async_sessionmaker(
         bind=database_connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
@@ -195,9 +195,9 @@ async def test_lease_recovery_fencing_and_exhaustion(api, worker, database_conne
         update(SummaryJob).values(lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
     )
     second = await run.claim()
-    assert second and second[4] != first[4]
+    assert second and second.lease_token != first.lease_token
     await run.finish(
-        content["id"], user["id"], first[4], VideoSummary("old", "old", None, {}), None
+        content["id"], user["id"], first.lease_token, SummaryResult("old", "old", None, {}), None
     )
     assert (await detail(api, headers, content))["summary_status"] == "processing"
     await database_connection.execute(
@@ -269,6 +269,22 @@ async def test_permanent_error_does_not_retry(api, worker, code, skipped):
     result = await detail(api, headers, content)
     assert result["summary_status"] == ("skipped" if skipped else "failed")
     assert result["summary_error_code"] == code
+    assert not await run.run_once() and state.calls == 1
+
+
+async def test_unexpected_client_exception_fails_immediately(api, worker, database_connection):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = RuntimeError("unexpected")
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == ("failed", "provider_error")
+    await database_connection.execute(
+        update(SummaryJob).values(next_run_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
     assert not await run.run_once() and state.calls == 1
 
 

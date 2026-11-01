@@ -21,16 +21,24 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from scripts.check_backup_restore import CheckError, load_backup, require, sha256_file
-
-
-def canonical_json(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+from scripts.check_backup_restore import CheckError, require, sha256_file
+from scripts.recovery_point import (
+    canonical_json,
+    completed_points,
+    load_backup,
+    original_key,
+    point_dump_key,
+    point_manifest_key,
+    read_point_manifest,
+    receipt_key,
+    require_app_commit,
+    require_backup_id,
+)
 
 
 def materialize_backup(store, backup_id, directory):
     """Download a complete point into a new private directory; no source is changed."""
-    manifest = store.read_manifest(backup_id)
+    manifest = read_point_manifest(store, backup_id)
     require(
         manifest.get("format_version") == 2 and manifest.get("backup_id") == backup_id,
         "invalid_manifest",
@@ -38,7 +46,7 @@ def materialize_backup(store, backup_id, directory):
     directory.mkdir(mode=0o700)
     database = directory / "database.dump"
     store.download_verified(
-        f"points/{backup_id}/database.dump",
+        point_dump_key(backup_id),
         database,
         manifest["database"]["size_bytes"],
         manifest["database"]["sha256"],
@@ -47,7 +55,7 @@ def materialize_backup(store, backup_id, directory):
     with tarfile.open(archive_path, "w") as archive:
         for asset in manifest["assets"]:
             require(
-                asset.get("backup_key") == f"originals/sha256/{asset['sha256']}", "invalid_manifest"
+                asset.get("backup_key") == original_key(asset["sha256"]), "invalid_manifest"
             )
             content = store.read(asset["backup_key"])
             require(
@@ -229,29 +237,21 @@ class BackupBucket:
             for item in page.get("Contents", [])
         ]
 
-    def completed_points(self):
-        return sorted(
-            entry["key"].split("/")[1]
-            for entry in self.list_objects("points/")
-            if re.fullmatch(r"points/[A-Za-z0-9._-]{1,100}/manifest.json", entry["key"])
-        )
-
-    def read_manifest(self, backup_id):
-        require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", backup_id)), "invalid_backup_id")
-        return json.loads(self.read(f"points/{backup_id}/manifest.json"))
-
 
 def verify_backup(store, backup_id):
     """Read every referenced object without writing a local DB/image copy."""
-    manifest = store.read_manifest(backup_id)
+    manifest = read_point_manifest(store, backup_id)
     require(manifest.get("format_version") == 2 and manifest.get("backup_id") == backup_id,
             "invalid_manifest")
     database, assets = manifest["database"], manifest["assets"]
-    require(database["backup_key"] == f"points/{backup_id}/database.dump", "invalid_manifest")
+    require(database["backup_key"] == point_dump_key(backup_id), "invalid_manifest")
     require(isinstance(assets, list), "invalid_manifest")
     for asset in assets:
-        require(asset.get("storage_backend") in {"local", "s3"}
-                and asset.get("backup_key") == "originals/sha256/" + asset["sha256"],
+        known_backend = asset.get("storage_backend") in {"local", "s3"}
+        if known_backend and not isinstance(asset["sha256"], str):
+            # Same failure as the string concatenation this replaced; #167 unifies it.
+            raise TypeError("asset sha256 is not a string")
+        require(known_backend and asset.get("backup_key") == original_key(asset["sha256"]),
                 "invalid_manifest")
     objects = [database, *assets]
     for item in objects:
@@ -259,7 +259,7 @@ def verify_backup(store, backup_id):
                 and bool(re.fullmatch(r"[0-9a-f]{64}", item["sha256"])), "invalid_manifest")
         store.verify_object(item["backup_key"], item["size_bytes"], item["sha256"])
     # Detect retirement/replacement during verification without taking a write lock.
-    require(store.read_manifest(backup_id) == manifest, "backup_point_changed")
+    require(read_point_manifest(store, backup_id) == manifest, "backup_point_changed")
     return {
         "passed": True, "backup_id": backup_id, "captured_at": manifest["captured_at"],
         "asset_counts": dict(Counter(a["storage_backend"] for a in assets)),
@@ -285,10 +285,10 @@ async def publish_backup(
     deletion_checkpoint=None,
 ):
     """Publish manifest last. Caller holds the paired DB snapshot / write freeze."""
-    require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", backup_id)), "invalid_backup_id")
-    require(backup_id not in store.completed_points(), "backup_id_exists")
+    require_backup_id(backup_id, "invalid_backup_id")
+    require(backup_id not in completed_points(store), "backup_id_exists")
     try:
-        await asyncio.to_thread(store.read, f"gc/points/{backup_id}.json")
+        await asyncio.to_thread(store.read, receipt_key(backup_id))
     except FileNotFoundError:
         pass
     else:
@@ -309,7 +309,7 @@ async def publish_backup(
             len(content) == asset["size_bytes"] and digest == asset["sha256"],
             "original_hash_mismatch",
         )
-        key = f"originals/sha256/{digest}"
+        key = original_key(digest)
         try:
             existing = await asyncio.to_thread(store.read, key)
         except FileNotFoundError:
@@ -319,7 +319,7 @@ async def publish_backup(
         assets.append({**asset, "backup_key": key})
     size, digest = database.stat().st_size, sha256_file(database)
     require(size > 0, "invalid_backup_file")
-    key = f"points/{backup_id}/database.dump"
+    key = point_dump_key(backup_id)
     await asyncio.to_thread(store.put_file_verified, key, database)
     manifest = {
         **snapshot,
@@ -339,7 +339,7 @@ async def publish_backup(
         "deletion_checkpoint": deletion_checkpoint,
     }
     await asyncio.to_thread(
-        store.put_verified, f"points/{backup_id}/manifest.json", canonical_json(manifest)
+        store.put_verified, point_manifest_key(backup_id), canonical_json(manifest)
     )
     return manifest
 
@@ -424,7 +424,7 @@ async def create_backup(
         )
 
     require(writers_frozen is True or ledger is not None, "source_write_freeze_required")
-    require(bool(re.fullmatch(r"[0-9a-f]{40}", app_commit)), "invalid_manifest")
+    require_app_commit(app_commit, "invalid_manifest")
     require(origin in {"production", "synthetic"}, "invalid_manifest")
     if not _job_locked:
         from scripts.image_backup_jobs import BACKUP_JOB_LOCK, source_lock

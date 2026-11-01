@@ -10,6 +10,7 @@ import pytest
 
 from scripts.check_backup_restore import RestoreDrill, check
 from scripts.image_backup import BackupBucket, materialize_backup
+from scripts.recovery_point import completed_points
 from tests.deployment.test_backup_restore_docker import execute
 
 pytestmark = pytest.mark.skipif(
@@ -243,7 +244,7 @@ output.write_bytes(data)
 def test_actual_bucket_originals_and_database_restore_with_authenticated_get(bucket_backup):
     store, directory, manifest, credentials, image = bucket_backup
     assert {a["storage_backend"] for a in manifest["assets"]} == {"local", "s3"}
-    assert store.completed_points() == ["first", "second"]
+    assert completed_points(store) == ["first", "second"]
     assert len([x for x in store.list_objects("originals/")]) == 1
     report = check(directory, credentials, image)
     assert report["passed"], report
@@ -308,7 +309,7 @@ def test_old_point_restores_latest_deletions_before_api_and_copies_expire(bucket
                        "--pg-dump", str(fixture["pg_dump"])]
     failed = subprocess.run(corrupt_capture, env=fixture["env"], capture_output=True, timeout=30)
     assert failed.returncode == 1 and not json.loads(failed.stdout)["passed"]
-    assert "corrupt-prefix" not in store.completed_points()
+    assert "corrupt-prefix" not in completed_points(store)
     ledger.store.write("event-00000000000000000001.json", first_event)
     replacement = subprocess.run(command, env=fixture["env"], capture_output=True, timeout=180)
     replacement_report = json.loads(replacement.stdout)

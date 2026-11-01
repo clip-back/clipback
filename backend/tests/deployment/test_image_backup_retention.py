@@ -11,6 +11,7 @@ from moto import mock_aws
 
 from app.integrations.deletion_ledger import DeletionLedger, LocalLedgerStore
 from scripts.image_backup import BackupBucket
+from scripts.recovery_point import completed_points
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ def test_deleted_copies_expire_with_margin_but_live_shared_bytes_survive(stores)
     point(store, "current", now, [shared])
     report = maintain_backups(store, ledger, now=now)
     assert report["passed"] is True
-    assert store.completed_points() == ["current"]
+    assert completed_points(store) == ["current"]
     assert store.read(asset["backup_key"]) == b"old"
     assert ledger.read_verified_checkpoint()["sequence"] == 1
 
@@ -82,7 +83,7 @@ def test_seven_day_boundary_removes_old_points_and_unreferenced_bytes(stores):
     point(store, "current-empty", now, [])
     report = maintain_backups(store, ledger, now=now)
     assert report["passed"] is True
-    assert store.completed_points() == ["current-empty"]
+    assert completed_points(store) == ["current-empty"]
     with pytest.raises(FileNotFoundError):
         store.read(asset["backup_key"])
 
@@ -113,7 +114,7 @@ def test_missing_ledger_never_prunes_valid_recovery_points(stores):
     (ledger.store.root / "head.json").unlink()
     with pytest.raises(LedgerUnavailableError):
         maintain_backups(store, ledger, now=now)
-    assert store.completed_points() == ["old"]
+    assert completed_points(store) == ["old"]
     assert store.read(asset["backup_key"]) == b"old"
 
 
@@ -135,10 +136,10 @@ def test_cleanup_failure_is_not_reported_as_success_and_retry_finishes(stores):
     }))
     with pytest.raises(ClientError):
         maintain_backups(store, ledger, now=now)
-    assert store.completed_points() == ["current", "old"]
+    assert completed_points(store) == ["current", "old"]
     store.client.delete_bucket_policy(Bucket=store.bucket)
     assert maintain_backups(store, ledger, now=now)["passed"]
-    assert store.completed_points() == ["current"]
+    assert completed_points(store) == ["current"]
 
 
 def test_deleted_copy_stays_restorable_before_cleanup_margin(stores):
@@ -150,7 +151,7 @@ def test_deleted_copy_stays_restorable_before_cleanup_margin(stores):
     point(store, "before", now - timedelta(hours=1), [asset])
     deleted(ledger, asset, now - timedelta(days=6) + timedelta(seconds=1))
     assert maintain_backups(store, ledger, now=now)["passed"]
-    assert store.completed_points() == ["before"]
+    assert completed_points(store) == ["before"]
 
 
 def test_corrupt_point_does_not_destroy_other_points_or_blobs(stores):
@@ -163,7 +164,7 @@ def test_corrupt_point_does_not_destroy_other_points_or_blobs(stores):
     store.put_verified("points/corrupt/manifest.json", b"not json")
     with pytest.raises(ValueError):
         maintain_backups(store, ledger, now=now)
-    assert "valid" in store.completed_points()
+    assert "valid" in completed_points(store)
     assert store.read(asset["backup_key"]) == b"old"
 
 
@@ -214,7 +215,7 @@ def test_partial_cleanup_keeps_legacy_identity_until_late_retry_is_reported(stor
     }))
     with pytest.raises(ClientError):
         maintain_backups(store, ledger, now=now)
-    assert store.completed_points() == ["current"]
+    assert completed_points(store) == ["current"]
     later = now + timedelta(days=1, seconds=1)
     point(store, "fresh", later, [])
     store.client.delete_bucket_policy(Bucket=store.bucket)
@@ -224,3 +225,23 @@ def test_partial_cleanup_keeps_legacy_identity_until_late_retry_is_reported(stor
     assert report["passed"] is False
     assert store.list_objects("originals/") == []
     assert store.list_objects("gc/") == []
+
+
+def test_lookalike_manifest_point_is_cleaned_up_as_incomplete_after_a_day(stores):
+    """Only points/<id>/manifest.json marks completion; a look-alike is a partial point (#169)."""
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime.now(UTC)
+    point(store, "current", now, [])
+    store.put_verified("points/stray/manifestXjson", b"{}")
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is True and report["retained_points"] == 1
+    assert [item["key"] for item in store.list_objects("points/stray/")] == [
+        "points/stray/manifestXjson"
+    ]
+    later = now + timedelta(days=1, seconds=1)
+    point(store, "fresh", later, [])
+    assert maintain_backups(store, ledger, now=later)["passed"] is True
+    assert store.list_objects("points/stray/") == []
+    assert completed_points(store) == ["current", "fresh"]

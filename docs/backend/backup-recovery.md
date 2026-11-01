@@ -90,7 +90,9 @@ snapshot을 원본 목록·건수 조회와 `pg_dump`가 공유하게 합니다.
 
 서비스 원본은 기존의 계정별 저장 요청·키를 유지합니다. 이 재사용은 백업 내부 최적화입니다.
 완료된 backup ID는 덮어쓰지 않습니다. 중간 실패의 원본 보관본·dump는 남을 수 있으나 완료 지점으로
-나열되지 않습니다. 동시 운영자는 서로 다른 ID를 사용해야 합니다. 보존 정리는 후속 정책을 따릅니다.
+나열되지 않습니다. 완료 표식은 이름이 정확히 `manifest.json`인 객체뿐이며, `manifest.json` 없이
+`manifestXjson`처럼 비슷한 이름의 객체만 있는 지점도 중단된 지점으로 보고 하루 뒤 정리합니다.
+동시 운영자는 서로 다른 ID를 사용해야 합니다. 보존 정리는 후속 정책을 따릅니다.
 
 v2 manifest는 v1의 기준 메타데이터에 `assets[].content_id`, `storage_backend`, `backup_key`와
 `database.backup_key`, 선택적 `deletion_checkpoint`를 추가합니다. 비밀값·접속 URL은 포함하지 않습니다.
@@ -228,7 +230,9 @@ sample 때문에 일일 백업이 중단되지 않으며, 남은 원본이 있�
 
 ## 준비와 실행
 
-저장소 루트에서 실행합니다. Docker는 이 Mac의 Unix socket을 사용하는 로컬 context여야 합니다.
+`backend/`에서 module로 실행합니다(`python3 -m scripts.check_backup_restore`). 이 도구는
+`scripts.operator_errors`·`scripts.recovery_point`를 import하므로 파일 경로로 직접 실행하지 않습니다.
+Docker는 이 Mac의 Unix socket을 사용하는 로컬 context여야 합니다.
 백업과 같은 PostgreSQL 주 버전의 공식 `postgres:<major>` 이미지와, 백업 SHA의 제품 코드로 빌드한
 백엔드 이미지를 미리 준비합니다. 도구는 이미지를 자동 다운로드하거나 migration을 실행하지 않습니다.
 PostgreSQL 18부터 바뀐 공식 이미지의 볼륨 루트도 구분합니다.
@@ -239,7 +243,8 @@ PostgreSQL 18부터 바뀐 공식 이미지의 볼륨 루트도 구분합니다.
 다를 수 있으며 같은 바이너리로 보고하지 않습니다.
 
 ```sh
-python3 backend/scripts/check_backup_restore.py \
+cd backend
+python3 -m scripts.check_backup_restore \
   --backup-dir "/absolute/private/backups/BACKUP_ID" \
   --credentials-file "/absolute/private/secrets/restore-credentials.json" \
   --image clipback-recovery:BACKUP_SHA

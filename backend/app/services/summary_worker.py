@@ -4,24 +4,35 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
 
 from app.core.config import Settings
-from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.integrations.summary import SummaryError, SummaryResult
 from app.models.content import Content
 from app.models.content_event import ContentEventType
 from app.models.summary_job import SummaryJob
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
-
-logger = logging.getLogger(__name__)
+from app.services.summary_kinds import summary_kinds
 
 # The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
-SUCCESS_PROVIDERS = {"youtube": "gemini", "instagram": "openai"}
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ClaimedJob:
+    content_id: int
+    user_id: int
+    target_id: str
+    model: str
+    lease_token: str
+    candidates: list[dict]
+    kind: str
 
 
 class SummaryWorker:
@@ -29,19 +40,14 @@ class SummaryWorker:
         self, session_factory, client, config: Settings, *, instagram_client=None, maintenance=None
     ):
         self.sessions = session_factory
-        self.clients = {"youtube": client, "instagram": instagram_client}
+        self.kinds = summary_kinds(youtube=client, instagram=instagram_client)
         self.config = config
         self.maintenance = maintenance
 
     def enabled_kinds(self) -> list[str]:
-        kinds = []
-        if self.config.youtube_summary_enabled:
-            kinds.append("youtube")
-        if self.config.instagram_summary_enabled:
-            kinds.append("instagram")
-        return kinds
+        return self.kinds.enabled_names(self.config)
 
-    async def claim(self):
+    async def claim(self) -> ClaimedJob | None:
         now = datetime.now(UTC)
         async with self.sessions() as session, session.begin():
             job = await session.scalar(
@@ -91,14 +97,14 @@ class SummaryWorker:
                     }
                 )
             )
-            return (
-                job.content_id,
-                user_id,
-                job.target_id,
-                job.model,
-                job.lease_token,
-                [{"id": c.id, "name": c.name} for c in candidates],
-                job.kind,
+            return ClaimedJob(
+                content_id=job.content_id,
+                user_id=user_id,
+                target_id=job.target_id,
+                model=job.model,
+                lease_token=job.lease_token,
+                candidates=[{"id": c.id, "name": c.name} for c in candidates],
+                kind=job.kind,
             )
 
     async def run_once(self) -> bool:
@@ -115,16 +121,23 @@ class SummaryWorker:
     async def _run_once(self) -> bool:
         if not self.enabled_kinds():
             return False
-        claim = await self.claim()
-        if claim is None:
+        claimed = await self.claim()
+        if claimed is None:
             return False
-        content_id, user_id, target_id, model, token, candidates, kind = claim
         started = time.monotonic()
         result = error = None
+        unexpected = {}
         try:
-            result = await self.clients[kind].summarize(target_id, model, candidates)
+            kind = self.kinds.get(claimed.kind)
+            result = await kind.summarize(claimed.target_id, claimed.model, claimed.candidates)
         except SummaryError as exc:
             error = exc
+        except Exception as exc:
+            # End the job now instead of leaving it to lease expiry. The message may hold
+            # provider data, so only the exception type is logged.
+            error = SummaryError("provider_error")
+            error.reason = "unexpected_error"
+            unexpected = {"exception_type": type(exc).__name__}
         outcome = error or result
         image = {"image": outcome.image} if outcome.image is not None else {}
         logger.log(
@@ -132,22 +145,23 @@ class SummaryWorker:
             json.dumps(
                 {
                     "event": "youtube_summary_result",
-                    "kind": kind,
-                    "content_id": content_id,
-                    "model": model,
+                    "kind": claimed.kind,
+                    "content_id": claimed.content_id,
+                    "model": claimed.model,
                     "elapsed_seconds": round(time.monotonic() - started, 3),
                     "error_code": error.code if error else None,
-                    "provider": error.provider if error else SUCCESS_PROVIDERS[kind],
+                    "provider": error.provider if error else kind.provider,
                     "http_status": error.http_status if error else None,
                     "provider_status": error.provider_status if error else None,
                     "reason": error.reason if error else None,
                     "retryable": error.retryable if error else False,
                     "usage": result.usage if result else getattr(error, "usage", {}),
                     **image,
+                    **unexpected,
                 }
             ),
         )
-        await self.finish(content_id, user_id, token, result, error)
+        await self.finish(claimed.content_id, claimed.user_id, claimed.lease_token, result, error)
         return True
 
     async def finish(
@@ -155,7 +169,7 @@ class SummaryWorker:
         content_id: int,
         user_id: int,
         token: str,
-        result: VideoSummary | None,
+        result: SummaryResult | None,
         error: SummaryError | None,
     ):
         async with self.sessions() as session, session.begin():

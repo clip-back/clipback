@@ -11,8 +11,25 @@ from pathlib import Path
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from scripts.check_backup_restore import CheckError, RestoreDrill, check, load_backup, require
-from scripts.image_backup import BackupBucket, canonical_json, create_backup
+from scripts.check_backup_restore import CheckError, RestoreDrill, check, require
+from scripts.image_backup import BackupBucket, create_backup
+from scripts.recovery_point import (
+    ORIGINALS_PREFIX,
+    POINTS_PREFIX,
+    canonical_json,
+    completed_points,
+    load_backup,
+    original_key,
+    point_dump_key,
+    point_id,
+    point_manifest_key,
+    point_prefix,
+    read_point_manifest,
+    read_retiring_points,
+    receipt_key,
+    require_app_commit,
+    require_backup_id,
+)
 
 BACKUP_JOB_LOCK = 74264003
 POINT_RETENTION = timedelta(days=7)
@@ -50,19 +67,15 @@ def maintain_backups(store, ledger, *, now=None):
     points = []
     overdue = set()
     inventory = {
-        identifier: store.read_manifest(identifier) for identifier in store.completed_points()
+        identifier: read_point_manifest(store, identifier) for identifier in completed_points(store)
     }
     retiring = {}
-    for item in store.list_objects("gc/points/"):
-        match = re.fullmatch(r"gc/points/([A-Za-z0-9._-]{1,100})\.json", item["key"])
-        require(match is not None, "invalid_gc_receipt")
-        identifier = match[1]
-        manifest = json.loads(store.read(item["key"]))
+    for identifier, key, manifest in read_retiring_points(store):
         require(identifier not in inventory
                 or canonical_json(inventory[identifier]) == canonical_json(manifest),
                 "gc_receipt_conflict")
         inventory[identifier] = manifest
-        retiring[identifier] = item["key"]
+        retiring[identifier] = key
     # Validate the entire inventory before making a destructive change.
     for identifier, manifest in inventory.items():
         require(manifest.get("format_version") == 2, "retention_requires_v2")
@@ -73,7 +86,7 @@ def maintain_backups(store, ledger, *, now=None):
             require(asset.get("storage_backend") in {"local", "s3"}
                     and isinstance(asset.get("storage_key"), str)
                     and bool(re.fullmatch(r"[0-9a-f]{64}", asset.get("sha256", "")))
-                    and asset.get("backup_key") == "originals/sha256/" + asset["sha256"],
+                    and asset.get("backup_key") == original_key(asset["sha256"]),
                     "invalid_manifest")
         expire = identifier in retiring or now - captured >= POINT_RETENTION
         for event in events:
@@ -92,7 +105,7 @@ def maintain_backups(store, ledger, *, now=None):
     checked = set()
     for identifier, manifest, _, _ in retained:
         database = manifest["database"]
-        require(database["backup_key"] == f"points/{identifier}/database.dump", "invalid_manifest")
+        require(database["backup_key"] == point_dump_key(identifier), "invalid_manifest")
         store.verify_present(database["backup_key"], database["size_bytes"])
         for asset in manifest["assets"]:
             if asset["backup_key"] not in checked:
@@ -102,28 +115,27 @@ def maintain_backups(store, ledger, *, now=None):
         if expire:
             # Keep immutable identity across a crash after unpublishing the point. Legacy
             # deletion intents may lack SHA, so a digest alone cannot recover this link.
-            receipt_key = f"gc/points/{identifier}.json"
             if identifier not in retiring:
-                store.put_verified(receipt_key, canonical_json(manifest))
+                store.put_verified(receipt_key(identifier), canonical_json(manifest))
             # Unpublish the point before deleting anything it references.
-            store.delete_verified(f"points/{identifier}/manifest.json")
-            for item in store.list_objects(f"points/{identifier}/"):
+            store.delete_verified(point_manifest_key(identifier))
+            for item in store.list_objects(point_prefix(identifier)):
                 store.delete_verified(item["key"])
     referenced = {asset["backup_key"] for _, m, _, _ in retained for asset in m["assets"]}
     removed = 0
-    for item in store.list_objects("originals/"):
+    for item in store.list_objects(ORIGINALS_PREFIX):
         if item["key"] not in referenced:
             store.delete_verified(item["key"])
             removed += 1
     completed = {p[0] for p in retained}
-    partial = [item for item in store.list_objects("points/", include_dates=True)
-               if item["key"].split("/")[1] not in completed]
+    partial = [item for item in store.list_objects(POINTS_PREFIX, include_dates=True)
+               if point_id(item["key"]) not in completed]
     for item in partial:
         if now - aware(item["last_modified"]) >= timedelta(days=1):
             store.delete_verified(item["key"])
     for identifier, _, _, expire in points:
         if expire:
-            store.delete_verified(f"gc/points/{identifier}.json")
+            store.delete_verified(receipt_key(identifier))
     fresh = any(now - captured <= timedelta(days=1) for _, _, captured, _ in retained)
     return {
         "passed": fresh and not overdue, "freshness_met": fresh,
@@ -177,7 +189,7 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
             if command == "maintain":
                 return await asyncio.to_thread(maintain_backups, store, ledger)
             identifier = backup_id or "daily-" + datetime.now(UTC).date().isoformat()
-            if command == "daily" and identifier in store.completed_points():
+            if command == "daily" and identifier in completed_points(store):
                 return {"passed": True, "backup_id": identifier, "backup_created": False,
                         "restore_verified": False}
             manifest = await create_backup(
@@ -249,11 +261,9 @@ def main():
                 ))
         else:
             if args.command in {"manual", "daily"}:
-                require(bool(re.fullmatch(r"[0-9a-f]{40}", args.app_commit or "")),
-                        "app_commit_required")
+                require_app_commit(args.app_commit or "", "app_commit_required")
             if args.command == "manual":
-                require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", args.backup_id or "")),
-                        "backup_id_required")
+                require_backup_id(args.backup_id or "", "backup_id_required")
             store = (BackupBucket.from_config_file(args.backup_config_file)
                      if args.backup_config_file else BackupBucket.from_environment())
             kwargs = {}

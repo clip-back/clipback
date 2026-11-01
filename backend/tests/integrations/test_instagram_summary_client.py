@@ -11,7 +11,7 @@ from PIL import Image
 from app.core.config import Settings
 from app.integrations.instagram_summary_client import InstagramSummaryClient
 from app.integrations.metadata_client import MetadataClient
-from app.integrations.youtube_summary_client import SummaryError
+from app.integrations.summary import SummaryError
 
 TARGET = "https://www.instagram.com/reel/ABC123/"
 CATEGORIES = [{"id": 7, "name": "맛집"}, {"id": 9, "name": "여행"}]

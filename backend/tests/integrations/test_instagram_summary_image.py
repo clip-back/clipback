@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.integrations import instagram_summary_client as module
 from app.integrations.instagram_summary_client import InstagramSummaryClient
 from app.integrations.metadata_client import MetadataClient
-from app.integrations.youtube_summary_client import SummaryError
+from app.integrations.summary import SummaryError
 from tests.integrations.test_instagram_summary_client import (
     CATEGORIES,
     PAGE_HOST,

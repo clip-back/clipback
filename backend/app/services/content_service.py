@@ -16,7 +16,6 @@ from app.models.content import (
 from app.models.content_asset import AssetType
 from app.models.content_event import ContentEvent, ContentEventType
 from app.models.recommendation import RecommendationTargetKind, RecommendationType
-from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_asset_repository import ContentAssetRepository
@@ -48,7 +47,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationService,
 )
 from app.services.image_deletion_service import delete_image_content
-from app.services.link_url import instagram_post_type
+from app.services.summary_kinds import new_summary_job
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -140,9 +139,6 @@ class ContentService:
                 detail="original_url is required for link content",
             )
 
-        post_type = None
-        if payload.content_type == ContentType.LINK and payload.original_url:
-            post_type = instagram_post_type(str(payload.original_url))
         video_id = None
         if (
             payload.content_type == ContentType.LINK
@@ -226,42 +222,24 @@ class ContentService:
                 categories=categories,
                 tags=tags,
             )
-            if video_id is not None:
-                self.content_repository.session.add(
-                    SummaryJob(
-                        content_id=content.id,
-                        kind="youtube",
-                        target_id=video_id,
-                        status="queued" if settings.youtube_summary_enabled else "skipped",
-                        error_code=None if settings.youtube_summary_enabled else "disabled",
-                        model=settings.gemini_model,
-                        apply_title=not bool(payload.title and payload.title.strip()),
-                        apply_summary=not bool(payload.summary and payload.summary.strip()),
-                        apply_category=not bool(payload.category_ids),
-                    )
-                )
-            if post_type is not None:
-                if not settings.instagram_summary_enabled:
-                    status, error_code = "skipped", "disabled"
-                elif post_type == "stories":
-                    status, error_code = "skipped", "unsupported_content"
+            if payload.content_type == ContentType.LINK and payload.original_url:
+                if video_id is not None:
+                    typed_title = bool(payload.title and payload.title.strip())
+                    typed_summary = bool(payload.summary and payload.summary.strip())
                 else:
-                    status, error_code = "queued", None
-                self.content_repository.session.add(
-                    SummaryJob(
-                        content_id=content.id,
-                        kind="instagram",
-                        target_id=str(payload.original_url),
-                        status=status,
-                        error_code=error_code,
-                        model=settings.instagram_summary_model,
-                        # The payload already holds the metadata fallback, so the caller
-                        # reports whether the user typed the title and summary.
-                        apply_title=not user_provided_title,
-                        apply_summary=not user_provided_summary,
-                        apply_category=not bool(payload.category_ids),
-                    )
+                    # The payload already holds the metadata fallback, so the caller
+                    # reports whether the user typed the title and summary.
+                    typed_title, typed_summary = user_provided_title, user_provided_summary
+                job = new_summary_job(
+                    content_id=content.id,
+                    url=str(payload.original_url),
+                    apply_title=not typed_title,
+                    apply_summary=not typed_summary,
+                    apply_category=not bool(payload.category_ids),
+                    config=settings,
                 )
+                if job is not None:
+                    self.content_repository.session.add(job)
             if asset is not None:
                 await self.content_asset_repository.create(
                     content_id=content.id,
