@@ -20,7 +20,6 @@ from scripts import recovery_point
 
 # Old API images run the probe, which imports CheckError from this module (ADR 0004).
 from scripts.operator_errors import CheckError, require, sha256_file
-from scripts.recovery_point import load_backup, validate_archive  # noqa: F401
 
 PROBE = Path(__file__).with_name("recovery_probe.py").read_text()
 DELETE_PROBE = Path(__file__).with_name("recovery_deletions.py").read_text()

@@ -320,3 +320,50 @@ origin/main(`5f2a87c`, #147 요약 리팩터링)을 먼저 merge했다(`fc3930b`
 - `pytest -q -rs`: 1619 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
   이관 경로 테스트 `tests/integration/test_image_migration.py`는 `TEST_DATABASE_URL`로 skip 없이 통과했다.
 - Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.
+
+## #166 위임용 옛 이름 제거(축소)
+
+- 지운 이름: `check_backup_restore`의 `load_backup`·`validate_archive` 재수출, `BackupBucket.completed_points`·`read_manifest`.
+  `validate_archive`는 티켓 목록에 없지만 #163에서 `load_backup`과 함께 옮긴 이름이라 같이 지웠다.
+  백업 스크립트의 정규 JSON 함수는 #163에서 정의를 지우고 복구 지점 module에서 import하게 했으므로, 이를 `image_backup`에서
+  import하던 테스트가 없음을 확인하는 것으로 마쳤다.
+- 남긴 것: `check_backup_restore`의 `CheckError`·`require`·`sha256_file` 재수출. 과거 리비전 이미지의 격리 복원 probe가 이 경로를 쓴다(ADR 0004).
+- 테스트 import를 `scripts.recovery_point`로 바꿨다. 테스트 의도와 기대값은 그대로다.
+  - `test_image_backup.py`, `test_image_backup_retention.py`, `test_backup_restore.py`, `test_image_backup_docker.py`
+  - `test_manual_backup_docker.py`·`test_remote_source_backup_docker.py`: operator 이미지 안에서 실행하는 코드 문자열의
+    `s.read_manifest(...)`·`s.completed_points()`를 `read_point_manifest(s, ...)`·`completed_points(s)`로 바꿨다.
+  - #162 고정 테스트의 import 경로 목록에서 `load_backup` 한 줄만 뺐다(사용자 허용, 2026-11-01).
+- `rg`로 옛 이름(`check_backup_restore`에서의 `load_backup`·`validate_archive` import, `.read_manifest(`, `.completed_points(`,
+  `image_backup`의 `canonical_json`)이 코드·테스트·현재 문서에 남지 않았음을 확인했다. 남은 일치는 module 함수 `recovery_point.completed_points` 호출뿐이다.
+  Python에서도 세 위치에 옛 속성이 없고 `CheckError`가 `operator_errors`의 것과 같은 객체임을 확인했다.
+- `pytest -q --collect-only tests/deployment`로 Docker 테스트 파일의 import 변경이 수집 단계에서 깨지지 않음을 확인했다(리뷰 반영 뒤 318개 수집).
+
+### 리뷰 반영
+
+`/code-review`는 정확성 문제를 찾지 못했다. 지적 중 두 가지를 반영했다.
+
+- `image_backup`이 복구 지점 module 이름을 모두 직접 import하게 통일했다(`canonical_json`만 module 이름으로 부르던 것을 정리).
+- 옛 이름이 돌아오지 않게 `test_recovery_point.py`에 `check_backup_restore`·`BackupBucket`에 옛 속성이 없는지 확인하는 테스트를 더했다.
+  #161·#162 고정 테스트에는 더하지 않았다.
+
+`image_backup`·`image_backup_jobs`·`image_migration`이 `CheckError`·`require`·`sha256_file`을 `check_backup_restore` 재수출로 가져오는 기존 의존은
+ADR 0004가 그 재수출을 유지하므로 바꾸지 않았다.
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경으로 실행했다.
+
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`: 통과.
+- `pytest -q --collect-only tests/deployment`: 318개 수집, 오류 없음.
+- `recovery_probe.py`와 #161 고정 테스트 diff 없음. #162 고정 테스트 diff는 import 경로 목록의 `load_backup` 한 줄 삭제뿐이다.
+- `pytest -q -rs`: 1620 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
+- Docker 테스트(코드 문자열을 바꾼 두 파일 포함)는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.
+
+## PR 1 본문에 적을 것(#161~#166)
+
+- `Closes #145`. operator-recovery 실행 목록에 `tests/deployment/test_image_migration_docker.py`를 넣었다.
+- 확인할 CI: operator-recovery job 성공과 pytest 요약의 skipped 0(`test_image_migration_docker.py` 포함). Docker 검사는 로컬에서 실행하지 않았다.
+- 운영자에게 보이는 변경은 하나다: 격리 복원 검사를 `backend/`에서 `python3 -m scripts.check_backup_restore ...`로 실행한다.
+  옛 명령 `python3 backend/scripts/check_backup_restore.py ...`는 `ModuleNotFoundError: No module named 'scripts'`로 실패한다.
+  CLI 출력·오류 코드·종료 코드·백업 저장 형식·환경 변수는 #161·#162 고정 테스트로 확인한 대로 바뀌지 않았다.
+- 새 파일 `scripts/operator_errors.py`·`scripts/recovery_point.py`는 API 이미지·operator 이미지·`.dockerignore`에 들어 있다.

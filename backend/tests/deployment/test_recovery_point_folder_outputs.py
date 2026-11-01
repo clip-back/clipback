@@ -376,7 +376,6 @@ def test_check_backup_restore_exports_errors_shared_by_operator_scripts():
     )
     from scripts.check_backup_restore import (  # noqa: F401
         CheckError,
-        load_backup,
         require,
         sha256_file,
     )

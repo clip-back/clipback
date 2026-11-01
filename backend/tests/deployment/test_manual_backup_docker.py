@@ -104,10 +104,11 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
         assert report["asset_count"] == 1 and report["restore_verified"] is False
         verify = run(*args, "--entrypoint", "python", image, "-c",
                      "from scripts.image_backup import BackupBucket;from pathlib import Path;"
+                     "from scripts.recovery_point import read_point_manifest;"
                      "s=BackupBucket.from_config_file(Path('/backup.json'));"
                      "assert s.read('points/old/manifest.json')==b'old point';"
                      "assert s.read('originals/unreferenced')==b'keep';"
-                     "m=s.read_manifest('first');assert m['postgres_major']==18;"
+                     "m=read_point_manifest(s,'first');assert m['postgres_major']==18;"
                      "assert m['tables']['image_deletions']==1;"
                      "assert s.read(m['assets'][0]['backup_key'])==b'original98';"
                      "assert len(s.read('points/first/database.dump'))>0")
@@ -143,8 +144,9 @@ INSERT INTO image_deletions VALUES('pending98',false,0);
         }
         final = run(*args, "--entrypoint", "python", image, "-c",
                     "from scripts.image_backup import BackupBucket;from pathlib import Path;"
+                    "from scripts.recovery_point import completed_points;"
                     "s=BackupBucket.from_config_file(Path('/backup.json'));"
-                    "assert s.completed_points()==['first','old']")
+                    "assert completed_points(s)==['first','old']")
         assert final.returncode == 0, final.stdout + final.stderr
         # Run the same short entrypoint used in Railway, with no Python shell wrapper.
         daily = run(*args, "--entrypoint", "python",

@@ -21,7 +21,6 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from scripts import recovery_point
 from scripts.check_backup_restore import CheckError, require, sha256_file
 from scripts.recovery_point import (
     canonical_json,
@@ -237,12 +236,6 @@ class BackupBucket:
             )
             for item in page.get("Contents", [])
         ]
-
-    def completed_points(self):
-        return recovery_point.completed_points(self)
-
-    def read_manifest(self, backup_id):
-        return recovery_point.read_point_manifest(self, backup_id)
 
 
 def verify_backup(store, backup_id):

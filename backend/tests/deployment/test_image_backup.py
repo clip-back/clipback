@@ -12,8 +12,9 @@ from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.integrations.storage_client import StorageRouter
-from scripts.check_backup_restore import CheckError, load_backup
+from scripts.check_backup_restore import CheckError
 from scripts.image_backup import BackupBucket, materialize_backup, publish_backup
+from scripts.recovery_point import completed_points, load_backup, read_point_manifest
 
 
 @pytest.fixture
@@ -74,10 +75,10 @@ async def test_complete_points_reuse_unchanged_originals(recovery_store, tmp_pat
             origin="synthetic",
         )
         assert manifest["format_version"] == 2
-        assert store.read_manifest(point) == manifest
+        assert read_point_manifest(store, point) == manifest
     keys = [x["Key"] for x in client.list_objects_v2(Bucket="private-backup")["Contents"]]
     assert len([key for key in keys if key.startswith("originals/")]) == 1
-    assert store.completed_points() == ["first", "second"]
+    assert completed_points(store) == ["first", "second"]
     assert (
         hashlib.sha256((root / "a.png").read_bytes()).hexdigest()
         == source_snapshot()["assets"][0]["sha256"]
@@ -107,7 +108,7 @@ async def test_missing_or_changed_original_never_publishes_point(recovery_store,
     (tmp_path / "a.png").write_bytes(b"wrong")
     with pytest.raises(CheckError, match="original_hash_mismatch"):
         await publish_backup(store, **kwargs)
-    assert store.completed_points() == []
+    assert completed_points(store) == []
 
 
 @pytest.mark.asyncio
@@ -194,7 +195,7 @@ async def test_primary_bucket_cannot_also_be_backup_destination(recovery_store, 
 async def test_incomplete_backup_object_does_not_count_as_complete(recovery_store, tmp_path):
     store, client = recovery_store
     client.put_object(Bucket=store.bucket, Key="points/interrupted/database.dump", Body=b"partial")
-    assert store.completed_points() == []
+    assert completed_points(store) == []
     with pytest.raises(FileNotFoundError):
         materialize_backup(store, "interrupted", tmp_path / "no-complete-point")
 
@@ -271,7 +272,7 @@ async def test_destination_access_denied_does_not_publish_completed_point(recove
             postgres_major=17,
             origin="synthetic",
         )
-    assert store.completed_points() == []
+    assert completed_points(store) == []
 
 
 def test_wrong_pg_dump_major_cannot_make_a_completed_backup(tmp_path):

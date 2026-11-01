@@ -141,3 +141,14 @@ def test_downloaded_manifest_is_read_without_checking_the_folder(tmp_path):
     assert recovery_point.read_downloaded_manifest(directory) == {
         "deletion_checkpoint": None, "origin": "x",
     }
+
+
+def test_delegating_names_from_the_migration_are_gone():
+    """Callers use this module directly; only the probe's error imports stay re-exported."""
+    from scripts import check_backup_restore, image_backup, operator_errors
+
+    assert not hasattr(check_backup_restore, "load_backup")
+    assert not hasattr(check_backup_restore, "validate_archive")
+    assert not hasattr(image_backup.BackupBucket, "completed_points")
+    assert not hasattr(image_backup.BackupBucket, "read_manifest")
+    assert check_backup_restore.CheckError is operator_errors.CheckError
