@@ -3,34 +3,11 @@
 import asyncio
 import json
 import re
-from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import Settings
-
-
-class SummaryError(Exception):
-    def __init__(self, code: str, *, retryable: bool = False, skipped: bool = False):
-        super().__init__(code)
-        self.code = code
-        self.retryable = retryable
-        self.skipped = skipped
-        self.usage: dict = {}
-        self.provider: str | None = None
-        self.http_status: int | None = None
-        self.provider_status: str | None = None
-        self.reason: str | None = None
-        self.image: dict | None = None
-
-
-@dataclass
-class VideoSummary:
-    title: str
-    summary: str
-    category_id: int | None
-    usage: dict
-    image: dict | None = None
+from app.integrations.summary import SummaryError, SummaryResult, validated_result
 
 
 class YouTubeSummaryClient:
@@ -89,7 +66,7 @@ class YouTubeSummaryClient:
                 raise
             raise error from exc
 
-    async def summarize(self, video_id: str, model: str, categories: list[dict]) -> VideoSummary:
+    async def summarize(self, video_id: str, model: str, categories: list[dict]) -> SummaryResult:
         if not self.config.youtube_data_api_key or not self.config.gemini_api_key:
             raise SummaryError("configuration_error")
         data = await self._request(
@@ -194,14 +171,10 @@ class YouTubeSummaryClient:
             )
             if set(output) != {"title", "summary", "category_id"}:
                 raise ValueError
-            title, summary = output["title"].strip(), output["summary"].strip()
-            if not title or len(title) > 120 or not summary or len(summary) > 500:
-                raise ValueError
-            category_id = output.get("category_id")
-            if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
-                category_id = None
-        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            return validated_result(
+                output["title"], output["summary"], output["category_id"], categories, usage
+            )
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError, SummaryError) as exc:
             error = SummaryError("invalid_response")
             error.usage = usage
             raise error from exc
-        return VideoSummary(title, summary, category_id, usage)

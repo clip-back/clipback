@@ -4,7 +4,8 @@ import httpx
 import pytest
 
 from app.core.config import Settings
-from app.integrations.youtube_summary_client import SummaryError, YouTubeSummaryClient
+from app.integrations.summary import SummaryError
+from app.integrations.youtube_summary_client import YouTubeSummaryClient
 
 
 def config():
