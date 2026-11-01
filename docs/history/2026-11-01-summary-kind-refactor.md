@@ -106,3 +106,17 @@ import 경로·이름 외의 변경은 없다. 동작이 없는 이름 이전이
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1469개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #152 옛 이름 `VideoSummary` 제거 (이름 정리 축소 단계)
+
+유튜브 client module의 `VideoSummary = SummaryResult` 재수출과 그 주석을 지우고, 재수출을 확인하던
+`tests/integrations/test_summary.py`의 테스트 1개를 함께 지웠다. 이제 `VideoSummary`라는 이름은 이 이력 문서에만 남는다
+(`backend/`·`docs/` 현재 안내 검색 결과 없음). 제거 단계라 실패 테스트 대신 grep으로 완료 조건을 확인했다.
+"옛 이름이 없다"는 테스트는 그 자체가 이름을 담게 되어 완료 조건과 맞지 않는다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(`tests/integrations` 전체, 요약 통합·로그·동시성·점검·weekly, #148 고정) | 450개 통과(지운 테스트 1개만큼 줄어듦) |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |

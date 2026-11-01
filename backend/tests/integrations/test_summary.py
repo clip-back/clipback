@@ -42,9 +42,3 @@ async def test_both_kinds_raise_the_shared_summary_error():
         await summarize_youtube(httpx.Response(500))
     with pytest.raises(summary.SummaryError):
         await summarize_instagram(instagram_client)
-
-
-# Removed together with the re-export in #152.
-def test_youtube_client_module_still_exports_the_old_names():
-    assert youtube.VideoSummary is summary.SummaryResult
-    assert youtube.SummaryError is summary.SummaryError

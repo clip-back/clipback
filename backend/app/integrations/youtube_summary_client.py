@@ -9,10 +9,6 @@ import httpx
 from app.core.config import Settings
 from app.integrations.summary import SummaryError, SummaryResult
 
-# Old names (`VideoSummary`, and `SummaryError` via the import above) stay importable from here
-# until every import moves to app.integrations.summary.
-VideoSummary = SummaryResult
-
 
 class YouTubeSummaryClient:
     def __init__(self, config: Settings, http: httpx.AsyncClient):
