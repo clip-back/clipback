@@ -121,10 +121,17 @@ class SummaryWorker:
         content_id, user_id, target_id, model, token, candidates, kind = claim
         started = time.monotonic()
         result = error = None
+        unexpected = {}
         try:
             result = await self.clients[kind].summarize(target_id, model, candidates)
         except SummaryError as exc:
             error = exc
+        except Exception as exc:
+            # End the job now instead of leaving it to lease expiry. The message may hold
+            # provider data, so only the exception type is logged.
+            error = SummaryError("provider_error")
+            error.reason = "unexpected_error"
+            unexpected = {"exception_type": type(exc).__name__}
         outcome = error or result
         image = {"image": outcome.image} if outcome.image is not None else {}
         logger.log(
@@ -144,6 +151,7 @@ class SummaryWorker:
                     "retryable": error.retryable if error else False,
                     "usage": result.usage if result else getattr(error, "usage", {}),
                     **image,
+                    **unexpected,
                 }
             ),
         )

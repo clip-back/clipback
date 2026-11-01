@@ -332,6 +332,20 @@ async def test_blocked_page_fails_without_retry(api, database_connection, monkey
     assert not await run.run_once() and len(requests) == 1
 
 
+async def test_unexpected_client_exception_fails_immediately(api, worker, database_connection):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = RuntimeError("unexpected")
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == ("failed", "provider_error")
+    await make_due(database_connection)
+    assert not await run.run_once() and len(state.calls) == 1
+
+
 @pytest.mark.parametrize("status", [429, 500, 503])
 async def test_transient_page_status_retries_once_then_fails(
     api, database_connection, monkeypatch, status

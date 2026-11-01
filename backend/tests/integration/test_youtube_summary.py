@@ -272,6 +272,22 @@ async def test_permanent_error_does_not_retry(api, worker, code, skipped):
     assert not await run.run_once() and state.calls == 1
 
 
+async def test_unexpected_client_exception_fails_immediately(api, worker, database_connection):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = RuntimeError("unexpected")
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert (result["summary_status"], result["summary_error_code"]) == ("failed", "provider_error")
+    await database_connection.execute(
+        update(SummaryJob).values(next_run_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
+    assert not await run.run_once() and state.calls == 1
+
+
 async def test_retry_success_and_deleted_recommendation(api, worker, database_connection):
     run, state = worker
     headers, _, _ = await guest(api)

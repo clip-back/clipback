@@ -165,7 +165,10 @@ class MetadataClient:
     ) -> Any:
         total_timeout_seconds = total_timeout_seconds or self.total_timeout_seconds
         max_bytes = max_bytes or self.max_response_bytes
-        initial_url = self._strip_fragment(url)
+        try:
+            initial_url = self._strip_fragment(url)
+        except ValueError:
+            return self._failure(url, "invalid_url")
         current_url = initial_url
         last_safe_url = [initial_url]
         deadline = asyncio.get_running_loop().time() + total_timeout_seconds
@@ -232,7 +235,10 @@ class MetadataClient:
                         return self._failure(current_url, "redirect_without_location")
                     if redirect_count >= self.max_redirects:
                         return self._failure(current_url, "redirect_limit")
-                    current_url = self._strip_fragment(urljoin(current_url, location))
+                    try:
+                        current_url = self._strip_fragment(urljoin(current_url, location))
+                    except ValueError:
+                        return self._failure(current_url, "invalid_url")
                     continue
 
                 if not 200 <= response.status_code < 300:
