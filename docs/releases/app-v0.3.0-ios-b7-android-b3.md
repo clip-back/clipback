@@ -7,8 +7,8 @@
 - 준비일: 2026-10-31T23:35:13+09:00 KST
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 처리 중 문구를 ‘링크 정보를 처리 중이에요’로 변경 (CHANGELOG 앱 0.3.0 개선); [iOS] 공유 저장 시트와 저장 완료 안내 (CHANGELOG 앱 0.3.0 개선); [iOS] 공유 저장 실패 이유별 알림창 (CHANGELOG 앱 0.3.0 개선); [Android] 공유 저장 시트·완료 안내·실패 알림창 (CHANGELOG 앱 0.3.0 개선); [앱] 마이 화면 앱 버전을 설치된 앱 값으로 표시 (CHANGELOG 앱 0.3.0 수정)
 - 관련 PR·작업 링크: [앱 버전 표시 #120](https://github.com/clip-back/clipback/pull/120), [인스타그램 자동 요약·처리 중 문구 #135](https://github.com/clip-back/clipback/pull/135), [다른 앱 공유 시트 #138](https://github.com/clip-back/clipback/pull/138), 서버 기록 [backend-2026-10-31-1](backend-2026-10-31-1.md)
-- 앱 버전별 개요·이전 후보 링크: 해당 없음 — 0.3.0 첫 후보. 이전 버전: [iOS 0.2.0(6)](app-v0.2.0-ios-b6.md), [Android 0.2.0(2)](app-v0.2.0-android-b2.md)
-- 후보 준비 상태·미확인 사유: Android 정상 Release AAB 생성·정적 검사 완료. iOS는 아카이브까지 성공했고 계약 갱신 수락 대기로 IPA 내보내기·업로드 보류. 2026-11-01 사용자 결정으로 양 플랫폼 배포 일시 보류. 업로드·테스트 제공·실기기 확인 미실행
+- 앱 버전별 개요·이전 후보 링크: 해당 없음 — 0.3.0 첫 후보. 이전 버전: [iOS 0.2.0(6)](app-v0.2.0-ios-b6.md), [Android 0.2.0(2)](app-v0.2.0-android-b2.md). 대체한 후속 후보: [iOS 0.3.0(8)·Android 0.3.0(4)](app-v0.3.0-ios-b8-android-b4.md)
+- 후보 준비 상태·미확인 사유: Android 정상 Release AAB 생성·정적 검사 완료. iOS는 아카이브까지 성공했고 계약 갱신 수락 대기로 IPA 내보내기·업로드 보류. 2026-11-01 사용자 결정으로 양 플랫폼 배포 일시 보류. 2026-11-02 앱 아이콘 교체(#172) 포함 결정으로 새 후보로 대체했으며, 이 후보의 산출물은 어느 스토어에도 업로드하지 않음. 테스트 제공·실기기 확인 미실행
 
 iOS는 0.2.0(6)의 소스 `a3972f9` 이후 처음 빌드하므로, `앱 0.2.0`에 기록된 사진 원본 보존 수정(#116, [앱] 사진 첨부 시 JPEG 압축 끔)이 이 후보에서 iOS에 처음 배포됩니다. 변경 이력 항목은 `앱 0.2.0`에 그대로 둡니다.
 이번 실기기 확인 대상인 인스타그램 링크 요약은 서버 기능이며 서버 기록에서 운영 반영을 확인했습니다. 앱에는 처리 중 문구 변경만 포함됩니다.
@@ -39,13 +39,13 @@ iOS는 0.2.0(6)의 소스 `a3972f9` 이후 처음 빌드하므로, `앱 0.2.0`�
 | 실제 빌드 번호 | 7 | 3 |
 | 빌드 소스 SHA | a70009cd9638a09787cbf61817c683c3818c674c | a70009cd9638a09787cbf61817c683c3818c674c |
 | 후보 태그·실제 생성 여부 | app-ios-v0.3.0-b7 (미생성) | app-android-v0.3.0-b3 (미생성) |
-| 최종 검증 빌드·정식 배포 대상 여부 | 미확인 | 미확인 |
+| 최종 검증 빌드·정식 배포 대상 여부 | 아님 — iOS 8로 대체 | 아님 — Android 4로 대체 |
 | 빌드 결과·산출물 식별자 | 아카이브 성공, IPA 내보내기 실패(Apple Developer 프로그램 계약 갱신 미수락: `PLA Update available`, 배포 인증서 발급 불가). `frontend/build/release-candidates/app-v0.3.0-ios-b7/Runner.xcarchive` — 본앱 `com.huturu.app` 0.3.0(7), 공유 확장 포함, 팀 `8X6N747PQM`, 권한 설명 3종 존재 | 정상 Release AAB 성공. `frontend/build/release-candidates/app-v0.3.0-android-b3/app-release.aab`, 72,810,293바이트, SHA-256 `16023073071dc17db4e17e89679fc6c34e0d32a07bb300a8d6610f3dce92dcfe`. 산출물의 versionName 0.3.0·versionCode 3 확인 |
-| 업로드·처리 상태 | 미확인 | 미확인 |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 | 미확인 |
-| 심사 상태 | 미확인 | 미확인 |
-| 정식 공개 상태·공개 범위 | 미확인 | 미확인 |
-| 실제 공개일·시각 | 미확인 | 미확인 |
+| 업로드·처리 상태 | 업로드 안 함(새 후보로 대체) | 업로드 안 함(새 후보로 대체) |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | 해당 없음 — 업로드 안 함 | 해당 없음 — 업로드 안 함 |
+| 심사 상태 | 해당 없음 — 업로드 안 함 | 해당 없음 — 업로드 안 함 |
+| 정식 공개 상태·공개 범위 | 해당 없음 — 업로드 안 함 | 해당 없음 — 업로드 안 함 |
+| 실제 공개일·시각 | 해당 없음 | 해당 없음 |
 
 ## 서버와 마이그레이션
 
@@ -94,3 +94,4 @@ iOS는 0.2.0(6)의 소스 `a3972f9` 이후 처음 빌드하므로, `앱 0.2.0`�
 | 2026-10-31 23:52 | Android 정상 빌드 | `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.3.0 --build-number=3`, 운영 API·공개 SDK 설정 지정. 작업 트리 HEAD `c39117c`는 `a70009c`에 문서 커밋 2개만 더한 상태로 `frontend/` 차이 없음 | 108.6초 빌드 성공. 산출물을 후보 폴더로 복사하고 해시·서명·manifest·16KB 정렬 검사 통과. 업로드 미실행 |
 | 2026-10-31 23:58 | iOS 아카이브·내보내기 | main 체크아웃의 Git 제외 `SocialAuth.xcconfig`를 사용자 승인 후 복사(URL scheme과 공개 ID 일치 확인). `flutter build ipa --release --no-pub -t lib/main.dart --build-name=0.3.0 --build-number=7`, 공개 소셜 Dart define 3개 | 161초 아카이브 성공, 0.3.0(7) 확인. IPA 내보내기는 `PLA Update available`, `No signing certificate "iOS Distribution" found`로 실패. 빌드 6의 ExportOptions(`app-store-connect`, automatic)로 `xcodebuild -exportArchive -allowProvisioningUpdates` 재시도도 같은 오류(exit 70). 계정 소유자의 계약 수락 후 같은 아카이브로 내보내기 재시도 |
 | 2026-11-01 | 배포 보류 | 계정 소유자의 Apple 계약 수락을 바로 진행할 수 없어 사용자가 배포를 미루기로 결정 | iOS 아카이브·Android AAB는 후보 폴더에 보존. 재개 시 소스·빌드 번호·산출물을 바꾸지 않고 iOS는 같은 아카이브로 내보내기부터 재개. 소스를 바꾸면 새 빌드 번호로 새 후보 사용 |
+| 2026-11-02 00:18 | 새 후보로 대체 | 사용자가 앱 아이콘 교체(#172, main `835f915`)를 0.3.0에 포함하기로 결정해 빌드 소스가 바뀜 | iOS 7 아카이브·Android 3 AAB는 업로드하지 않고 후보 폴더에 보존. 빌드 번호 7·3은 예약 번호로 재사용하지 않음. 새 후보 [iOS 0.3.0(8)·Android 0.3.0(4)](app-v0.3.0-ios-b8-android-b4.md)으로 진행 |
