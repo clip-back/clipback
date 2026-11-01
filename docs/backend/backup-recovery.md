@@ -90,7 +90,9 @@ snapshot을 원본 목록·건수 조회와 `pg_dump`가 공유하게 합니다.
 
 서비스 원본은 기존의 계정별 저장 요청·키를 유지합니다. 이 재사용은 백업 내부 최적화입니다.
 완료된 backup ID는 덮어쓰지 않습니다. 중간 실패의 원본 보관본·dump는 남을 수 있으나 완료 지점으로
-나열되지 않습니다. 동시 운영자는 서로 다른 ID를 사용해야 합니다. 보존 정리는 후속 정책을 따릅니다.
+나열되지 않습니다. 완료 표식은 이름이 정확히 `manifest.json`인 객체뿐이며, `manifest.json` 없이
+`manifestXjson`처럼 비슷한 이름의 객체만 있는 지점도 중단된 지점으로 보고 하루 뒤 정리합니다.
+동시 운영자는 서로 다른 ID를 사용해야 합니다. 보존 정리는 후속 정책을 따릅니다.
 
 v2 manifest는 v1의 기준 메타데이터에 `assets[].content_id`, `storage_backend`, `backup_key`와
 `database.backup_key`, 선택적 `deletion_checkpoint`를 추가합니다. 비밀값·접속 URL은 포함하지 않습니다.

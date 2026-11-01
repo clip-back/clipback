@@ -225,3 +225,23 @@ def test_partial_cleanup_keeps_legacy_identity_until_late_retry_is_reported(stor
     assert report["passed"] is False
     assert store.list_objects("originals/") == []
     assert store.list_objects("gc/") == []
+
+
+def test_lookalike_manifest_point_is_cleaned_up_as_incomplete_after_a_day(stores):
+    """Only points/<id>/manifest.json marks completion; a look-alike is a partial point (#169)."""
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime.now(UTC)
+    point(store, "current", now, [])
+    store.put_verified("points/stray/manifestXjson", b"{}")
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is True and report["retained_points"] == 1
+    assert [item["key"] for item in store.list_objects("points/stray/")] == [
+        "points/stray/manifestXjson"
+    ]
+    later = now + timedelta(days=1, seconds=1)
+    point(store, "fresh", later, [])
+    assert maintain_backups(store, ledger, now=later)["passed"] is True
+    assert store.list_objects("points/stray/") == []
+    assert completed_points(store) == ["current", "fresh"]
