@@ -21,11 +21,9 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
+from scripts import recovery_point
 from scripts.check_backup_restore import CheckError, load_backup, require, sha256_file
-
-
-def canonical_json(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+from scripts.recovery_point import canonical_json
 
 
 def materialize_backup(store, backup_id, directory):
@@ -230,15 +228,10 @@ class BackupBucket:
         ]
 
     def completed_points(self):
-        return sorted(
-            entry["key"].split("/")[1]
-            for entry in self.list_objects("points/")
-            if re.fullmatch(r"points/[A-Za-z0-9._-]{1,100}/manifest.json", entry["key"])
-        )
+        return recovery_point.completed_points(self)
 
     def read_manifest(self, backup_id):
-        require(bool(re.fullmatch(r"[A-Za-z0-9._-]{1,100}", backup_id)), "invalid_backup_id")
-        return json.loads(self.read(f"points/{backup_id}/manifest.json"))
+        return recovery_point.read_point_manifest(self, backup_id)
 
 
 def verify_backup(store, backup_id):

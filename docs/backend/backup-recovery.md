@@ -228,7 +228,9 @@ sample 때문에 일일 백업이 중단되지 않으며, 남은 원본이 있�
 
 ## 준비와 실행
 
-저장소 루트에서 실행합니다. Docker는 이 Mac의 Unix socket을 사용하는 로컬 context여야 합니다.
+`backend/`에서 module로 실행합니다(`python3 -m scripts.check_backup_restore`). 이 도구는
+`scripts.operator_errors`·`scripts.recovery_point`를 import하므로 파일 경로로 직접 실행하지 않습니다.
+Docker는 이 Mac의 Unix socket을 사용하는 로컬 context여야 합니다.
 백업과 같은 PostgreSQL 주 버전의 공식 `postgres:<major>` 이미지와, 백업 SHA의 제품 코드로 빌드한
 백엔드 이미지를 미리 준비합니다. 도구는 이미지를 자동 다운로드하거나 migration을 실행하지 않습니다.
 PostgreSQL 18부터 바뀐 공식 이미지의 볼륨 루트도 구분합니다.
@@ -239,7 +241,8 @@ PostgreSQL 18부터 바뀐 공식 이미지의 볼륨 루트도 구분합니다.
 다를 수 있으며 같은 바이너리로 보고하지 않습니다.
 
 ```sh
-python3 backend/scripts/check_backup_restore.py \
+cd backend
+python3 -m scripts.check_backup_restore \
   --backup-dir "/absolute/private/backups/BACKUP_ID" \
   --credentials-file "/absolute/private/secrets/restore-credentials.json" \
   --image clipback-recovery:BACKUP_SHA

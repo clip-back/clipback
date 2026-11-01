@@ -195,3 +195,59 @@ spec은 "손상 manifest 22가지"를 측정했다고 적었지만 목록은 적
 - 새 테스트 파일 두 개: 121 passed.
 - `test_image_migration_docker.py`를 포함한 Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery job 성공과
   pytest 요약의 skipped 0으로 확인한다.
+
+## #163 복구 지점 module과 운영 오류 module 추가(확장)
+
+origin/main(`5f2a87c`, #147 요약 리팩터링)을 먼저 merge했다(`fc3930b`). 작업 이력 목차 충돌은 양쪽 줄을 모두 남겼다.
+
+- `backend/scripts/operator_errors.py`: `CheckError`·`require`·`sha256_file`을 `check_backup_restore`에서 옮겼다.
+  `check_backup_restore`는 셋을 import해 같은 객체로 다시 내보낸다. 과거 리비전 API 이미지의 격리 복원 probe가 이 경로를 쓰기 때문이다.
+- `backend/scripts/recovery_point.py`(복구 지점 module):
+  - 키 배치: `original_key`, `point_prefix`, `point_dump_key`, `point_manifest_key`, `receipt_key`, `receipt_backup_id`(형식이 틀리면 `None`)
+  - 형식: `require_backup_id(value, code)`, `require_app_commit(value, code)`. 오류 코드는 호출 쪽이 넘긴다.
+    지금처럼 문자열이 아닌 값은 `re.fullmatch`의 `TypeError`가 그대로 나가 각 CLI의 일반 오류가 된다.
+  - 게시된 복구 지점: `completed_points(store)`, `read_point_manifest(store, backup_id)`(id 형식 검사와 JSON 읽기만),
+    `read_retiring_points(store)`(정리 receipt마다 이름 검사 → JSON 읽기를 하나씩 내보내는 generator. maintain이 receipt마다
+    완료 지점과의 충돌을 바로 판정하는 지금 순서를 지키기 위해서다)
+  - 내려받은 복구 지점: `load_backup(directory)`와 `validate_archive`를 `check_backup_restore`에서 그대로 옮겼다.
+    달라진 줄은 `backup_id`·`app_commit` 정규식 두 줄을 위 형식 함수 호출로 바꾼 것뿐이다(`diff`로 확인).
+  - `canonical_json`
+  - `completed_points`의 정규식 `points/<id>/manifest.json`의 `.`은 지금처럼 이스케이프하지 않은 채 옮겼다(동작 보존).
+- 위임으로 남긴 기존 이름: `check_backup_restore.load_backup`·`validate_archive`(import 재수출), `image_backup.canonical_json`(import 재수출),
+  `BackupBucket.completed_points`·`read_manifest`(새 module 호출). 호출하는 쪽 코드는 바꾸지 않았다.
+  `validate_archive`는 #166 목록에 없지만 `load_backup`과 함께 옮긴 이름이라 #166에서 같이 지운다.
+- 새 파일 2개를 API 이미지 `Dockerfile`, `Dockerfile.operator`, `.dockerignore` 허용 목록에 추가했다. Docker가 꺼져 있어 빌드는 하지 않았고,
+  두 Dockerfile의 `COPY` 목록이 `.dockerignore` 허용 목록에 있고 복사한 운영 스크립트가 import하는 `scripts` module을 모두 포함하는지 스크립트로 확인했다.
+- 새 테스트 `backend/tests/deployment/test_recovery_point.py`: moto와 임시 폴더로 키 배치·receipt 키 왕복, 형식 검사, 완료 지점 목록,
+  지점 manifest 읽기, 정리 중인 지점 읽기, 내려받은 폴더 검사, 정규 JSON을 확인한다. module이 없을 때 import 오류로 실패하는 것을 먼저 확인했다.
+
+### 격리 복원 검사의 실행 방법 변경
+
+`check_backup_restore`가 `scripts.operator_errors`·`scripts.recovery_point`를 import하므로, 운영 문서가 안내하던
+`python3 backend/scripts/check_backup_restore.py ...`(파일 직접 실행)는 `ModuleNotFoundError: No module named 'scripts'`로 실패한다.
+사용자 결정(2026-11-01)에 따라 대비 코드를 넣지 않고 [백업·복구 운영 문서](../backend/backup-recovery.md#준비와-실행)의 명령을
+`backend/`에서 `python3 -m scripts.check_backup_restore ...`로 실행하도록 바꿨다. 두 방식을 실제로 실행해 새 명령은 도움말이 나오고
+옛 명령은 위 오류가 나는 것을 확인했다. 문서의 다른 직접 실행 안내(`scripts/check_deployment.py`, `scripts/image_deletions.py`)는
+`scripts` 패키지를 import하지 않아 이번 변경과 무관하다. PR 1 본문에도 이 실행 방법 변경을 적는다.
+
+### 리뷰 반영
+
+`/code-review` 지적 중 `load_backup`이 원본 보관본 키를 직접 조립하던 곳을 같은 module의 `original_key()` 호출로 바꿨다.
+다음은 반영하지 않았다.
+
+- 파일 직접 실행 유지(`sys.path` 보정): 사용자 결정에 따라 문서 명령을 바꾸는 쪽을 택했다.
+- 형식 검사의 `TypeError`, `completed_points` 정규식의 이스케이프하지 않은 `.`: 지금 동작을 그대로 옮겼다. 앞의 것은 #167의 통일 대상이다.
+- `read_retiring_points`를 목록 반환으로 바꾸기: receipt마다 이름 검사와 완료 지점 충돌 판정이 번갈아 나오는 지금 순서가 달라진다.
+  maintain은 삭제 전에 전체 목록을 모으므로 generator여도 중간 삭제가 생기지 않는다.
+- `validate_archive`의 파일 수 제곱 시간: 범위 밖 성능 문제로 따로 보고한다.
+- 명령 쪽에 남은 키 문자열·정규식, `image_backup`의 두 가지 import 방식: #164·#166 범위다.
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경으로 실행했다(origin/main merge 뒤).
+
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`: 통과.
+  `recovery_probe.py`와 #161·#162 고정 테스트 파일 diff 없음.
+- `pytest -q -rs`: 1615 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
+  merge로 들어온 #147 테스트가 더해져 통과 수가 늘었다.
+- Docker 이미지 빌드와 Docker 테스트는 로컬에서 실행하지 않았다. 새 파일이 이미지에 들어갔는지는 PR 1 CI의 operator-recovery에서 확인한다.
