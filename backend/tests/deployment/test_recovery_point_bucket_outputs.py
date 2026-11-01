@@ -349,6 +349,65 @@ def test_colliding_asset_tar_path_outputs(case, age, bucket, maintenance_runtime
     }
 
 
+NON_STRING_SHA256 = pytest.mark.parametrize(
+    "sha256", [None, 1, True, [], {}], ids=["null", "number", "boolean", "array", "object"]
+)
+
+
+def changed_target(bucket, age, *changes, receipt=False):
+    """A healthy fresh anchor point plus a target point with the given manifest changes."""
+    now = datetime.now(UTC)
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
+    value = manifest("target", (now - age).isoformat())
+    for change in changes:
+        change(value)
+    bucket.point("target", value, receipt=receipt)
+
+
+@pytest.mark.parametrize("age", ["fresh", "expired"])
+@NON_STRING_SHA256
+def test_non_string_asset_sha256_outputs(sha256, age, bucket, maintenance_runtime, monkeypatch,
+                                         capsys, tmp_path):
+    """verify builds the original's key from the digest before checking its format."""
+    changed_target(bucket, FRESH if age == "fresh" else EXPIRED,
+                   assign("assets", 0, "sha256", value=sha256))
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+        "maintain": maintain(monkeypatch, capsys),
+    }
+    assert actual == {
+        "verify": failure(OPERATION),
+        "download": (*failure(INVALID), DUMP_AND_TAR),
+        "maintain": failure(JOB),
+    }
+
+
+@NON_STRING_SHA256
+def test_non_string_asset_sha256_outputs_with_unknown_backend(sha256, bucket, maintenance_runtime,
+                                                              monkeypatch, capsys, tmp_path):
+    """An unknown storage backend is reported before verify touches the digest."""
+    changed_target(bucket, FRESH, assign("assets", 1, "storage_backend", value="gcs"),
+                   assign("assets", 1, "sha256", value=sha256))
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+        "maintain": maintain(monkeypatch, capsys),
+    }
+    assert actual == {
+        "verify": failure(INVALID),
+        "download": (*failure(INVALID), DUMP_AND_TAR),
+        "maintain": failure(INVALID),
+    }
+
+
+@NON_STRING_SHA256
+def test_non_string_asset_sha256_cleanup_receipt_outputs(sha256, bucket, maintenance_runtime,
+                                                         monkeypatch, capsys):
+    changed_target(bucket, EXPIRED, assign("assets", 0, "sha256", value=sha256), receipt=True)
+    assert maintain(monkeypatch, capsys) == failure(JOB)
+
+
 def contract_violation(bucket):
     """A fresh target whose app_commit is not a SHA; verify and maintain accept it today."""
     now = datetime.now(UTC)

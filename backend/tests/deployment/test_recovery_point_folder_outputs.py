@@ -9,6 +9,7 @@ main 06bc24d; the structural migration (#163-#166) must keep them unchanged.
 
 import io
 import json
+import re
 import tarfile
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
@@ -130,30 +131,40 @@ def ledger(monkeypatch, tmp_path):
     return value
 
 
+SECONDS, MANIFEST_SHA256 = "<seconds>", "<sha256 of manifest.json>"
+
+
+def with_placeholders(directory, result):
+    """Check the run-dependent report values, then replace them; `expected` decides presence."""
+    code, report = result
+    if "elapsed_seconds" in report:
+        assert type(report["elapsed_seconds"]) is float and report["elapsed_seconds"] >= 0
+        report["elapsed_seconds"] = SECONDS
+    if "manifest_sha256" in report:
+        value = report["manifest_sha256"]
+        assert isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value), value
+        assert report["manifest_sha256"] == digest((directory / "manifest.json").read_bytes())
+        report["manifest_sha256"] = MANIFEST_SHA256
+    return code, report
+
+
 def isolated_check(directory, credentials, monkeypatch, capsys):
     from scripts.check_backup_restore import main
 
-    code, report = run(main, ["check_backup_restore", "--backup-dir", str(directory),
-                              "--credentials-file", str(credentials), "--image", "app:check"],
-                       monkeypatch, capsys)
-    assert isinstance(report.pop("elapsed_seconds"), float)
-    if "manifest_sha256" in report:
-        assert report.pop("manifest_sha256") == digest((directory / "manifest.json").read_bytes())
-    return code, report
+    return with_placeholders(directory, run(main, [
+        "check_backup_restore", "--backup-dir", str(directory),
+        "--credentials-file", str(credentials), "--image", "app:check",
+    ], monkeypatch, capsys))
 
 
 def restore_check(directory, credentials, monkeypatch, capsys):
     from scripts.image_backup_jobs import main
 
-    code, report = run(main, [
+    return with_placeholders(directory, run(main, [
         "image_backup_jobs", "restore-check", "--backup-dir", str(directory),
         "--credentials-file", str(credentials), "--image", "app:check",
         "--synthetic-offline", "--writers-frozen",
-    ], monkeypatch, capsys)
-    report.pop("elapsed_seconds", None)
-    if "manifest_sha256" in report:
-        assert report.pop("manifest_sha256") == digest((directory / "manifest.json").read_bytes())
-    return code, report
+    ], monkeypatch, capsys))
 
 
 def prepare(directory, credentials, run_root, monkeypatch, capsys):
@@ -197,9 +208,12 @@ def outputs(directory, credentials, monkeypatch, capsys, tmp_path):
 
 
 GENERIC = "generic"
-CLOSED = {"cleanup_passed": True, "live_deletion_ledger_verified": False,
-          "maintenance_verified": False, "passed": False}
-LOADED = {**CLOSED, "backup_id": "target", "origin": "synthetic"}
+# The isolated check report always has the elapsed time. The backup ID, origin and manifest digest
+# appear only after the folder and the credentials file both pass their checks.
+CLOSED = {"cleanup_passed": True, "elapsed_seconds": SECONDS,
+          "live_deletion_ledger_verified": False, "maintenance_verified": False, "passed": False}
+LOADED = {**CLOSED, "backup_id": "target", "manifest_sha256": MANIFEST_SHA256,
+          "origin": "synthetic"}
 
 
 def expected(code):
@@ -307,6 +321,16 @@ def asset_outside_archive(index):
 def images_missing_and_dump_changed(directory):
     break_images_file(directory)
     change_dump_bytes(directory)
+
+
+@pytest.mark.parametrize("sha256", [None, 1, True, [], {}],
+                         ids=["null", "number", "boolean", "array", "object"])
+def test_non_string_asset_sha256_outputs(sha256, failing_docker, credentials, ledger, monkeypatch,
+                                         capsys, tmp_path):
+    change = assign("assets", 0, "sha256", value=sha256)
+    directory = write_folder(tmp_path / "backup", change=change,
+                             checkpoint=ledger.read_checkpoint_tip())
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(GENERIC)
 
 
 @pytest.mark.parametrize("damage,change,code", [

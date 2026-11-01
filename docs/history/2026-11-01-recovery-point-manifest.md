@@ -367,3 +367,46 @@ ADR 0004가 그 재수출을 유지하므로 바꾸지 않았다.
   옛 명령 `python3 backend/scripts/check_backup_restore.py ...`는 `ModuleNotFoundError: No module named 'scripts'`로 실패한다.
   CLI 출력·오류 코드·종료 코드·백업 저장 형식·환경 변수는 #161·#162 고정 테스트로 확인한 대로 바뀌지 않았다.
 - 새 파일 `scripts/operator_errors.py`·`scripts/recovery_point.py`는 API 이미지·operator 이미지·`.dockerignore`에 들어 있다.
+
+## PR 1 리뷰 지적 수정(2026-11-01)
+
+draft PR #168의 Codex 코드 리뷰(Spec P2 2건)를 코드로 확인했고 둘 다 지적과 같았다. 사용자 결정에 따라 모두 고쳤다.
+
+### 1. verify의 문자열이 아닌 asset `sha256`
+
+- 확인: main(`5f2a87c`)의 `verify_backup`은 `"originals/sha256/" + asset["sha256"]`로 키를 만들어, 저장소 종류가 맞는 asset의
+  `sha256`이 null·숫자·불리언·배열·객체이면 `TypeError` → `backup_operation_failed`였다. #164에서 f-string인 `original_key()`로 바꾸면서
+  `invalid_manifest`가 됐다(종료 코드는 둘 다 1). main worktree와 이 브랜치에서 다섯 값 × 신선·만료를 실제로 실행해 확인했다.
+- 다른 명령: `download`는 main에서도 f-string이라 양쪽 모두 `invalid_manifest`(폴더에 dump·tar 잔존)다. `maintain`과 내려받은 폴더 검사는
+  키를 만들기 전에 sha256 형식 정규식에서 `TypeError`가 먼저 나서 양쪽 결과가 같다. 고칠 곳은 `verify` 하나였다.
+- 수정: `verify_backup`이 저장소 종류 검사를 통과한 asset의 `sha256`이 문자열이 아니면 지금처럼 `TypeError`를 낸다. 명령에 키 문자열을
+  되살리지 않으려고(#164 완료 조건) `original_key()`는 그대로 쓴다. 통일은 #167 몫이다.
+- 고정 테스트 추가(#161 파일): 다섯 값 × 신선·만료의 `verify`·`download`·`maintain`, 저장소 종류도 틀린 경우(모두 `invalid_manifest`),
+  정리 receipt의 `maintain`. 내려받은 폴더 쪽(#162 파일)에도 다섯 값의 세 명령 결과(일반 오류)를 더했다.
+
+### 2. 격리 복원 검사·restore-check 보고서의 동적 필드
+
+- 확인: 테스트가 `elapsed_seconds`·`manifest_sha256`을 있으면 빼고 비교해서, `restore-check` 응답에서 두 필드를 지우거나
+  격리 복원 검사가 `manifest_sha256`을 빼도 41개가 모두 통과했다.
+- 수정: 두 필드는 값을 확인한 뒤(`elapsed_seconds`는 0 이상의 float, `manifest_sha256`은 64자 소문자 16진이고 폴더 `manifest.json`의 해시)
+  자리표시자로 바꾼다. 필드가 있어야 하는지는 기대값이 정한다: 격리 복원 검사 보고서는 항상 `elapsed_seconds`가 있고,
+  `backup_id`·`origin`·`manifest_sha256`은 폴더와 자격 파일 검사를 통과한 뒤에만 있다. `restore-check`가 폴더 검사 전에 실패하면 둘 다 없다.
+- 변경 감지: 앱 코드를 복사해 두고 잠시 바꾼 뒤 되돌렸다. `restore-check`에서 두 필드 제거(3개 실패), 격리 복원 검사에서
+  `manifest_sha256` 제거(4개), `elapsed_seconds` 제거(40개), `restore-check`에서 `elapsed_seconds`만 제거(3개), `elapsed_seconds`를 문자열로(40개).
+
+### 리뷰 반영
+
+`/code-review`는 정확성 문제를 찾지 못했다. 저장소 종류도 틀린 경우, 정리 receipt 경로, 폴더 쪽 입력을 고정 테스트에 더하고,
+해시 형식 단언이 문자열이 아닌 값에서 단언 실패로 끝나게 했다. 호출 지점에 문자열 덧셈을 되살리라는 제안은 #164 완료 조건과 충돌해 따르지 않았다.
+가드에서 저장소 종류 조건을 빼면 새 테스트 5개가 실패하는 것을 확인했다.
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경으로 실행했다. 테스트 DB는 다시 만들어 `alembic upgrade head`·`alembic check`를
+적용하고 검증 뒤 지웠다.
+
+- 바꾼 고정 테스트 2개 파일: 이 브랜치 146 passed. main(`5f2a87c`) 코드를 담은 임시 worktree에서도 146 passed(`recovery_point.py` 없음을 확인)
+  하고 worktree는 지웠다.
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`: 통과.
+- `pytest -q -rs`: 1645 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
+- Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.

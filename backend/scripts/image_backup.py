@@ -247,8 +247,11 @@ def verify_backup(store, backup_id):
     require(database["backup_key"] == point_dump_key(backup_id), "invalid_manifest")
     require(isinstance(assets, list), "invalid_manifest")
     for asset in assets:
-        require(asset.get("storage_backend") in {"local", "s3"}
-                and asset.get("backup_key") == original_key(asset["sha256"]),
+        known_backend = asset.get("storage_backend") in {"local", "s3"}
+        if known_backend and not isinstance(asset["sha256"], str):
+            # Same failure as the string concatenation this replaced; #167 unifies it.
+            raise TypeError("asset sha256 is not a string")
+        require(known_backend and asset.get("backup_key") == original_key(asset["sha256"]),
                 "invalid_manifest")
     objects = [database, *assets]
     for item in objects:
