@@ -9,6 +9,8 @@
 - 생성: `gh issue create --title "제목" --body-file <본문파일>`
 - 조회: `gh issue view <번호> --json number,title,body,labels,comments`
 - 목록: `gh issue list --state open --limit 100 --json number,title,body,labels,comments`
+- 번호·제목·라벨만 보는 목록: `gh issue list --state open --limit 100 --json number,title,labels --jq '.[] | "#\(.number) \(.title) [\([.labels[].name] | join(", "))]"'`
+  (`labels`는 객체 배열이므로 `.labels[].name`으로 이름만 꺼낸다)
 - 본문 수정: `gh issue edit <번호> --body-file <본문파일>`
 - 댓글: `gh issue comment <번호> --body-file <댓글파일>`
 - 라벨 추가·제거: `gh issue edit <번호> --add-label "<라벨>"` 또는 `--remove-label "<라벨>"`
