@@ -29,7 +29,7 @@
 
 ## 앱 0.3.0
 
-[iOS 0.3.0(8)·Android 0.3.0(4) 후보 기록](docs/releases/app-v0.3.0-ios-b8-android-b4.md): Android AAB와 iOS 아카이브를 만들었으며 업로드·테스트 제공은 아직 진행하지 않았습니다. 앱 아이콘 교체를 포함하기 위해 업로드하지 않은 [iOS 0.3.0(7)·Android 0.3.0(3) 후보](docs/releases/app-v0.3.0-ios-b7-android-b3.md)를 대체했습니다. 인스타그램 링크 요약은 [서버 배포 기록](docs/releases/backend-2026-10-31-1.md)을 따릅니다.
+[iOS 0.3.0(8)·Android 0.3.0(4) 후보 기록](docs/releases/app-v0.3.0-ios-b8-android-b4.md): Android 4는 Play 내부 테스트에 업로드했고 iOS 8은 IPA를 만들었습니다. 테스트 제공과 iOS 업로드는 아직 확인하지 않았습니다. 앱 아이콘 교체를 포함하기 위해 업로드하지 않은 [iOS 0.3.0(7)·Android 0.3.0(3) 후보](docs/releases/app-v0.3.0-ios-b7-android-b3.md)를 대체했습니다. 인스타그램 링크 요약은 [서버 배포 기록](docs/releases/backend-2026-10-31-1.md)을 따릅니다.
 
 ### 개선
 
