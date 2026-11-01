@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 앱 아이콘을 허투루 아이콘으로 교체 (CHANGELOG 앱 0.3.0 개선); [앱] 처리 중 문구를 ‘링크 정보를 처리 중이에요’로 변경 (CHANGELOG 앱 0.3.0 개선); [iOS] 공유 저장 시트와 저장 완료 안내 (CHANGELOG 앱 0.3.0 개선); [iOS] 공유 저장 실패 이유별 알림창 (CHANGELOG 앱 0.3.0 개선); [Android] 공유 저장 시트·완료 안내·실패 알림창 (CHANGELOG 앱 0.3.0 개선); [앱] 마이 화면 앱 버전을 설치된 앱 값으로 표시 (CHANGELOG 앱 0.3.0 수정)
 - 관련 PR·작업 링크: [앱 아이콘 교체 #172](https://github.com/clip-back/clipback/pull/172)([작업 기록](../history/2026-11-01-app-icon.md)), [앱 버전 표시 #120](https://github.com/clip-back/clipback/pull/120), [인스타그램 자동 요약·처리 중 문구 #135](https://github.com/clip-back/clipback/pull/135), [다른 앱 공유 시트 #138](https://github.com/clip-back/clipback/pull/138)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 후보 [iOS 0.3.0(7)·Android 0.3.0(3)](app-v0.3.0-ios-b7-android-b3.md)은 업로드하지 않고 이 후보로 대체
-- 후보 준비 상태·미확인 사유: Android 4는 Play 내부 테스트에 업로드·제공했고 Galaxy 실기기에서 아이콘·Google 로그인·공유 저장 시트·인스타그램 링크 요약을 확인(사용자 보고). iOS 8은 사용자가 Xcode Organizer로 같은 아카이브를 내보내 TestFlight에 업로드(사용자 보고). iOS 처리·테스트 제공·실기기 확인은 미확인. 양 플랫폼 정식 공개 미실행
+- 후보 준비 상태·미확인 사유: Android 4는 Play 내부 테스트에 업로드·제공했고 Galaxy 실기기에서 아이콘·Google 로그인·공유 저장 시트·인스타그램 링크 요약을 확인(사용자 보고). 사용자가 iOS 0.3.0(8)을 TestFlight에 업로드(사용자 보고, 업로드 방법·처리 상태 미확인). iOS 테스트 제공·실기기 확인은 미확인. 양 플랫폼 정식 공개 미실행
 
 2026-11-02 사용자가 앱 아이콘 교체(#172)를 0.3.0에 포함하기로 해 빌드 소스를 `a70009c`에서 `835f915`로 바꿨습니다.
 이전 후보의 보류 기록대로 소스를 바꿨으므로 새 빌드 번호로 새 후보를 만들었습니다. `a70009c..835f915`의 `frontend/` 변경 27개는
@@ -50,7 +50,7 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 | 후보 태그·실제 생성 여부 | app-ios-v0.3.0-b8 (미생성) | app-android-v0.3.0-b4 (미생성) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미확인 — iOS 실기기 결과 미수신 | 내부 테스트 실기기 확인 완료 빌드(사용자 보고). 정식 배포 대상 지정은 미결정 |
 | 빌드 결과·산출물 식별자 | 아카이브 성공. 첫 IPA 내보내기는 계약 갱신 미수락(`PLA Update available`)으로 실패했고 수락 후 같은 아카이브로 성공. 아카이브 `frontend/build/release-candidates/app-v0.3.0-ios-b8/Runner.xcarchive`(생성 2026-11-02 00:33 KST), IPA `frontend/build/release-candidates/app-v0.3.0-ios-b8/ipa/clipback_frontend.ipa` 41,537,829바이트, SHA-256 `93a8ee330d43a105bca000d49926da1b31ad9e5bce22810e6c4b65f02f69934a` — 본앱 `com.huturu.app` 0.3.0(8), 공유 확장 `com.huturu.app.ShareExtension` 0.3.0(8) 포함, 팀 `8X6N747PQM`, 권한 설명 3종 존재 | 정상 Release AAB 성공. `frontend/build/release-candidates/app-v0.3.0-android-b4/app-release.aab`, 72,844,689바이트, SHA-256 `bc26edc53e4c0d2308878b166724ee5b407fa5cdd1dafee0a087941a5b2a4dd3`. 산출물의 versionName 0.3.0·versionCode 4 확인 |
-| 업로드·처리 상태 | 사용자가 Xcode Organizer로 `app-v0.3.0-ios-b8/Runner.xcarchive`를 내보내 App Store Connect(TestFlight)에 업로드(사용자 보고, 2026-11-02). 배포 담당이 만든 IPA(`ipa/clipback_frontend.ipa`)는 업로드에 쓰지 않음. 처리 결과 미확인 | Play Console 내부 테스트에 업로드(사용자 보고, 2026-11-02 01:28 KST 이전). 처리 완료 후 테스터 제공 |
+| 업로드·처리 상태 | 사용자가 iOS 0.3.0(8)을 TestFlight에 업로드(사용자 보고, 2026-11-02). 업로드 방법과 사용한 바이너리(배포 담당이 내보낸 `ipa/clipback_frontend.ipa` 여부 포함)·처리 상태 미확인 | Play Console 내부 테스트에 업로드(사용자 보고, 2026-11-02 01:28 KST 이전). 처리 완료 후 테스터 제공 |
 | 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 — TestFlight 그룹 제공 여부 미수신 | 내부 테스트 트랙 제공, Galaxy에서 Play로 설치(사용자 보고) |
 | 심사 상태 | 미확인 | 해당 없음 — 내부 테스트 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
@@ -108,4 +108,4 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 | 2026-11-02 01:28 | iOS 내보내기 재시도 | 사용자가 Apple Developer 프로그램 계약 갱신을 수락했다고 보고. 같은 아카이브(0.3.0(8))로 `xcodebuild -exportArchive -allowProvisioningUpdates`(`app-store-connect`, automatic) 실행 | EXPORT SUCCEEDED(exit 0). IPA를 후보 폴더 `ipa/`로 복사하고 버전·서명·profile·아이콘 확인. App Store Connect 업로드 미실행 |
 | 2026-11-02 | Android 설치·스토어 표시 | 사용자가 Galaxy에서 Play 내부 테스트로 내려받음. Play 스토어 앱 페이지의 아이콘이 비어 있다고 보고 | 원인: Play 스토어 등록정보의 앱 아이콘(512×512)은 AAB와 별도로 Play Console에 등록해야 하며 아직 등록하지 않음. AAB 안의 런처 아이콘 리소스는 정상(산출물 정적 검사 참조). Figma `svNWsTFh8Ws1Mpt8XQIcrN` 노드 `189:4050`을 2026-11-02에 내보낸 512×512 불투명 PNG(6,535바이트, 저장소 소스 1024 아이콘과 같은 디자인)를 `frontend/build/release-candidates/app-v0.3.0-android-b4/play-store-icon-512.png`에 준비. 등록과 홈 화면 아이콘·기능 확인은 사용자 확인 후 기록 |
 | 2026-11-02 | Android 내부 테스트 제공·실기기 확인 | Play 내부 테스트로 0.3.0(4) 제공. Galaxy에서 홈 화면 아이콘·공유 메뉴 아이콘·Google 로그인·공유 저장 시트·인스타그램 링크 요약 확인 | 모두 정상(사용자 보고). 스토어 페이지 아이콘 등록 결과는 보고받지 않음 |
-| 2026-11-02 | iOS 내보내기·업로드 | 사용자가 Xcode Organizer로 `app-v0.3.0-ios-b8/Runner.xcarchive`(0.3.0(8))를 직접 내보내 TestFlight(App Store Connect)에 업로드. 01:28 행에서 배포 담당이 만든 IPA는 업로드에 쓰지 않음 | 업로드는 사용자 보고. App Store Connect 처리·TestFlight 그룹 제공·iOS 실기기 결과는 미확인 |
+| 2026-11-02 | iOS 업로드 | 사용자가 iOS 0.3.0(8)을 TestFlight에 업로드. 업로드 방법과 사용한 바이너리는 미확인 | 사용자 보고. App Store Connect 처리·TestFlight 그룹 제공·iOS 실기기 결과는 미확인. 이 행의 첫 기록(`8631810`)에 적은 “Organizer로 직접 내보냄”은 확인되지 않은 내용이라 정정 |
