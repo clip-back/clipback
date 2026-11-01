@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.config import Settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
-from app.integrations.summary import SummaryError, SummaryResult
+from app.integrations.summary import SummaryError, SummaryResult, validated_result
 from app.services.link_url import instagram_post_code
 
 IMAGE_TIMEOUT_SECONDS = 5
@@ -349,15 +349,12 @@ class InstagramSummaryClient:
             parsed = response.output_parsed
             if response.status != "completed" or not isinstance(parsed, SummaryOutput):
                 raise SummaryError("invalid_response")
-            title, summary = parsed.title.strip(), parsed.summary.strip()
-            if not title or len(title) > 120 or not summary or len(summary) > 500:
-                raise SummaryError("invalid_response")
+            # Pydantic has already turned category_id into an int or None.
+            return validated_result(
+                parsed.title, parsed.summary, parsed.category_id, categories, usage
+            )
         except (AttributeError, TypeError, ValueError) as exc:
             raise SummaryError("invalid_response") from exc
-        category_id = parsed.category_id
-        if category_id not in {c["id"] for c in categories}:
-            category_id = None
-        return SummaryResult(title, summary, category_id, usage)
 
     @staticmethod
     def _usage(response) -> dict:

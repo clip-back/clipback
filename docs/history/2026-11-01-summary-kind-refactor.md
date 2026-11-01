@@ -120,3 +120,28 @@ import 경로·이름 외의 변경은 없다. 동작이 없는 이름 이전이
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #153 요약 결과 검증을 공통 함수 한 벌로 통합
+
+두 client에 복사돼 있던 결과 검증을 `app/integrations/summary.py`의 `validated_result()` 하나로 합쳤다.
+앞뒤 공백을 지운 제목·요약이 비었거나 120자·500자를 넘으면 `SummaryError("invalid_response")`이고,
+`category_id`가 정수(bool 제외)가 아니거나 후보 밖이면 null이다.
+
+- 입력은 각 client가 기존 방식으로 파싱을 마친 값이다. 유튜브는 출력 JSON을 해석한 원래 값, 인스타그램은
+  `SummaryOutput`(Pydantic) 변환 값이다. 그래서 카테고리 값 처리 표의 종류별 차이가 그대로 남는다.
+- 유튜브는 검증 위치의 `try` 안에서 호출하고, 공통 함수의 `SummaryError`도 기존 `ValueError`처럼 받아
+  usage를 붙인 `invalid_response`(provider `null`)로 다시 던진다.
+- 인스타그램은 같은 `_result()` 안에서 호출하고, 오류는 이전처럼 `_ask_openai()`에서 provider `openai`와 usage를 붙인다.
+  인스타그램 값은 이미 `int` 또는 None이라 정수 검사를 더해도 결과가 같다.
+- 키 집합·`finishReason`(유튜브)과 거절·status·형식 검사(인스타그램)는 각 client에 남겼다.
+
+동작이 같은 리팩터링이라 새 seam·테스트 없이 #148 고정 테스트와 기존 client 테스트로 전후를 비교했다.
+공통 함수의 제목 상한을 잠시 121자로 바꾸면 두 종류의 고정 테스트가 모두 실패하는 것을 확인한 뒤 되돌렸다.
+리뷰 반영: module·함수 docstring에 결과 검증과 종류별 입력 차이(타입을 두지 않은 이유)를 적었다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(`tests/integrations` 전체, 요약 통합·로그·동시성, #148 고정) | 425개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | 테스트 diff 없음, `main.py`·`config.py`·`models`·`alembic`·`__init__.py` diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |

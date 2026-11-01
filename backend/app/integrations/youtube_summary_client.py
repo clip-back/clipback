@@ -7,7 +7,7 @@ import re
 import httpx
 
 from app.core.config import Settings
-from app.integrations.summary import SummaryError, SummaryResult
+from app.integrations.summary import SummaryError, SummaryResult, validated_result
 
 
 class YouTubeSummaryClient:
@@ -171,14 +171,10 @@ class YouTubeSummaryClient:
             )
             if set(output) != {"title", "summary", "category_id"}:
                 raise ValueError
-            title, summary = output["title"].strip(), output["summary"].strip()
-            if not title or len(title) > 120 or not summary or len(summary) > 500:
-                raise ValueError
-            category_id = output.get("category_id")
-            if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
-                category_id = None
-        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            return validated_result(
+                output["title"], output["summary"], output["category_id"], categories, usage
+            )
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError, SummaryError) as exc:
             error = SummaryError("invalid_response")
             error.usage = usage
             raise error from exc
-        return SummaryResult(title, summary, category_id, usage)
