@@ -90,3 +90,19 @@ spec대로 호환 단계 없이 한 커밋에서 반환형, `_run_once`의 소�
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1469개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #151 요약 결과·오류 import 이전 (이름 정리 이전 단계)
+
+app 3개·테스트 9개 파일의 import를 `app.integrations.summary`의 `SummaryResult`·`SummaryError`로 옮기고
+`VideoSummary`를 `SummaryResult`로 바꿨다. 유튜브 client 안의 반환형·생성도 새 이름을 쓴다.
+import 경로·이름 외의 변경은 없다. 동작이 없는 이름 이전이라 red 단계 없이 완료 조건 grep과 기존 테스트로 확인했다.
+
+- `VideoSummary`는 유튜브 client의 재수출 정의와 그 재수출 확인 테스트(`tests/integrations/test_summary.py`, #152에서 삭제)에만 남는다.
+- 유튜브 client module에서 `SummaryError`를 import하는 곳은 없다. 재수출 확인 테스트만 module 속성으로 읽는다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(`tests/integrations` 전체, 요약 통합·로그·동시성·점검·weekly, #148 고정) | 451개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1469개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |

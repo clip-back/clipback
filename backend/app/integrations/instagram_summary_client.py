@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.config import Settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
-from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.integrations.summary import SummaryError, SummaryResult
 from app.services.link_url import instagram_post_code
 
 IMAGE_TIMEOUT_SECONDS = 5
@@ -88,7 +88,7 @@ class InstagramSummaryClient:
         if self.openai is not None:
             await self.openai.close()
 
-    async def summarize(self, target_id: str, model: str, categories: list[dict]) -> VideoSummary:
+    async def summarize(self, target_id: str, model: str, categories: list[dict]) -> SummaryResult:
         if self.openai is None:
             raise SummaryError("configuration_error")
         try:
@@ -279,7 +279,7 @@ class InstagramSummaryClient:
             return "rate_limited"
         return "server_error" if http_status >= 500 else "unexpected_status"
 
-    async def _ask_openai(self, post: Post, model: str, categories: list[dict]) -> VideoSummary:
+    async def _ask_openai(self, post: Post, model: str, categories: list[dict]) -> SummaryResult:
         """Stage 3: structured GPT call with store=False and no SDK retries."""
         evidence = {
             "caption": post.caption,
@@ -338,7 +338,7 @@ class InstagramSummaryClient:
             error.usage = self._usage(response)
         raise error
 
-    def _result(self, response, categories: list[dict]) -> VideoSummary:
+    def _result(self, response, categories: list[dict]) -> SummaryResult:
         try:
             usage = self._usage(response)
             for output in response.output:
@@ -357,7 +357,7 @@ class InstagramSummaryClient:
         category_id = parsed.category_id
         if category_id not in {c["id"] for c in categories}:
             category_id = None
-        return VideoSummary(title, summary, category_id, usage)
+        return SummaryResult(title, summary, category_id, usage)
 
     @staticmethod
     def _usage(response) -> dict:

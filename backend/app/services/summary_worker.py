@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import and_, func, or_, select
 
 from app.core.config import Settings
-from app.integrations.youtube_summary_client import SummaryError, VideoSummary
+from app.integrations.summary import SummaryError, SummaryResult
 from app.models.content import Content
 from app.models.content_event import ContentEventType
 from app.models.summary_job import SummaryJob
@@ -176,7 +176,7 @@ class SummaryWorker:
         content_id: int,
         user_id: int,
         token: str,
-        result: VideoSummary | None,
+        result: SummaryResult | None,
         error: SummaryError | None,
     ):
         async with self.sessions() as session, session.begin():

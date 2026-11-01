@@ -103,7 +103,7 @@ async def test_unknown_provider_status_is_not_retained():
             lambda r: httpx.Response(400, json={"error": {"status": "secret"}})
         )
     ) as http:
-        from app.integrations.youtube_summary_client import SummaryError
+        from app.integrations.summary import SummaryError
 
         with pytest.raises(SummaryError) as caught:
             await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
@@ -264,10 +264,10 @@ async def test_worker_logs_the_page_decision_without_sensitive_data(
 
 @pytest.mark.asyncio
 async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_summary():
-    from app.integrations.youtube_summary_client import VideoSummary
+    from app.integrations.summary import SummaryResult
 
     async def summarize(target, model, candidates):
-        return VideoSummary("제목", "요약", None, {"total_tokens": 150})
+        return SummaryResult("제목", "요약", None, {"total_tokens": 150})
 
     worker, _ = instagram_worker(SimpleNamespace(summarize=summarize))
 

@@ -70,7 +70,7 @@ class YouTubeSummaryClient:
                 raise
             raise error from exc
 
-    async def summarize(self, video_id: str, model: str, categories: list[dict]) -> VideoSummary:
+    async def summarize(self, video_id: str, model: str, categories: list[dict]) -> SummaryResult:
         if not self.config.youtube_data_api_key or not self.config.gemini_api_key:
             raise SummaryError("configuration_error")
         data = await self._request(
@@ -185,4 +185,4 @@ class YouTubeSummaryClient:
             error = SummaryError("invalid_response")
             error.usage = usage
             raise error from exc
-        return VideoSummary(title, summary, category_id, usage)
+        return SummaryResult(title, summary, category_id, usage)

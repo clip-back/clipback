@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import Settings
-from app.integrations.youtube_summary_client import VideoSummary
+from app.integrations.summary import SummaryResult
 from app.models.summary_job import SummaryJob
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
@@ -68,7 +68,7 @@ async def test_external_wait_releases_connection_and_preserves_user_action(concu
     async def summarize(*args):
         started.set()
         await release.wait()
-        return VideoSummary("완료", "핵심 요약.", ids[2], {})
+        return SummaryResult("완료", "핵심 요약.", ids[2], {})
 
     worker.clients["youtube"] = SimpleNamespace(summarize=summarize)
     task = asyncio.create_task(worker.run_once())
