@@ -171,3 +171,39 @@ import 경로·이름 외의 변경은 없다. 동작이 없는 이름 이전이
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #155 저장 서비스가 자동 요약 종류 module로 요약 작업 생성
+
+종류 adapter에 `plan(url, config)`을 더했다. 저장한 링크가 그 종류의 대상이면 `JobPlan`(target_id·status·error_code·model)을,
+아니면 None을 돌려준다. client 없이 부를 수 있도록 `plan`·`enabled`는 classmethod다.
+
+- 유튜브: 저장된 정규 URL에서 video id를 다시 얻는다(정규 URL을 다시 정규화해도 같은 id). 스위치가 꺼져 있으면 `skipped`/`disabled`.
+- 인스타그램: 게시물 형태(`reel`·`p`·`tv`·`stories`)일 때만 대상이다. 스위치 판정(`disabled`)이 스토리 판정(`unsupported_content`)보다 먼저다.
+- `new_summary_job(...)`은 종류마다 `plan`을 물어 `SummaryJob`을 만든다. 한 링크가 두 종류에 해당하는 경우는 없다(호스트가 다름).
+
+저장 서비스는 종류별 작업 생성 블록 2개와 인스타그램 게시물 형태 판별을 지우고, 링크 콘텐츠일 때 `new_summary_job` 하나를 부른다.
+덮어쓰기 허용값은 지금 방식 그대로 계산해 넘긴다. 유튜브는 payload 기준이고, 그 밖은 호출자가 넘긴 사용자 입력 여부 기준이다.
+유튜브 URL 정규화, `source` 지정, 유튜브의 저장 시 카테고리 추천 건너뛰기는 저장 서비스에 남겼다(링크 저장 준비 범위).
+
+종류 module의 테스트 seam은 spec대로 API seam(#148 작업 생성 표)으로 두고 별도 단위 테스트는 두지 않았다.
+인스타그램 `plan`의 스위치·스토리 판정 순서를 잠시 바꾸면 고정 테스트가 실패하는 것을 확인한 뒤 되돌렸다.
+리뷰 판단 사항(고치지 않음): 종류 목록이 같은 module의 `summary_kinds()`(worker용, client 조립)와 `new_summary_job()`(저장용) 두 곳에 있다.
+합치려면 client 인자를 종류 이름에 잇는 장치가 더 필요해 지금은 두었고, 세 번째 종류를 추가할 때(ADR 0003 재검토 조건) 다시 본다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 작업 생성·저장 관련 테스트(#148 작업 생성 표, 요약 통합, 공유 저장, 콘텐츠 흐름, URL 길이, 로그·client·동시성) | 758개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | 아래 spec 완료 확인 참고 |
+
+## spec #147 완료 조건 확인 (#155 커밋 기준)
+
+- `/api/v1` 응답: 기존 integration test(`test_youtube_summary`·`test_instagram_summary`·`test_mobile_share`·`test_content_flow` 등)가
+  import·이름 변경과 spec이 허용한 변경(claim mock·`.lease_token`, 동시성 테스트의 생성자 주입) 외에는 수정 없이 통과했다.
+- DB 스키마: `main` 대비 `backend/alembic/`·`backend/app/models/` diff 없음, 두 DB의 `alembic check` 결과 `No new upgrade operations detected.`
+- 로그·요약 결과 값: #148 고정 테스트 3개 파일이 `cca34bb` 이후 수정 없이 모든 티켓에서 통과했다.
+- 환경 변수: `backend/app/core/` diff 없음(`config.py` 포함), `test_config.py` 통과.
+- 백업·복구 CI: `git diff --name-only main` 23개 경로가 `operator_recovery` 필터 42개 패턴과 겹치지 않는다.
+  `main.py`·`config.py`·`app/**/__init__.py`·`tests/conftest.py`·`tests/deployment/**`·`.github` 수정 없음.
+- 테스트 DB `clipback_test`·`clipback_maintenance100`은 마지막 티켓 검증 뒤 삭제했다.
