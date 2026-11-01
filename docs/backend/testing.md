@@ -169,8 +169,9 @@ GitHub Actions의 migration job은 PostgreSQL 18에서 기존 테스트 DB와 �
 
 `lint`·`test`·`migration`은 모든 실행에서 돈다. `deployment`·`operator-recovery`는 PR과 main push에서
 `changes` job의 경로 판정 결과가 참일 때만 돌고, 매일 04:00 KST(`0 19 * * *` UTC) 예약 실행과
-수동 실행(`workflow_dispatch`)에서는 항상 돈다. concurrency 그룹은 이벤트 종류별로 나뉘어
-예약·수동 실행과 main push 실행은 서로 취소하지 않고, 같은 PR·같은 브랜치 push의 새 실행만 이전 실행을 취소한다.
+수동 실행(`workflow_dispatch`)에서는 항상 돈다. 같은 PR의 새 실행만 이전 실행을
+취소한다. push·예약·수동 실행은 커밋별로 따로 돌아 서로 취소하지 않으며, 같은 커밋의 같은 종류 실행이 다시 들어올 때만
+이전 실행이 취소된다.
 
 - `deployment`: `backend/` 아래 파일이나 workflow 파일이 바뀌면 실행한다.
 - `operator-recovery`: Dockerfile·운영 스크립트·migration·배포 테스트, 운영 스크립트가 import하는

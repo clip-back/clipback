@@ -22,9 +22,17 @@
     PR은 GitHub API로 변경 파일을 받으므로 job 권한에 `pull-requests: read`를 더했고, main push는 git으로
     직전 커밋과 비교하므로 push에서만 checkout한다. 예약·수동 실행에서는 판정 단계를 건너뛴다.
   - `deployment`·`operator-recovery`: `needs: changes`와 `if`(예약·수동 실행이거나 해당 판정이 `true`) 추가.
-  - concurrency group에 `github.event_name`을 넣었다(사용자 확인 2026-11-01). 예약 실행이 main push와 같은 그룹
-    (`refs/heads/main`)을 쓰면 `cancel-in-progress: true` 때문에 04:00 KST에 진행 중인 main push 검사를 취소하거나
-    반대로 취소될 수 있어서다. 같은 PR끼리, 같은 브랜치 push끼리의 취소 동작은 그대로다.
+  - concurrency group을 `backend-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}`로
+    바꿨다. `cancel-in-progress: true`는 유지한다. 같은 PR의 새 실행만 이전 실행을 취소하고, push·예약·수동 실행은
+    커밋별 그룹이라 서로 취소하지 않는다. 같은 커밋의 같은 종류 실행이 다시 들어올 때만 이전 실행이 취소된다. 경위는 아래와 같다.
+    - 처음 그룹(`…-${{ github.event.pull_request.number || github.ref }}`)에서는 예약 실행이 main push와 같은 그룹
+      (`refs/heads/main`)이라, 04:00 KST에 진행 중인 main push 검사를 취소하거나 반대로 취소될 수 있었다.
+      그래서 `github.event_name`을 넣었다(사용자 확인 2026-11-01).
+    - 리뷰 지적(Codex, P2): main push B가 A의 실행을 취소하면, B의 판정은 직전 커밋 A와 B 사이만 비교하므로 A에서 바뀐
+      운영 모듈이 `operator-recovery`에서 검사되지 않을 수 있다. 그래서 push·예약·수동 실행의 그룹을 `github.ref` 대신
+      `github.sha`로 나눴다. GitHub concurrency는 그룹마다 실행 중 1개와 대기 1개만 두고, 새 실행이 대기 중인 실행을
+      교체한다. 이 교체도 같은 그룹 안에서만 일어나므로, 커밋이 다르면 대기 중인 실행이 교체되어 사라지는 일도 없다.
+    - 리뷰 지적(Codex, P3): [테스트 안내](../backend/testing.md)의 취소 설명이 실제 동작과 달라 함께 고쳤다.
   - 기존 timeout·이미지 버전은 바꾸지 않았다.
 - `git diff` 스크립트 대신 paths-filter를 쓴 이유: PR·push의 비교 기준(PR base, push 직전 커밋)과 얕은 checkout의
   추가 fetch를 직접 다루지 않아도 되고, 규칙을 glob 목록으로 읽을 수 있다. 외부 action 의존은 커밋 SHA 고정으로 제한했다.
@@ -168,6 +176,7 @@ print(*sorted(str(p) for p in seen if str(p).startswith('app/')), sep='\n')
   건너뛴 job을 막힘 없이 처리하는지 본다.
 - 수동 실행(`workflow_dispatch`)과 첫 예약 실행(04:00 KST): 모든 job이 실행되는지 본다.
 - 예약·수동 실행 중 main push가 들어와도 서로 취소되지 않고, 같은 PR의 새 push는 이전 실행을 취소하는지 본다.
+- main push 두 개가 연속으로 들어와도 두 실행이 취소 없이 모두 끝까지 도는지 본다.
 
 ## 남은 위험
 
