@@ -47,7 +47,7 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 | 실제 앱 버전 | 0.3.0 | 0.3.0 |
 | 실제 빌드 번호 | 8 | 4 |
 | 빌드 소스 SHA | 835f915f61dcf34b9fbb977dcc3127cc679fe2f7 | 835f915f61dcf34b9fbb977dcc3127cc679fe2f7 |
-| 후보 태그·실제 생성 여부 | app-ios-v0.3.0-b8 (미생성) | app-android-v0.3.0-b4 (미생성) |
+| 후보 태그·실제 생성 여부 | app-ios-v0.3.0-b8 (2026-11-02 생성·푸시, annotated) | app-android-v0.3.0-b4 (2026-11-02 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미확인 — iOS 실기기 결과 미수신 | 내부 테스트 실기기 확인 완료 빌드(사용자 보고). 정식 배포 대상 지정은 미결정 |
 | 빌드 결과·산출물 식별자 | 아카이브 성공. 첫 IPA 내보내기는 계약 갱신 미수락(`PLA Update available`)으로 실패했고 수락 후 같은 아카이브로 성공. 아카이브 `frontend/build/release-candidates/app-v0.3.0-ios-b8/Runner.xcarchive`(생성 2026-11-02 00:33 KST), IPA `frontend/build/release-candidates/app-v0.3.0-ios-b8/ipa/clipback_frontend.ipa` 41,537,829바이트, SHA-256 `93a8ee330d43a105bca000d49926da1b31ad9e5bce22810e6c4b65f02f69934a` — 본앱 `com.huturu.app` 0.3.0(8), 공유 확장 `com.huturu.app.ShareExtension` 0.3.0(8) 포함, 팀 `8X6N747PQM`, 권한 설명 3종 존재 | 정상 Release AAB 성공. `frontend/build/release-candidates/app-v0.3.0-android-b4/app-release.aab`, 72,844,689바이트, SHA-256 `bc26edc53e4c0d2308878b166724ee5b407fa5cdd1dafee0a087941a5b2a4dd3`. 산출물의 versionName 0.3.0·versionCode 4 확인 |
 | 업로드·처리 상태 | 사용자가 iOS 0.3.0(8)을 TestFlight에 업로드(사용자 보고, 2026-11-02). 업로드 방법과 사용한 바이너리(배포 담당이 내보낸 `ipa/clipback_frontend.ipa` 여부 포함)·처리 상태 미확인 | Play Console 내부 테스트에 업로드(사용자 보고, 2026-11-02 01:28 KST 이전). 처리 완료 후 테스터 제공 |
