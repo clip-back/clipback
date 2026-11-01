@@ -101,3 +101,97 @@ spec은 "손상 manifest 22가지"를 측정했다고 적었지만 목록은 적
   이 파일은 이번 범위 밖이며 CI에서도 같은 이유로 건너뛴다. 로컬 moto 서버는 flask가 설치되지 않아 띄우지 않았다.
 - 새 테스트 파일: 80 passed.
 - Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery job에서 확인한다.
+
+## #162 내려받은 폴더 쪽 현재 출력 고정과 이관 Docker 검사 CI 편입
+
+`backend/tests/deployment/test_recovery_point_folder_outputs.py`를 추가하고, operator-recovery job 실행 목록에
+`tests/deployment/test_image_migration_docker.py`를 넣었다(#145). 앱·운영 스크립트 코드는 바꾸지 않았다.
+
+- 격리 복원 검사(`check_backup_restore`), `image_backup_jobs restore-check`, `restore_execution prepare`를 각 `main()`으로
+  in-process 호출해 JSON 출력과 종료 코드를 비교한다. 보고서의 `elapsed_seconds`는 숫자인지만, `manifest_sha256`은
+  폴더의 `manifest.json` 해시와 같은지만 확인하고 비교에서 뺀다.
+- PATH 앞에 항상 실패하는 가짜 `docker`를 둔다. 그래서 폴더가 Docker 전 검사를 모두 통과하면 세 명령 모두
+  `docker_command_failed`로 끝난다. `restore_execution prepare`는 loopback 설정 환경 변수만 주고, 실행 폴더가 생기지 않는지도 확인한다.
+- `restore-check`는 DB 잠금(`source_lock`)과 삭제 기록 연결(`get_deletion_ledger`, 로컬 삭제 기록)만 대역으로 바꿨다.
+- 내려받은 폴더는 테스트가 직접 만든다(v2 manifest, `database.dump`, `images.tar`). `download`나 `load_backup`을 거치지 않는다.
+  tar에는 정규화한 경로마다 처음 asset 하나만 담는다. 실제 `download`는 충돌 경로에서 `unsafe_archive`로 실패하므로,
+  이 폴더는 안전한 archive에 충돌 경로를 적은 manifest가 들어왔을 때 폴더 검사가 내는 결과를 보여 준다.
+- 공통 입력(손상 manifest의 변경 함수, tar 경로 충돌, 상수)은 #161 테스트 파일에서 import해 두 표가 어긋나지 않게 했다.
+
+### 입력 구성과 측정 결과
+
+- 손상 manifest 22가지: #161의 목록에서 게시 manifest 전용인 두 경우를 폴더에 맞게 바꿨다
+  (`images` 항목 있음 → `images` 항목 없음, `format_version: 1` → `format_version: 3`, `backup_id` 불일치 → 형식 위반).
+- 측정값은 spec 표의 격리 복원 검사 열과 일치했다.
+  - JSON 아님과 필드 없음 7가지는 일반 오류다: 격리 복원 검사 `invalid_input_or_check_failed`,
+    `restore-check` `backup_job_failed`, `prepare` `restore_preflight_failed`.
+  - 최상위가 객체 아님과 값 계약 위반은 세 명령 모두 `invalid_manifest`다.
+  - `database.backup_key`가 다른 지점의 dump여도 Docker 단계까지 간다.
+- tar 경로 충돌: 같은 `storage_key`는 Docker 단계까지 가고, `u/./1.png`와 `u/1.png`, `u/1.png`와 `u/1.png/x`는 `missing_asset`이다.
+- 파일·archive 검사: `images.tar` 없음 `invalid_backup_file`, `images.tar`·`database.dump` 해시 불일치 `backup_hash_mismatch`,
+  archive의 symlink `unsafe_archive`, archive에 없는 asset `missing_asset`, `sample.asset_id`가 asset에 없음 `invalid_manifest`.
+- 판정 순서: 최상위 필드 위반 + DB 해시 불일치는 `invalid_manifest`, `images.tar` 없음 + DB 해시 불일치는 `backup_hash_mismatch`
+  (database 항목이 images보다 먼저), DB 해시 불일치 + asset 계약 위반은 `backup_hash_mismatch`, archive 안전 검사 실패 + asset 계약 위반은
+  `unsafe_archive`, 앞선 asset의 archive 누락 + 뒤 asset 계약 위반은 `missing_asset`, archive 누락 + `sample.asset_id` 없음은 `missing_asset`이다.
+  같은 asset 안에서는 필드 검사가 archive 포함 확인보다 먼저라 `invalid_manifest`다.
+- `format_version: 1` 폴더는 격리 복원 검사와 `prepare`에서 Docker 단계까지 간다. `restore-check`는 삭제 기록 체크포인트가 없어
+  `deletion_checkpoint_required`다.
+- import 경로: `scripts.check_backup_restore`에서 `CheckError`·`require`·`sha256_file`·`load_backup`을 import할 수 있고,
+  `image_backup`·`image_backup_jobs`·`restore_execution`·`recovery_probe`의 `CheckError`, `image_migration` 등의 `require`·`sha256_file`이
+  같은 객체임을 확인한다.
+
+### 변경 감지 확인
+
+`scripts/check_backup_restore.py`·`restore_execution.py`·`image_migration.py`를 복사해 두고 잠시 바꾼 뒤 되돌렸다.
+되돌린 뒤 `git diff --stat scripts`는 비어 있었다.
+
+| 임시 변경 | 실패한 테스트 수 |
+| --- | --- |
+| `load_backup`이 `database.backup_key` 검사 | 2 |
+| asset 필드 검사를 archive 안전 검사 앞으로 | 2 |
+| 격리 복원 검사의 일반 오류 코드 변경 | 8 |
+| `restore_execution`의 일반 오류 코드 변경 | 8 |
+| `image_migration`이 자체 `require` 정의 | 1 |
+| archive 포함 확인에서 tar 경로 정규화 | 1 |
+| images 파일 검사를 database 앞으로 | 1 |
+| sample 검사를 asset 검사 앞으로 | 1 |
+
+리뷰 반영 뒤 다시 실행한 결과다(위 변경 모두 실패를 냈다).
+
+### 리뷰 반영
+
+`/code-review` 지적 중 다음을 반영했다.
+
+- 판정 순서 고정에 최상위 필드 vs 파일 해시, database vs images, archive 포함 vs sample 경우를 더했다.
+- #161 파일과 중복되던 helper·입력 표를 import로 바꾸고, 입력과 기대 코드를 한 표로 합쳤다.
+- `write_archive` 설명을 실제 동작(충돌 경로는 처음 asset만 담음)에 맞췄다.
+- 항상 참인 `CheckError` 단언을 지우고 import 경로 테스트 이름을 고쳤다.
+- [백엔드 테스트 안내](../backend/testing.md)의 이관 Docker 검사 안내가 operator-recovery 절의 이미지 환경 변수를 가리키게 했다.
+
+반영하지 않은 지적과 실행 전제:
+
+- 폴더 검사의 마지막 단계는 `tempfile.gettempdir()`에 약 1 GiB 여유를 요구한다. 여유가 없으면 Docker 단계까지 가야 할 경우가
+  `insufficient_disk_space`로 바뀐다. 운영 코드의 실제 검사이므로 대역으로 바꾸지 않았다(#161의 download도 같다).
+- `restore_execution prepare`는 실행 폴더가 git 저장소 밖이어야 한다. pytest 기본 `tmp_path`는 저장소 밖이며,
+  `--basetemp`를 저장소 안으로 주면 `workspace_inside_repository`가 먼저 난다.
+
+### #145 CI 편입
+
+`test_image_migration_docker.py`는 이미 operator-recovery 목록에 있는 `test_image_backup_docker.py`의 `bucket_backup` fixture와
+같은 이미지 환경 변수(`CLIPBACK_RECOVERY_TEST_IMAGE` 등)를 쓴다. 그래서 실행 목록에 파일만 추가했다.
+[백엔드 테스트 안내](../backend/testing.md)의 이관 검사 설명과 operator-recovery 설명을 실제 구성에 맞췄다.
+`actionlint 1.7.12`로 workflow 오류가 없음을 확인했다. 현재 코드로 이 검사가 통과하는지는 PR 1 CI에서 확인한다.
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경(Python 3.12.7 venv, 로컬 PostgreSQL 17의 `clipback_test`·
+`clipback_maintenance100`, 로컬 관리자 계정 URL, `YOUTUBE_SUMMARY_ENABLED=false`)으로 실행했다.
+
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`,
+  `actionlint .github/workflows/backend-validation.yml`: 통과. `backend/scripts`·`backend/app` diff 없음.
+- `pytest -q -rs`: 1464 passed, 46 skipped. skip 45건은 `*_docker.py`, 1건은 #161과 같은
+  `tests/integration/test_image_storage_admin_cli.py`(범위 밖, CI에서도 skip)다.
+  skip 줄 수를 세려고 같은 명령을 한 번 더 실행했고 결과는 같았다.
+- 새 테스트 파일 두 개: 121 passed.
+- `test_image_migration_docker.py`를 포함한 Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery job 성공과
+  pytest 요약의 skipped 0으로 확인한다.
