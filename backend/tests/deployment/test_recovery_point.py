@@ -36,6 +36,20 @@ def test_key_layout_matches_the_backup_store_format():
     assert recovery_point.receipt_key("daily-1") == "gc/points/daily-1.json"
 
 
+def test_listing_prefixes_cover_every_key_kind():
+    assert recovery_point.original_key(SHA).startswith(recovery_point.ORIGINALS_PREFIX)
+    assert recovery_point.point_prefix("a").startswith(recovery_point.POINTS_PREFIX)
+    assert recovery_point.receipt_key("a").startswith(recovery_point.RECEIPTS_PREFIX)
+    assert (recovery_point.ORIGINALS_PREFIX, recovery_point.POINTS_PREFIX,
+            recovery_point.RECEIPTS_PREFIX) == ("originals/", "points/", "gc/points/")
+
+
+@pytest.mark.parametrize("key_of", [recovery_point.point_dump_key,
+                                    recovery_point.point_manifest_key])
+def test_point_key_round_trips_to_backup_id(key_of):
+    assert recovery_point.point_id(key_of("daily-1")) == "daily-1"
+
+
 @pytest.mark.parametrize("backup_id", ["daily-2026-11-01", "a", "A.b_c-1", "x" * 100])
 def test_receipt_key_round_trips_to_backup_id(backup_id):
     assert recovery_point.receipt_backup_id(recovery_point.receipt_key(backup_id)) == backup_id

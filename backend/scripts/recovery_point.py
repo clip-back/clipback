@@ -17,31 +17,39 @@ from scripts.operator_errors import require, sha256_file
 
 BACKUP_ID = r"[A-Za-z0-9._-]{1,100}"
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+ORIGINALS_PREFIX = "originals/"
+POINTS_PREFIX = "points/"
+RECEIPTS_PREFIX = "gc/points/"
 
 
 def original_key(sha256):
-    return f"originals/sha256/{sha256}"
+    return f"{ORIGINALS_PREFIX}sha256/{sha256}"
 
 
 def point_prefix(backup_id):
-    return f"points/{backup_id}/"
+    return f"{POINTS_PREFIX}{backup_id}/"
+
+
+def point_id(key):
+    """The backup ID segment of a key under a point prefix."""
+    return key.split("/")[1]
 
 
 def point_dump_key(backup_id):
-    return f"points/{backup_id}/database.dump"
+    return point_prefix(backup_id) + "database.dump"
 
 
 def point_manifest_key(backup_id):
-    return f"points/{backup_id}/manifest.json"
+    return point_prefix(backup_id) + "manifest.json"
 
 
 def receipt_key(backup_id):
-    return f"gc/points/{backup_id}.json"
+    return f"{RECEIPTS_PREFIX}{backup_id}.json"
 
 
 def receipt_backup_id(key):
     """The backup ID named by a cleanup receipt key, or None for a malformed name."""
-    match = re.fullmatch(rf"gc/points/({BACKUP_ID})\.json", key)
+    match = re.fullmatch(rf"{re.escape(RECEIPTS_PREFIX)}({BACKUP_ID})\.json", key)
     return match[1] if match else None
 
 
@@ -60,9 +68,10 @@ def canonical_json(value):
 def completed_points(store):
     """IDs whose completion manifest is published, sorted."""
     return sorted(
-        entry["key"].split("/")[1]
-        for entry in store.list_objects("points/")
-        if re.fullmatch(rf"points/{BACKUP_ID}/manifest.json", entry["key"])
+        point_id(entry["key"])
+        for entry in store.list_objects(POINTS_PREFIX)
+        # The unescaped "." is kept as published; tightening it is a behavior change.
+        if re.fullmatch(rf"{POINTS_PREFIX}{BACKUP_ID}/manifest.json", entry["key"])
     )
 
 
@@ -73,7 +82,7 @@ def read_point_manifest(store, backup_id):
 
 def read_retiring_points(store):
     """Yield (backup ID, receipt key, manifest) per cleanup receipt, one receipt at a time."""
-    for item in store.list_objects("gc/points/"):
+    for item in store.list_objects(RECEIPTS_PREFIX):
         identifier = receipt_backup_id(item["key"])
         require(identifier is not None, "invalid_gc_receipt")
         yield identifier, item["key"], json.loads(store.read(item["key"]))

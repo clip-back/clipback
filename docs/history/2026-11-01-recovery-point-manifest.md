@@ -251,3 +251,40 @@ origin/main(`5f2a87c`, #147 요약 리팩터링)을 먼저 merge했다(`fc3930b`
 - `pytest -q -rs`: 1615 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
   merge로 들어온 #147 테스트가 더해져 통과 수가 늘었다.
 - Docker 이미지 빌드와 Docker 테스트는 로컬에서 실행하지 않았다. 새 파일이 이미지에 들어갔는지는 PR 1 CI의 operator-recovery에서 확인한다.
+
+## #164 백업 생성·verify·download·maintain을 복구 지점 module로(이전, Bucket 쪽)
+
+`backend/scripts/image_backup.py`(게시·`create_backup`·`verify_backup`·`materialize_backup`)와
+`backend/scripts/image_backup_jobs.py`(`maintain_backups`, `run_job`의 daily 중복 확인, CLI 인자 형식 검사)가
+키 배치·식별자 형식·게시된 manifest 읽기를 복구 지점 module에서 가져온다. 명령별 검사 내용과 순서는 그대로다.
+
+- 키: 원본 보관본·지점 dump·지점 manifest·정리 receipt 키와 지점 접두사를 module 함수로 바꿨다.
+  목록 조회 접두사(`originals/`·`points/`·`gc/points/`)와 지점 키 → id 변환도 키 배치라서 module에
+  `ORIGINALS_PREFIX`·`POINTS_PREFIX`·`RECEIPTS_PREFIX`·`point_id`를 더하고 썼다(테스트를 먼저 추가해 실패를 확인했다).
+- 형식: `backup_id`(`invalid_backup_id`·`backup_id_required`)와 `app_commit`(`invalid_manifest`·`app_commit_required`) 검사를
+  `require_backup_id`·`require_app_commit`으로 바꿨다. 오류 코드는 지금과 같다.
+- 게시된 manifest 읽기: `verify`의 처음 읽기와 재조회, `download`, `maintain`의 완료 지점 읽기가 `read_point_manifest`를,
+  `maintain`의 정리 receipt 읽기가 `read_retiring_points`를 쓴다. receipt마다 이름 검사 → JSON 읽기 → 완료 지점과의 충돌 판정 순서는 같다.
+- `BackupBucket.completed_points`·`read_manifest`와 `image_backup.canonical_json`은 다른 호출 쪽(테스트 등)을 위해 #166까지 남긴다.
+- 두 파일에서 `originals/`·`points/`·`gc/points` 문자열과 `backup_id`·`app_commit` 정규식이 남지 않았음을 `grep`으로 확인했다.
+  `image_storage_admin`, `restore-check`(#165), 격리 복원 probe는 대상이 아니다.
+
+### 리뷰 반영
+
+`/code-review`는 동작 회귀를 찾지 못했다. 지적 중 키 함수가 접두사 상수로 키를 만들게 해 접두사 정의를 한 곳으로 모았다.
+다음은 반영하지 않았다.
+
+- `completed_points` 정규식의 이스케이프하지 않은 `.`과 `point_id`가 키 모양을 검사하지 않는 점: 지금 동작을 그대로 옮겼다
+  (`manifestXjson` 같은 객체도 완료 지점으로 센다). 범위 밖 발견으로 따로 보고한다.
+- `verify`·`maintain`에 남은 sha256 형식 정규식: 이 티켓 범위(키 문자열과 `backup_id`·`app_commit` 정규식) 밖이며 #167의 통일 대상이다.
+- daily와 게시가 `points/` 전체 목록을 두 번 조회하는 비용: 지금 동작이며 범위 밖 발견으로 보고한다.
+- 생산 코드 호출이 없어진 `BackupBucket.completed_points`·`read_manifest`: #166에서 지운다.
+
+### 검증
+
+2026-11-01 이 worktree의 `backend/`에서 #161과 같은 환경으로 실행했다.
+
+- `ruff check app scripts alembic tests`, `python -m compileall app alembic tests scripts`, `git diff --check`: 통과.
+  `recovery_probe.py`와 #161·#162 고정 테스트 파일 diff 없음(#161의 게시 결과 고정 테스트 포함 수정 없이 통과).
+- `pytest -q -rs`: 1618 passed, 46 skipped. skip은 Docker 45건과 `tests/integration/test_image_storage_admin_cli.py` 1건(범위 밖, CI에서도 skip)이다.
+- Docker 테스트는 로컬에서 실행하지 않았다. PR 1 CI의 operator-recovery에서 확인한다.
