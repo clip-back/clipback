@@ -94,6 +94,13 @@ def test_completed_points_are_ids_with_a_published_manifest(store):
     assert recovery_point.completed_points(store) == ["first", "second"]
 
 
+def test_completed_points_need_the_exact_manifest_key(store):
+    """A look-alike object is not a completion manifest (#169)."""
+    put(store, "points/stray/manifestXjson", b"{}")
+    put(store, recovery_point.point_manifest_key("published"), b"{}")
+    assert recovery_point.completed_points(store) == ["published"]
+
+
 def test_point_manifest_is_read_by_checked_id(store):
     value = manifest("point", "2026-11-01T00:00:00+00:00")
     put(store, recovery_point.point_manifest_key("point"), canonical(value))
