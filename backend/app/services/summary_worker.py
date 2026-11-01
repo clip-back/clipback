@@ -18,11 +18,10 @@ from app.models.summary_job import SummaryJob
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
-
-logger = logging.getLogger(__name__)
+from app.services.summary_kinds import summary_kinds
 
 # The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
-SUCCESS_PROVIDERS = {"youtube": "gemini", "instagram": "openai"}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -41,17 +40,12 @@ class SummaryWorker:
         self, session_factory, client, config: Settings, *, instagram_client=None, maintenance=None
     ):
         self.sessions = session_factory
-        self.clients = {"youtube": client, "instagram": instagram_client}
+        self.kinds = summary_kinds(youtube=client, instagram=instagram_client)
         self.config = config
         self.maintenance = maintenance
 
     def enabled_kinds(self) -> list[str]:
-        kinds = []
-        if self.config.youtube_summary_enabled:
-            kinds.append("youtube")
-        if self.config.instagram_summary_enabled:
-            kinds.append("instagram")
-        return kinds
+        return self.kinds.enabled_names(self.config)
 
     async def claim(self) -> ClaimedJob | None:
         now = datetime.now(UTC)
@@ -134,9 +128,8 @@ class SummaryWorker:
         result = error = None
         unexpected = {}
         try:
-            result = await self.clients[claimed.kind].summarize(
-                claimed.target_id, claimed.model, claimed.candidates
-            )
+            kind = self.kinds.get(claimed.kind)
+            result = await kind.summarize(claimed.target_id, claimed.model, claimed.candidates)
         except SummaryError as exc:
             error = exc
         except Exception as exc:
@@ -157,7 +150,7 @@ class SummaryWorker:
                     "model": claimed.model,
                     "elapsed_seconds": round(time.monotonic() - started, 3),
                     "error_code": error.code if error else None,
-                    "provider": error.provider if error else SUCCESS_PROVIDERS[claimed.kind],
+                    "provider": error.provider if error else kind.provider,
                     "http_status": error.http_status if error else None,
                     "provider_status": error.provider_status if error else None,
                     "reason": error.reason if error else None,

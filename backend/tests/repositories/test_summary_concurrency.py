@@ -19,7 +19,7 @@ from tests.repositories.test_category_concurrency import concurrent_data as conc
 pytestmark = pytest.mark.asyncio
 
 
-async def setup(sessions, content_id):
+async def setup(sessions, content_id, client=None):
     async with sessions() as session:
         session.add(
             SummaryJob(
@@ -38,7 +38,7 @@ async def setup(sessions, content_id):
 
     return SummaryWorker(
         sessions,
-        None,
+        client,
         Settings(
             _env_file=None,
             youtube_summary_enabled=True,
@@ -62,7 +62,6 @@ async def test_distinct_connections_claim_once(concurrent_data):
 @pytest.mark.parametrize("action", ["manual", "delete_category", "delete_content"])
 async def test_external_wait_releases_connection_and_preserves_user_action(concurrent_data, action):
     sessions, uid, ids, content_id = concurrent_data
-    worker = await setup(sessions, content_id)
     started, release = asyncio.Event(), asyncio.Event()
 
     async def summarize(*args):
@@ -70,7 +69,7 @@ async def test_external_wait_releases_connection_and_preserves_user_action(concu
         await release.wait()
         return SummaryResult("완료", "핵심 요약.", ids[2], {})
 
-    worker.clients["youtube"] = SimpleNamespace(summarize=summarize)
+    worker = await setup(sessions, content_id, SimpleNamespace(summarize=summarize))
     task = asyncio.create_task(worker.run_once())
     try:
         await asyncio.wait_for(started.wait(), 5)

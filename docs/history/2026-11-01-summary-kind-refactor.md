@@ -145,3 +145,29 @@ import 경로·이름 외의 변경은 없다. 동작이 없는 이름 이전이
 | `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
 | 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
 | "바뀌지 않는 것" 확인 | 테스트 diff 없음, `main.py`·`config.py`·`models`·`alembic`·`__init__.py` diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
+
+## #154 summary worker가 자동 요약 종류 module을 거쳐 처리
+
+`app/services/summary_kinds.py`를 기존 package에 추가했다. 종류 adapter의 interface(`SummaryKind`)는
+`name`·`provider`·`enabled(config)`·`summarize(target_id, model, candidates)`다. 유튜브(`gemini`, `YOUTUBE_SUMMARY_ENABLED`)와
+인스타그램(`openai`, `INSTAGRAM_SUMMARY_ENABLED`) adapter는 기존 client를 감싼다. `SummaryKinds`는 켜진 종류 이름을
+등록 순서(유튜브 → 인스타그램)대로 돌려주고 이름으로 adapter를 찾는다. 저장 쪽 `plan`은 #155에서 추가한다.
+
+- worker의 종류→client 사전, 성공 provider 표, `enabled_kinds()`의 종류별 `if`를 없애고 종류 목록을 쓴다.
+  worker에 남은 종류 이름은 로그 이벤트 이름, 생성자 인자, 그 인자를 종류에 잇는
+  `summary_kinds(youtube=..., instagram=...)` 호출뿐이다. adapter 조회는 이전 client 조회처럼 `try` 안에서 한다.
+- 생성자 signature와 `enabled_kinds()`는 그대로라 `main.py`·`config.py`는 바뀌지 않았다(ADR 0003).
+  종류 목록은 생성자 안에서 받은 client들로 만든다.
+- `test_summary_concurrency`는 worker 내부 사전 대신 생성자로 가짜 client를 넘긴다. 이 테스트를 먼저 바꿔
+  변경 전 코드에서도 통과하는 것을 확인했다.
+- 동작이 같은 리팩터링이라 종류 module 단위 테스트는 두지 않았다. 기존 worker 테스트(한 종류만 켜짐·섞인 대기열·
+  예상 밖 예외)와 #148 고정 테스트로 확인했다. 유튜브 adapter의 provider를 잠시 바꾸면 성공 provider 고정 테스트가
+  실패하는 것을 확인한 뒤 되돌렸다.
+- 리뷰 반영: adapter 조회 위치를 `try` 안으로 맞추고, `SUCCESS_PROVIDERS`와 함께 떠 있던 로그 주석을 logger 위로 옮겼다.
+
+| 검사 | 결과 |
+| --- | --- |
+| 요약 관련 테스트(`tests/integrations`·`tests/services` 전체, 요약 통합·동시성·점검·weekly, #148 고정) | 741개 통과 |
+| `ruff check app scripts alembic tests` · `compileall` · `git diff --check` | 통과 |
+| 전체 `pytest -q -rs` (PostgreSQL 포함) | 1468개 통과, 46개 skip(`tests/deployment` 45개, 로컬 S3 CLI 1개). 요약 관련 대상 테스트 skip 없음 |
+| "바뀌지 않는 것" 확인 | `main.py`·`config.py`·`models`·`alembic`·`__init__.py`·#148 고정 테스트 diff 없음, 변경 경로가 `operator_recovery` 필터와 겹치지 않음 |
