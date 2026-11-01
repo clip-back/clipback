@@ -49,8 +49,8 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 | 빌드 소스 SHA | 835f915f61dcf34b9fbb977dcc3127cc679fe2f7 | 835f915f61dcf34b9fbb977dcc3127cc679fe2f7 |
 | 후보 태그·실제 생성 여부 | app-ios-v0.3.0-b8 (미생성) | app-android-v0.3.0-b4 (미생성) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미확인 | 미확인 |
-| 빌드 결과·산출물 식별자 | 미확인 | 미확인 |
-| 업로드·처리 상태 | 미확인 | 미확인 |
+| 빌드 결과·산출물 식별자 | 미확인 | 정상 Release AAB 성공. `frontend/build/release-candidates/app-v0.3.0-android-b4/app-release.aab`, 72,844,689바이트, SHA-256 `bc26edc53e4c0d2308878b166724ee5b407fa5cdd1dafee0a087941a5b2a4dd3`. 산출물의 versionName 0.3.0·versionCode 4 확인 |
+| 업로드·처리 상태 | 미확인 | 미실행 — Play Console 업로드는 사용자가 진행 |
 | 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 | 미확인 |
 | 심사 상태 | 미확인 | 미확인 |
 | 정식 공개 상태·공개 범위 | 미확인 | 미확인 |
@@ -80,13 +80,14 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 
 | 검증 범위 | 명령·시나리오·기종·OS | 결과 | 근거 또는 미검증 사유 |
 | --- | --- | --- | --- |
-| 로컬 자동 검사·대역 데이터 | 미확인 | 미확인 | 미확인 |
-| 원격 CI | 미확인 | 미확인 | 미확인 |
-| iOS Simulator | 미확인 | 미확인 | 미확인 |
-| Android Emulator | 미확인 | 미확인 | 미확인 |
-| 실제 OAuth·외부 공급자 | 미확인 | 미확인 | 미확인 |
-| 운영 서버 | 미확인 | 미확인 | 미확인 |
-| 실기기 | 미확인 | 미확인 | 미확인 |
+| 로컬 자동 검사·대역 데이터 | `frontend/`에서 `flutter analyze --no-pub`, `flutter test --no-pub -j 2` (2026-11-02 00:20~00:23 KST, Android 빌드 직전) | 통과 — 지적 0건, 2,018개 통과 | 빌드와 같은 작업 트리(`833e8b9`, `frontend/`는 `835f915`와 동일). 대역 데이터 검사이며 실제 공급자·운영 연동과 구분 |
+| 산출물 정적 검사 | Android AAB: bundletool 1.18.3 `validate`·`dump manifest/config/resources`, `jarsigner -verify`, `keytool -printcert`, ELF 프로그램 헤더, 아이콘 PNG 픽셀 비교(Pillow 12.2.0) | 통과 | `com.huturu.app`·0.3.0(4)·minSdk 24·targetSdk 36·debuggable 없음·`android:icon="@mipmap/ic_launcher"`. 업로드 인증서 SHA-256 `b076988a…87e59ad0`(빌드 2·3과 같은 업로드 키). 아이콘: `mipmap-anydpi-v26/ic_launcher.xml`(적응형, 배경 `@color/ic_launcher_background`=`#ffd75c`, 전경 `@mipmap/ic_launcher_foreground`)과 5개 밀도의 `ic_launcher.png`·`ic_launcher_foreground.png` 포함. PNG 10개 모두 `835f915` 소스와 픽셀 일치, `ic_launcher.png` 5개는 `a70009c`의 이전 아이콘과 다름. arm64 Dart 바이너리에 운영 API·Google 웹 OAuth ID·카카오 Native key 포함, manifest에 카카오 콜백 scheme 포함(값은 기록하지 않음). ELF64 8개 모두 16KB 이상 정렬, ELF32 4개는 대상 아님, `PAGE_ALIGNMENT_16K` |
+| 원격 CI | `835f915`의 Backend Validation | success | [run 41320300095](https://github.com/clip-back/clipback/actions/runs/41320300095). 프론트 검사를 포함하지 않으며 이번 후보 준비에서 새로 실행한 결과 아님 |
+| iOS Simulator | 미실행 | 미실행 | 이번 배포 작업 지시: 메모리 8GB 제약으로 시뮬레이터를 띄우지 않음. 아이콘 교체의 시뮬레이터 확인은 [작업 기록](../history/2026-11-01-app-icon.md)에 있으며 이번 산출물 검증으로 쓰지 않음 |
+| Android Emulator | 미실행 | 미실행 | iOS Simulator와 같은 이유로 에뮬레이터를 띄우지 않음 |
+| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 실기기 Google·카카오·Apple 로그인과 인스타그램 링크 요약 결과를 사용자에게 받은 뒤 기록 |
+| 운영 서버 | `railway deployment list --json`·`/api/v1/health`·`/api/v1/health/ready` (2026-11-02 00:18 KST) | SUCCESS·200·200 | 운영 `835f915`. 이 앱 후보와 운영 API의 연동 검증은 미실행 |
+| 실기기 | 미실행 | 미실행 | 사용자가 스토어 업데이트 후 홈 화면 아이콘·공유 메뉴 아이콘·로그인·공유 저장 시트를 확인할 예정. 결과를 받기 전에는 완료로 적지 않음 |
 
 ## 진행 기록과 중단·복구
 
@@ -98,3 +99,5 @@ iOS 7·Android 3은 이전 후보 기록에 예약된 번호이므로 재사용�
 | 시각 (KST) | 대상·단계 | 수행 내용·사유·산출물 또는 SHA | 결과·근거·후속 조치 |
 | --- | --- | --- | --- |
 | 2026-11-02 00:18 | 후보 예약 | main `835f915`(#172 앱 아이콘)를 배포 브랜치에 병합(`d0f28ff`) 후 이전 후보 기록의 스토어 최대 업로드(App Store Connect 6, Play 2)로 iOS 0.3.0(8)·Android 0.3.0(4) 예약. 소스 `835f915` | `prepare_release app` created=true, identifier_checks_complete=true(수동 확인값·원격 태그 범위). 태그 미생성, 빌드 미실행 |
+| 2026-11-02 00:23 이전 | Android 서명 검증·로컬 검사 | 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). JDK 21.0.9로 `:app:validateReleaseSigning` → `flutter analyze`·`flutter test` | 서명 검증 BUILD SUCCESSFUL, analyze 0건, 테스트 2,018개 통과 |
+| 2026-11-02 00:23 | Android 정상 빌드 | `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.3.0 --build-number=4`, 운영 API·공개 SDK 설정 지정. 작업 트리 HEAD `833e8b9`는 `835f915`에 병합·문서 커밋만 더한 상태로 `frontend/` 차이 없음 | 약 46초 빌드 성공. 산출물을 후보 폴더로 복사하고 해시·서명·manifest·아이콘·16KB 정렬 검사 통과. 업로드 미실행 |
