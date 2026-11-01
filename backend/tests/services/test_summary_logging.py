@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from app.integrations.youtube_summary_client import YouTubeSummaryClient
-from app.services.summary_worker import SummaryWorker
+from app.services.summary_worker import ClaimedJob, SummaryWorker
 from tests.integrations.test_instagram_summary_client import page, public_resolver
 from tests.integrations.test_youtube_summary_client import config, video
 
@@ -73,7 +73,15 @@ async def test_worker_logs_safe_provider_diagnostics(provider, status):
                 None, YouTubeSummaryClient(config(), http), config(), maintenance=OpenUnitGate()
             )
             worker.claim = AsyncMock(
-                return_value=(12, 7, "dQw4w9WgXcQ", "model", "token", [], "youtube")
+                return_value=ClaimedJob(
+                    content_id=12,
+                    user_id=7,
+                    target_id="dQw4w9WgXcQ",
+                    model="model",
+                    lease_token="token",
+                    candidates=[],
+                    kind="youtube",
+                )
             )
             worker.finish = AsyncMock()
             await worker.run_once()
@@ -95,7 +103,7 @@ async def test_unknown_provider_status_is_not_retained():
             lambda r: httpx.Response(400, json={"error": {"status": "secret"}})
         )
     ) as http:
-        from app.integrations.youtube_summary_client import SummaryError
+        from app.integrations.summary import SummaryError
 
         with pytest.raises(SummaryError) as caught:
             await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
@@ -113,8 +121,14 @@ def instagram_worker(client, config_overrides=None):
         None, None, settings, instagram_client=client, maintenance=OpenUnitGate()
     )
     worker.claim = AsyncMock(
-        return_value=(
-            12, 7, "https://www.instagram.com/reel/ABC123/", "model", "token", [], "instagram"
+        return_value=ClaimedJob(
+            content_id=12,
+            user_id=7,
+            target_id="https://www.instagram.com/reel/ABC123/",
+            model="model",
+            lease_token="token",
+            candidates=[],
+            kind="instagram",
         )
     )
     worker.finish = AsyncMock()
@@ -250,10 +264,10 @@ async def test_worker_logs_the_page_decision_without_sensitive_data(
 
 @pytest.mark.asyncio
 async def test_worker_logs_usage_and_openai_provider_for_a_successful_instagram_summary():
-    from app.integrations.youtube_summary_client import VideoSummary
+    from app.integrations.summary import SummaryResult
 
     async def summarize(target, model, candidates):
-        return VideoSummary("제목", "요약", None, {"total_tokens": 150})
+        return SummaryResult("제목", "요약", None, {"total_tokens": 150})
 
     worker, _ = instagram_worker(SimpleNamespace(summarize=summarize))
 

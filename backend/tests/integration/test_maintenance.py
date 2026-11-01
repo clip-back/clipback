@@ -283,7 +283,7 @@ async def test_summary_worker_finishes_admitted_result_before_freeze():
     from sqlalchemy import delete, select
 
     from app.core.config import settings
-    from app.integrations.youtube_summary_client import VideoSummary
+    from app.integrations.summary import SummaryResult
     from app.models.content import Content, ContentType
     from app.models.summary_job import SummaryJob
     from app.models.user import User
@@ -320,7 +320,7 @@ async def test_summary_worker_finishes_admitted_result_before_freeze():
     async def summarize(*args):
         entered.set()
         await release.wait()
-        return VideoSummary("after", "finished summary", None, {})
+        return SummaryResult("after", "finished summary", None, {})
 
     worker = SummaryWorker(
         sessions,
