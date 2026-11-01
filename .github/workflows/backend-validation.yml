@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # 매일 04:00 KST. 경로 판정으로 건너뛴 작업까지 전체를 실행한다.
+    - cron: "0 19 * * *"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +30,72 @@ env:
   STORAGE_ROOT: /tmp/clipback-storage
 
 jobs:
+  # deployment·operator-recovery의 PR·main push 실행 여부를 바뀐 경로로 판정한다.
+  # operator_recovery 목록의 근거는 docs/history/2026-11-01-backend-ci-paths.md에 있다.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      deployment: ${{ steps.filter.outputs.deployment }}
+      operator_recovery: ${{ steps.filter.outputs.operator_recovery }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+      - id: filter
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            deployment:
+              - .github/workflows/backend-validation.yml
+              - backend/**
+            operator_recovery:
+              - .github/workflows/backend-validation.yml
+              - backend/Dockerfile*
+              - backend/.dockerignore
+              - backend/pyproject.toml
+              - backend/alembic.ini
+              - backend/alembic/**
+              - backend/scripts/**
+              - backend/tests/conftest.py
+              - backend/tests/deployment/**
+              - backend/app/**/__init__.py
+              - backend/app/main.py
+              - backend/app/operator.py
+              - backend/app/api/deps.py
+              - backend/app/api/operator_maintenance.py
+              - backend/app/api/v1/endpoints/health.py
+              - backend/app/middleware/**
+              - backend/app/models/**
+              - backend/app/core/config.py
+              - backend/app/core/deletion_ledger_config.py
+              - backend/app/core/exceptions.py
+              - backend/app/core/logging.py
+              - backend/app/core/operator_source_config.py
+              - backend/app/core/security.py
+              - backend/app/core/storage_health.py
+              - backend/app/db/base.py
+              - backend/app/db/session.py
+              - backend/app/db/types.py
+              - backend/app/integrations/deletion_ledger.py
+              - backend/app/integrations/operator_source.py
+              - backend/app/integrations/storage_client.py
+              - backend/app/repositories/auth_session_repository.py
+              - backend/app/repositories/category_repository.py
+              - backend/app/repositories/content_repository.py
+              - backend/app/repositories/user_repository.py
+              - backend/app/schemas/category.py
+              - backend/app/schemas/content.py
+              - backend/app/schemas/feed.py
+              - backend/app/schemas/recommendation.py
+              - backend/app/schemas/tag.py
+              - backend/app/services/image_deletion_service.py
+              - backend/app/services/image_storage_control.py
+              - backend/app/services/maintenance.py
+
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -131,6 +200,8 @@ jobs:
 
 
   deployment:
+    needs: changes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.deployment == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -158,6 +229,8 @@ jobs:
 
 
   operator-recovery:
+    needs: changes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.operator_recovery == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

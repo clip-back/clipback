@@ -167,6 +167,17 @@ GitHub Actions의 migration job은 PostgreSQL 18에서 기존 테스트 DB와 �
 읽기·점검·권위 있는 복원 제어·기존 백업/다중 사용자 복원·DB 준비 검사를 실행한다.
 이는 합성 Docker 환경이며 실제 Railway 성공이나 Mac SSH 연결의 증거가 아니다.
 
+`lint`·`test`·`migration`은 모든 실행에서 돈다. `deployment`·`operator-recovery`는 PR과 main push에서
+`changes` job의 경로 판정 결과가 참일 때만 돌고, 매일 04:00 KST(`0 19 * * *` UTC) 예약 실행과
+수동 실행(`workflow_dispatch`)에서는 항상 돈다.
+
+- `deployment`: `backend/` 아래 파일이나 workflow 파일이 바뀌면 실행한다.
+- `operator-recovery`: Dockerfile·운영 스크립트·migration·배포 테스트, 운영 스크립트가 import하는
+  `app` 모듈, 컨테이너 기동 경로(`app/main.py` 등), workflow 파일이 바뀌면 실행한다.
+  일반 API·요약 worker만 바뀐 PR은 건너뛴다. 목록은 workflow의 `changes` job에 직접 적혀 있어
+  import가 바뀌면 낡을 수 있으며, 빠진 경로의 회귀는 예약 실행에서 발견한다.
+  목록을 만든 근거와 다시 계산하는 방법은 [작업 이력](../history/2026-11-01-backend-ci-paths.md)에 있다.
+
 로컬에서 같은 검사를 실행할 때는 workflow의 이미지 환경변수와 PostgreSQL 16/18·Moto 이미지를
 준비하고 해당 선택형 모듈을 같은 pytest 프로세스에서 순차 실행한다. 실행하지 않은 선택형 검사는
 명시적으로 미실행으로 기록한다. 실제 운영 결과는 [첫 운영 체크리스트](image-operator-first-run.md)에
