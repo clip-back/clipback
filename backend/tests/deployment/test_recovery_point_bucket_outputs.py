@@ -4,7 +4,8 @@
 real `main()`. The backup Bucket is moto. For `maintain` only the runtime assembly (DB lock,
 maintenance gate, deletion ledger wiring) is replaced. #161 fixed the outputs measured on
 main 06bc24d; #167 changed only the expected values listed in spec #156's tables: every
-contract violation is `invalid_manifest`, checked before any object is read.
+contract violation is `invalid_manifest`, checked before any object is read. #185 added the
+unnormalized storage_key cases, which `verify` and `maintain` accepted before.
 """
 
 import asyncio
@@ -110,9 +111,21 @@ CORRUPTIONS = {
     "asset_backup_key_elsewhere": assign("assets", 0, "backup_key", value="originals/elsewhere"),
 }
 
+# A storage_key must equal its normalized POSIX path and must not be `.` (#185).
+UNNORMALIZED_KEYS = {
+    "dot_step": "u/./1.png", "leading_dot": "./u/1.png", "empty_step": "u//1.png",
+    "trailing_slash": "u/1.png/", "dot": ".",
+}
+CORRUPTIONS |= {
+    f"storage_key_{name}_{backend}": assign("assets", index, "storage_key", value=key)
+    for name, key in UNNORMALIZED_KEYS.items()
+    for index, backend in enumerate(["local", "s3"])
+}
+
 # Asset tar paths: screenshots/ or s3/ + storage_key.
 TAR_COLLISIONS = {
     "same_storage_key": ("u/1.png", "u/1.png"),
+    # Still invalid_manifest, now from the storage_key rule on `u/./1.png` before any collision.
     "same_after_normalizing": ("u/./1.png", "u/1.png"),
     "parent_and_child": ("u/1.png", "u/1.png/x"),
 }

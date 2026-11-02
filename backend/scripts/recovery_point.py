@@ -316,7 +316,9 @@ def _check_manifest(manifest, *, backup_id=None, directory=None):
             and key
             and not PurePosixPath(key).is_absolute()
             and ".." not in PurePosixPath(key).parts
-            and "\\" not in key,
+            and "\\" not in key
+            and str(PurePosixPath(key)) == key
+            and key != ".",
             "invalid_manifest",
         )
         size = _field(asset, "size_bytes")

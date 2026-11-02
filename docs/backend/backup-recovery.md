@@ -328,9 +328,12 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - 필수 필드가 없거나 JSON 형식이 다르면(문자열 자리의 null·숫자·불리언·배열·객체 등) 거부합니다.
 - `database.size_bytes`는 양의 정수, asset `size_bytes`는 0 이상의 정수입니다.
   해시는 소문자 64자리 문자열이고 `captured_at`·`sample.saved_at`에는 시간대가 있어야 합니다.
-- asset `id`는 서로 다른 양의 정수입니다. `storage_key`는 빈 값·절대 경로·`..`·역슬래시가 없는 상대 경로입니다.
+- asset `id`는 서로 다른 양의 정수입니다. `storage_key`는 빈 값·절대 경로·`..`·역슬래시가 없는 상대 경로이며,
+  POSIX 경로로 정규화한 문자열과 글자가 같고 `.`이 아니어야 합니다. 따라서 `u/./1.png`·`./u/1.png`·`u//1.png`·`u/1.png/`·`.`은
+  거부합니다. 업로드는 `screenshots/<user_id>/<uuid4 hex>.<확장자>` 형식의 키만 만들어 이런 키가 생기지 않으며,
+  생기면 `maintain`이 `invalid_manifest`로 멈춥니다.
   `sample`은 asset이 없을 때만 `null`이며, 있으면 `sample.asset_id`가 asset 목록에 있어야 합니다.
-- asset의 tar 경로(`local`은 `screenshots/`, `s3`는 `s3/` 뒤에 `storage_key`를 붙여 POSIX 경로로 정규화)가
+- asset의 tar 경로(`local`은 `screenshots/`, `s3`는 `s3/` 뒤에 `storage_key`를 붙인 POSIX 경로)가
   다른 asset과 같거나 한쪽이 다른 쪽의 상위 경로이면 거부합니다. `download`가 한 archive에 함께 담을 수 없기 때문입니다.
 - `format_version: 1` 다운로드 폴더는 계속 읽으며 v2 전용 검사(`database.backup_key`, asset의 v2 필드,
   tar 경로 충돌)는 하지 않습니다.
@@ -357,7 +360,8 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 ### `maintain`이 `invalid_manifest`로 멈췄을 때
 
-`maintain`은 원인 지점을 출력하지 않습니다. 멈춘 실행은 아무것도 지우지 않았으므로 아래 순서로 확인합니다.
+`maintain`은 완료 지점 manifest나 정리 receipt 하나라도 위 계약(필드 기준, `storage_key` 정규화 규칙 포함)에
+어긋나면 멈춥니다. 원인 지점은 출력하지 않습니다. 멈춘 실행은 아무것도 지우지 않았으므로 아래 순서로 확인합니다.
 
 1. `maintain`과 같은 리비전의 `backend/`에서 아래 읽기 전용 점검 모듈로 실패한 완료 지점·정리 receipt를 찾습니다.
    완료 지점마다 `verify`를 실행하고, 정리 receipt는 이름·충돌·내용만 검사합니다. receipt만 남은 지점은

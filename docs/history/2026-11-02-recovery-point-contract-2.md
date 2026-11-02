@@ -1,6 +1,6 @@
 # 복구 지점 계약 2차: 읽기 전용 점검 모듈, `storage_key` 규칙, 객체 오류 코드
 
-최초 기록일: 2026-11-02 KST. 기준은 [spec #183](https://github.com/clip-back/clipback/issues/183)과 티켓 #184다.
+최초 기록일: 2026-11-02 KST. 기준은 [spec #183](https://github.com/clip-back/clipback/issues/183)과 티켓 #184·#185다.
 출처는 #177·#178·#179이고, 브랜치 `fix/recovery-point-contract-2`(시작 커밋 `0ed414a`)에서 작업했다.
 앞선 작업은 [복구 지점 manifest 검증 기준 통일](2026-11-02-recovery-point-manifest-contract.md)에 있다.
 
@@ -83,3 +83,62 @@
 | 문서 명령 블록 삭제 | 3개 실패(블록을 찾지 못함) |
 | 두 번째 명령 블록을 `python<TAB>-m`으로 추가 | 3개 실패(블록이 하나가 아님) |
 | receipt 목록을 다시 두 번 조회 | 2개 실패(이후 조회 거부, receipt 있음·없음) |
+
+## `storage_key` 정규화 규칙(#185, 출처 #178)
+
+### 사용자 결정
+
+- 폴더 검사는 asset별 순서(필드 → tar 경로 충돌 → archive 포함 여부, 그다음 asset)를 유지한다.
+  모든 asset을 먼저 검사하도록 바꾸지 않는다(스펙 리뷰 P2).
+- 게시 코드는 바꾸지 않는다. `maintain`은 아무것도 지우지 않고, `download`는 폴더를 만들지 않는다.
+- 점검 모듈 테스트는 정규화되지 않은 키 경우의 기대값만 `invalid_manifest`로 바꾼다.
+- 도메인 명칭은 "격리 복원 검증"을 쓰고 명령 이름은 그대로 쓴다(스펙 리뷰 S1).
+
+### 변경 내용
+
+- `backend/scripts/recovery_point.py`의 asset `storage_key` 검사에 "POSIX 경로로 정규화한 문자열과 같고 `.`이 아님"을 더했다.
+  asset마다 필드를 검사하는 자리이므로 v1·v2, 게시 manifest·정리 receipt·다운로드 폴더에 모두 적용된다.
+  tar 경로 충돌 검사와 archive 포함 확인은 바꾸지 않았다.
+- 그 결과 [#175 변경 목록](2026-11-02-recovery-point-manifest-contract.md)의 예외 행(폴더에서 `u/./1.png`가 먼저인 tar 경로 충돌의
+  `missing_asset`)이 없어졌다. 이제 첫 asset의 필드 검사에서 `invalid_manifest`다.
+- 운영 문서(`docs/backend/backup-recovery.md`)의 v2 manifest 절에 규칙과 "업로드는 이런 키를 만들지 않으며 생기면 `maintain`이
+  멈춘다"를 적고, tar 경로 설명에서 "정규화"를 뺐다. "`maintain`이 `invalid_manifest`로 멈췄을 때" 절의 첫 문단에 멈추는 원인을
+  적었다. 되돌리기 기준 리비전은 그대로다.
+
+### 구현자 판단
+
+- **키 목록 공유**: 정규화되지 않은 키 5가지를 Bucket 테스트의 `UNNORMALIZED_KEYS`에 두고 폴더 테스트가 import한다.
+  Bucket 테스트에서는 기존 `CORRUPTIONS`에 10가지(키 5가지 × `local`·`s3`)를 더해, 기존 신선·만료·receipt 테스트가 그대로 돌게 했다.
+  점검 테스트의 같은 목록은 기대값만 바꾸라는 결정에 따라 그대로 두었다.
+- **폴더 입력**: 폴더 테스트의 archive는 정규화한 경로로 저장하므로, 키만 정규화되지 않고 archive 이름은 맞는 폴더다.
+  v1 폴더는 `local` asset 하나에 키를 넣었다.
+- **점검 테스트 이름**: 기대값이 `passed`에서 `invalid_manifest`로 바뀌어 `test_audit_passes_an_unnormalized_storage_key`를
+  `test_audit_reports_an_unnormalized_storage_key`로 바꾸고 docstring을 고쳤다. 입력은 그대로다.
+
+### 테스트
+
+- Bucket 출력 고정(`test_recovery_point_bucket_outputs`): 키 5가지 × `local`·`s3`에서 `verify`·`download`(폴더 없음)·
+  `maintain`(신선·만료·receipt)이 `invalid_manifest`다. `TAR_COLLISIONS`의 `same_after_normalizing`은 기대값이 그대로이고,
+  걸리는 이유가 키 규칙으로 바뀌었음을 주석에 적었다.
+- 폴더 출력 고정(`test_recovery_point_folder_outputs`): 키 5가지 × `local`·`s3`의 v2 폴더와 5가지의 v1 폴더가 세 명령 모두
+  `invalid_manifest`다. `same_after_normalizing` 행을 `invalid_manifest`로 바꾸고 예외 주석을 지웠다.
+  단계 순서 테스트에 세 행을 더했다: DB 해시 불일치와 겹치면 `backup_hash_mismatch`, archive에 없는 정상 키가 앞이고
+  정규화되지 않은 키가 뒤이면 `missing_asset`, 순서를 바꾸면 `invalid_manifest`.
+- 점검 모듈(`test_recovery_point_audit`): 정규화되지 않은 키 10가지의 지점 결과가 `invalid_manifest`, 종료 코드 1이다.
+- 기존 단위 테스트(`test_recovery_point`)는 고치지 않았고 그대로 통과한다.
+- 시작 커밋 측정(구현 전, `a06a48b`에 새 테스트 파일을 복사해 실행): 폴더의 두 asset 순서는 모두 세 명령에서 `missing_asset`이었다.
+  키 5가지는 `verify`·`maintain`이 성공, `download`가 `database.dump`·`images.tar`·`manifest.json`이 든 폴더를 남기고
+  `missing_asset`, 폴더 세 명령이 `missing_asset`이었다.
+
+### 변경 감지 확인
+
+- 새·바뀐 Bucket·폴더 테스트를 시작 커밋 `a06a48b`의 임시 worktree에서 실행했다. 47개가 실패했고 모두 바뀌는 행이다
+  (Bucket 신선·만료 20, receipt 10, 폴더 v2 10·v1 5, `same_after_normalizing`, 정규화되지 않은 키가 앞인 순서).
+  "변경 없음" 행(Bucket의 `same_after_normalizing`, DB 해시와 겹침, 정상 키 누락이 앞인 순서)은 통과했다.
+- 점검 모듈 테스트를 #184 완료 커밋 `45fd213`의 임시 worktree에서 실행했다. 정규화되지 않은 키 10개만 실패했다.
+- 운영 코드를 복사해 두고 변형을 하나씩 넣은 뒤 세 테스트 파일을 실행하고 복사본으로 되돌렸다.
+
+| 변형 | 결과 |
+| --- | --- |
+| `storage_key` 정규화 규칙 제거 | 57개 실패(시작 커밋 비교의 47개와 점검 10개) |
+| `.` 허용(정규화 비교만 남김) | 11개 실패(`.` 키의 Bucket 6, 폴더 v2 2·v1 1, 점검 2) |
