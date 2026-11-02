@@ -5,7 +5,6 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
@@ -14,7 +13,6 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
-import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/material.dart';
@@ -30,21 +28,12 @@ const _routes = [
 ];
 const _labels = ['홈', '아카이브', '즐겨찾기', '마이'];
 const _icons = [Assets.home, Assets.archive, Assets.star, Assets.account];
-const _date = '2020. 3. 10. 오후 11:56';
-const _longCategoryName = '여행 중 다시 찾아볼 장소와 유용한 생활 정보를 모아둔 아주 긴 카테고리';
 const _shortCategory = CategoryItem(
   id: 1,
   name: '생활',
   color: AppColors.main,
   tint: AppColors.mainSubtle,
   deep: AppColors.mainDeep,
-);
-const _longCategory = CategoryItem(
-  id: 2,
-  name: _longCategoryName,
-  color: AppColors.blueSubtle,
-  tint: AppColors.blueSubtle,
-  deep: AppColors.blueDeep,
 );
 const _content = ContentItem(
   id: 'scaled-layout-content',
@@ -412,66 +401,6 @@ void main() {
                 }
               }
             }
-          },
-        );
-
-        testWidgets(
-          'category rows fit and tap at $platform $width scale $scale',
-          (tester) async {
-            addTearDown(tester.view.reset);
-            final taps = <int>[];
-            await _render(
-              tester,
-              width: width,
-              platform: platform,
-              scale: scale,
-              screen: Scaffold(
-                body: SafeArea(
-                  child: Column(
-                    children: [
-                      for (final category in [_shortCategory, _longCategory])
-                        CategoryHomeRow(
-                          category: category,
-                          onTap: () => taps.add(category.id!),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-            expect(tester.takeException(), isNull);
-            for (final category in [_shortCategory, _longCategory]) {
-              final row = find.ancestor(
-                of: find.text(category.name),
-                matching: find.byType(CategoryHomeRow),
-              );
-              final rowRect = tester.getRect(row);
-              final name = find.descendant(
-                of: row,
-                matching: find.text(category.name),
-              );
-              final date = find.descendant(of: row, matching: find.text(_date));
-              final chevron = find.descendant(
-                of: row,
-                matching: find.byType(SvgIcon),
-              );
-              for (final text in [name, date]) {
-                final paragraph = tester.renderObject<RenderParagraph>(text);
-                expect(paragraph.maxLines, 1);
-                expect(paragraph.overflow, TextOverflow.ellipsis);
-                final rect = tester.getRect(text);
-                _contained(rect, rowRect);
-                expect(
-                  rect.right,
-                  lessThanOrEqualTo(tester.getRect(chevron).left),
-                );
-              }
-              await tester.tap(name);
-              await tester.pumpAndSettle();
-              expect(taps.where((id) => id == category.id).length, 1);
-            }
-            expect(taps, [1, 2]);
-            expect(tester.takeException(), isNull);
           },
         );
       }

@@ -110,7 +110,9 @@ Widget _home({
   FeedPage? feed,
   int? categoryId,
   VoidCallback? onOpenToday,
+  List<ApiWeeklyRecommendationItem> weeklyItems = const [],
 }) => HomeScreen(
+  weeklyItems: weeklyItems,
   feed: feed,
   activeCategoryId: categoryId,
   contents: contents,
@@ -144,7 +146,6 @@ Widget _panel({
     weeklyItems: _weeklyTestItems,
     feed: feed,
     activeCategoryId: categoryId,
-    hasSavedContent: contents.isNotEmpty,
     contents: contents,
     categories: categories,
     bookmarkedIds: bookmarkedIds,
@@ -523,6 +524,64 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('콘텐츠 콘텐츠'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final state in [
+    'saved content',
+    'no saved content',
+    'empty chip',
+    'loading',
+    'error',
+  ]) {
+    testWidgets('$state home has no recent categories and keeps its blocks', (
+      tester,
+    ) async {
+      addTearDown(tester.view.reset);
+      final contents = state == 'saved content'
+          ? [_content(0), _content(1)]
+          : const <ContentItem>[];
+      final feed = _feed(contents);
+      switch (state) {
+        case 'loading':
+          feed.loading = true;
+        case 'error':
+          feed.error = StateError('Fixture cannot load');
+      }
+      await _render(
+        tester,
+        settle: state != 'loading',
+        child: _home(
+          contents: contents,
+          feed: feed,
+          categoryId: state == 'empty chip' ? _secondCategory.id : null,
+          weeklyItems: _weeklyTestItems,
+        ),
+      );
+      expect(find.text('최근 카테고리'), findsNothing);
+      expect(find.text('2020. 3. 10. 오후 11:56'), findsNothing);
+
+      expect(find.byType(HomeHero), findsOneWidget);
+      expect(find.text('이번주 허투루 픽 🎯'), findsOneWidget);
+      expect(find.text('최근 저장한 콘텐츠'), findsOneWidget);
+      expect(find.byType(CategoryChips), findsOneWidget);
+      switch (state) {
+        case 'saved content':
+          expect(find.text('나중에 보려던 것들,'), findsOneWidget);
+          expect(find.byType(HomeContentCard), findsNWidgets(2));
+          expect(find.byType(PageDots), findsOneWidget);
+        case 'no saved content':
+          expect(find.text('아직 저장한 콘텐츠가 없어요.'), findsOneWidget);
+          expect(find.byType(EmptyHomeContent), findsOneWidget);
+          expect(find.text('저장한 콘텐츠가 없어요'), findsOneWidget);
+        case 'empty chip':
+          expect(find.text('여행 콘텐츠가 없어요'), findsOneWidget);
+        case 'loading':
+          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        case 'error':
+          expect(find.text('콘텐츠를 불러오지 못했어요.'), findsOneWidget);
+      }
       expect(tester.takeException(), isNull);
     });
   }
