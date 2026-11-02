@@ -194,7 +194,7 @@ Future<void> runChecks() async {
   );
   // Sort is the actual existing popup and server/bookmark-first query.
   await tapText('최신순');
-  await tapText('북마크 우선');
+  await tapText('즐겨찾기 우선');
   await wait(() => !_archive.feed!.loading, 'Sort query pending');
   record(
     'sort retains category ID and resets position',
@@ -202,7 +202,7 @@ Future<void> runChecks() async {
         _archive.feed!.categoryId == 101 &&
         base.archiveAllPosition(_root).pixels == 0,
   );
-  await tapText('북마크 우선');
+  await tapText('즐겨찾기 우선');
   await tapText('최신순');
   await settle();
   await tapKey('category-content-settings-hit');

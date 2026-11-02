@@ -466,8 +466,8 @@ void main() {
           );
           final title = _key('bookmark-empty-title'),
               body = _key('bookmark-empty-body');
-          expect(tester.widget<Text>(title).data, '북마크한 콘텐츠가 없어요');
-          expect(tester.widget<Text>(body).data, '중요한 정보는 북마크를 통해 저장하세요!');
+          expect(tester.widget<Text>(title).data, '즐겨찾기한 콘텐츠가 없어요');
+          expect(tester.widget<Text>(body).data, '중요한 정보는 즐겨찾기를 통해 저장하세요!');
           _style(
             tester,
             title,

@@ -703,8 +703,8 @@ Map<String, Object?> bookmarkJudgment(Map<String, Object?> m) {
     ], 'Empty title');
     style(roles['emptyBody'], [14, 500, -.35, '0xFF767676', 1.6], 'Empty body');
     style(roles['emptyCta'], [16, 500, -.4, '0xFF1A1A1A', null], 'Empty CTA');
-    if ((roles['emptyTitle'] as Map?)?['text'] != '북마크한 콘텐츠가 없어요' ||
-        (roles['emptyBody'] as Map?)?['text'] != '중요한 정보는 북마크를 통해 저장하세요!' ||
+    if ((roles['emptyTitle'] as Map?)?['text'] != '즐겨찾기한 콘텐츠가 없어요' ||
+        (roles['emptyBody'] as Map?)?['text'] != '중요한 정보는 즐겨찾기를 통해 저장하세요!' ||
         (roles['emptyCta'] as Map?)?['text'] != '전체 리스트 보기') {
       styles.add('Empty copy differs from the approved original');
     }

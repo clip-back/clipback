@@ -168,7 +168,7 @@ class BookmarkEmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  '북마크한 콘텐츠가 없어요',
+                  '즐겨찾기한 콘텐츠가 없어요',
                   key: ValueKey('bookmark-empty-title'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -182,7 +182,7 @@ class BookmarkEmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '중요한 정보는 북마크를 통해 저장하세요!',
+                  '중요한 정보는 즐겨찾기를 통해 저장하세요!',
                   key: ValueKey('bookmark-empty-body'),
                   textAlign: TextAlign.center,
                   style: TextStyle(

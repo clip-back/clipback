@@ -114,7 +114,7 @@ class ContentListView extends StatelessWidget {
             countLabel: feed == null
                 ? '총 ${visibleContents.length}개'
                 : '불러온 ${visibleContents.length}개',
-            sortLabel: bookmarkedFirst ? '북마크 우선' : '최신순',
+            sortLabel: bookmarkedFirst ? '즐겨찾기 우선' : '최신순',
             onSortChanged: onSortChanged,
           ),
         if (isUnclassified && visibleContents.isNotEmpty)
@@ -603,7 +603,7 @@ class ArchiveToolbar extends StatelessWidget {
             ArchiveSortButton(
               archiveAllStyle: archiveAllStyle,
               label: sortLabel,
-              bookmarkedFirst: sortLabel == '북마크 우선',
+              bookmarkedFirst: sortLabel == '즐겨찾기 우선',
               onSelected: onSortChanged ?? (_) {},
             ),
             const Spacer(),
@@ -665,7 +665,10 @@ class ArchiveSortButton extends StatelessWidget {
           value: true,
           height: 40,
           padding: EdgeInsets.zero,
-          child: _ArchiveSortOption(label: '북마크 우선', selected: bookmarkedFirst),
+          child: _ArchiveSortOption(
+            label: '즐겨찾기 우선',
+            selected: bookmarkedFirst,
+          ),
         ),
       ],
       child: SizedBox(
@@ -762,7 +765,7 @@ class SortSheet extends StatelessWidget {
         ),
         SheetActionTile(
           icon: Assets.star,
-          title: '북마크 우선',
+          title: '즐겨찾기 우선',
           description: activeBookmarkedFirst
               ? '현재 적용 중인 정렬입니다.'
               : '중요 표시한 정보를 먼저 보여줘요.',
