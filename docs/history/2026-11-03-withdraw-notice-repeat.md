@@ -20,12 +20,16 @@
 
 - `frontend/lib/features/account/account_management_screen.dart`: 탈퇴 줄의 `onTap`이 `removeCurrentSnackBar()` 뒤 `showSnackBar(...)`를 부른다.
 - `frontend/test/account_management_alignment_test.dart`: iOS·Android 테마마다 재현 테스트 3개를 더했다.
-  연속으로 3번(`rapid`), 100ms 간격으로 3번(`gap100`), 첫 알림이 사라지는 중(4.3초, 4.4초)에 2번 더(`exit`) 누른다.
-  마지막 탭 직후 알림이 1개이고, 5초 뒤 없으며, 그 뒤 10초 동안 다시 나오지 않는지 본다.
+  연속으로 3번(`rapid`), 100ms 간격으로 3번(`gap100`), 첫 알림이 표시 시간 4초를 다 채우고 스스로 내려가는 중(첫 탭 뒤 4.4초, 4.5초)에
+  2번 더(`exit`) 누른다. 탭 사이 시간은 50ms씩 프레임을 그리며 진행하고, `exit`는 두 번째 탭 직전에 첫 알림의 애니메이션이
+  `AnimationStatus.reverse`인지 확인한다. 마지막 탭 직후 알림이 1개이고, 5초 뒤 없으며, 그 뒤 10초 동안 다시 나오지 않는지 본다.
+- 최종 리뷰 반영(2026-11-03): 처음 커밋한 `exit`(`5429fbb`)는 4.3초를 `pump` 한 번으로 넘겨 프레임을 하나만 그렸다.
+  그래서 등장 애니메이션이 그 프레임에서야 끝나고 표시 타이머가 그때 시작돼, 두 번째 탭은 첫 알림이 막 표시된 때(`completed`) 들어갔다.
+  지금처럼 50ms씩 진행하게 고쳤다. 큰 `pump` 한 번으로 되돌린 변형에서는 새 단언이 `completed`로 실패하는 것을 확인했다.
 
-방식별 비교(임시 위젯 하네스, 마지막 탭 뒤 알림이 처음 없어진 시간, 50ms 단위):
+방식별 비교(임시 위젯 하네스, 마지막 탭 뒤 알림이 처음 없어진 시간, 50ms 단위). 마지막 열은 첫 탭 뒤 4.1초(표시 중, 사라지기 직전)와 4.3초(사라지는 중)에 누른 두 경우다:
 
-| 방식 | 0ms 간격 | 50–100ms 간격 | 300ms 간격 | 사라지는 중 |
+| 방식 | 0ms 간격 | 50–100ms 간격 | 300ms 간격 | 4.1·4.3초 뒤 |
 | --- | --- | --- | --- | --- |
 | 변경 전(`showSnackBar`만) | 13.8초 | 13.6–13.7초 | 13.2초 | 9.5–9.6초 |
 | `hideCurrentSnackBar` 뒤 `showSnackBar` | 4.6초 | 9.2초 | 4.6초 | 9.4–9.5초 |
@@ -36,10 +40,13 @@
 - 재현 테스트 실패 확인(`frontend/`에서 `flutter test --no-pub test/account_management_alignment_test.dart --plain-name 'withdraw taps show one notice'`):
   화면 파일만 시작 커밋 `8592ffb`로 잠시 바꾸면 6개 모두 실패, `10f1b85`(`hideCurrentSnackBar`)에서는 `gap100`·`exit` 4개 실패.
   실패 단언은 모두 "5초 뒤 알림 없음"이다.
-- 수정 후 `flutter test --no-pub test/account_management_alignment_test.dart` 20개 통과.
+- 최종 리뷰 반영 뒤 같은 명령을 다시 돌렸다. 시작 커밋 화면에서 6개 모두, `10f1b85` 화면에서 `gap100`·`exit` 4개가 실패했다.
+  실패 단언은 모두 "5초 뒤 알림 없음"이고, `exit`의 "사라지는 중" 단언은 두 코드 모두에서 통과했다.
+- 수정 후 `flutter test --no-pub test/account_management_alignment_test.dart` 20개 통과(리뷰 반영 전후 모두).
   기존 "탈퇴를 한 번 누르면 알림 하나" 단언이 있는 compatibility matrix 테스트도 통과했다.
-- 전체 검사(`5429fbb`와 같은 코드): `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-190`
-  → `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2025개 통과(건너뜀 0),
+- 전체 검사: `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-190`을 `5429fbb`와 같은 코드에서 한 번,
+  최종 리뷰 반영(테스트 수정) 뒤 한 번 돌렸다. 두 번 모두 `VERIFY result=PASS scope=all checks=10 failed=0`이다.
+  `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2025개 통과(건너뜀 0),
   백엔드 pytest 1896개 통과·46개 건너뜀(Docker·운영자 이미지·S3 엔드포인트가 필요한 테스트, 이번 변경과 무관).
 
 ## 시뮬레이터·에뮬레이터 실행 (2026-11-03)
@@ -65,7 +72,7 @@
 | Android | 100ms 간격 | 0·0.47·1.02초 | 13.2초 | 0·0.15·0.32초 | 4.8초 |
 | Android | 사라지는 중 | 0·4.41·4.57초 | 9.6초 | 0·4.39·4.58초 | 4.7초 |
 
-- 탭 시각은 첫 탭 기준이다. 에뮬레이터가 느려 Android의 실제 탭 간격은 의도(0ms·100ms)보다 벌어졌다.
+- 탭 시각은 첫 탭 기준이다. 기기 실행의 "사라지는 중"은 탭 시각으로 정했고, 탭 순간의 애니메이션 상태는 기록하지 않았다. 에뮬레이터가 느려 Android의 실제 탭 간격은 의도(0ms·100ms)보다 벌어졌다.
 - Android 변경 후 첫 실행은 에뮬레이터 저장 공간이 부족해 설치에 실패한 채 변경 전 앱으로 돌았다.
   그 결과는 버렸고, 캐시를 비운 뒤 설치해 다시 찍은 것이 위의 변경 후 값이다.
 - 바뀌는 모습: 사라지는 중에 누르면 내려가던 알림이 그 자리에서 없어지고 새 알림이 올라온다. Android 프레임에서는 그 사이에 알림이 없는 프레임 하나가 보인다.

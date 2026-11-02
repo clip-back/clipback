@@ -230,11 +230,12 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
-    // 첫 탭 뒤 각 탭 사이의 간격(ms). 'exit'는 첫 알림이 사라지는 중에 두 번 더 누른다.
+    // 첫 탭 뒤 각 탭 사이의 간격(ms). 'exit'는 첫 알림이 표시 시간을 다 채우고
+    // 스스로 내려가는 중(첫 탭 뒤 4.4초)에 두 번 더 누른다.
     for (final taps in <String, List<int>>{
       'rapid': [0, 0],
       'gap100': [100, 100],
-      'exit': [4300, 100],
+      'exit': [4400, 100],
     }.entries) {
       testWidgets(
         '${platform.name} ${taps.key} withdraw taps show one notice that hides once',
@@ -244,8 +245,20 @@ void main() {
           await tester.pumpAndSettle();
           await tester.tap(_row('회원 탈퇴'));
           await tester.pump();
-          for (final gap in taps.value) {
-            await tester.pump(Duration(milliseconds: gap));
+          for (final (i, gap) in taps.value.indexed) {
+            // 큰 pump 한 번은 프레임을 하나만 그려 등장·표시 타이머가 늦게 시작되므로 50ms씩 진행한다.
+            for (var t = 0; t < gap; t += 50) {
+              await tester.pump(const Duration(milliseconds: 50));
+            }
+            if (taps.key == 'exit' && i == 0) {
+              expect(
+                tester
+                    .widget<SnackBar>(find.byType(SnackBar))
+                    .animation!
+                    .status,
+                AnimationStatus.reverse,
+              );
+            }
             await tester.tap(_row('회원 탈퇴'));
             await tester.pump();
           }
