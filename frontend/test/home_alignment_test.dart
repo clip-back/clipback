@@ -73,6 +73,13 @@ const _secondCategory = CategoryItem(
   tint: AppColors.blueSubtle,
   deep: AppColors.blueDeep,
 );
+const _unclassifiedCategory = CategoryItem(
+  id: 3,
+  name: '분류가 필요한 콘텐츠',
+  color: AppColors.subSubtle,
+  tint: AppColors.subSubtle,
+  deep: AppColors.middle,
+);
 const _longTitle = '자기소개서를 끝까지 읽게 만드는 첫 문장과 경험 정리 방법을 알아봐요';
 const _longSummary =
     '길고 다양한 경험을 정리할 때 핵심 내용을 찾기 쉽도록 문장을 나누고 구체적인 사례를 덧붙여요. '
@@ -131,6 +138,7 @@ Widget _panel({
   ValueChanged<CategoryItem?>? onCategorySelected,
   VoidCallback? onOpenArchive,
   VoidCallback? onOpenCategories,
+  List<CategoryItem> categories = const [_category, _secondCategory],
 }) => SingleChildScrollView(
   child: HomeContentPanel(
     weeklyItems: _weeklyTestItems,
@@ -138,7 +146,7 @@ Widget _panel({
     activeCategoryId: categoryId,
     hasSavedContent: contents.isNotEmpty,
     contents: contents,
-    categories: const [_category, _secondCategory],
+    categories: categories,
     bookmarkedIds: bookmarkedIds,
     onOpenArchive: onOpenArchive ?? () {},
     onOpenCategories: onOpenCategories ?? () {},
@@ -486,6 +494,35 @@ void main() {
       if (state == 'active category') {
         expect(find.byType(HomeFilteredEmptyContent), findsOneWidget);
       }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final (categoryId, copy) in [
+    (_unclassifiedCategory.id, '분류가 필요한 콘텐츠가 없어요'),
+    (_secondCategory.id, '여행 콘텐츠가 없어요'),
+  ]) {
+    testWidgets('filtered empty category $categoryId shows "$copy"', (
+      tester,
+    ) async {
+      addTearDown(tester.view.reset);
+      await _render(
+        tester,
+        child: _panel(
+          contents: const [],
+          feed: _feed(const []),
+          categoryId: categoryId,
+          categories: const [_category, _secondCategory, _unclassifiedCategory],
+        ),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(HomeFilteredEmptyContent),
+          matching: find.text(copy),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('콘텐츠 콘텐츠'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

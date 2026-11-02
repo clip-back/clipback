@@ -790,7 +790,9 @@ class HomeFilteredEmptyContent extends StatelessWidget {
           Image.asset(Assets.character2Png, width: 58, height: 70),
           const SizedBox(height: 12),
           Text(
-            '$label 콘텐츠가 없어요',
+            label == catUncategorized.name
+                ? '분류가 필요한 콘텐츠가 없어요'
+                : '$label 콘텐츠가 없어요',
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
