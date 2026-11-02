@@ -53,6 +53,9 @@ python3 -I .utmp/measure_center.py <파일>...   # 글자 가로 중심 - 캔버
 python3 -I .utmp/shift_logo.py <파일> <dx> [<로고 행 끝>]   # 로고 행 이동
 python3 -I .utmp/check_icon_format.py a06a48b   # 크기·모드·알파 비교
 python3 -I .utmp/check_safe_radius.py           # 적응형·Android 12 시작 아이콘 반경
+python3 -I .utmp/video_logo_track.py <영상>       # 영상 프레임별 글자 중심(아래 실행 절)
+python3 -I .utmp/track_summary.py <위 출력>       # 같은 값 구간으로 묶기
+python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비교 이미지
 ```
 
 차이 = 글자 중심 − 캔버스 중심(px, 음수면 왼쪽). 기준은 각 파일의 최대 해상도다.
@@ -80,3 +83,49 @@ python3 -I .utmp/check_safe_radius.py           # 적응형·Android 12 시작 �
   소개 문구 위치를 바꾸지 않기 위해 그대로 두었으므로 iOS와 Flutter에서 글자는 화면 가운데보다 0.5pt 오른쪽이다.
   Android 12 이상 OS 시작 아이콘은 OS가 화면 가운데에 둔다.
 - iOS 3배율 간 정수 이동이라 1x·2x는 3pt, 3x는 2.67pt를 옮겼다. 각 파일의 차이는 1px 안이다.
+- Android 12 미만 시작 화면은 [변경 내용](#변경-내용)대로 바꾸지 않았다. 사용자 결정 전이다.
+
+## 자동 검사
+
+- 구현 중 바꾼 부분만(작업 트리, 첫 커밋 `cf7ba17` 직전, `frontend/`에서):
+  `flutter analyze --no-pub` 문제 없음,
+  `flutter test --no-pub test/splash_alignment_test.dart test/splash_startup_test.dart test/splash_share_startup_test.dart` 25개 통과.
+  테스트를 먼저 바꾼 상태에서 `splash_alignment_test.dart`가 7개 실패하는 것을 확인한 뒤 SVG·위젯을 고쳤다.
+- 리뷰 반영 뒤 전체 검사(`c57c37d`와 같은 코드): `python3 ~/.heoturu-agents/verify.py --only app --log-dir .utmp/ticket-180`
+  → `VERIFY result=PASS scope=app checks=3 failed=0`. `pub get`, `flutter analyze --no-pub` 문제 없음,
+  `flutter test --no-pub` 2019개 통과(건너뜀 0).
+- 빌드: `flutter build ios --simulator --debug --no-pub`, `flutter build apk --debug --no-pub` 성공(아래 실행에 쓴 빌드).
+  Release·AAB·서명 빌드는 하지 않았다.
+
+## 시뮬레이터·에뮬레이터 실행 (2026-11-02)
+
+- 환경: iPhone 16 / iOS 18.6 Simulator(밝은 모드, 글자 크기 기본), Android Emulator `Medium_Phone` / Android 16 / 1080×2400, 글자 배율 1.0.
+  한 번에 하나만 띄웠고 서버·로그인은 쓰지 않았다(빈 세션이라 스플래시 뒤 로그인 화면).
+- 변경 전은 `a06a48b`, 변경 후는 `c57c37d`의 debug 빌드를 같은 기기에 덮어 설치했다.
+- 홈 화면: iOS는 [#172](2026-11-01-app-icon.md#시뮬레이터에뮬레이터-실행-2026-11-01)처럼 `frontend/ios/ShareVerification`을 저장소 밖에 복사해
+  테스트 파일만 바꾼 임시 XCUITest로 홈 화면 2쪽으로 넘긴 뒤 `simctl io screenshot`으로 찍었다. Android는 홈 키 뒤 `screencap`.
+- 콜드 스타트: 앱을 종료한 뒤 녹화를 켜고 실행했다. iOS는 앱 데이터의 `Library/SplashBoard`(시작 화면 캐시)를 매번 저장소 밖으로 옮긴 뒤
+  `simctl launch`, Android는 `screenrecord` 중 홈 화면 아이콘을 탭했다. 두 플랫폼 모두 OS 시작 화면 → Flutter 스플래시 → 로그인이 녹화됐다.
+- 결과(눈으로 확인): 변경 후 홈 아이콘과 시작 화면의 글자가 가운데에 있고, 반짝임은 오른쪽으로 튀어나온다. iOS는 둥근 사각형,
+  Android는 원형 마스크 안에 글자가 잘리지 않는다.
+- 영상 측정: `video_logo_track.py`로 모든 프레임에서 글자 가로 중심 − 화면 가운데(영상 px)를 쟀다. 시작 확대 애니메이션 중 프레임은 뺐다.
+
+| 플랫폼 | 구간 | 변경 전 | 변경 후 |
+| --- | --- | --- | --- |
+| iOS(1178px 폭, 3배율) | OS 시작 화면부터 Flutter 스플래시 끝까지 | −6.5 ~ −7.0px(약 −2.3pt) | +0.9 ~ +1.5px(약 +0.4pt) |
+| Android(1080px 폭) | OS 시작 화면 | −7.6px | +0.45px |
+| Android | Flutter 스플래시 | −5.0px | +1.2px |
+
+- 전환 판정: iOS는 OS 시작 화면과 Flutter 스플래시가 같은 그림이라 프레임만으로 경계를 가를 수 없다. 스플래시 900ms와 로그인 시작 시각으로 구간을 나눴고,
+  전체 구간의 흔들림은 영상 압축을 포함해 0.7px 안이라 옆으로 움직이지 않는다.
+  Android는 변경 전 전환에서 2.6px(약 1pt) 움직였고, 변경 후 0.8px(약 0.3pt)가 남는다. 남은 차이는 A01 그룹의 +0.5pt 가로 배치다
+  ([판단과 남은 차이](#판단과-남은-차이)). Android에서 로고가 위로 조금 움직이는 것은 A01의 세로 배치(소개 문구 포함 그룹이 안전 영역 가운데보다 23.5 위) 때문이며 변경 전과 같다.
+- 비교 자료는 저장소 밖 `.utmp/ticket-180-screens/`에 두었다(새 checkout에는 없다).
+  `compare-ios.png`, `compare-android.png`(행: 홈 아이콘·OS 시작 화면·Flutter 스플래시, 열: 변경 전·변경 후·Figma),
+  `transition-ios.mp4`, `transition-android.mp4`(변경 전·후 시작 영상의 로고 부분을 나란히, 빨간 선은 화면 가운데),
+  원본 `before/`, `after/`의 `*-home.png`, `*-coldstart.mp4`, 프레임 측정 `*-track.txt`.
+- Figma 열은 앱 아이콘 `189:4042`, 시작 화면 A01 `111:3380` 렌더(2026-11-02 조회)다. A01은 375×812 프레임이라 화면 크기·안전 영역이 기기와 다르며 보정하지 않았다.
+
+## 미검증 범위
+
+- 실기기, 스토어 표시, iPad, 다크·틴트 아이콘 모드, 다른 Android 런처, Android 12 미만 시작 화면 실행은 확인하지 않았다.
