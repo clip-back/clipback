@@ -25,10 +25,23 @@ def stores(tmp_path):
 
 
 def point(store, identifier, when, assets):
+    """Publish a point whose manifest keeps the contract; assets get IDs in order."""
+    assets = [{"id": number, **asset} for number, asset in enumerate(assets, 1)]
     manifest = {
-        "format_version": 2, "backup_id": identifier, "captured_at": when.isoformat(),
-        "assets": assets, "deletion_checkpoint": None,
-        "database": {"backup_key": f"points/{identifier}/database.dump", "size_bytes": 4},
+        "format_version": 2, "backup_id": identifier, "origin": "synthetic",
+        "captured_at": when.isoformat(), "app_commit": "a" * 40, "postgres_major": 17,
+        "migration_revisions": ["202610230015"], "tables": {"users": 1},
+        "category_links_sha256": "c" * 64, "assets": assets,
+        "sample": {
+            "content_id": assets[0]["content_id"], "asset_id": 1,
+            "saved_at": "2026-10-01T00:00:00+00:00", "category_ids": [],
+            "content_sha256": "d" * 64,
+        } if assets else None,
+        "database": {
+            "file": "database.dump", "backup_key": f"points/{identifier}/database.dump",
+            "size_bytes": 4, "sha256": hashlib.sha256(b"dump").hexdigest(),
+        },
+        "deletion_checkpoint": None,
     }
     store.put_verified(f"points/{identifier}/database.dump", b"dump")
     store.put_verified(f"points/{identifier}/manifest.json", json.dumps(manifest).encode())
@@ -155,6 +168,7 @@ def test_deleted_copy_stays_restorable_before_cleanup_margin(stores):
 
 
 def test_corrupt_point_does_not_destroy_other_points_or_blobs(stores):
+    from scripts.check_backup_restore import CheckError
     from scripts.image_backup_jobs import maintain_backups
 
     store, ledger = stores
@@ -162,7 +176,7 @@ def test_corrupt_point_does_not_destroy_other_points_or_blobs(stores):
     asset = original(store)
     point(store, "valid", now - timedelta(days=8), [asset])
     store.put_verified("points/corrupt/manifest.json", b"not json")
-    with pytest.raises(ValueError):
+    with pytest.raises(CheckError, match="^invalid_manifest$"):
         maintain_backups(store, ledger, now=now)
     assert "valid" in completed_points(store)
     assert store.read(asset["backup_key"]) == b"old"

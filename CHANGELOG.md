@@ -24,6 +24,8 @@
 
 ### 수정
 
+- [서버] 백업 복구 지점의 manifest가 손상되면 `verify`·`download`·`maintain`과 격리 복원 검사가 명령마다 다른 오류를 내거나, 복원할 수 없는 지점을 `verify`·`maintain`이 성공으로 보고하던 문제를 수정했습니다. 이제 모든 명령이 같은 기준으로 검사해 `invalid_manifest`로 보고하고, `download`는 손상 manifest에서 다운로드 폴더를 만들지 않습니다. 지점 ID `.`·`..`도 거부합니다.
+
 ## backend-2026-11-02-1
 
 [서버 배포 기록](docs/releases/backend-2026-11-02-1.md): main 병합 시 자동 배포되는 운영 서버에서 `6b49237` 반영을 확인한 사후 기록입니다.

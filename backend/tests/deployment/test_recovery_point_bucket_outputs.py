@@ -1,9 +1,10 @@
-"""Current operator output for published recovery point manifests (#161).
+"""Operator output for published recovery point manifests (#161, unified in #167).
 
 `image_backup verify|download` and `image_backup_jobs maintain` run in-process through their
 real `main()`. The backup Bucket is moto. For `maintain` only the runtime assembly (DB lock,
-maintenance gate, deletion ledger wiring) is replaced. Expected values are the outputs
-measured on main 06bc24d; the structural migration (#163-#166) must keep them unchanged.
+maintenance gate, deletion ledger wiring) is replaced. #161 fixed the outputs measured on
+main 06bc24d; #167 changed only the expected values listed in spec #156's tables: every
+contract violation is `invalid_manifest`, checked before any object is read.
 """
 
 import asyncio
@@ -226,7 +227,6 @@ def failure(code):
 
 
 ALL_FILES = ["database.dump", "images.tar", "manifest.json"]
-DUMP_AND_TAR = ["database.dump", "images.tar"]
 VERIFIED = {
     "all_sizes_and_sha256_match": True, "app_commit": "a" * 40,
     "asset_counts": {"local": 1, "s3": 1}, "backup_id": "target", "captured_at": "<captured_at>",
@@ -234,8 +234,6 @@ VERIFIED = {
     "migration_revisions": ["202610230015"], "passed": True, "restore_verified": False,
     "total_bytes": 43, "verified_objects": 3,
 }
-VERIFIED_SHORT_COMMIT = {**VERIFIED, "app_commit": "abc"}
-VERIFIED_S3_PAIR = {**VERIFIED, "asset_counts": {"s3": 2}, "total_bytes": 20}
 DOWNLOADED = {"asset_count": 2, "backup_id": "target", "deletions_applied": False, "passed": True}
 
 
@@ -247,37 +245,17 @@ def retention(expired, removed, retained):
     }
 
 
-KEPT, RETIRED = retention(0, 0, 2), retention(1, 0, 1)
+KEPT = retention(0, 0, 2)
 OPERATION, JOB, INVALID = "backup_operation_failed", "backup_job_failed", "invalid_manifest"
-HASH = "backup_hash_mismatch"
+RETENTION_V2 = "retention_requires_v2"
 
 # case: (verify, download, folder left by download, maintain fresh, maintain expired,
 #        maintain with the manifest only as a cleanup receipt)
+# Every corruption breaks the contract, and download checks it before creating the folder.
+# Only maintain reports a format version other than 2 before the contract.
 CORRUPTION_OUTPUTS = {
-    "not_json": (OPERATION, OPERATION, None, JOB, JOB, JOB),
-    "not_object": (OPERATION, OPERATION, None, JOB, JOB, JOB),
-    "missing_database": (OPERATION, OPERATION, [], JOB, RETIRED, RETIRED),
-    "missing_assets": (OPERATION, OPERATION, DUMP_AND_TAR, JOB, JOB, JOB),
-    "missing_captured_at": (OPERATION, OPERATION, ALL_FILES, JOB, JOB, JOB),
-    "missing_postgres_major": (VERIFIED, OPERATION, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "missing_migration_revisions": (OPERATION, OPERATION, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "missing_asset_sha256": (OPERATION, OPERATION, DUMP_AND_TAR, INVALID, INVALID, INVALID),
-    "app_commit_not_sha": (VERIFIED_SHORT_COMMIT, INVALID, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "origin_unknown": (VERIFIED, INVALID, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "unknown_field": (VERIFIED, INVALID, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "images_entry": (VERIFIED, DOWNLOADED, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "tables_negative": (VERIFIED, INVALID, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "asset_content_id_missing": (VERIFIED, INVALID, ALL_FILES, KEPT, RETIRED, RETIRED),
-    "captured_at_without_timezone": (VERIFIED, INVALID, ALL_FILES, INVALID, INVALID, INVALID),
-    "asset_size_string": (INVALID, HASH, DUMP_AND_TAR, KEPT, RETIRED, RETIRED),
-    "database_size_string": (INVALID, HASH, ["database.dump"], HASH, RETIRED, RETIRED),
-    "database_backup_key_elsewhere": (INVALID, DOWNLOADED, ALL_FILES, INVALID, RETIRED, RETIRED),
-    "format_version_1": (INVALID, INVALID, None, "retention_requires_v2",
-                         "retention_requires_v2", "retention_requires_v2"),
-    "backup_id_differs": (INVALID, INVALID, None, INVALID, INVALID, INVALID),
-    "asset_backend_unknown": (INVALID, INVALID, ALL_FILES, INVALID, INVALID, INVALID),
-    "asset_backup_key_elsewhere": (INVALID, INVALID, DUMP_AND_TAR, INVALID, INVALID, INVALID),
-}
+    case: (INVALID, INVALID, None, INVALID, INVALID, INVALID) for case in CORRUPTIONS
+} | {"format_version_1": (INVALID, INVALID, None, RETENTION_V2, RETENTION_V2, RETENTION_V2)}
 
 
 def outcome(expected):
@@ -343,9 +321,9 @@ def test_colliding_asset_tar_path_outputs(case, age, bucket, maintenance_runtime
         "maintain": maintain(monkeypatch, capsys),
     }
     assert actual == {
-        "verify": (0, VERIFIED_S3_PAIR),
-        "download": (*failure("unsafe_archive"), ALL_FILES),
-        "maintain": (0, KEPT if age == "fresh" else retention(1, 2, 1)),
+        "verify": failure(INVALID),
+        "download": (*failure(INVALID), None),
+        "maintain": failure(INVALID),
     }
 
 
@@ -368,7 +346,7 @@ def changed_target(bucket, age, *changes, receipt=False):
 @NON_STRING_SHA256
 def test_non_string_asset_sha256_outputs(sha256, age, bucket, maintenance_runtime, monkeypatch,
                                          capsys, tmp_path):
-    """verify builds the original's key from the digest before checking its format."""
+    """A digest that is not a string breaks the contract like any other format violation."""
     changed_target(bucket, FRESH if age == "fresh" else EXPIRED,
                    assign("assets", 0, "sha256", value=sha256))
     actual = {
@@ -377,16 +355,16 @@ def test_non_string_asset_sha256_outputs(sha256, age, bucket, maintenance_runtim
         "maintain": maintain(monkeypatch, capsys),
     }
     assert actual == {
-        "verify": failure(OPERATION),
-        "download": (*failure(INVALID), DUMP_AND_TAR),
-        "maintain": failure(JOB),
+        "verify": failure(INVALID),
+        "download": (*failure(INVALID), None),
+        "maintain": failure(INVALID),
     }
 
 
 @NON_STRING_SHA256
 def test_non_string_asset_sha256_outputs_with_unknown_backend(sha256, bucket, maintenance_runtime,
                                                               monkeypatch, capsys, tmp_path):
-    """An unknown storage backend is reported before verify touches the digest."""
+    """An unknown storage backend together with a non-string digest is one contract failure."""
     changed_target(bucket, FRESH, assign("assets", 1, "storage_backend", value="gcs"),
                    assign("assets", 1, "sha256", value=sha256))
     actual = {
@@ -396,7 +374,7 @@ def test_non_string_asset_sha256_outputs_with_unknown_backend(sha256, bucket, ma
     }
     assert actual == {
         "verify": failure(INVALID),
-        "download": (*failure(INVALID), DUMP_AND_TAR),
+        "download": (*failure(INVALID), None),
         "maintain": failure(INVALID),
     }
 
@@ -405,11 +383,11 @@ def test_non_string_asset_sha256_outputs_with_unknown_backend(sha256, bucket, ma
 def test_non_string_asset_sha256_cleanup_receipt_outputs(sha256, bucket, maintenance_runtime,
                                                          monkeypatch, capsys):
     changed_target(bucket, EXPIRED, assign("assets", 0, "sha256", value=sha256), receipt=True)
-    assert maintain(monkeypatch, capsys) == failure(JOB)
+    assert maintain(monkeypatch, capsys) == failure(INVALID)
 
 
 def contract_violation(bucket):
-    """A fresh target whose app_commit is not a SHA; verify and maintain accept it today."""
+    """A fresh target whose app_commit is not a SHA; #161 measured verify and maintain accept it."""
     now = datetime.now(UTC)
     bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
     value = manifest("target", (now - FRESH).isoformat())
@@ -417,10 +395,10 @@ def contract_violation(bucket):
     bucket.point("target", value)
 
 
-def test_verify_reports_object_mismatch_before_contract_violation(bucket, monkeypatch, capsys):
+def test_verify_reports_contract_violation_before_object_mismatch(bucket, monkeypatch, capsys):
     contract_violation(bucket)
     bucket.put("originals/sha256/" + digest(BUCKET_BYTES), b"broken")
-    assert verify(monkeypatch, capsys) == failure(HASH)
+    assert verify(monkeypatch, capsys) == failure(INVALID)
 
 
 def test_verify_reread_that_is_not_json(bucket, monkeypatch, capsys):
@@ -434,25 +412,39 @@ def test_verify_reread_that_is_not_json(bucket, monkeypatch, capsys):
     bucket.client.meta.events.register(
         "before-parameter-build.s3.GetObject", replace_while_objects_are_read
     )
+    assert verify(monkeypatch, capsys) == failure("backup_point_changed")
+
+
+def test_verify_reread_of_a_removed_manifest(bucket, monkeypatch, capsys):
+    """A missing object stays the generic failure; only an unreadable reread is a change."""
+    now = datetime.now(UTC)
+    bucket.point("target", manifest("target", (now - FRESH).isoformat()))
+
+    def remove_while_objects_are_read(params, **kwargs):
+        if params.get("Key") != "points/target/manifest.json":
+            bucket.delete("points/target/manifest.json")
+
+    bucket.client.meta.events.register(
+        "before-parameter-build.s3.GetObject", remove_while_objects_are_read
+    )
     assert verify(monkeypatch, capsys) == failure(OPERATION)
 
 
-def test_download_reports_dump_mismatch_before_contract_violation(bucket, monkeypatch, capsys,
+def test_download_reports_contract_violation_before_dump_mismatch(bucket, monkeypatch, capsys,
                                                                    tmp_path):
     contract_violation(bucket)
     bucket.put("points/target/database.dump", b"broken")
-    assert download(tmp_path / "download", monkeypatch, capsys) == (
-        *failure(HASH), ["database.dump"])
+    assert download(tmp_path / "download", monkeypatch, capsys) == (*failure(INVALID), None)
 
 
 def test_maintain_reports_size_string_of_unshared_original(
     bucket, maintenance_runtime, monkeypatch, capsys
 ):
-    """No earlier point has checked this original, so its size is compared to the string."""
+    """No earlier point has checked this original; the string size still breaks the contract."""
     value = manifest("target", (datetime.now(UTC) - FRESH).isoformat())
     value["assets"][0]["size_bytes"] = str(len(LOCAL_BYTES))
     bucket.point("target", value)
-    assert maintain(monkeypatch, capsys) == failure(HASH)
+    assert maintain(monkeypatch, capsys) == failure(INVALID)
 
 
 def test_maintain_reports_receipt_conflict_before_contract_violation(
@@ -466,12 +458,49 @@ def test_maintain_reports_receipt_conflict_before_contract_violation(
     assert maintain(monkeypatch, capsys) == failure("gc_receipt_conflict")
 
 
-def test_maintain_reports_missing_object_before_contract_violation(
+def test_maintain_reports_contract_violation_before_missing_object(
     bucket, maintenance_runtime, monkeypatch, capsys
 ):
     contract_violation(bucket)
     bucket.delete("points/target/database.dump")
-    assert maintain(monkeypatch, capsys) == failure("backup_object_missing_or_unavailable")
+    assert maintain(monkeypatch, capsys) == failure(INVALID)
+
+
+@pytest.mark.parametrize("identifier", [".", ".."])
+def test_path_step_backup_id_outputs(identifier, bucket, maintenance_runtime, monkeypatch, capsys,
+                                     tmp_path):
+    """`.` and `..` are not backup IDs: rejected as arguments, never listed as completed points."""
+    from scripts.image_backup import main
+
+    now = datetime.now(UTC)
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
+    bucket.point(identifier, manifest(identifier, (now - FRESH).isoformat()))
+    directory = tmp_path / "download"
+    actual = {
+        "verify": run(main, ["image_backup", "verify", "--backup-id", identifier],
+                      monkeypatch, capsys),
+        "download": run(main, ["image_backup", "download", "--backup-id", identifier,
+                               "--directory", str(directory)], monkeypatch, capsys),
+        "download folder": directory.exists(),
+        "maintain": maintain(monkeypatch, capsys),
+    }
+    assert actual == {
+        "verify": failure("invalid_backup_id"),
+        "download": failure("invalid_backup_id"),
+        "download folder": False,
+        # Its objects are an unfinished point's leftovers, removed once a day old.
+        "maintain": (0, retention(0, 0, 1)),
+    }
+    assert f"points/{identifier}/manifest.json" in bucket.keys()
+
+
+@pytest.mark.parametrize("identifier", [".", ".."])
+def test_path_step_cleanup_receipt_outputs(identifier, bucket, maintenance_runtime, monkeypatch,
+                                           capsys):
+    now = datetime.now(UTC)
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
+    bucket.point(identifier, manifest(identifier, (now - EXPIRED).isoformat()), receipt=True)
+    assert maintain(monkeypatch, capsys) == failure("invalid_gc_receipt")
 
 
 PUBLISHED_KEYS = [

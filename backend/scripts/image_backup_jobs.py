@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,14 +16,13 @@ from scripts.recovery_point import (
     ORIGINALS_PREFIX,
     POINTS_PREFIX,
     canonical_json,
+    check_point_manifest,
     completed_points,
     load_backup,
-    original_key,
-    point_dump_key,
     point_id,
     point_manifest_key,
     point_prefix,
-    read_point_manifest,
+    read_point_json,
     read_retiring_points,
     receipt_key,
     require_app_commit,
@@ -67,7 +65,7 @@ def maintain_backups(store, ledger, *, now=None):
     points = []
     overdue = set()
     inventory = {
-        identifier: read_point_manifest(store, identifier) for identifier in completed_points(store)
+        identifier: read_point_json(store, identifier) for identifier in completed_points(store)
     }
     retiring = {}
     for identifier, key, manifest in read_retiring_points(store):
@@ -78,16 +76,12 @@ def maintain_backups(store, ledger, *, now=None):
         retiring[identifier] = key
     # Validate the entire inventory before making a destructive change.
     for identifier, manifest in inventory.items():
+        require(isinstance(manifest, dict), "invalid_manifest")
+        # The format version is reported before the contract: it names the cause directly.
         require(manifest.get("format_version") == 2, "retention_requires_v2")
+        check_point_manifest(manifest, identifier)
         captured = aware(manifest["captured_at"])
-        require(captured <= now and manifest["backup_id"] == identifier, "invalid_manifest")
-        require(isinstance(manifest["assets"], list), "invalid_manifest")
-        for asset in manifest["assets"]:
-            require(asset.get("storage_backend") in {"local", "s3"}
-                    and isinstance(asset.get("storage_key"), str)
-                    and bool(re.fullmatch(r"[0-9a-f]{64}", asset.get("sha256", "")))
-                    and asset.get("backup_key") == original_key(asset["sha256"]),
-                    "invalid_manifest")
+        require(captured <= now, "invalid_manifest")
         expire = identifier in retiring or now - captured >= POINT_RETENTION
         for event in events:
             if now - aware(event["deleted_at"]) >= DELETED_COPY_RETENTION and any(
@@ -105,7 +99,6 @@ def maintain_backups(store, ledger, *, now=None):
     checked = set()
     for identifier, manifest, _, _ in retained:
         database = manifest["database"]
-        require(database["backup_key"] == point_dump_key(identifier), "invalid_manifest")
         store.verify_present(database["backup_key"], database["size_bytes"])
         for asset in manifest["assets"]:
             if asset["backup_key"] not in checked:

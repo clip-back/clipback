@@ -73,18 +73,24 @@ def test_verify_streams_mixed_point_and_rejects_corrupt_or_missing_objects(tmp_p
     client.create_bucket(Bucket='backups')
     store = BackupBucket(client, 'backups')
     assets = []
-    for backend, data in [('local', b'volume'), ('s3', b'bucket')]:
+    for number, (backend, data) in enumerate([('local', b'volume'), ('s3', b'bucket')], 1):
         digest = hashlib.sha256(data).hexdigest()
         key = 'originals/sha256/' + digest
         client.put_object(Bucket='backups', Key=key, Body=data)
-        assets.append({'storage_backend': backend, 'backup_key': key,
+        assets.append({'id': number, 'content_id': number, 'storage_backend': backend,
+                       'storage_key': f'{number}.png', 'backup_key': key,
                        'sha256': digest, 'size_bytes': len(data)})
-    database = {'backup_key': 'points/point/database.dump', 'size_bytes': 4,
-                'sha256': hashlib.sha256(b'dump').hexdigest()}
+    database = {'file': 'database.dump', 'backup_key': 'points/point/database.dump',
+                'size_bytes': 4, 'sha256': hashlib.sha256(b'dump').hexdigest()}
     client.put_object(Bucket='backups', Key=database['backup_key'], Body=b'dump')
-    manifest = {'format_version': 2, 'backup_id': 'point', 'database': database,
-                'assets': assets, 'captured_at': '2026-10-26T00:00:00+00:00',
-                'app_commit': 'a' * 40, 'migration_revisions': ['head'],
+    manifest = {'format_version': 2, 'backup_id': 'point', 'origin': 'synthetic',
+                'database': database, 'assets': assets,
+                'captured_at': '2026-10-26T00:00:00+00:00', 'app_commit': 'a' * 40,
+                'postgres_major': 17, 'migration_revisions': ['head'], 'tables': {'users': 1},
+                'category_links_sha256': 'c' * 64,
+                'sample': {'content_id': 1, 'asset_id': 1,
+                           'saved_at': '2026-10-26T00:00:00+00:00', 'category_ids': [],
+                           'content_sha256': 'd' * 64},
                 'deletion_checkpoint': {'sequence': 0}}
     client.put_object(Bucket='backups', Key='points/point/manifest.json',
                       Body=json.dumps(manifest).encode())

@@ -25,6 +25,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-02 | [복구 지점 manifest 검증 기준 통일](2026-11-02-recovery-point-manifest-contract.md) | 백업·복원 |
 | 2026-11-01 | [앱 아이콘을 허투루 아이콘으로 교체](2026-11-01-app-icon.md) | 앱 |
 | 2026-11-01 | [완료 지점 목록의 manifest 키 판정 수정](2026-11-01-completed-point-pattern.md) | 백업·복원 |
 | 2026-11-01 | [복구 지점 manifest 동작 고정과 module 이전](2026-11-01-recovery-point-manifest.md) | 백업·복원 |
