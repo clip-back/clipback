@@ -43,7 +43,7 @@
 
 ## 앱 0.3.0
 
-[iOS 0.3.0(8)·Android 0.3.0(4) 후보 기록](docs/releases/app-v0.3.0-ios-b8-android-b4.md): Android 4를 Play 내부 테스트로 제공해 Galaxy에서 새 아이콘·Google 로그인·공유 저장 시트·인스타그램 링크 요약을 확인했습니다. iOS 8은 TestFlight에 업로드했으며 처리·테스트 제공·실기기 확인은 미확인입니다. 양 플랫폼의 정식 공개는 미실행입니다. 앱 아이콘 교체를 포함하기 위해 업로드하지 않은 [iOS 0.3.0(7)·Android 0.3.0(3) 후보](docs/releases/app-v0.3.0-ios-b7-android-b3.md)를 대체했습니다. 인스타그램 링크 요약은 [서버 배포 기록](docs/releases/backend-2026-10-31-1.md)을 따릅니다.
+[iOS 0.3.0(8)·Android 0.3.0(4) 후보 기록](docs/releases/app-v0.3.0-ios-b8-android-b4.md): Android 4를 Play 내부 테스트로 제공해 Galaxy에서 새 아이콘·Google·카카오 로그인·공유 저장 시트·인스타그램 링크 요약을 확인했습니다. iOS 8은 TestFlight 내부 그룹에 제공해 iPhone에서 설치·새 아이콘·공유 메뉴 저장·유튜브·인스타그램 링크 요약을 확인했고, 링크 요약 품질 문제와 화면 양쪽 여백이 관찰됐습니다. iOS 로그인은 미확인입니다. 양 플랫폼의 정식 공개는 미실행입니다. 앱 아이콘 교체를 포함하기 위해 업로드하지 않은 [iOS 0.3.0(7)·Android 0.3.0(3) 후보](docs/releases/app-v0.3.0-ios-b7-android-b3.md)를 대체했습니다. 인스타그램 링크 요약은 [서버 배포 기록](docs/releases/backend-2026-10-31-1.md)을 따릅니다.
 
 ### 개선
 
@@ -81,7 +81,7 @@
 [iOS 배포 기록](docs/releases/app-v0.2.0-ios-b6.md): 빌드 6이 TestFlight 내부 그룹 `test`에서 테스트 중입니다.
 Android [0.2.0(1) 배포 기록](docs/releases/app-v0.2.0-android-b1.md): 내부 테스트에서 본인 한 명의 Play 참여·Galaxy 설치를 확인했습니다.
 Android의 Google·카카오 로그인과 같은 제공자 재로그인, 저장·공유·재시작 후 데이터 유지를 빌드 1에서 확인했습니다. 양 플랫폼의 정식 공개는 미실행입니다.
-사진 원본 보존 수정은 [Android 0.2.0(2) 후속 빌드](docs/releases/app-v0.2.0-android-b2.md)로 기존 본인 내부 테스터에게 제공했습니다. Galaxy의 Play 업데이트 후 새 사진 원본 표시와 완전 재시작 후 5개 유지·새 원본 재열람을 확인했습니다. 같은 수정은 iOS [0.3.0(8) 후보](docs/releases/app-v0.3.0-ios-b8-android-b4.md)에 처음 포함되어 TestFlight에 업로드했으며, iOS 처리·제공 결과는 미확인입니다.
+사진 원본 보존 수정은 [Android 0.2.0(2) 후속 빌드](docs/releases/app-v0.2.0-android-b2.md)로 기존 본인 내부 테스터에게 제공했습니다. Galaxy의 Play 업데이트 후 새 사진 원본 표시와 완전 재시작 후 5개 유지·새 원본 재열람을 확인했습니다. 같은 수정은 iOS [0.3.0(8) 후보](docs/releases/app-v0.3.0-ios-b8-android-b4.md)에 처음 포함되어 TestFlight 내부 그룹에 제공했습니다. iOS에서 이 수정의 동작 확인은 보고받지 않았습니다.
 
 ### 개선
 
