@@ -1,9 +1,11 @@
 """Operator output of the read-only recovery point audit and its documented command (#177).
 
 The audit runs in-process through its real `main()` against the moto Bucket of the Bucket output
-tests. Every run refuses S3 requests other than the allowed reads. The expected values keep what
-the audit printed while it was a code block in the operations document; only the exit code, a
-receipt read failure that is not a CheckError, and the top-level error JSON were added in #177.
+tests. Every run refuses S3 requests other than the allowed reads. The expected values started
+from what the audit printed while it was a code block in the operations document, plus the exit
+code, a receipt read failure that is not a CheckError, and the top-level error JSON (#177). Since
+then an unnormalized `storage_key` is `invalid_manifest` (#178) and a missing or unreadable dump
+or original archive is `backup_object_missing_or_unavailable` (#179).
 """
 
 import json
@@ -38,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[3]
 DOC = ROOT / "docs/backend/backup-recovery.md"
 SECTION = "### `maintain`이 `invalid_manifest`로 멈췄을 때"
 PLACEHOLDER = "/absolute/private/backup-bucket.json"
+INTERPRETER = ".venv/bin/python"
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n(.*?)^ {0,3}\1[ \t]*$", re.M | re.S)
 ENDPOINT = "http://127.0.0.1:9000"
 CHECKED_AT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00\Z")
 DUMP_KEY = "points/target/database.dump"
@@ -295,7 +299,10 @@ def documented_command():
     text = DOC.read_text()
     assert text.count(SECTION) == 1
     section = re.split(r"\n#{1,3} ", text.split(SECTION, 1)[1], maxsplit=1)[0]
-    blocks = [shell_lines(block) for block in re.findall(r"```\w*\n(.*?)```", section, re.S)]
+    found = [block for _, block in FENCE.findall(section)]
+    fences = re.findall(r"^ {0,3}(?:`{3,}|~{3,})", section, re.M)
+    assert len(fences) == 2 * len(found), "every code fence in the section must open a block"
+    blocks = [shell_lines(block) for block in found]
     commands = [lines for lines in blocks if runs_python(lines)]
     assert len(commands) == 1, "the section must hold exactly one audit command block"
     assert len(commands[0]) == 2, "the block is `cd <directory>` and one command line"
@@ -305,7 +312,7 @@ def documented_command():
     while re.fullmatch(r"[A-Z_]+=.*", words[0]):
         name, value = words.pop(0).split("=", 1)
         environment[name] = value
-    assert len(words) >= 3 and words[1] == "-m"
+    assert len(words) >= 3 and words[0] == INTERPRETER and words[1] == "-m"
     module, arguments = words[2], words[3:]
     assert arguments.count(PLACEHOLDER) == 1
     return ROOT / cd[1], environment, module, arguments

@@ -44,6 +44,9 @@
 - **명령 블록 찾기**: 그 절의 코드 블록을 모두 `shlex`로 나눈다(줄 끝 `\` 이어 쓰기는 한 줄로 합친다). 나누지 못하는 줄이 있으면 실패한다.
   `-m` 단어나 `python`으로 시작하는 실행 파일 이름이 있는 블록이 정확히 하나여야 하고, 그 블록은 `cd <폴더>`와 명령 한 줄이어야 한다.
   처음에는 문자열 ` -m `으로 걸러 `python<TAB>-m`으로 쓴 두 번째 블록을 놓쳤다(티켓 리뷰 S1).
+  코드 블록은 줄 맨 앞(공백 세 칸까지)의 백틱·물결표 fence로 찾고, fence 줄 수가 찾은 블록 수의 두 배가 아니면 실패한다.
+  실행 파일은 문서 그대로 `.venv/bin/python`이어야 한다. 처음에는 `` ```sh ``처럼 언어 뒤에 공백이 있는 두 번째 블록과
+  실행 파일 오타(`.venv/bin/pyhton`)를 놓쳤다(최종 리뷰 P1).
   되돌리기 절의 블록은 `git`·`docker` 명령뿐이라 대상이 아니다.
 - **권한 오류**: 설정 파일 권한이 `0600`이 아닌 경우(`credentials_not_private`)와 상위 폴더를 읽을 수 없는 경우(`PermissionError`)를 둘 다 넣었다.
 
@@ -83,6 +86,14 @@
 | 문서 명령 블록 삭제 | 3개 실패(블록을 찾지 못함) |
 | 두 번째 명령 블록을 `python<TAB>-m`으로 추가 | 3개 실패(블록이 하나가 아님) |
 | receipt 목록을 다시 두 번 조회 | 2개 실패(이후 조회 거부, receipt 있음·없음) |
+
+최종 리뷰 반영 뒤 문서 변형만 32개 테스트 기준으로 다시 실행했다. 위 표의 문서 변형 다섯 가지는 결과가 같았다.
+
+| 변형 | 결과 |
+| --- | --- |
+| 실행 파일 오타(`.venv/bin/pyhton`) | 3개 실패(실행 파일이 문서 형식이 아님) |
+| 두 번째 명령 블록을 `` ```sh ``(언어 뒤 공백)로 추가 | 3개 실패(블록이 하나가 아님) |
+| 닫히지 않은 두 번째 명령 블록 추가 | 3개 실패(fence와 블록 수가 맞지 않음) |
 
 ## `storage_key` 정규화 규칙(#185, 출처 #178)
 
@@ -230,3 +241,26 @@
 | 공용 `read`에서 변환 | 4개 실패(게시 원본 보관본 `AccessDenied`, 재조회·첫 manifest 읽기 `AccessDenied`, 점검 receipt `AccessDenied`) |
 | `verify`가 `ClientError` 대신 모든 예외를 변환(추가) | 4개 실패(연결 실패·본문 읽기 중단) |
 | `download` dump 내려받기의 변환 제거(추가) | 4개 실패(dump 없음·`AccessDenied` × 신선·만료) |
+
+## 최종 리뷰 반영
+
+`a06a48b`부터 `8154983`까지의 Codex 최종 리뷰(Standards 낮음 1건, Spec 중간 1건)를 반영했다. 운영 코드는 바꾸지 않았다.
+
+- S1(점검 테스트 상단 설명이 #184 이관 시점에 머묾): 설명에 #178·#179에서 바뀐 기대값을 더했다. 입력과 단언은 그대로다.
+- P1(문서 명령의 실행 파일 오타, 언어 뒤 공백이 있는 두 번째 코드 블록을 문서 명령 테스트가 통과시킴): 위 #184 구현자 판단과
+  변경 감지 확인에 적은 대로 fence 찾기와 실행 파일 검사를 고쳤다. 리뷰어의 변형 6건(오타 3, 두 번째 블록 3)이 이제 모두 실패한다.
+
+## 검증
+
+2026-11-02 이 worktree에서 `8154983`에 최종 리뷰 반영 변경을 더한 코드로 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/final-183`을
+한 번 실행했다(`backend/.venv`의 Python 3.12.7, 검증용 임시 테스트 DB와 maintenance DB에 `alembic upgrade head`·`alembic check` 적용).
+
+- 결과: `VERIFY result=PASS scope=all checks=10 failed=0`.
+- 백엔드: ruff·compileall·두 DB의 `alembic upgrade head`·`alembic check` 통과. pytest: 1896 passed, 46 skipped.
+  skip 45건은 `*_docker.py`(Docker와 빌드한 이미지 필요), 1건은 `tests/integration/test_image_storage_admin_cli.py`
+  (`CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 필요, 범위 밖, CI에서도 skip)다. 복구 지점 테스트 네 파일에는 skip이 없다.
+- 앱: `pub get`·`analyze`·테스트 2018개 통과. 앱 코드 변경은 없다.
+- `git diff --check`: 통과.
+- Docker 테스트는 로컬에서 실행하지 않았다. 이번에 기대값을 바꾼 `test_image_backup_docker.py`를 포함해 PR CI의 operator-recovery job 성공과
+  pytest 요약의 skip 수로 확인한다.
+- 운영 Bucket 읽기 전용 점검은 운영자가 머지 전에 PR head 코드로 한다. 이 작업에서는 운영 환경에 접속하지 않았다(운영 점검 전).
