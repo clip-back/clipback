@@ -104,6 +104,8 @@
 - 운영 문서(`docs/backend/backup-recovery.md`)의 v2 manifest 절에 규칙과 "업로드는 이런 키를 만들지 않으며 생기면 `maintain`이
   멈춘다"를 적고, tar 경로 설명에서 "정규화"를 뺐다. "`maintain`이 `invalid_manifest`로 멈췄을 때" 절의 첫 문단에 멈추는 원인을
   적었다. 되돌리기 기준 리비전은 그대로다.
+- 같은 운영 문서의 제목과 본문에 남아 있던 "격리 복원 검사" 세 곳을 용어집 명칭 "격리 복원 검증"으로 바꿨다(티켓 리뷰 S1).
+  이 제목·앵커를 가리키는 링크나 테스트는 없다. 과거 이력 문서와 `CHANGELOG.md`의 기존 항목은 기록이므로 그대로 두었다.
 
 ### 구현자 판단
 
@@ -114,6 +116,9 @@
   v1 폴더는 `local` asset 하나에 키를 넣었다.
 - **점검 테스트 이름**: 기대값이 `passed`에서 `invalid_manifest`로 바뀌어 `test_audit_passes_an_unnormalized_storage_key`를
   `test_audit_reports_an_unnormalized_storage_key`로 바꾸고 docstring을 고쳤다. 입력은 그대로다.
+  티켓 리뷰 P1은 "기대값만 바꾼다"는 범위를 넘었다고 지적했다. 이 결정은 다른 경우의 기대값을 건드리지 말라는 뜻으로 보고
+  이름을 유지했다. `passes` 이름과 "#178 전까지 받아들임" docstring을 두면 `invalid_manifest`를 단언하는 테스트의 설명이 거짓이 된다.
+  pytest node ID가 바뀌지만 이 이름으로 테스트를 지정하는 실행기는 저장소에 없다.
 
 ### 테스트
 

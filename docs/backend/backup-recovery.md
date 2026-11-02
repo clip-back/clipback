@@ -1,4 +1,4 @@
-# DB·이미지 백업의 격리 복원 검사
+# DB·이미지 백업의 격리 복원 검증
 
 운영 백업의 읽기 전용 입력으로 새 로컬 Docker 자원에 복원하는 도구입니다.
 운영 접속·서비스 중지·백업 다운로드·운영 복구 전환은 수행하지 않습니다.
@@ -174,7 +174,7 @@ receipt를 검증해 보관하고, 완료 manifest를 내린 뒤 지점 dump와 
 중단된 지점의 하루 이상 된 잔여 파일도 정리합니다. 삭제 기록은 복구에 필요하므로 지우지 않습니다.
 유지할 지점의 dump·원본 존재와 크기를 HEAD로 확인하며 누락·크기 손상은 성공으로 보고하지
 않습니다. 전체 바이트 SHA 검사는 게시 시와 복원 다운로드 시 수행합니다. 시간별 작업이 매번
-모든 DB dump를 내려받지는 않으므로 같은 크기의 손상 검출은 다음 게시/격리 복원 검사와 구분합니다.
+모든 DB dump를 내려받지는 않으므로 같은 크기의 손상 검출은 다음 게시/격리 복원 검증와 구분합니다.
 
 6일 기준은 시간별 재시도에 하루의 여유를 둡니다. 실제로 삭제 후 7일에 도달한 사본이 발견되면
 정리를 마쳐도 그 실행은 `retention_overdue`와 `passed: false`로 목표 미충족을 보고합니다.
@@ -350,7 +350,7 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - `maintain`은 완료 지점 manifest를 모두 읽은 뒤 정리 receipt마다 이름(`invalid_gc_receipt`), JSON 객체,
   같은 ID 완료 지점과의 충돌(`gc_receipt_conflict`)을 확인합니다. 그다음 지점마다 `format_version`이 2가
   아니면 `retention_requires_v2`, 계약 위반이면 `invalid_manifest`입니다. 하나라도 실패하면 아무것도 지우지 않습니다.
-- 격리 복원 검사·`restore-check`·`restore_execution prepare`는 최상위 필드 → DB·이미지 파일의 항목·크기·해시
+- 격리 복원 검증·`restore-check`·`restore_execution prepare`는 최상위 필드 → DB·이미지 파일의 항목·크기·해시
   → archive 안전 검사 → asset마다 필드·tar 경로 충돌·archive 포함 여부(`missing_asset`) → `sample` → 디스크 여유
   순서로 검사해 먼저 걸린 코드를 보고합니다. 예를 들어 DB 해시 불일치와 asset 계약 위반이 겹치면
   `backup_hash_mismatch`입니다. `image_migration apply`는 모든 실패를 `migration_precondition_or_storage_unavailable`로 보고합니다.
