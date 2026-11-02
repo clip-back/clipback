@@ -230,26 +230,40 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
-    testWidgets(
-      '${platform.name} repeated withdraw taps show one notice that hides once',
-      (tester) async {
-        await _pump(tester, platform: platform);
-        await tester.ensureVisible(_row('회원 탈퇴'));
-        await tester.pumpAndSettle();
-        for (var i = 0; i < 3; i++) {
+    // 첫 탭 뒤 각 탭 사이의 간격(ms). 'exit'는 첫 알림이 사라지는 중에 두 번 더 누른다.
+    for (final taps in <String, List<int>>{
+      'rapid': [0, 0],
+      'gap100': [100, 100],
+      'exit': [4300, 100],
+    }.entries) {
+      testWidgets(
+        '${platform.name} ${taps.key} withdraw taps show one notice that hides once',
+        (tester) async {
+          await _pump(tester, platform: platform);
+          await tester.ensureVisible(_row('회원 탈퇴'));
+          await tester.pumpAndSettle();
           await tester.tap(_row('회원 탈퇴'));
           await tester.pump();
-        }
-        const notice = '회원 탈퇴 API는 아직 제공되지 않습니다.';
-        expect(find.text(notice), findsOneWidget);
-        // SnackBar 표시 시간(4초)과 나타남·사라짐 애니메이션을 넘겨 5초를 진행한다.
-        for (var i = 0; i < 50; i++) {
-          await tester.pump(const Duration(milliseconds: 100));
-          expect(find.byType(SnackBar).evaluate().length, lessThanOrEqualTo(1));
-        }
-        expect(find.text(notice), findsNothing);
-        expect(tester.takeException(), isNull);
-      },
-    );
+          for (final gap in taps.value) {
+            await tester.pump(Duration(milliseconds: gap));
+            await tester.tap(_row('회원 탈퇴'));
+            await tester.pump();
+          }
+          const notice = '회원 탈퇴 API는 아직 제공되지 않습니다.';
+          expect(find.text(notice), findsOneWidget);
+          // 마지막 탭 뒤 SnackBar 한 번의 수명(등장 0.25초, 표시 4초, 퇴장 0.25초)을 넘긴 5초에는 사라지고,
+          // 그 뒤 대기열에 쌓인 알림이 다시 나오지 않는다.
+          for (var i = 0; i < 50; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          expect(find.text(notice), findsNothing);
+          for (var i = 0; i < 100; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+            expect(find.text(notice), findsNothing);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
   }
 }

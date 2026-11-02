@@ -140,7 +140,7 @@ class AccountManagementScreen extends StatelessWidget {
                           AccountManagementTile(
                             leading: '회원 탈퇴',
                             onTap: () => ScaffoldMessenger.of(context)
-                              ..hideCurrentSnackBar()
+                              ..removeCurrentSnackBar()
                               ..showSnackBar(
                                 const SnackBar(
                                   content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.'),
