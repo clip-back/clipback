@@ -230,5 +230,26 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+    testWidgets(
+      '${platform.name} repeated withdraw taps show one notice that hides once',
+      (tester) async {
+        await _pump(tester, platform: platform);
+        await tester.ensureVisible(_row('회원 탈퇴'));
+        await tester.pumpAndSettle();
+        for (var i = 0; i < 3; i++) {
+          await tester.tap(_row('회원 탈퇴'));
+          await tester.pump();
+        }
+        const notice = '회원 탈퇴 API는 아직 제공되지 않습니다.';
+        expect(find.text(notice), findsOneWidget);
+        // SnackBar 표시 시간(4초)과 나타남·사라짐 애니메이션을 넘겨 5초를 진행한다.
+        for (var i = 0; i < 50; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          expect(find.byType(SnackBar).evaluate().length, lessThanOrEqualTo(1));
+        }
+        expect(find.text(notice), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }
