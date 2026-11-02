@@ -240,9 +240,9 @@ def test_audit_lists_receipts_once(failing, receipts, bucket, monkeypatch, capsy
 
 @pytest.mark.parametrize("backend", ["local", "s3"])
 @pytest.mark.parametrize("storage_key", UNNORMALIZED_KEYS)
-def test_audit_reports_an_unnormalized_storage_key(storage_key, backend, bucket, monkeypatch,
-                                                    capsys):
-    """Rejected by the storage_key rule of #178, like every other contract violation."""
+def test_audit_passes_an_unnormalized_storage_key(storage_key, backend, bucket, monkeypatch,
+                                                   capsys):
+    """Still accepted until the storage_key rule of #178."""
     assets = [asset(1, "local", storage_key if backend == "local" else "a.png", LOCAL_BYTES),
               asset(2, "s3", storage_key if backend == "s3" else "u/1.png", BUCKET_BYTES)]
     points_and_receipt(bucket, assets)

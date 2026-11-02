@@ -125,11 +125,8 @@
   점검 테스트의 같은 목록은 기대값만 바꾸라는 결정에 따라 그대로 두었다.
 - **폴더 입력**: 폴더 테스트의 archive는 정규화한 경로로 저장하므로, 키만 정규화되지 않고 archive 이름은 맞는 폴더다.
   v1 폴더는 `local` asset 하나에 키를 넣었다.
-- **점검 테스트 이름**: 기대값이 `passed`에서 `invalid_manifest`로 바뀌어 `test_audit_passes_an_unnormalized_storage_key`를
-  `test_audit_reports_an_unnormalized_storage_key`로 바꾸고 docstring을 고쳤다. 입력은 그대로다.
-  티켓 리뷰 P1은 "기대값만 바꾼다"는 범위를 넘었다고 지적했다. 이 결정은 다른 경우의 기대값을 건드리지 말라는 뜻으로 보고
-  이름을 유지했다. `passes` 이름과 "#178 전까지 받아들임" docstring을 두면 `invalid_manifest`를 단언하는 테스트의 설명이 거짓이 된다.
-  pytest node ID가 바뀌지만 이 이름으로 테스트를 지정하는 실행기는 저장소에 없다.
+- **점검 테스트 이름**: 이름(`test_audit_passes_an_unnormalized_storage_key`)과 docstring은 그대로 두고 기대값만 `invalid_manifest`로 바꿨다
+  (티켓 리뷰 P1 반영, 사용자 결정). 이름과 docstring은 #178 이전 동작을 가리켜 지금 기대값과 어긋난다.
 
 ### 테스트
 
@@ -252,14 +249,16 @@
 
 ## 검증
 
-2026-11-02 이 worktree에서 `8154983`에 최종 리뷰 반영 변경을 더한 코드로 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/final-183`을
-한 번 실행했다(`backend/.venv`의 Python 3.12.7, 검증용 임시 테스트 DB와 maintenance DB에 `alembic upgrade head`·`alembic check` 적용).
+2026-11-02 이 worktree에서 `origin/main`(`50f7ed9`)을 merge하고 위 점검 테스트 이름을 되돌린 코드로
+`python3 ~/.heoturu-agents/verify.py --log-dir .utmp/after-final`을 한 번 실행했다(`backend/.venv`의 Python 3.12.7,
+검증용 임시 테스트 DB와 maintenance DB에 `alembic upgrade head`·`alembic check` 적용).
+merge 전 최종 리뷰 반영 코드(`db32d80`)에서도 같은 명령이 통과했다(앱 테스트 2018개).
 
 - 결과: `VERIFY result=PASS scope=all checks=10 failed=0`.
 - 백엔드: ruff·compileall·두 DB의 `alembic upgrade head`·`alembic check` 통과. pytest: 1896 passed, 46 skipped.
   skip 45건은 `*_docker.py`(Docker와 빌드한 이미지 필요), 1건은 `tests/integration/test_image_storage_admin_cli.py`
   (`CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 필요, 범위 밖, CI에서도 skip)다. 복구 지점 테스트 네 파일에는 skip이 없다.
-- 앱: `pub get`·`analyze`·테스트 2018개 통과. 앱 코드 변경은 없다.
+- 앱: `pub get`·`analyze`·테스트 2019개 통과(main에서 들어온 #180 변경 포함). 이 작업의 앱 코드 변경은 없다.
 - `git diff --check`: 통과.
 - Docker 테스트는 로컬에서 실행하지 않았다. 이번에 기대값을 바꾼 `test_image_backup_docker.py`를 포함해 PR CI의 operator-recovery job 성공과
   pytest 요약의 skip 수로 확인한다.
