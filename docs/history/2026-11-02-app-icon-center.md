@@ -124,7 +124,7 @@ python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비
 
 | 플랫폼 | 구간 | 변경 전 | 변경 후 |
 | --- | --- | --- | --- |
-| iOS(1178px 폭, 3배율) | OS 시작 화면부터 Flutter 스플래시 끝까지 | −6.5 ~ −7.0px(약 −2.3pt) | +0.9 ~ +1.5px(약 +0.4pt) |
+| iOS(1178px 폭, 3배율) | OS 시작 화면부터 Flutter 스플래시 끝까지 | −6.5에서 −7.0px(약 −2.3pt) | +0.9에서 +1.5px(약 +0.4pt) |
 | Android(1080px 폭) | OS 시작 화면 | −7.6px | +0.45px |
 | Android | Flutter 스플래시 | −5.0px | +1.2px |
 
