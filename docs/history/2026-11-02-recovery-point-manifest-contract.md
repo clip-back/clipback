@@ -60,6 +60,9 @@
 - **폴더의 `u/./1.png`·`u/1.png` 충돌**: 기대값을 `missing_asset`으로 두었다. 첫 asset의 archive 포함 확인이 정규화하지 않은 키로 비교해서
   충돌을 보기 전에 첫 asset에서 실패한다(#162 고정 동작, 시작 커밋에서도 같은 결과). #156의 "계약 위반과 archive 오류가 함께 있음 → 단계 순서 유지" 행에 해당한다.
   순서를 바꾼 입력(`u/1.png`가 먼저)은 `invalid_manifest`임을 따로 확인한다.
+  #156 변경표는 이 충돌의 격리 복원 검사 결과를 `invalid_manifest`로 적어 두 표가 다르게 읽힌다(티켓 리뷰 L1).
+  사용자 결정(2026-11-02)으로 코드는 그대로 두고, 이 입력 순서에서는 단계 순서에 따라 `missing_asset`이 나오는 예외로 기록한다.
+  Bucket 쪽 `verify`·`download`·`maintain`은 객체를 읽기 전에 전체 계약을 검사하므로 두 순서 모두 `invalid_manifest`다.
 - **v1 폴더의 필드 없음**: v1에 새 검사는 더하지 않았지만, 필드가 없을 때의 `KeyError` → 일반 오류도 v1에서 `invalid_manifest`로 바뀐다.
   #156의 "`KeyError`·`ValueError`·`AttributeError`로 새던 manifest 내용 오류는 모두 `invalid_manifest`"를 형식 버전 구분 없이 적용했다.
 - **게시 manifest의 필수·선택 필드**: 다운로드 폴더 검사와 같게 `extra_file_count`·`deletion_checkpoint`만 선택이며 값은 검사하지 않는다.
@@ -106,6 +109,30 @@
 | 게시 manifest의 `images` 허용 | 5 |
 | 폴더 manifest의 JSON 오류를 일반 오류로 | 3 |
 | v1 폴더에도 tar 경로 충돌 검사 | 1 |
+
+### 리뷰 반영
+
+`5c07af5`의 Codex 티켓 리뷰(Standards 1건, Spec 확신 낮음 1건)를 반영했다. 구현자 판단 일곱 가지는 리뷰어가 재현해 맞다고 봤다.
+
+- S1(전체 검증 보고 없음): 아래 검증 절에 전체 검증 결과를 기록했다. 코드는 바꾸지 않았다.
+- L1(정규화 충돌의 두 표 불일치): 사용자 결정대로 코드·테스트는 그대로 두고 위 구현자 판단에 예외를 적었다. PR 본문 변경 목록에도 적는다.
+  운영 문서는 폴더 쪽 검사 순서(asset마다 필드 → tar 경로 충돌 → archive 포함 여부)를 이미 적고 있어 바꾸지 않았다.
+- 리뷰어의 전체 검증 FAIL(54건)은 저장소 안 `.utmp`에서 실행해 `restore_execution prepare`가 `workspace_inside_repository`로 거부한 환경 문제다.
+  아래처럼 평소 위치에서 다시 실행해 통과했다.
+
+### 검증
+
+2026-11-02 이 worktree에서 `5c07af5` 코드로 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-167`을 한 번 실행했다
+(`backend/.venv`의 Python 3.12.7, 검증용 임시 테스트 DB와 maintenance DB를 새로 만들어 `alembic upgrade head`·`alembic check` 적용).
+
+- 결과: `VERIFY result=PASS scope=all checks=10 failed=0`.
+- 백엔드: ruff·compileall·두 DB의 `alembic upgrade head`·`alembic check` 통과. `pytest -q -rs`: 1776 passed, 46 skipped.
+  skip 45건은 `*_docker.py`(Docker와 빌드한 이미지 필요), 1건은 `tests/integration/test_image_storage_admin_cli.py`
+  (`CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 필요, 범위 밖, CI에서도 skip)다.
+- 앱: `pub get`·`analyze`·테스트 2018개 통과. 앱 코드 변경은 없다.
+- `git diff --check`: 통과.
+- Docker 테스트는 로컬에서 실행하지 않았다. PR 2 CI의 operator-recovery job 성공과 pytest 요약의 skipped 0으로 확인한다.
+- 운영 Bucket 읽기 전용 점검은 운영자가 머지 전에 한다. 이 작업에서는 운영 환경에 접속하지 않았다.
 
 ## 운영 문서와 변경 이력
 
