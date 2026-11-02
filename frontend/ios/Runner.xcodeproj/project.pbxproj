@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -12,6 +12,7 @@
 		23F8EBC24F47CA6292F8DA95 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F8350210D9B29AB444C8F5C4 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		50A32759DE134D72DAD62110 /* Pretendard-SemiBold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */; };
 		6459ABF0EF9B2599FF3BE024 /* ShareStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8634A78D4AF7A177CA11E465 /* ShareStore.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		77C0A8B72692451FB71FB4DC /* ShareComposerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0289D731B18BE015978ECAC1 /* ShareComposerViewController.swift */; };
@@ -22,16 +23,15 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		9810AFA284695D1B415C99EB /* Pretendard-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */; };
 		A7D6DC79283EE7A9DAD4196F /* ShareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D24E1F2F75CA70109A221F /* ShareModels.swift */; };
+		B62DC4B8895A8E90F63A59A8 /* Pretendard-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = 1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */; };
 		CAE80482C4A5C1E89421AE16 /* ShareStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8634A78D4AF7A177CA11E465 /* ShareStore.swift */; };
 		CF0D29245057A9942EC59AF2 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 505B4C91F8DD57446F3318F8 /* ShareViewController.swift */; };
 		D9D59F1EF6DC1AB46F1B4356 /* ShareSaveServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9660CF40FDC7EEEB714819A4 /* ShareSaveServiceTests.swift */; };
 		DB350EACD8C359915512C482 /* ShareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D24E1F2F75CA70109A221F /* ShareModels.swift */; };
 		E82DEF732CDE0132D21F6CA5 /* ShareStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18A98411CBA754B59A83603B /* ShareStoreTests.swift */; };
 		F1DDAFBBD160A28D9FE099E8 /* ShareBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A5F4DCE7A97B118EDDE9D6 /* ShareBridge.swift */; };
-		B62DC4B8895A8E90F63A59A8 /* Pretendard-Medium.otf in Resources */ = {isa = PBXBuildFile; fileRef = 1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */; };
-		50A32759DE134D72DAD62110 /* Pretendard-SemiBold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */; };
-		9810AFA284695D1B415C99EB /* Pretendard-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,10 +81,12 @@
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		18A98411CBA754B59A83603B /* ShareStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareStoreTests.swift; sourceTree = "<group>"; };
+		1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "Pretendard-Medium.otf"; path = "../assets/fonts/Pretendard-Medium.otf"; sourceTree = SOURCE_ROOT; };
 		25D38231365536F1BBFDAB4B /* ShareSaveService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSaveService.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "Pretendard-LICENSE.txt"; path = "../assets/fonts/Pretendard-LICENSE.txt"; sourceTree = SOURCE_ROOT; };
 		505B4C91F8DD57446F3318F8 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		60A5F4DCE7A97B118EDDE9D6 /* ShareBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareBridge.swift; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -93,6 +95,7 @@
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		8634A78D4AF7A177CA11E465 /* ShareStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareStore.swift; sourceTree = "<group>"; };
+		874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "Pretendard-SemiBold.otf"; path = "../assets/fonts/Pretendard-SemiBold.otf"; sourceTree = SOURCE_ROOT; };
 		87D950278F0E9EC394983B16 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		95D24E1F2F75CA70109A221F /* ShareModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareModels.swift; sourceTree = "<group>"; };
 		9660CF40FDC7EEEB714819A4 /* ShareSaveServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSaveServiceTests.swift; sourceTree = "<group>"; };
@@ -105,9 +108,6 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D5F47FAB6AC05C3B131EE549 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		F8350210D9B29AB444C8F5C4 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = Pretendard-Medium.otf; path = ../assets/fonts/Pretendard-Medium.otf; sourceTree = SOURCE_ROOT; };
-		874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */ = {isa = PBXFileReference; lastKnownFileType = file; name = Pretendard-SemiBold.otf; path = ../assets/fonts/Pretendard-SemiBold.otf; sourceTree = SOURCE_ROOT; };
-		40C4E70E40FDDDCC80B0CF7E /* Pretendard-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = Pretendard-LICENSE.txt; path = ../assets/fonts/Pretendard-LICENSE.txt; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -164,7 +164,6 @@
 				25D38231365536F1BBFDAB4B /* ShareSaveService.swift */,
 				8634A78D4AF7A177CA11E465 /* ShareStore.swift */,
 			);
-			name = ShareCore;
 			path = ShareCore;
 			sourceTree = "<group>";
 		};
@@ -230,7 +229,6 @@
 				87D950278F0E9EC394983B16 /* Info.plist */,
 				D5F47FAB6AC05C3B131EE549 /* ShareExtension.entitlements */,
 			);
-			name = ShareExtension;
 			path = ShareExtension;
 			sourceTree = "<group>";
 		};
@@ -349,7 +347,7 @@
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
-				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "LocalSwiftPackageReference" */,
+				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
@@ -621,10 +619,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipback.clipbackFrontend.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -639,10 +637,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipback.clipbackFrontend.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -655,10 +653,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clipback.clipbackFrontend.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -958,7 +956,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "LocalSwiftPackageReference" */ = {
+		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
 		};
