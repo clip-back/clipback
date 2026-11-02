@@ -332,10 +332,7 @@ Future<void> _maxScroll() async {
   await _settle(3);
   final m = f.homeBaseMeasure(_root), vp = (m['bounds'] as Map)['body'] as Map;
   final marker = _kind == 'empty'
-      ? f
-            .homeBaseElements(_home)
-            .where((e) => e.widget is CategoryHomeRow)
-            .lastOrNull
+      ? f.homeBaseFind<EmptyHomeContent>(_home)
       : f.homeBaseFind<PageDots>(_home);
   if (marker != null) {
     _require(
@@ -608,22 +605,6 @@ Future<void> _run() async {
   _require(_server.writeCalls == 0, 'Close created content');
   _record('empty_save_close_no_write');
   await _maxScroll();
-  final recentCategory = f
-      .homeBaseElements(_home)
-      .where((e) => e.widget is CategoryHomeRow)
-      .first;
-  await _show(recentCategory);
-  await _tap(recentCategory);
-  await _wait(
-    () => _route() == 'archive',
-    'Empty recent category destination missing',
-  );
-  _require(
-    (f.homeBaseFind<ArchiveScreen>(_root)!.widget as ArchiveScreen).activeTab ==
-        1,
-    'Existing recent category contract changed',
-  );
-  _record('empty_recent_category_existing_category_list');
   await _fresh('normal');
   _record('final_normal_scroll_zero');
   _coverage = true;

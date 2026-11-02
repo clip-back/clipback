@@ -454,68 +454,6 @@ class UnclassifiedCategoryRow extends StatelessWidget {
   );
 }
 
-class CategoryHomeRow extends StatelessWidget {
-  const CategoryHomeRow({
-    required this.category,
-    required this.onTap,
-    super.key,
-  });
-
-  final CategoryItem category;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
-            children: [
-              FolderGlyph(color: category.color),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      category.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      '2020. 3. 10. 오후 11:56',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.subSubtle,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SvgIcon(
-                asset: Assets.chevronRight,
-                size: 18,
-                color: AppColors.subtler,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class CategoryRow extends StatelessWidget {
   const CategoryRow({
     required this.category,
