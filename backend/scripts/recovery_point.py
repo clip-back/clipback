@@ -117,12 +117,13 @@ def point_unchanged(store, backup_id, manifest):
         return False
 
 
-def read_retiring_points(store):
+def read_retiring_points(store, items=None):
     """Yield (backup ID, receipt key, manifest) per cleanup receipt, one receipt at a time.
 
+    `items` is a receipt listing the caller already has; otherwise the receipts are listed here.
     The receipt name and a JSON object are checked here; the caller checks the contract.
     """
-    for item in store.list_objects(RECEIPTS_PREFIX):
+    for item in store.list_objects(RECEIPTS_PREFIX) if items is None else items:
         identifier = receipt_backup_id(item["key"])
         require(identifier is not None, "invalid_gc_receipt")
         manifest = _parse_manifest(store.read(item["key"]))

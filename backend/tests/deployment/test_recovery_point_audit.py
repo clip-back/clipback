@@ -209,6 +209,31 @@ def test_audit_outputs(damage, bucket, monkeypatch, capsys):
 UNNORMALIZED_KEYS = ["u/./1.png", "./u/1.png", "u//1.png", "u/1.png/", "."]
 
 
+@pytest.mark.parametrize("receipts", ["with_receipt", "without_receipts"])
+@pytest.mark.parametrize("failing", ["first", "later"])
+def test_audit_lists_receipts_once(failing, receipts, bucket, monkeypatch, capsys):
+    """A receipt listing failure names no receipt: the first listing is the only one."""
+    points_and_receipt(bucket)
+    if receipts == "without_receipts":
+        bucket.delete(RETIRED)
+    listings = []
+
+    def deny_listing(params, **kwargs):
+        if params.get("Prefix") == "gc/points/":
+            listings.append(params)
+            if failing == "first" or len(listings) > 1:
+                raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}},
+                                  "ListObjectsV2")
+
+    bucket.client.meta.events.register("before-parameter-build.s3.ListObjectsV2", deny_listing)
+    healthy = report() if receipts == "with_receipt" else (0, {
+        "checked_at": "<checked_at>", "passed": True,
+        "points": {"anchor": "passed", "target": "passed"}, "receipts": {},
+    })
+    expected = failure("ClientError") if failing == "first" else healthy
+    assert (audit(bucket, monkeypatch, capsys), len(listings)) == (expected, 1)
+
+
 @pytest.mark.parametrize("backend", ["local", "s3"])
 @pytest.mark.parametrize("storage_key", UNNORMALIZED_KEYS)
 def test_audit_passes_an_unnormalized_storage_key(storage_key, backend, bucket, monkeypatch,
@@ -255,19 +280,27 @@ def test_audit_reports_an_unreadable_config_directory(bucket, monkeypatch, capsy
     assert result == failure("PermissionError")
 
 
+def shell_lines(block):
+    """Each command line of a code block as shell words; a line shlex cannot split fails."""
+    return [shlex.split(line) for line in block.replace("\\\n", " ").splitlines() if line.strip()]
+
+
+def runs_python(lines):
+    return any(word == "-m" or Path(word).name.startswith("python")
+               for words in lines for word in words)
+
+
 def documented_command():
     """(working directory, environment, module, arguments) of the one documented audit command."""
     text = DOC.read_text()
     assert text.count(SECTION) == 1
     section = re.split(r"\n#{1,3} ", text.split(SECTION, 1)[1], maxsplit=1)[0]
-    blocks = [block for block in re.findall(r"```\w*\n(.*?)```", section, re.S)
-              if " -m " in block]
-    assert len(blocks) == 1, "the section must hold exactly one audit command block"
-    lines = blocks[0].strip().splitlines()
-    assert len(lines) == 2, "the block is `cd <directory>` and one command line"
-    cd = shlex.split(lines[0])
+    blocks = [shell_lines(block) for block in re.findall(r"```\w*\n(.*?)```", section, re.S)]
+    commands = [lines for lines in blocks if runs_python(lines)]
+    assert len(commands) == 1, "the section must hold exactly one audit command block"
+    assert len(commands[0]) == 2, "the block is `cd <directory>` and one command line"
+    cd, words = commands[0]
     assert len(cd) == 2 and cd[0] == "cd"
-    words = shlex.split(lines[1])
     environment = {}
     while re.fullmatch(r"[A-Z_]+=.*", words[0]):
         name, value = words.pop(0).split("=", 1)

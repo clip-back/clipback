@@ -47,21 +47,17 @@ def audit(store):
     points = completed_points(store)
     for identifier in points:
         report["points"][identifier] = outcome(lambda: verify_backup(store, identifier))
-    report["receipts"] = dict.fromkeys(
-        (item["key"] for item in store.list_objects(RECEIPTS_PREFIX)), "not_checked"
-    )
+    # One listing: its failure names no receipt, so it is the top-level error.
+    receipts = store.list_objects(RECEIPTS_PREFIX)
+    report["receipts"] = dict.fromkeys((item["key"] for item in receipts), "not_checked")
     try:
-        for identifier, key, manifest in read_retiring_points(store):
+        for identifier, key, manifest in read_retiring_points(store, receipts):
             report["receipts"][key] = outcome(
                 lambda: check_receipt(store, points, identifier, manifest)
             )
     except Exception as exc:
         # Receipts are read in key order; reading stops at the first receipt that fails.
-        first = next(
-            (key for key, value in report["receipts"].items() if value == "not_checked"), None
-        )
-        if first is None:
-            raise
+        first = next(key for key, value in report["receipts"].items() if value == "not_checked")
         report["receipts"][first] = error_code(exc)
     report["passed"] = all(
         value == "passed" for value in [*report["points"].values(), *report["receipts"].values()]
