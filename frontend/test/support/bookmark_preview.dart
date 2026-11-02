@@ -706,7 +706,9 @@ Map<String, Object?> bookmarkJudgment(Map<String, Object?> m) {
     if ((roles['emptyTitle'] as Map?)?['text'] != '즐겨찾기한 콘텐츠가 없어요' ||
         (roles['emptyBody'] as Map?)?['text'] != '중요한 정보는 즐겨찾기를 통해 저장하세요!' ||
         (roles['emptyCta'] as Map?)?['text'] != '전체 리스트 보기') {
-      styles.add('Empty copy differs from the approved original');
+      styles.add(
+        'Empty copy differs from the approved copy (I02 with #198 favorite wording)',
+      );
     }
     final group = b['emptyGroup'] as Map?,
         image = b['emptyImageSlot'] as Map?,

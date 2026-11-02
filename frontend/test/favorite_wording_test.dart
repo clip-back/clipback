@@ -83,6 +83,35 @@ void main() {
     expect(tester.widget<ArchiveSortButton>(button).bookmarkedFirst, isFalse);
   });
 
+  // 사용자 결정(2026-11-03): 즐겨찾기 우선이 선택돼 체크가 보여도 1.3배까지 넘치지 않는다.
+  for (final bookmarkedFirst in [false, true]) {
+    for (final scale in [1.0, 1.1, 1.2, 1.3]) {
+      final sortLabel = bookmarkedFirst ? '즐겨찾기 우선' : '최신순';
+      testWidgets('정렬 메뉴는 $sortLabel 선택·글자 $scale배에서 넘치지 않는다', (tester) async {
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await pumpBody(
+          tester,
+          ArchiveToolbar(
+            countLabel: '불러온 1개',
+            sortLabel: sortLabel,
+            onSortChanged: (_) {},
+          ),
+        );
+        await tester.tap(find.byType(ArchiveSortButton));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: option(sortLabel),
+            matching: find.byIcon(Icons.check),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('정렬 선택 시트 항목은 즐겨찾기 우선이다', (tester) async {
     await pumpBody(
       tester,
