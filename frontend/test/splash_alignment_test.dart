@@ -59,7 +59,7 @@ void main() {
     }
   }
   testWidgets(
-    '375x812 original frame group232x89 starts346 and logo148.771x50',
+    '375x812 original frame group232x89 starts346 and logo154.348x50',
     (tester) async {
       await _pump(tester);
       final m = _measure(tester), g = m['group'] as Map;
@@ -73,6 +73,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 900));
     },
   );
+  test('logo svg canvas centers the letter frame, not the sparkle', () async {
+    final svg = await rootBundle.loadString('assets/figma/splash-a01-logo.svg');
+    double attr(String name) =>
+        double.parse(RegExp(' $name="([^"]+)"').firstMatch(svg)!.group(1)!);
+    final box = RegExp(
+      r'viewBox="([^"]+)"',
+    ).firstMatch(svg)!.group(1)!.split(' ').map(double.parse).toList();
+    // Figma A01 letter frame spans x 0..143.194; the sparkle reaches 148.771.
+    expect(box[0] + box[2] / 2, closeTo(143.194 / 2, .001));
+    expect(box[2], closeTo(attr('width'), .001));
+    expect(box[3], closeTo(attr('height'), .001));
+    // preserveAspectRatio="none": the widget must use the viewBox size.
+    expect(box[2], closeTo(154.348, .001));
+    expect(box[3], closeTo(50, .001));
+  });
   testWidgets('transient zero viewport never creates negative constraints', (
     tester,
   ) async {
