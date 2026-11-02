@@ -359,7 +359,7 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 `maintain`은 원인 지점을 출력하지 않습니다. 멈춘 실행은 아무것도 지우지 않았으므로 아래 순서로 확인합니다.
 
-1. `maintain`과 같은 리비전의 `backend/`에서 아래 읽기 전용 점검으로 실패한 완료 지점·정리 receipt를 찾습니다.
+1. `maintain`과 같은 리비전의 `backend/`에서 아래 읽기 전용 점검 모듈로 실패한 완료 지점·정리 receipt를 찾습니다.
    완료 지점마다 `verify`를 실행하고, 정리 receipt는 이름·충돌·내용만 검사합니다. receipt만 남은 지점은
    객체 일부가 이미 지워졌을 수 있어 객체를 확인하지 않습니다. Bucket에 쓰지 않습니다.
 2. 실패한 지점·receipt의 처리(보존, 별도 정리)는 운영자가 따로 결정합니다. 이 절차는 운영 지점을 고치거나 다시 게시하지 않습니다.
@@ -368,67 +368,21 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 ```sh
 cd backend
-YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python - /absolute/private/backup-bucket.json <<'EOF'
-import json
-import sys
-from datetime import UTC, datetime
-from pathlib import Path
-
-from scripts.image_backup import BackupBucket, verify_backup
-from scripts.operator_errors import CheckError, require
-from scripts.recovery_point import (
-    RECEIPTS_PREFIX,
-    canonical_json,
-    check_point_manifest,
-    completed_points,
-    read_point_json,
-    read_retiring_points,
-)
-
-
-def outcome(check):
-    try:
-        check()
-        return "passed"
-    except CheckError as exc:
-        return str(exc)
-    except Exception as exc:
-        return type(exc).__name__
-
-
-def check_receipt(identifier, manifest):
-    # Same order as maintain; the receipt's objects may already be gone, so none are read.
-    if identifier in points:
-        require(canonical_json(read_point_json(store, identifier)) == canonical_json(manifest),
-                "gc_receipt_conflict")
-    require(manifest.get("format_version") == 2, "retention_requires_v2")
-    check_point_manifest(manifest, identifier)
-
-
-store = BackupBucket.from_config_file(Path(sys.argv[1]))
-report = {"checked_at": datetime.now(UTC).isoformat(timespec="seconds"), "points": {}}
-points = completed_points(store)
-for identifier in points:
-    report["points"][identifier] = outcome(lambda: verify_backup(store, identifier))
-report["receipts"] = dict.fromkeys(
-    (item["key"] for item in store.list_objects(RECEIPTS_PREFIX)), "not_checked"
-)
-try:
-    for identifier, key, manifest in read_retiring_points(store):
-        report["receipts"][key] = outcome(lambda: check_receipt(identifier, manifest))
-except CheckError as exc:
-    # Receipts are read in key order; reading stops at the first bad name or JSON.
-    first = next(key for key, value in report["receipts"].items() if value == "not_checked")
-    report["receipts"][first] = str(exc)
-report["passed"] = all(
-    value == "passed" for value in [*report["points"].values(), *report["receipts"].values()]
-)
-print(json.dumps(report, indent=2, sort_keys=True))
-EOF
+YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.recovery_point_audit --backup-config-file /absolute/private/backup-bucket.json
 ```
 
-결과의 `points`는 완료 지점 ID별, `receipts`는 정리 receipt 키별 결과이며 `passed`가 아니면 오류 코드입니다.
-`not_checked`는 앞선 receipt에서 읽기가 멈춰 확인하지 못한 receipt입니다. 출력에는 Bucket 이름·자격이 없습니다.
+`--backup-config-file`을 빼면 `BACKUP_BUCKET_CONFIG_JSON`을 읽습니다. 점검 모듈은 운영자 로컬 `backend/`에서만
+실행하며 operator 이미지에는 들어 있지 않습니다. 출력은 JSON 하나입니다.
+
+- `points`는 완료 지점 ID별, `receipts`는 정리 receipt 키별 결과이며 `passed`가 아니면 오류 코드입니다.
+  오류 코드가 아닌 실패는 예외 클래스 이름입니다(예: 완료 지점의 객체가 없으면 `NoSuchKey`).
+- receipt는 키 순서로 읽습니다. 읽기가 멈추면 그 receipt에 원인을 적고, 뒤의 receipt는 확인하지 못한
+  `not_checked`입니다.
+- 모든 지점·receipt가 `passed`이면 `"passed": true`이고 종료 코드 0, 하나라도 아니면 `"passed": false`이고 종료 코드 1입니다.
+- 설정 파일 읽기, 완료 지점 목록이나 receipt 목록 조회처럼 지점·receipt를 특정할 수 없는 실패는
+  `{"passed": false, "error": "<오류 코드 또는 예외 클래스 이름>"}`만 출력하고 종료 코드 1입니다.
+  앞서 확인한 지점 결과는 싣지 않으므로 원인을 고친 뒤 다시 실행합니다.
+- 출력에는 Bucket 이름·자격·설정 파일 경로가 없습니다.
 
 **되돌리기**: operator 이미지와 운영자 로컬 CLI를 이 검사 기준이 들어오기 직전 main 리비전으로 되돌립니다.
 그 리비전까지는 이 절의 검사가 없어 이전 동작으로 정리를 이어 갑니다. 리비전은 `point_unchanged`를 처음 추가한
