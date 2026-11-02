@@ -259,7 +259,7 @@ def test_bucket_backup_source_missing_or_corrupt_is_not_restorable(bucket_backup
     original = store.read(key)
     try:
         store.client.delete_object(Bucket=store.bucket, Key=key)
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(Exception, match="backup_object_missing_or_unavailable"):
             materialize_backup(store, "first", tmp_path / "missing")
         store.client.put_object(Bucket=store.bucket, Key=key, Body=b"corrupted")
         with pytest.raises(Exception, match="backup_hash_mismatch"):

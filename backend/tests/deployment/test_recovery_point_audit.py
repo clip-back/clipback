@@ -179,12 +179,12 @@ def failure(error):
     return 1, {"error": error, "passed": False}
 
 
-# Missing and unreadable objects keep their exception names until #179.
+# Missing and unreadable objects report verify's code since #179.
 OUTPUTS = {
     "healthy": report(),
     "contract_violation": report(points={"target": "invalid_manifest"}),
-    "dump_missing": report(points={"target": "NoSuchKey"}),
-    "dump_denied": report(points={"target": "ClientError"}),
+    "dump_missing": report(points={"target": "backup_object_missing_or_unavailable"}),
+    "dump_denied": report(points={"target": "backup_object_missing_or_unavailable"}),
     "receipt_bad_name": report(receipts={"gc/points/bad id.json": "invalid_gc_receipt",
                                          RETIRED: "not_checked"}),
     "receipt_denied": report(receipts={EARLY: "backup_store_unavailable",

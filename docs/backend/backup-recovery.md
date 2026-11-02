@@ -345,8 +345,13 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - `verify`·`download`·`maintain`은 Bucket 객체를 읽기 전에 manifest를 검사합니다.
   계약 위반과 객체 크기·해시 불일치나 객체 없음이 함께 있어도 `invalid_manifest`입니다.
   `download`는 다운로드 폴더를 만들기 전에 검사하므로 손상 manifest로는 폴더가 생기지 않습니다.
+- 완료 지점의 dump나 원본 보관본이 없거나 읽을 때 S3 오류가 나면 `verify`·`download`와 `maintain`의 보존 지점 확인이
+  모두 `backup_object_missing_or_unavailable`입니다. `maintain`은 만료 지점만 참조하는 객체를 확인하지 않고 정리하며,
+  지운 뒤 없어졌음을 확인하지 못하면(예: 읽기 권한 없음) `backup_cleanup_unverified`입니다.
 - `verify`는 객체를 확인한 뒤 manifest를 다시 읽어 처음 읽은 값과 비교합니다. 다르거나 JSON으로
-  읽을 수 없으면 `backup_point_changed`입니다. 다시 읽은 manifest에는 계약 검사를 하지 않습니다.
+  읽을 수 없거나 없으면 `backup_point_changed`이고, 다시 읽을 때 그 밖의 S3 오류가 나면 `backup_store_unavailable`입니다.
+  다시 읽은 manifest에는 계약 검사를 하지 않습니다.
+- 없는 지점 ID로 `verify`·`download`를 실행하면 `backup_operation_failed`이고, `download`는 폴더를 만들지 않습니다.
 - `maintain`은 완료 지점 manifest를 모두 읽은 뒤 정리 receipt마다 이름(`invalid_gc_receipt`), JSON 객체,
   같은 ID 완료 지점과의 충돌(`gc_receipt_conflict`)을 확인합니다. 그다음 지점마다 `format_version`이 2가
   아니면 `retention_requires_v2`, 계약 위반이면 `invalid_manifest`입니다. 하나라도 실패하면 아무것도 지우지 않습니다.
@@ -379,7 +384,7 @@ YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.recovery_point_audit -
 실행하며 operator 이미지에는 들어 있지 않습니다. 출력은 JSON 하나입니다.
 
 - `points`는 완료 지점 ID별, `receipts`는 정리 receipt 키별 결과이며 `passed`가 아니면 오류 코드입니다.
-  오류 코드가 아닌 실패는 예외 클래스 이름입니다(예: 완료 지점의 객체가 없으면 `NoSuchKey`).
+  오류 코드가 아닌 실패는 예외 클래스 이름입니다(예: 목록을 확인한 뒤 receipt가 사라지면 `FileNotFoundError`).
 - receipt는 키 순서로 읽습니다. 읽기가 멈추면 그 receipt에 원인을 적고, 뒤의 receipt는 확인하지 못한
   `not_checked`입니다.
 - 모든 지점·receipt가 `passed`이면 `"passed": true`이고 종료 코드 0, 하나라도 아니면 `"passed": false`이고 종료 코드 1입니다.

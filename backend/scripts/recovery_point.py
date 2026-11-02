@@ -110,10 +110,13 @@ def read_point_manifest(store, backup_id):
 
 
 def point_unchanged(store, backup_id, manifest):
-    """Whether the published manifest still equals `manifest`; the reread is not checked."""
+    """Whether the published manifest still equals `manifest`; the reread is not checked.
+
+    A manifest that is gone or not JSON has changed; any other S3 error is raised.
+    """
     try:
         return json.loads(store.read(point_manifest_key(backup_id))) == manifest
-    except ValueError:
+    except (FileNotFoundError, ValueError):
         return False
 
 

@@ -1,6 +1,6 @@
 # 복구 지점 계약 2차: 읽기 전용 점검 모듈, `storage_key` 규칙, 객체 오류 코드
 
-최초 기록일: 2026-11-02 KST. 기준은 [spec #183](https://github.com/clip-back/clipback/issues/183)과 티켓 #184·#185다.
+최초 기록일: 2026-11-02 KST. 기준은 [spec #183](https://github.com/clip-back/clipback/issues/183)과 티켓 #184·#185·#186이다.
 출처는 #177·#178·#179이고, 브랜치 `fix/recovery-point-contract-2`(시작 커밋 `0ed414a`)에서 작업했다.
 앞선 작업은 [복구 지점 manifest 검증 기준 통일](2026-11-02-recovery-point-manifest-contract.md)에 있다.
 
@@ -147,3 +147,86 @@
 | --- | --- |
 | `storage_key` 정규화 규칙 제거 | 57개 실패(시작 커밋 비교의 47개와 점검 10개) |
 | `.` 허용(정규화 비교만 남김) | 11개 실패(`.` 키의 Bucket 6, 폴더 v2 2·v1 1, 점검 2) |
+
+## 완료 지점 객체의 오류 코드(#186, 출처 #179)
+
+### 사용자 결정
+
+- 완료 지점의 객체를 읽다 난 모든 S3 응답 오류(`ClientError`)는 `backup_object_missing_or_unavailable`이다.
+  `download`의 원본 보관본 `AccessDenied`도 같다.
+- 변환은 `verify`·`download` 경로에서만 한다. `maintain`과 게시(`create`·`daily`)는 지금 값을 유지한다.
+- `ClientError`가 아닌 botocore 오류(연결 실패 등)와 응답 본문 읽기 중단은 지금처럼 일반 오류(`backup_operation_failed`)다.
+- 점검 모듈 테스트는 dump 없음·`AccessDenied`의 기대값만 바꾼다. #185에서 바꾼 기대값과 폴더 출력 고정 테스트는 바꾸지 않는다.
+
+### 변경 내용
+
+- `backend/scripts/image_backup.py`
+  - `verify_backup`: dump·원본 보관본의 크기·해시를 확인하다 난 `ClientError`를 `backup_object_missing_or_unavailable`로 바꾼다.
+  - `materialize_backup`(`download`): dump 내려받기의 `ClientError`와 원본 보관본 읽기의 없음(`FileNotFoundError`)·
+    `backup_store_unavailable`을 같은 코드로 바꾼다. 실패했을 때 폴더가 남는 동작은 그대로다.
+  - 공용 adapter 메서드(`read`·`download_verified`·`verify_object`)는 바꾸지 않았다. 게시가 같은 메서드를 쓴다.
+- `backend/scripts/recovery_point.py`의 `point_unchanged`: 다시 읽은 manifest가 없으면 바뀐 것(거짓)으로 본다.
+  `verify`는 `backup_point_changed`를 보고한다. 그 밖의 S3 오류는 지금처럼 `backup_store_unavailable`이다.
+  되돌리기 절차가 찾는 `def point_unchanged` 문자열은 그대로다.
+- 읽기 전용 점검은 `verify_backup`을 그대로 부르므로 dump 없음·`AccessDenied`의 지점 결과가 `NoSuchKey`·`ClientError`에서
+  `backup_object_missing_or_unavailable`로 바뀌었다.
+- 운영 문서(`docs/backend/backup-recovery.md`)의 "손상 manifest의 오류 코드" 절에 객체 없음·S3 오류(`maintain`은 만료 지점만
+  참조하는 객체를 확인하지 않음), 재조회 없음 `backup_point_changed`, 없는 지점 ID `backup_operation_failed`를 적었다.
+  점검 출력 설명의 예외 이름 예시(`NoSuchKey`)는 더 이상 나오지 않아 `FileNotFoundError`(receipt 사라짐)로 바꿨다.
+
+### 구현자 판단
+
+- **변환 위치**: 세 변환을 모두 명령 함수(`verify_backup`·`materialize_backup`)에 두었다. `verify_object`는 `verify`만 쓰지만,
+  adapter 메서드는 하나도 바꾸지 않는 쪽이 "공용 메서드는 바꾸지 않음"을 확인하기 쉽다.
+- **원본 보관본 읽기**: `download`는 공용 `read`를 그대로 쓰고, `read`가 S3 오류를 알리는 두 형태(`FileNotFoundError`,
+  `backup_store_unavailable`)를 잡아 바꾼다. `read`가 이 둘을 내는 것은 `ClientError`에서뿐이고, 본문 읽기 중단은 그대로 지나간다.
+- **재조회 없음**: #183 결정대로 `point_unchanged`가 거짓을 돌려주게 했다. 이 함수의 단위 테스트(`test_recovery_point`)는
+  지금까지 없으면 `FileNotFoundError`를 단언했으므로 마지막 단언을 `is False`로 바꿨다. 새 경우를 더하지는 않았다.
+- **Docker 테스트**: `test_image_backup_docker.py`의 원본 보관본 삭제 경우가 `FileNotFoundError`를 기대했다.
+  이제 `materialize_backup`이 `backup_object_missing_or_unavailable`을 내므로 기대값을 바꿨다. 로컬에서는 Docker가 없어 실행하지 않았다.
+- **본문 읽기 중단·연결 실패 테스트**: 수용 기준의 "지금처럼 일반 오류"를 고정하려고 Bucket 출력 고정에 네 경우를 더했다.
+  변환을 `ClientError`보다 넓히는 변형을 잡는다.
+
+### 테스트
+
+- Bucket 출력 고정(`test_recovery_point_bucket_outputs`)
+  - dump 없음, 원본 보관본 없음, 각각의 `GetObject`·`HeadObject` `AccessDenied` × 신선·만료 지점: `verify`·`download`가
+    `backup_object_missing_or_unavailable`이다. `download`가 남긴 폴더는 dump 실패면 빈 폴더, 원본 보관본 실패면
+    `database.dump`·`images.tar`다. 같은 입력의 `maintain`은 지금 값이다(보존 지점과 함께 참조하는 원본 보관본과 보존 지점의
+    dump는 같은 코드, 만료 지점의 dump 없음은 성공, 만료 지점의 dump `AccessDenied`는 `backup_cleanup_unverified`).
+  - 보존 지점이 다른 원본 보관본을 쓰는 독립 입력(스펙 리뷰 P1): 만료 지점만 참조하는 원본 보관본이 없으면 성공
+    (`expired_points: 1`, `removed_originals: 1`), `AccessDenied`이면 `backup_cleanup_unverified`다.
+  - `test_verify_reread_of_a_removed_manifest`를 `backup_point_changed`로 바꾸고 docstring을 고쳤다.
+    재조회 `AccessDenied`(`backup_store_unavailable`), 없는 지점 ID(`backup_operation_failed`, 폴더 없음),
+    첫 manifest 읽기 `AccessDenied`(`backup_store_unavailable`, 폴더 없음)를 고정했다.
+  - dump·원본 보관본의 연결 실패(`EndpointConnectionError`)와 본문 읽기 중단(`ReadTimeoutError`): `verify`·`download`가
+    `backup_operation_failed`다.
+  - 게시(`publish_backup`, 스펙 리뷰 P4): 아래 시작 커밋 측정값을 고정하고, Bucket 키 목록으로 manifest가 게시되지 않았음을 확인한다.
+    정상 게시의 키·바이트 고정 테스트는 그대로다.
+- 점검 모듈(`test_recovery_point_audit`): dump 없음·`AccessDenied`의 지점 결과(문서 명령 테스트의 dump 없음 포함)만 바꿨다.
+- 시작 커밋 측정(`509c5cb`, 구현 전 측정 스크립트로 실제 호출)
+  - 객체 없음·`AccessDenied`, 재조회, 없는 지점 ID, 첫 manifest 읽기는 #183 "현재 동작 측정"과 같았다.
+  - 만료 지점만 참조하는 원본 보관본: 없음은 성공(`expired_points: 1`), `AccessDenied`는 `backup_cleanup_unverified`.
+  - 게시: dump 업로드 뒤 다시 읽기의 없음은 `NoSuchKey`, `AccessDenied`는 `ClientError`로 `CheckError`가 아니다.
+    `create`는 `backup_operation_failed`, `daily`는 `backup_job_failed`로 보고한다(두 명령의 `main()` 변환은 코드로 확인).
+    기존 원본 보관본 읽기의 `AccessDenied`는 `CheckError("backup_store_unavailable")`다. 세 경우 모두 manifest는 게시되지 않았다.
+
+### 변경 감지 확인
+
+- 새·바뀐 Bucket·게시 테스트 21개와 같은 범위의 기존 테스트 2개(재조회 JSON 아님, 정상 게시)를 `a06a48b`와 시작 커밋 `509c5cb`의
+  임시 worktree에서 실행했다. 두 커밋 모두 같은 9개가 실패했고 모두 바뀌는 행이다(객체 실패 8개의 `verify`·`download`, 재조회 없음).
+  실패한 8개에서도 `maintain`은 같았고, "변경 없음" 행(재조회 `AccessDenied`, 없는 지점 ID, 첫 manifest 읽기, P1 독립 입력,
+  연결 실패·본문 읽기 중단, 게시 3개)과 기존 2개는 통과했다. 게시 코드(`image_backup.py`)는 두 커밋 사이에 바뀌지 않았다.
+- 점검 모듈 테스트를 #184 완료 커밋 `45fd213`의 임시 worktree에서 실행했다. 13개가 실패했다. #185의 정규화되지 않은 키 10개를
+  빼면 이 티켓이 바꾼 3개(dump 없음·`AccessDenied`, 문서 명령의 dump 없음)뿐이다.
+- 운영 코드를 복사해 두고 변형을 하나씩 넣은 뒤 Bucket·점검·단위 테스트 세 파일을 실행하고 복사본으로 되돌렸다.
+
+| 변형 | 결과 |
+| --- | --- |
+| `verify` 객체 오류 변환 제거 | 11개 실패(Bucket 객체 실패 8, 점검 3) |
+| `download` 원본 보관본 읽기의 변환 제거 | 4개 실패(원본 보관본 없음·`AccessDenied` × 신선·만료) |
+| 재조회 없음을 다시 일반 오류로 | 2개 실패(재조회 없음, `point_unchanged` 단위 테스트) |
+| 공용 `download_verified`에서 변환 | 2개 실패(게시 dump 다시 읽기의 없음·`AccessDenied`) |
+| 공용 `read`에서 변환 | 4개 실패(게시 원본 보관본 `AccessDenied`, 재조회·첫 manifest 읽기 `AccessDenied`, 점검 receipt `AccessDenied`) |
+| `verify`가 `ClientError` 대신 모든 예외를 변환(추가) | 4개 실패(연결 실패·본문 읽기 중단) |
+| `download` dump 내려받기의 변환 제거(추가) | 4개 실패(dump 없음·`AccessDenied` × 신선·만료) |

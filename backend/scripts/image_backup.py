@@ -41,20 +41,28 @@ def materialize_backup(store, backup_id, directory):
     """Download a complete point into a new private directory; no source is changed.
 
     The manifest is checked against the contract before the directory is created.
+    Any S3 error reading the point's objects is `backup_object_missing_or_unavailable`.
     """
     manifest = read_point_manifest(store, backup_id)
     directory.mkdir(mode=0o700)
     database = directory / "database.dump"
-    store.download_verified(
-        point_dump_key(backup_id),
-        database,
-        manifest["database"]["size_bytes"],
-        manifest["database"]["sha256"],
-    )
+    try:
+        store.download_verified(
+            point_dump_key(backup_id),
+            database,
+            manifest["database"]["size_bytes"],
+            manifest["database"]["sha256"],
+        )
+    except ClientError as exc:
+        raise CheckError("backup_object_missing_or_unavailable") from exc
     archive_path = directory / "images.tar"
     with tarfile.open(archive_path, "w") as archive:
         for asset in manifest["assets"]:
-            content = store.read(asset["backup_key"])
+            try:
+                content = store.read(asset["backup_key"])
+            except (FileNotFoundError, CheckError) as exc:
+                # How `read` reports an S3 error: missing, or backup_store_unavailable.
+                raise CheckError("backup_object_missing_or_unavailable") from exc
             require(
                 len(content) == asset["size_bytes"]
                 and hashlib.sha256(content).hexdigest() == asset["sha256"],
@@ -236,12 +244,18 @@ class BackupBucket:
 
 
 def verify_backup(store, backup_id):
-    """Read every referenced object without writing a local DB/image copy."""
+    """Read every referenced object without writing a local DB/image copy.
+
+    Any S3 error reading the point's objects is `backup_object_missing_or_unavailable`.
+    """
     manifest = read_point_manifest(store, backup_id)
     database, assets = manifest["database"], manifest["assets"]
     objects = [database, *assets]
     for item in objects:
-        store.verify_object(item["backup_key"], item["size_bytes"], item["sha256"])
+        try:
+            store.verify_object(item["backup_key"], item["size_bytes"], item["sha256"])
+        except ClientError as exc:
+            raise CheckError("backup_object_missing_or_unavailable") from exc
     # Detect retirement/replacement during verification without taking a write lock.
     require(point_unchanged(store, backup_id, manifest), "backup_point_changed")
     return {
