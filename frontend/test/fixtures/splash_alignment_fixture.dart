@@ -278,8 +278,8 @@ Map<String, Object?> splashJudgment(Map<String, Object?> m) {
   );
   check(
     lf,
-    near(l['width'], 148.771) && near(l['height'], 50),
-    'logo148.771x50',
+    near(l['width'], 154.348) && near(l['height'], 50),
+    'logo154.348x50',
   );
   check(
     lf,

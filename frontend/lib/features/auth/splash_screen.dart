@@ -60,7 +60,7 @@ class _SplashScreenState extends State<SplashScreen> {
                                   SvgPicture.asset(
                                     'assets/figma/splash-a01-logo.svg',
                                     key: const ValueKey('splash-a01-logo'),
-                                    width: 148.771,
+                                    width: 154.348,
                                     height: 50,
                                   ),
                                   const SizedBox(height: 16),
