@@ -1,4 +1,4 @@
-# DB·이미지 백업의 격리 복원 검사
+# DB·이미지 백업의 격리 복원 검증
 
 운영 백업의 읽기 전용 입력으로 새 로컬 Docker 자원에 복원하는 도구입니다.
 운영 접속·서비스 중지·백업 다운로드·운영 복구 전환은 수행하지 않습니다.
@@ -174,7 +174,7 @@ receipt를 검증해 보관하고, 완료 manifest를 내린 뒤 지점 dump와 
 중단된 지점의 하루 이상 된 잔여 파일도 정리합니다. 삭제 기록은 복구에 필요하므로 지우지 않습니다.
 유지할 지점의 dump·원본 존재와 크기를 HEAD로 확인하며 누락·크기 손상은 성공으로 보고하지
 않습니다. 전체 바이트 SHA 검사는 게시 시와 복원 다운로드 시 수행합니다. 시간별 작업이 매번
-모든 DB dump를 내려받지는 않으므로 같은 크기의 손상 검출은 다음 게시/격리 복원 검사와 구분합니다.
+모든 DB dump를 내려받지는 않으므로 같은 크기의 손상 검출은 다음 게시/격리 복원 검증와 구분합니다.
 
 6일 기준은 시간별 재시도에 하루의 여유를 둡니다. 실제로 삭제 후 7일에 도달한 사본이 발견되면
 정리를 마쳐도 그 실행은 `retention_overdue`와 `passed: false`로 목표 미충족을 보고합니다.
@@ -328,9 +328,12 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - 필수 필드가 없거나 JSON 형식이 다르면(문자열 자리의 null·숫자·불리언·배열·객체 등) 거부합니다.
 - `database.size_bytes`는 양의 정수, asset `size_bytes`는 0 이상의 정수입니다.
   해시는 소문자 64자리 문자열이고 `captured_at`·`sample.saved_at`에는 시간대가 있어야 합니다.
-- asset `id`는 서로 다른 양의 정수입니다. `storage_key`는 빈 값·절대 경로·`..`·역슬래시가 없는 상대 경로입니다.
+- asset `id`는 서로 다른 양의 정수입니다. `storage_key`는 빈 값·절대 경로·`..`·역슬래시가 없는 상대 경로이며,
+  POSIX 경로로 정규화한 문자열과 글자가 같고 `.`이 아니어야 합니다. 따라서 `u/./1.png`·`./u/1.png`·`u//1.png`·`u/1.png/`·`.`은
+  거부합니다. 업로드는 `screenshots/<user_id>/<uuid4 hex>.<확장자>` 형식의 키만 만들어 이런 키가 생기지 않으며,
+  생기면 `maintain`이 `invalid_manifest`로 멈춥니다.
   `sample`은 asset이 없을 때만 `null`이며, 있으면 `sample.asset_id`가 asset 목록에 있어야 합니다.
-- asset의 tar 경로(`local`은 `screenshots/`, `s3`는 `s3/` 뒤에 `storage_key`를 붙여 POSIX 경로로 정규화)가
+- asset의 tar 경로(`local`은 `screenshots/`, `s3`는 `s3/` 뒤에 `storage_key`를 붙인 POSIX 경로)가
   다른 asset과 같거나 한쪽이 다른 쪽의 상위 경로이면 거부합니다. `download`가 한 archive에 함께 담을 수 없기 때문입니다.
 - `format_version: 1` 다운로드 폴더는 계속 읽으며 v2 전용 검사(`database.backup_key`, asset의 v2 필드,
   tar 경로 충돌)는 하지 않습니다.
@@ -342,12 +345,17 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 - `verify`·`download`·`maintain`은 Bucket 객체를 읽기 전에 manifest를 검사합니다.
   계약 위반과 객체 크기·해시 불일치나 객체 없음이 함께 있어도 `invalid_manifest`입니다.
   `download`는 다운로드 폴더를 만들기 전에 검사하므로 손상 manifest로는 폴더가 생기지 않습니다.
+- 완료 지점의 dump나 원본 보관본이 없거나 읽을 때 S3 오류가 나면 `verify`·`download`와 `maintain`의 보존 지점 확인이
+  모두 `backup_object_missing_or_unavailable`입니다. `maintain`은 만료 지점만 참조하는 객체를 확인하지 않고 정리하며,
+  지운 뒤 없어졌음을 확인하지 못하면(예: 읽기 권한 없음) `backup_cleanup_unverified`입니다.
 - `verify`는 객체를 확인한 뒤 manifest를 다시 읽어 처음 읽은 값과 비교합니다. 다르거나 JSON으로
-  읽을 수 없으면 `backup_point_changed`입니다. 다시 읽은 manifest에는 계약 검사를 하지 않습니다.
+  읽을 수 없거나 없으면 `backup_point_changed`이고, 다시 읽을 때 그 밖의 S3 오류가 나면 `backup_store_unavailable`입니다.
+  다시 읽은 manifest에는 계약 검사를 하지 않습니다.
+- 없는 지점 ID로 `verify`·`download`를 실행하면 `backup_operation_failed`이고, `download`는 폴더를 만들지 않습니다.
 - `maintain`은 완료 지점 manifest를 모두 읽은 뒤 정리 receipt마다 이름(`invalid_gc_receipt`), JSON 객체,
   같은 ID 완료 지점과의 충돌(`gc_receipt_conflict`)을 확인합니다. 그다음 지점마다 `format_version`이 2가
   아니면 `retention_requires_v2`, 계약 위반이면 `invalid_manifest`입니다. 하나라도 실패하면 아무것도 지우지 않습니다.
-- 격리 복원 검사·`restore-check`·`restore_execution prepare`는 최상위 필드 → DB·이미지 파일의 항목·크기·해시
+- 격리 복원 검증·`restore-check`·`restore_execution prepare`는 최상위 필드 → DB·이미지 파일의 항목·크기·해시
   → archive 안전 검사 → asset마다 필드·tar 경로 충돌·archive 포함 여부(`missing_asset`) → `sample` → 디스크 여유
   순서로 검사해 먼저 걸린 코드를 보고합니다. 예를 들어 DB 해시 불일치와 asset 계약 위반이 겹치면
   `backup_hash_mismatch`입니다. `image_migration apply`는 모든 실패를 `migration_precondition_or_storage_unavailable`로 보고합니다.
@@ -357,9 +365,10 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 ### `maintain`이 `invalid_manifest`로 멈췄을 때
 
-`maintain`은 원인 지점을 출력하지 않습니다. 멈춘 실행은 아무것도 지우지 않았으므로 아래 순서로 확인합니다.
+`maintain`은 완료 지점 manifest나 정리 receipt 하나라도 위 계약(필드 기준, `storage_key` 정규화 규칙 포함)에
+어긋나면 멈춥니다. 원인 지점은 출력하지 않습니다. 멈춘 실행은 아무것도 지우지 않았으므로 아래 순서로 확인합니다.
 
-1. `maintain`과 같은 리비전의 `backend/`에서 아래 읽기 전용 점검으로 실패한 완료 지점·정리 receipt를 찾습니다.
+1. `maintain`과 같은 리비전의 `backend/`에서 아래 읽기 전용 점검 모듈로 실패한 완료 지점·정리 receipt를 찾습니다.
    완료 지점마다 `verify`를 실행하고, 정리 receipt는 이름·충돌·내용만 검사합니다. receipt만 남은 지점은
    객체 일부가 이미 지워졌을 수 있어 객체를 확인하지 않습니다. Bucket에 쓰지 않습니다.
 2. 실패한 지점·receipt의 처리(보존, 별도 정리)는 운영자가 따로 결정합니다. 이 절차는 운영 지점을 고치거나 다시 게시하지 않습니다.
@@ -368,67 +377,21 @@ projection이며 시각은 UTC ISO로 정규화합니다. 실제 콘텐츠 문�
 
 ```sh
 cd backend
-YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python - /absolute/private/backup-bucket.json <<'EOF'
-import json
-import sys
-from datetime import UTC, datetime
-from pathlib import Path
-
-from scripts.image_backup import BackupBucket, verify_backup
-from scripts.operator_errors import CheckError, require
-from scripts.recovery_point import (
-    RECEIPTS_PREFIX,
-    canonical_json,
-    check_point_manifest,
-    completed_points,
-    read_point_json,
-    read_retiring_points,
-)
-
-
-def outcome(check):
-    try:
-        check()
-        return "passed"
-    except CheckError as exc:
-        return str(exc)
-    except Exception as exc:
-        return type(exc).__name__
-
-
-def check_receipt(identifier, manifest):
-    # Same order as maintain; the receipt's objects may already be gone, so none are read.
-    if identifier in points:
-        require(canonical_json(read_point_json(store, identifier)) == canonical_json(manifest),
-                "gc_receipt_conflict")
-    require(manifest.get("format_version") == 2, "retention_requires_v2")
-    check_point_manifest(manifest, identifier)
-
-
-store = BackupBucket.from_config_file(Path(sys.argv[1]))
-report = {"checked_at": datetime.now(UTC).isoformat(timespec="seconds"), "points": {}}
-points = completed_points(store)
-for identifier in points:
-    report["points"][identifier] = outcome(lambda: verify_backup(store, identifier))
-report["receipts"] = dict.fromkeys(
-    (item["key"] for item in store.list_objects(RECEIPTS_PREFIX)), "not_checked"
-)
-try:
-    for identifier, key, manifest in read_retiring_points(store):
-        report["receipts"][key] = outcome(lambda: check_receipt(identifier, manifest))
-except CheckError as exc:
-    # Receipts are read in key order; reading stops at the first bad name or JSON.
-    first = next(key for key, value in report["receipts"].items() if value == "not_checked")
-    report["receipts"][first] = str(exc)
-report["passed"] = all(
-    value == "passed" for value in [*report["points"].values(), *report["receipts"].values()]
-)
-print(json.dumps(report, indent=2, sort_keys=True))
-EOF
+YOUTUBE_SUMMARY_ENABLED=false .venv/bin/python -m scripts.recovery_point_audit --backup-config-file /absolute/private/backup-bucket.json
 ```
 
-결과의 `points`는 완료 지점 ID별, `receipts`는 정리 receipt 키별 결과이며 `passed`가 아니면 오류 코드입니다.
-`not_checked`는 앞선 receipt에서 읽기가 멈춰 확인하지 못한 receipt입니다. 출력에는 Bucket 이름·자격이 없습니다.
+`--backup-config-file`을 빼면 `BACKUP_BUCKET_CONFIG_JSON`을 읽습니다. 점검 모듈은 운영자 로컬 `backend/`에서만
+실행하며 operator 이미지에는 들어 있지 않습니다. 출력은 JSON 하나입니다.
+
+- `points`는 완료 지점 ID별, `receipts`는 정리 receipt 키별 결과이며 `passed`가 아니면 오류 코드입니다.
+  오류 코드가 아닌 실패는 예외 클래스 이름입니다(예: 목록을 확인한 뒤 receipt가 사라지면 `FileNotFoundError`).
+- receipt는 키 순서로 읽습니다. 읽기가 멈추면 그 receipt에 원인을 적고, 뒤의 receipt는 확인하지 못한
+  `not_checked`입니다.
+- 모든 지점·receipt가 `passed`이면 `"passed": true`이고 종료 코드 0, 하나라도 아니면 `"passed": false`이고 종료 코드 1입니다.
+- 설정 파일 읽기, 완료 지점 목록이나 receipt 목록 조회처럼 지점·receipt를 특정할 수 없는 실패는
+  `{"passed": false, "error": "<오류 코드 또는 예외 클래스 이름>"}`만 출력하고 종료 코드 1입니다.
+  앞서 확인한 지점 결과는 싣지 않으므로 원인을 고친 뒤 다시 실행합니다.
+- 출력에는 Bucket 이름·자격·설정 파일 경로가 없습니다.
 
 **되돌리기**: operator 이미지와 운영자 로컬 CLI를 이 검사 기준이 들어오기 직전 main 리비전으로 되돌립니다.
 그 리비전까지는 이 절의 검사가 없어 이전 동작으로 정리를 이어 갑니다. 리비전은 `point_unchanged`를 처음 추가한

@@ -237,8 +237,7 @@ def test_point_unchanged_compares_the_reread_without_the_contract(store):
     put(store, key, b"not json")
     assert recovery_point.point_unchanged(store, "target", value) is False
     store.client.delete_object(Bucket=BUCKET, Key=key)
-    with pytest.raises(FileNotFoundError):
-        recovery_point.point_unchanged(store, "target", value)
+    assert recovery_point.point_unchanged(store, "target", value) is False
 
 
 def test_retiring_points_yield_receipt_id_key_and_manifest_in_order(store):

@@ -4,11 +4,15 @@
 real `main()`. The backup Bucket is moto. For `maintain` only the runtime assembly (DB lock,
 maintenance gate, deletion ledger wiring) is replaced. #161 fixed the outputs measured on
 main 06bc24d; #167 changed only the expected values listed in spec #156's tables: every
-contract violation is `invalid_manifest`, checked before any object is read.
+contract violation is `invalid_manifest`, checked before any object is read. #185 added the
+unnormalized storage_key cases, which `verify` and `maintain` accepted before. #186 changed
+`verify` and `download` to report a completed point's missing or unreadable objects with the
+code `maintain` uses, and pinned the outputs around them, publishing's included.
 """
 
 import asyncio
 import hashlib
+import io
 import json
 import sys
 from contextlib import asynccontextmanager
@@ -16,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 from moto import mock_aws
 from pydantic import SecretStr
 
@@ -110,9 +115,21 @@ CORRUPTIONS = {
     "asset_backup_key_elsewhere": assign("assets", 0, "backup_key", value="originals/elsewhere"),
 }
 
+# A storage_key must equal its normalized POSIX path and must not be `.` (#185).
+UNNORMALIZED_KEYS = {
+    "dot_step": "u/./1.png", "leading_dot": "./u/1.png", "empty_step": "u//1.png",
+    "trailing_slash": "u/1.png/", "dot": ".",
+}
+CORRUPTIONS |= {
+    f"storage_key_{name}_{backend}": assign("assets", index, "storage_key", value=key)
+    for name, key in UNNORMALIZED_KEYS.items()
+    for index, backend in enumerate(["local", "s3"])
+}
+
 # Asset tar paths: screenshots/ or s3/ + storage_key.
 TAR_COLLISIONS = {
     "same_storage_key": ("u/1.png", "u/1.png"),
+    # Still invalid_manifest, now from the storage_key rule on `u/./1.png` before any collision.
     "same_after_normalizing": ("u/./1.png", "u/1.png"),
     "parent_and_child": ("u/1.png", "u/1.png/x"),
 }
@@ -416,7 +433,7 @@ def test_verify_reread_that_is_not_json(bucket, monkeypatch, capsys):
 
 
 def test_verify_reread_of_a_removed_manifest(bucket, monkeypatch, capsys):
-    """A missing object stays the generic failure; only an unreadable reread is a change."""
+    """A manifest removed while the objects are read is a changed point, like a replaced one."""
     now = datetime.now(UTC)
     bucket.point("target", manifest("target", (now - FRESH).isoformat()))
 
@@ -427,7 +444,175 @@ def test_verify_reread_of_a_removed_manifest(bucket, monkeypatch, capsys):
     bucket.client.meta.events.register(
         "before-parameter-build.s3.GetObject", remove_while_objects_are_read
     )
-    assert verify(monkeypatch, capsys) == failure(OPERATION)
+    assert verify(monkeypatch, capsys) == failure("backup_point_changed")
+
+
+MANIFEST_KEY, DUMP_KEY = "points/target/manifest.json", "points/target/database.dump"
+# The s3 asset's original; the anchor point of `corrupted_target` uses it too.
+S3_ORIGINAL = "originals/sha256/" + digest(BUCKET_BYTES)
+MISSING, STORE = "backup_object_missing_or_unavailable", "backup_store_unavailable"
+CLEANUP = "backup_cleanup_unverified"
+
+
+def denied(operation):
+    return ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, operation)
+
+
+def deny_reads(key):
+    """GetObject and HeadObject of `key` answer AccessDenied."""
+    def apply(bucket):
+        for operation in ("GetObject", "HeadObject"):
+            def refuse(params, operation=operation, **kwargs):
+                if params.get("Key") == key:
+                    raise denied(operation)
+
+            bucket.client.meta.events.register(f"before-parameter-build.s3.{operation}", refuse)
+    return apply
+
+
+def test_verify_reread_denied(bucket, monkeypatch, capsys):
+    """Any other S3 error of the reread stays the store failure."""
+    bucket.point("target", manifest("target", (datetime.now(UTC) - FRESH).isoformat()))
+    reads = []
+
+    def deny_the_reread(params, **kwargs):
+        if params.get("Key") == MANIFEST_KEY:
+            reads.append(params)
+            if len(reads) == 2:
+                raise denied("GetObject")
+
+    bucket.client.meta.events.register("before-parameter-build.s3.GetObject", deny_the_reread)
+    assert verify(monkeypatch, capsys) == failure(STORE)
+
+
+def test_missing_point_id_outputs(bucket, monkeypatch, capsys, tmp_path):
+    """No completed point has this ID: the generic failure, and download creates no folder."""
+    bucket.point("anchor", manifest("anchor", (datetime.now(UTC) - FRESH).isoformat()))
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+    }
+    assert actual == {"verify": failure(OPERATION), "download": (*failure(OPERATION), None)}
+
+
+def test_first_manifest_read_denied_outputs(bucket, monkeypatch, capsys, tmp_path):
+    bucket.point("target", manifest("target", (datetime.now(UTC) - FRESH).isoformat()))
+    deny_reads(MANIFEST_KEY)(bucket)
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+    }
+    assert actual == {"verify": failure(STORE), "download": (*failure(STORE), None)}
+
+
+OBJECT_FAILURES = {
+    "dump_missing": lambda bucket: bucket.delete(DUMP_KEY),
+    "original_missing": lambda bucket: bucket.delete(S3_ORIGINAL),
+    "dump_denied": deny_reads(DUMP_KEY),
+    "original_denied": deny_reads(S3_ORIGINAL),
+}
+DUMP_AND_ARCHIVE = ["database.dump", "images.tar"]
+# case: (folder left by download, maintain fresh, maintain expired); verify and download report
+# MISSING. maintain checks only the objects of retained points (the anchor shares the original)
+# and removes an expired point's objects unchecked; a denied removal is not confirmed.
+OBJECT_FAILURE_OUTPUTS = {
+    "dump_missing": ([], MISSING, retention(1, 0, 1)),
+    "original_missing": (DUMP_AND_ARCHIVE, MISSING, MISSING),
+    "dump_denied": ([], MISSING, CLEANUP),
+    "original_denied": (DUMP_AND_ARCHIVE, MISSING, MISSING),
+}
+
+
+@pytest.mark.parametrize("age", ["fresh", "expired"])
+@pytest.mark.parametrize("case", OBJECT_FAILURES)
+def test_completed_point_object_failure_outputs(case, age, bucket, maintenance_runtime,
+                                                monkeypatch, capsys, tmp_path):
+    now = datetime.now(UTC)
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
+    bucket.point("target", manifest("target",
+                                    (now - (FRESH if age == "fresh" else EXPIRED)).isoformat()))
+    OBJECT_FAILURES[case](bucket)
+    left, fresh, expired = OBJECT_FAILURE_OUTPUTS[case]
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+        "maintain": maintain(monkeypatch, capsys),
+    }
+    assert actual == {
+        "verify": failure(MISSING),
+        "download": (*failure(MISSING), left),
+        "maintain": outcome(fresh if age == "fresh" else expired),
+    }
+
+
+@pytest.mark.parametrize("case", ["missing", "denied"])
+def test_maintain_removes_an_original_only_an_expired_point_uses(case, bucket, maintenance_runtime,
+                                                                 monkeypatch, capsys):
+    """The retained anchor uses another original, so the expired target's are not checked."""
+    now = datetime.now(UTC)
+    anchor = b"anchor original"
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat(),
+                                    [asset(1, "local", "a.png", anchor)]), originals=(anchor,))
+    bucket.point("target", manifest("target", (now - EXPIRED).isoformat()))
+    if case == "missing":
+        bucket.delete(S3_ORIGINAL)
+    else:
+        deny_reads(S3_ORIGINAL)(bucket)
+    expected = (0, retention(1, 1, 1)) if case == "missing" else failure(CLEANUP)
+    assert maintain(monkeypatch, capsys) == expected
+
+
+class InterruptedBody(io.RawIOBase):
+    def readinto(self, buffer):
+        raise ReadTimeoutError(endpoint_url="https://backup.invalid")
+
+
+def interrupt_body(key):
+    def apply(bucket):
+        requested = []
+
+        def remember(params, **kwargs):
+            requested.append(params.get("Key"))
+
+        def interrupt(parsed, **kwargs):
+            if requested[-1] == key:
+                parsed["Body"] = InterruptedBody()
+
+        bucket.client.meta.events.register("before-parameter-build.s3.GetObject", remember)
+        bucket.client.meta.events.register("after-call.s3.GetObject", interrupt)
+    return apply
+
+
+def fail_connection(key):
+    def apply(bucket):
+        def refuse(params, **kwargs):
+            if params.get("Key") == key:
+                raise EndpointConnectionError(endpoint_url="https://backup.invalid")
+
+        bucket.client.meta.events.register("before-parameter-build.s3.GetObject", refuse)
+    return apply
+
+
+# case: (damage, folder left by download). Not S3 responses, so the generic failure.
+NOT_S3_ERRORS = {
+    "dump_connection_failed": (fail_connection(DUMP_KEY), []),
+    "dump_body_interrupted": (interrupt_body(DUMP_KEY), ["database.dump"]),
+    "original_connection_failed": (fail_connection(S3_ORIGINAL), DUMP_AND_ARCHIVE),
+    "original_body_interrupted": (interrupt_body(S3_ORIGINAL), DUMP_AND_ARCHIVE),
+}
+
+
+@pytest.mark.parametrize("case", NOT_S3_ERRORS)
+def test_object_read_failure_that_is_not_an_s3_error(case, bucket, monkeypatch, capsys,
+                                                     tmp_path):
+    bucket.point("target", manifest("target", (datetime.now(UTC) - FRESH).isoformat()))
+    damage, left = NOT_S3_ERRORS[case]
+    damage(bucket)
+    actual = {
+        "verify": verify(monkeypatch, capsys),
+        "download": download(tmp_path / "download", monkeypatch, capsys),
+    }
+    assert actual == {"verify": failure(OPERATION), "download": (*failure(OPERATION), left)}
 
 
 def test_download_reports_contract_violation_before_dump_mismatch(bucket, monkeypatch, capsys,
@@ -594,3 +779,78 @@ def test_publishing_fixed_input_writes_fixed_keys_and_bytes(
     assert body("points/first/manifest.json") == FIRST_MANIFEST
     assert body("gc/points/first.json") == FIRST_MANIFEST
     assert body("points/second/manifest.json") == SECOND_MANIFEST
+
+
+LOCAL_ORIGINAL = "originals/sha256/" + digest(LOCAL_BYTES)
+PUBLISHED_DUMP = "points/point/database.dump"
+
+
+def remove_when_read(key):
+    def apply(bucket):
+        def remove(params, **kwargs):
+            if params.get("Key") == key:
+                bucket.delete(key)
+
+        bucket.client.meta.events.register("before-parameter-build.s3.GetObject", remove)
+    return apply
+
+
+def deny_get(key):
+    def apply(bucket):
+        def refuse(params, **kwargs):
+            if params.get("Key") == key:
+                raise denied("GetObject")
+
+        bucket.client.meta.events.register("before-parameter-build.s3.GetObject", refuse)
+    return apply
+
+
+PUBLISH_FAILURES = {
+    "dump_readback_missing": remove_when_read(PUBLISHED_DUMP),
+    "dump_readback_denied": deny_get(PUBLISHED_DUMP),
+    "existing_original_denied": lambda bucket: (bucket.put(LOCAL_ORIGINAL, LOCAL_BYTES),
+                                                deny_get(LOCAL_ORIGINAL)(bucket)),
+}
+# case: (raised, Bucket keys after the failure). create and daily print a CheckError's code and
+# report any other exception as backup_operation_failed and backup_job_failed. Measured on the
+# start commit 509c5cb of #186; the manifest is never published.
+PUBLISH_FAILURE_OUTPUTS = {
+    "dump_readback_missing": (("NoSuchKey", None), [LOCAL_ORIGINAL]),
+    "dump_readback_denied": (("ClientError", None), [LOCAL_ORIGINAL, PUBLISHED_DUMP]),
+    "existing_original_denied": (("CheckError", STORE), [LOCAL_ORIGINAL]),
+}
+
+
+@pytest.mark.parametrize("case", PUBLISH_FAILURES)
+def test_publishing_object_failure_publishes_no_manifest(case, bucket, tmp_path):
+    """Publishing keeps its own object errors; only verify and download changed in #186."""
+    from app.core.config import Settings
+    from app.integrations.storage_client import StorageRouter
+    from scripts.image_backup import BackupBucket, publish_backup
+    from scripts.operator_errors import CheckError
+
+    (tmp_path / "a.png").write_bytes(LOCAL_BYTES)
+    dump = tmp_path / "database.dump"
+    dump.write_bytes(DUMP)
+    storage = StorageRouter(Settings(
+        _env_file=None, app_environment="test", youtube_summary_enabled=False,
+        storage_backend="local", storage_root=tmp_path,
+    ))
+    snapshot = manifest("unused", "unused", [asset(1, "local", "a.png", LOCAL_BYTES)])
+    snapshot = {key: snapshot[key] for key in (
+        "migration_revisions", "tables", "category_links_sha256", "sample", "extra_file_count",
+    )} | {"assets": [{key: value for key, value in snapshot["assets"][0].items()
+                      if key != "backup_key"}]}
+    PUBLISH_FAILURES[case](bucket)
+    try:
+        asyncio.run(publish_backup(
+            BackupBucket(bucket.client, BUCKET), backup_id="point", snapshot=snapshot,
+            database=dump, storage=storage, captured_at="2026-10-01T00:00:00+00:00",
+            app_commit="a" * 40, postgres_major=17, origin="synthetic",
+        ))
+        raised = None
+    except CheckError as exc:
+        raised = ("CheckError", str(exc))
+    except Exception as exc:
+        raised = (type(exc).__name__, None)
+    assert (raised, bucket.keys()) == PUBLISH_FAILURE_OUTPUTS[case]

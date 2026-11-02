@@ -6,6 +6,7 @@ manifest passes every pre-Docker check reports `docker_command_failed`. For `res
 the DB lock and deletion ledger wiring are replaced. #162 fixed the outputs measured on main
 06bc24d; #167 changed only the expected values listed in spec #156's tables: a format 2 folder
 keeps the published contract plus its `images` entry, and the check stages keep their order.
+#185 changed the unnormalized storage_key cases from `missing_asset` to `invalid_manifest`.
 """
 
 import io
@@ -23,6 +24,7 @@ from tests.deployment.test_recovery_point_bucket_outputs import (
     DUMP,
     LOCAL_BYTES,
     TAR_COLLISIONS,
+    UNNORMALIZED_KEYS,
     asset,
     assign,
     delete,
@@ -275,9 +277,7 @@ def colliding_assets(case):
 
 @pytest.mark.parametrize("case,code", [
     ("same_storage_key", INVALID),
-    # The archive membership check compares the key as written, so `u/./1.png` is already
-    # missing at the first asset, before the second one collides with it (stage order kept).
-    ("same_after_normalizing", "missing_asset"),
+    ("same_after_normalizing", INVALID),
     (("u/1.png", "u/./1.png"), INVALID),
     ("parent_and_child", INVALID),
 ], ids=["same_storage_key", "same_after_normalizing", "same_after_normalizing_second",
@@ -287,6 +287,23 @@ def test_colliding_asset_tar_path_outputs(case, code, failing_docker, credential
     directory = write_folder(tmp_path / "backup", colliding_assets(case),
                              checkpoint=ledger.read_checkpoint_tip())
     assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(code)
+
+
+def unnormalized_assets(key, index):
+    """Healthy assets with one storage_key replaced; the archive holds its normalized path."""
+    assets = list(HEALTHY_ASSETS)
+    item, body = assets[index]
+    assets[index] = ({**item, "storage_key": key}, body)
+    return assets
+
+
+@pytest.mark.parametrize("index", [0, 1], ids=["local", "s3"])
+@pytest.mark.parametrize("key", UNNORMALIZED_KEYS.values(), ids=UNNORMALIZED_KEYS)
+def test_unnormalized_storage_key_outputs(key, index, failing_docker, credentials, ledger,
+                                          monkeypatch, capsys, tmp_path):
+    directory = write_folder(tmp_path / "backup", unnormalized_assets(key, index),
+                             checkpoint=ledger.read_checkpoint_tip())
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
 
 
 def break_images_file(directory):
@@ -341,6 +358,13 @@ def test_non_string_asset_sha256_outputs(sha256, failing_docker, credentials, le
     (asset_outside_archive(0), assign("assets", 1, "content_id", value=0), "missing_asset"),
     (asset_outside_archive(1), assign("assets", 1, "content_id", value=0), INVALID),
     (asset_outside_archive(0), assign("sample", "asset_id", value=9), "missing_asset"),
+    # The storage_key rule is one of the asset fields: after the file hashes, and an earlier
+    # asset missing from the archive comes first.
+    (change_dump_bytes, assign("assets", 1, "storage_key", value="u/./1.png"),
+     "backup_hash_mismatch"),
+    (asset_outside_archive(0), assign("assets", 1, "storage_key", value="u/./1.png"),
+     "missing_asset"),
+    (asset_outside_archive(1), assign("assets", 0, "storage_key", value="./a.png"), INVALID),
     # The format 2 database key is checked with the database entry, before its file hash.
     (change_dump_bytes, assign("database", "backup_key", value="points/other/database.dump"),
      INVALID),
@@ -352,6 +376,8 @@ def test_non_string_asset_sha256_outputs(sha256, failing_docker, credentials, le
     "images_file_missing_and_database_hash", "database_hash_and_asset_violation",
     "unsafe_archive_and_asset_violation", "missing_asset_and_later_asset_violation",
     "asset_violation_and_its_missing_archive_entry", "missing_asset_and_sample_unknown",
+    "database_hash_and_unnormalized_key", "missing_asset_and_later_unnormalized_key",
+    "unnormalized_key_and_later_missing_asset",
     "database_key_violation_and_database_hash", "database_key_violation_and_images_file_missing",
 ])
 def test_folder_check_order_outputs(damage, change, code, failing_docker, credentials, ledger,
@@ -428,6 +454,14 @@ def test_format_version_1_folder_with_a_missing_field_is_a_contract_violation(
     value = json.loads((directory / "manifest.json").read_bytes())
     del value["postgres_major"]
     (directory / "manifest.json").write_text(json.dumps(value))
+    assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
+
+
+@pytest.mark.parametrize("key", UNNORMALIZED_KEYS.values(), ids=UNNORMALIZED_KEYS)
+def test_format_version_1_folder_with_an_unnormalized_storage_key(
+    key, failing_docker, credentials, ledger, monkeypatch, capsys, tmp_path
+):
+    directory = format_version_1_folder(tmp_path / "backup", unnormalized_assets(key, 0)[:1])
     assert outputs(directory, credentials, monkeypatch, capsys, tmp_path) == expected(INVALID)
 
 

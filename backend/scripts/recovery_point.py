@@ -110,19 +110,23 @@ def read_point_manifest(store, backup_id):
 
 
 def point_unchanged(store, backup_id, manifest):
-    """Whether the published manifest still equals `manifest`; the reread is not checked."""
+    """Whether the published manifest still equals `manifest`; the reread is not checked.
+
+    A manifest that is gone or not JSON has changed; any other S3 error is raised.
+    """
     try:
         return json.loads(store.read(point_manifest_key(backup_id))) == manifest
-    except ValueError:
+    except (FileNotFoundError, ValueError):
         return False
 
 
-def read_retiring_points(store):
+def read_retiring_points(store, items=None):
     """Yield (backup ID, receipt key, manifest) per cleanup receipt, one receipt at a time.
 
+    `items` is a receipt listing the caller already has; otherwise the receipts are listed here.
     The receipt name and a JSON object are checked here; the caller checks the contract.
     """
-    for item in store.list_objects(RECEIPTS_PREFIX):
+    for item in store.list_objects(RECEIPTS_PREFIX) if items is None else items:
         identifier = receipt_backup_id(item["key"])
         require(identifier is not None, "invalid_gc_receipt")
         manifest = _parse_manifest(store.read(item["key"]))
@@ -315,7 +319,9 @@ def _check_manifest(manifest, *, backup_id=None, directory=None):
             and key
             and not PurePosixPath(key).is_absolute()
             and ".." not in PurePosixPath(key).parts
-            and "\\" not in key,
+            and "\\" not in key
+            and str(PurePosixPath(key)) == key
+            and key != ".",
             "invalid_manifest",
         )
         size = _field(asset, "size_bytes")
