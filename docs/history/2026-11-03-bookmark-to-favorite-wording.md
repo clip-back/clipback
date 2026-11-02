@@ -34,7 +34,8 @@
 - 수정 후 바뀐 부분 테스트(`favorite_wording_test.dart` 등 8개 파일) 162개 통과, `flutter analyze --no-pub` 문제 없음.
 - 전체 검사: `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-198`을 `9709e88`에서 한 번 돌렸다.
   `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter test --no-pub` 2031개 통과(건너뜀 0),
-  백엔드 pytest 1896개 통과·46개 건너뜀(Docker·운영자 이미지가 필요한 배포 테스트, 이번 변경과 무관).
+  백엔드 pytest 1896개 통과·46개 건너뜀(배포 테스트 45개는 Docker·이미지 필요, 이미지 저장소 CLI 통합 테스트 1개는
+  `CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 미설정. 모두 이번 변경과 무관).
 
 ## 시뮬레이터·에뮬레이터 실행 (2026-11-03)
 
