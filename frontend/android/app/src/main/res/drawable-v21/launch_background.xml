@@ -5,7 +5,7 @@
             <solid android:color="#FFD75C" />
         </shape>
     </item>
-    <item android:width="148.771dp" android:height="50dp" android:gravity="center">
+    <item android:width="154.512dp" android:height="50dp" android:gravity="center">
         <bitmap android:src="@drawable/splash_a01_logo" android:gravity="fill" android:filter="true" />
     </item>
 </layer-list>

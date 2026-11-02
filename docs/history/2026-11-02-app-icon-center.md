@@ -39,7 +39,11 @@
     로고–문구 간격 16은 그대로다.
 - 테스트: `splash_alignment_test.dart`에 SVG의 viewBox 가운데가 글자 범위 가운데이고 위젯 크기가 viewBox 크기와 같은지 보는 검사를 더했고,
   A01 판정(`splash_alignment_fixture.dart`)의 로고 폭을 154.348로 바꿨다.
-- Android 12 미만 시작 화면 `res/drawable-nodpi/splash_a01_logo.png`는 이슈 범위가 아니라 바꾸지 않았다(글자 중심이 596px 캔버스에서 −11.62px).
+- Android 11 이하 시작 화면 `res/drawable-nodpi/splash_a01_logo.png`(2026-11-02 사용자 결정으로 범위 추가, #180 댓글):
+  로고가 596×200 캔버스를 꽉 채워(글자 x=0부터, 반짝임 x=595까지) 같은 크기로는 옮기면 반짝임이 잘린다.
+  그래서 Flutter SVG처럼 캔버스를 왼쪽으로 넓혔다. 왼쪽에 투명 23px을 붙여 619×200으로 만들고 그림 픽셀은 그대로 두었다.
+  같은 배율로 그리도록 `res/drawable/launch_background.xml`과 `res/drawable-v21/launch_background.xml`의 로고 폭을
+  148.771dp에서 154.512dp(= 148.771 × 619 / 596)로 바꿨다. 높이 50dp와 가운데 배치는 그대로다.
 
 ## 측정
 
@@ -69,11 +73,13 @@ python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비
 | Android `drawable-xxxhdpi/splash_a01_icon.png` | 1152 | −11.62 | +0.38 |
 | iOS `LaunchImage.png` / `@2x` / `@3x` | 232 / 464 / 696 | −2.81 / −5.56 / −8.38 | +0.19 / +0.44 / −0.38 |
 | Flutter `splash-a01-logo.svg` | 148.771 → 154.348 | −2.79 | −0.00 |
+| Android 11 이하 `drawable-nodpi/splash_a01_logo.png` | 596 → 619 | −11.62 | −0.12 |
 
 - 나머지 iOS 아이콘 14개와 Android 아이콘 8개도 변경 후 모두 ±1px 안이다(가장 큰 값은 20px 아이콘의 −0.74).
 - Figma `189:4042` 렌더도 같은 방법으로 −0.06이다.
 - Flutter 렌더 확인: 임시 위젯 테스트(커밋하지 않음)로 `SvgPicture`를 154.348×50, 4배율로 그려 측정하니 −0.32px(−0.08pt)이고 반짝임이 잘리지 않았다.
-- 형식: 바뀐 PNG 29개 모두 크기·모드가 시작 커밋과 같다. iOS 아이콘은 알파 없는 RGB, Android 아이콘과 시작 이미지는 RGBA다.
+- 형식: 위치만 옮긴 PNG 29개는 크기·모드가 시작 커밋과 같다. iOS 아이콘은 알파 없는 RGB, Android 아이콘과 시작 이미지는 RGBA다.
+  Android 11 이하 시작 로고는 폭만 596에서 619로 넓혔고(의도), 높이 200과 RGBA는 같다.
 - 안전 반경: 적응형 아이콘의 글자·반짝임 중 가장 먼 픽셀은 26.85dp(안전 반경 33dp 안).
   Android 12 이상 시작 아이콘은 79.30dp(아이콘 원 반경 96dp 안).
 
@@ -83,7 +89,8 @@ python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비
   소개 문구 위치를 바꾸지 않기 위해 그대로 두었으므로 iOS와 Flutter에서 글자는 화면 가운데보다 0.5pt 오른쪽이다.
   Android 12 이상 OS 시작 아이콘은 OS가 화면 가운데에 둔다.
 - iOS 3배율 간 정수 이동이라 1x·2x는 3pt, 3x는 2.67pt를 옮겼다. 각 파일의 차이는 1px 안이다.
-- Android 12 미만 시작 화면은 [변경 내용](#변경-내용)대로 바꾸지 않았다. 사용자 결정 전이다.
+- Android 11 이하 시작 로고는 위치만 옮길 수 없어 캔버스를 넓혔다. 다른 이미지와 달리 파일 크기가 바뀌므로 그리는 폭(dp)도 함께 바꿨다.
+  23px은 글자 중심 차이가 가장 작은 정수 폭이다(22px이면 −0.62px).
 
 ## 자동 검사
 
@@ -96,6 +103,11 @@ python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비
   `flutter test --no-pub` 2019개 통과(건너뜀 0).
 - 빌드: `flutter build ios --simulator --debug --no-pub`, `flutter build apk --debug --no-pub` 성공(아래 실행에 쓴 빌드).
   Release·AAB·서명 빌드는 하지 않았다.
+
+- Android 11 이하 시작 로고 추가(첫 실행 뒤 별도 커밋): 바뀐 것은 Android 리소스 PNG 하나와 이를 그리는 XML 두 파일뿐이고,
+  이를 검사하는 Dart 테스트가 없어 전체 검사는 다시 돌리지 않았다. 대신 `(cd frontend && flutter analyze --no-pub)` 문제 없음,
+  `(cd frontend && flutter build apk --debug --no-pub)` 성공(APK에 619px `splash_a01_logo.png` 포함, XML 리소스 컴파일 확인),
+  측정 스크립트로 글자 중심 −0.12px을 확인했다.
 
 ## 시뮬레이터·에뮬레이터 실행 (2026-11-02)
 
@@ -128,4 +140,6 @@ python3 -I .utmp/make_compare.py <ios|android> ...  # 변경 전·후·Figma 비
 
 ## 미검증 범위
 
-- 실기기, 스토어 표시, iPad, 다크·틴트 아이콘 모드, 다른 Android 런처, Android 12 미만 시작 화면 실행은 확인하지 않았다.
+- 실기기, 스토어 표시, iPad, 다크·틴트 아이콘 모드, 다른 Android 런처는 확인하지 않았다.
+- Android 11 이하 시작 화면: 에뮬레이터가 없어 화면에서 확인하지 않았다. 이미지 측정과 빌드만 확인했다.
+  위 영상은 이 변경 전 빌드(`c57c37d`)이며, Android 16에서는 OS 시작 화면이 쓰이므로 이 이미지의 화면 확인으로 쓰지 않는다.
