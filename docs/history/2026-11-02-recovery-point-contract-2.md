@@ -260,6 +260,9 @@ merge 전 최종 리뷰 반영 코드(`db32d80`)에서도 같은 명령이 통�
   (`CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 필요, 범위 밖, CI에서도 skip)다. 복구 지점 테스트 네 파일에는 skip이 없다.
 - 앱: `pub get`·`analyze`·테스트 2019개 통과(main에서 들어온 #180 변경 포함). 이 작업의 앱 코드 변경은 없다.
 - `git diff --check`: 통과.
-- Docker 테스트는 로컬에서 실행하지 않았다. 이번에 기대값을 바꾼 `test_image_backup_docker.py`를 포함해 PR CI의 operator-recovery job 성공과
-  pytest 요약의 skip 수로 확인한다.
-- 운영 Bucket 읽기 전용 점검은 운영자가 머지 전에 PR head 코드로 한다. 이 작업에서는 운영 환경에 접속하지 않았다(운영 점검 전).
+- Docker 테스트는 로컬에서 실행하지 않았다. PR #187 CI(run `41444319480`, 커밋 `4e089cc`)에서 7개 job이 모두 통과했다.
+  operator-recovery job은 기대값을 바꾼 `test_image_backup_docker.py`와 `test_image_migration_docker.py`를 실행해
+  31 passed(skip 없음), deployment job의 ledger 검사는 14 passed다.
+- 운영 Bucket 읽기 전용 점검: 운영자가 머지 전에 PR #187 head 커밋 `4e089cc`에서 운영 문서 "`maintain`이 `invalid_manifest`로
+  멈췄을 때" 절의 점검 명령을 운영 Bucket 설정 파일(`0600`)로 실행했다. 2026-11-02T12:26:10Z, 완료 지점 11개 모두 `passed`,
+  정리 receipt 0개, 최상위 `"passed": true`, 종료 코드 0.
