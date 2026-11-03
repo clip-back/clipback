@@ -169,19 +169,11 @@ Map<String, Object?> homeBaseMeasure(Element root) {
   final heroW = hero.widget as HomeHero;
   final title = homeBaseText(
     hero,
-    heroW.hasSavedContent
-        ? '나중에 보려던 것들,'
-        : heroW.confirmedEmpty
-        ? '아직 저장한 콘텐츠가 없어요.'
-        : '저장한 정보가 없어요.',
+    heroW.empty ? '아직 저장한 콘텐츠가 없어요.' : '나중에 보려던 것들,',
   );
   final subtitle = homeBaseText(
     hero,
-    heroW.hasSavedContent
-        ? '지금 하나만 꺼내볼까요?'
-        : heroW.confirmedEmpty
-        ? '지금 하나만 저장해볼까요?'
-        : '지금 하나만 저장할까요?',
+    heroW.empty ? '지금 하나만 저장해볼까요?' : '지금 하나만 꺼내볼까요?',
   );
   final svgs = homeBaseElements(
     header,
@@ -297,8 +289,7 @@ Map<String, Object?> homeBaseMeasure(Element root) {
       'panel': homeBaseRect(homeBaseBox(panel)),
     },
     'hero': {
-      'hasSavedContent': heroW.hasSavedContent,
-      'confirmedEmpty': heroW.confirmedEmpty,
+      'empty': heroW.empty,
       'title': _paragraph(title),
       'subtitle': _paragraph(subtitle),
       'character': _asset(homeBaseFind<Image>(hero)),
@@ -445,28 +436,19 @@ Map<String, Object?> homeBaseJudgment(Map<String, Object?> m) {
       'bell right',
     );
   }
-  if (hero['hasSavedContent'] == true || hero['confirmedEmpty'] == true) {
-    style(
-      hero['title'] as Map,
-      20,
-      600,
-      -.5,
-      '0xFF1A1A1A',
-      'hero title',
-      height: 1.6,
-    );
-    style(
-      hero['subtitle'] as Map,
-      18,
-      500,
-      -.45,
-      '0xFF1A1A1A',
-      'hero subtitle',
-    );
-    final chr = hero['character']['bounds'] as Map;
-    n(chr['width'], 99, 'hero character99');
-    n(chr['height'], 123, 'hero character123');
-  }
+  style(
+    hero['title'] as Map,
+    20,
+    600,
+    -.5,
+    '0xFF1A1A1A',
+    'hero title',
+    height: 1.6,
+  );
+  style(hero['subtitle'] as Map, 18, 500, -.45, '0xFF1A1A1A', 'hero subtitle');
+  final chr = hero['character']['bounds'] as Map;
+  n(chr['width'], 99, 'hero character99');
+  n(chr['height'], 123, 'hero character123');
   for (final pick in m['picks'] as List) {
     final r = pick['bounds'] as Map,
         c = pick['column'] as Map,
@@ -663,7 +645,7 @@ Map<String, Object?> homeBaseJudgment(Map<String, Object?> m) {
       feed['hasMore'] == false &&
       feed['nextCursor'] == null &&
       (feed['itemIds'] as List).isEmpty;
-  if (hero['confirmedEmpty'] != targetEmpty) {
+  if (hero['empty'] != targetEmpty) {
     lf.add('Strict global empty guard mismatch');
   }
   return {

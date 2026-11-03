@@ -100,7 +100,7 @@ void main() {
             );
             _expectTarget(tester);
             final m = _measure(tester);
-            expect((m['hero'] as Map)['confirmedEmpty'], empty);
+            expect((m['hero'] as Map)['empty'], empty);
             expect(tester.takeException(), isNull);
           }
         },
@@ -155,10 +155,7 @@ void main() {
         contents: const [],
         categoryId: state == 'active category' ? 101 : null,
       );
-      expect(
-        tester.widget<HomeHero>(find.byType(HomeHero)).confirmedEmpty,
-        isFalse,
-      );
+      expect(tester.widget<HomeHero>(find.byType(HomeHero)).empty, isFalse);
       expect(find.text('첫 콘텐츠 저장하기'), findsNothing);
       expect(tester.takeException(), isNull);
     });

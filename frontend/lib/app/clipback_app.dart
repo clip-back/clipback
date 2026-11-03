@@ -1218,6 +1218,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               }
             })(_weeklyVisit),
             contents: _d.home.page.items,
+            previousEmptyHero: _d.home.emptyHero,
             feed: _d.home.page,
             onRetry: _d.home.retry,
             activeCategoryId: _d.home.page.categoryId,
