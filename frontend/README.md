@@ -67,7 +67,7 @@ flutter build web --no-pub
 Flutter 3.47.9(stable)로 `flutter pub get --enforce-lockfile`, `flutter analyze --no-pub`,
 `flutter test --no-pub`를 차례로 실행합니다. `flutter build web`과 iOS·Android 빌드, 시뮬레이터·에뮬레이터 실행은 하지 않습니다.
 리뷰에서는 해당 커밋의 App Validation 통과로 로컬 앱 검사(pub get·analyze·test)를 대신할 수 있습니다.
-로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다.
+로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다. 도입 때의 통과·실패 확인 run은 [작업 이력](../docs/history/2026-11-03-app-validation-ci.md)에 있습니다.
 
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
 
