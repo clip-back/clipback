@@ -31,13 +31,16 @@
 
 ## 자동 검사
 
-- 업그레이드 전 기준선(3.44.9): `verify.py --only app` `VERIFY result=PASS scope=app checks=3 failed=0`, `flutter test` 2020개 통과.
+- 업그레이드 전 기준선(3.44.9): 앱만 실행했다. `verify.py --only app` `VERIFY result=PASS scope=app checks=3 failed=0`, `flutter test` 2020개 통과.
+  이슈 완료 조건은 전체 `verify.py` 기준선이지만 백엔드 기준선은 남기지 않았다(스펙 대비 예외). 백엔드는 Flutter SDK를 쓰지 않고,
+  이 브랜치에서 `backend/` 파일은 바뀌지 않았다(`git diff c75d806 HEAD -- backend` 0줄). 업그레이드 뒤 전체 검사는 아래와 같이 `scope=all`로 통과했다.
 - 업그레이드 직후: `flutter test`는 통과했지만 `flutter analyze`가 위 경고 1건으로 실패했다.
 - 3.44.9 사본 SDK로 `flutter pub get`을 하면 "requires Flutter SDK version >=3.47.0, version solving failed"로 종료 코드 1이다.
 - 바꾼 경로 테스트: `test/view_models/content_view_models_test.dart` 37개, `test/today_root_test.dart` 10개 통과(정상 이동, 404 뒤 재시도, 요청 중 홈 이탈, 늦은 상세 응답 폐기 포함).
 - 전체 검사: `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-209`을 `43bd536`에서 한 번 돌렸다.
   `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter test --no-pub` 2020개 통과(건너뜀 0),
-  백엔드 pytest 1896개 통과·46개 건너뜀(Docker·운영자 이미지가 필요한 테스트, 이번 변경과 무관).
+  백엔드 pytest 1896개 통과·46개 건너뜀(Docker·운영자 이미지가 필요한 테스트 45개, `CLIPBACK_IMAGE_TEST_S3_ENDPOINT`가 없어 건너뛴
+  이미지 저장소 CLI 통합 테스트 1개. 모두 이번 변경과 무관).
   뒤 커밋 `fb9cdef`(Android Gradle 설정)와 `95ce22f`(iOS 프로젝트 파일)는 이 검사 범위의 입력이 아니라 다시 돌리지 않았다.
 
 ## 시뮬레이터·에뮬레이터 실행 (2026-11-03)
