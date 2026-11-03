@@ -159,7 +159,7 @@ gh pr create --base main --head feature/backend-example
 - 상세 작업·검증·실패·미검증 기록은 [작업 이력](history/README.md)에 작업별로 한 번만 작성하고 다른 문서에서는 링크로 연결합니다.
 - 과거 결과에 날짜·기준 커밋·검증 환경을 남기고 현재 코드 확인·새 실행·운영 배포를 구분합니다.
 - 사용자 변경은 CHANGELOG, 실제 공개·배포 상태는 배포 기록에 남깁니다. 문서 정리만으로 해당 결과를 완료 처리하지 않습니다.
-- `CHANGELOG.md`와 [작업 이력 목차](history/README.md)는 `.gitattributes`의 `merge=union`으로 양쪽 추가 줄을 충돌 없이 모두 남깁니다. 같은 줄을 양쪽이 고치면 두 줄이 조용히 남으므로 병합 뒤 두 파일의 diff를 확인하고, 같은 날짜 안의 순서는 리뷰에서 봅니다.
+- `CHANGELOG.md`와 [작업 이력 목차](history/README.md)는 `.gitattributes`의 `merge=union`으로 양쪽 추가 줄을 충돌 없이 모두 남깁니다. 같은 줄을 양쪽이 고치면 두 줄이 조용히 남으므로 병합 뒤 두 파일의 diff를 확인하고, 같은 날짜 안의 순서는 리뷰에서 봅니다. 작업 브랜치 쪽에 `.gitattributes`가 없으면 `union`이 적용되지 않으므로, 이 설정이 들어오기 전에 만든 브랜치는 main을 처음 합칠 때 한 번 손으로 풉니다.
 
 - README의 API·기능 안내는 요약과 상세 문서 연결로 구성합니다. 실행·구조가 바뀌면 README를 갱신하고, 상세 계약만 바뀌면 해당 기준 문서를 갱신합니다.
 - 상세 설명은 [프론트 동작](frontend/behavior.md)·[프론트 개발·검증](frontend/development.md)·[백엔드 API](backend/api-contracts.md)·[백엔드 테스트](backend/testing.md)에서 관리합니다. 자동 분류·재발견·YouTube·디자인·운영의 전문 정책은 각 기존 문서를 따릅니다.
