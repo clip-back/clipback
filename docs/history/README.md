@@ -25,6 +25,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-03 | [홈 상단의 옛 "저장한 정보가 없어요." 영역 삭제와 직전 상단 유지](2026-11-03-home-hero-fallback.md) | 앱 |
 | 2026-11-03 | [홈 칩 전환 때 최근 콘텐츠 영역 높이 고정](2026-11-03-home-chip-switch-height.md) | 앱 |
 | 2026-11-03 | [앱 pub get·analyze·test 원격 검사 워크플로 추가](2026-11-03-app-validation-ci.md) | CI |
 | 2026-11-03 | [frontend 바로 아래의 쓰지 않는 디자인 SVG 7개 삭제](2026-11-03-remove-unused-design-svgs.md) | 앱 |
