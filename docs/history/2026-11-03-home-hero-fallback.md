@@ -24,6 +24,9 @@
   - 리뷰 반영(`daec89d`): `selectCategory`가 `configureFeed`로 먼저 알릴 때 직전 빈 카테고리 응답(조회 완료·빈 항목)이 남아,
     전체보기로 돌아가는 순간 저장 0 확정처럼 보여 C02를 기억했다. 필터를 바꾸기 전에 `resetFeed`로 이전 결과를 비운다.
     홈 목록만 바꾸며 아카이브·검색 목록의 동작은 그대로다.
+  - 최종 리뷰 반영(`38f6c4e`): 선택한 빈 카테고리를 삭제하면 저장소가 홈 목록의 필터를 전체로 바꾼 뒤 먼저 알려, 같은 이유로 C02를
+    기억했다(전체 재조회가 늦거나 실패하면 C02가 남음). 뷰모델이 직전 알림의 필터를 기억해, 필터가 바뀐 알림의 빈 결과는 저장 0
+    확정으로 보지 않는다. 홈 목록의 필터가 바뀌는 곳은 칩 선택, 카테고리 삭제, 계정 초기화(먼저 목록을 비움) 세 곳이다.
 - `frontend/lib/features/home/home_screen.dart`: `HomeScreen.previousEmptyHero`로 기억을 받아 카드가 있으면 C01, 저장 0 확정이면 C02,
   그 밖에는 기억대로 그린다. `HomeHero`는 `empty` 하나로 C01·C02를 고르고 옛 영역 분기를 지웠다. 상단 버튼은 C02일 때만 저장 화면을 연다.
 - `frontend/lib/shared/models/feed_page.dart`: 저장 0 확정 판정을 `FeedPage.confirmedEmpty`로 옮겨 화면과 뷰모델이 함께 쓴다(판정 내용은 같다).
@@ -38,6 +41,8 @@
     다녀온 뒤 다시 칩을 눌러도 C02인지 본다. 수정 전 코드에서 두 테스트 모두 '칩 로딩' 단계에서 실패했다.
   - 리뷰 반영: C01 → 빈 카테고리 성공 → 전체보기(응답 보류) → 성공·실패를 앱과 뷰모델(`content_view_models_test.dart`)에서 본다.
     로딩 중 스피너, 상단 문구·높이, C01 버튼 콜백을 단언한다. 수정 전 4개 모두 실패했고 수정 뒤 통과했다.
+  - 최종 리뷰 반영: 뷰모델에서 C01 → 빈 카테고리 → 그 카테고리 삭제 → 전체 재조회 보류·실패·성공(카드면 C01, 0개면 C02)을 본다.
+    수정 전 보류·실패 2개가 실패했다(리뷰어 재현 테스트를 옮김).
   - 뷰모델 테스트는 처음에 로딩 플래그만 기다려 보류 응답 대신 기본 응답이 나갈 수 있었다. 요청이 실제로 나간 뒤 응답을 놓도록 고쳤다.
 - 상태 표 테스트(`frontend/test/home_alignment_test.dart`): 이슈 표의 6상태(칩 로딩, 칩 결과 빈 카테고리, 오류, 다시 불러오기,
   카드 있음, 저장 0 확정) × 직전 3종(C01, C02, 모름) × 글자 배율 3종(1.0, 1.15, 1.3) = 54개. 상단 종류·문구·경계·높이와 옛 문구가
@@ -46,10 +51,11 @@
   C01 버튼이 피드가 비어도 오늘의 콘텐츠를 여는 테스트 3개와 기억된 C02 버튼이 저장 화면을 여는 테스트 1개를 더했다.
 - 전체 검사(1차): `daec89d`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217`.
   `VERIFY result=PASS scope=all checks=10 failed=0`. 앱 테스트 2108개, 백엔드 pytest 1896개 통과·46개 건너뜀.
-- 전체 검사(최종): main(`129f500`, #219 `.gitattributes` merge=union)을 merge한 `a043401`에서
-  `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217/final`을 한 번 돌렸다.
-  merge 때 `docs/history/README.md` 목차가 충돌해 두 줄을 모두 남겼다(이 브랜치 줄을 위에).
-  `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2108개 통과,
+- 전체 검사(2차): main(`129f500`, #219 `.gitattributes` merge=union)을 merge한 `a043401`에서
+  `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217/final`. merge 때 `docs/history/README.md` 목차가 충돌해
+  두 줄을 모두 남겼다(이 브랜치 줄을 위에). `VERIFY result=PASS scope=all checks=10 failed=0`. 앱 테스트 2108개.
+- 전체 검사(최종): 카테고리 삭제 경로를 고친 `38f6c4e`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217/final2`를 한 번 돌렸다.
+  `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2112개 통과,
   백엔드 pytest 1896개 통과·46개 건너뜀(`pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`,
   `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`). 백엔드는 바뀌지 않았다.
 
@@ -100,7 +106,8 @@
 - Android 촬영에서 킷의 `run_android_phase.sh`는 설치와 설치본 확인을 마쳤지만, 변경 전 normal·두 empty·C01 버튼 확인 때
   창 확인이 `mCurrentFocus=null`을 읽어 첫 사진을 찍지 못했다(#216과 같은 문제). 비교 사진은 모두 같은 실행에서 `adb exec-out screencap`으로
   찍었고, 설치본 해시가 각 APK와 같은 것을 확인했다.
-- 화면은 merge 뒤 다시 찍지 않았다(main에서 들어온 것은 설정·문서뿐).
+- 화면은 merge 뒤와 카테고리 삭제 경로 수정 뒤 다시 찍지 않았다(main에서 들어온 것은 설정·문서뿐이고, 삭제 경로 수정은 찍은 상태의
+  화면을 바꾸지 않는다). 카테고리를 삭제한 뒤의 홈 화면은 자동 테스트로만 확인했다.
 - 화면 크기와 안전 영역: Figma C01·C02 프레임은 375×910이고 상태 표시줄·홈 표시를 그림으로 포함한다. 앱은 실제 OS 안전 영역을 쓰므로
   폭과 세로 위치·하단 탭 위치가 Figma와 다르다. Figma의 "이번주 허투루 픽"은 메모리 데이터의 주간 추천이 비어 있어 앱 화면에 없다.
   원본 화면은 보정하지 않았다.
