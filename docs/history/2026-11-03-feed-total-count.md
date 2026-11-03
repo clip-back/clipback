@@ -1,6 +1,6 @@
 # 목록 전체 개수 표시 (#225)
 
-2026-11-03, 시작 커밋 `ac434142df9563edd11019ebc050052f1e4a08de` 기준 첫 구현 단계다.
+2026-11-03, 시작 커밋 `ac434142df9563edd11019ebc050052f1e4a08de` 기준 구현 후 티켓 검수와 전체 검증까지 마쳤다.
 서버 정렬 전환은 #226이며 이 기록은 배포·화면 확인 완료를 뜻하지 않는다.
 
 ## 구현
@@ -47,9 +47,44 @@
 - 첫 포맷 실행은 저장소 상대 경로와 frontend 작업 경로가 달라 파일을 찾지 못했다.
   `git diff --relative`로 수정하고 최종 포맷 검사에서 변경 0개를 확인했다.
 
+## 티켓 리뷰와 전체 검증
+
+2026-11-03 티켓 리뷰 `.utmp/review-225.md`의 Standards·Spec 모두 높음·중간·낮음 0건이다.
+반영할 확정 지적이 없어 코드·테스트를 추가 변경하지 않았다. 리뷰어가 직접 실행한 추가 경계 검사
+4개 통과는 `.utmp/review-225-checks/boundaries.log`에 있으며, 작업자의 전체 검사 수에 합산하지 않는다.
+
+검증 기준 코드 커밋은 `c42434702419aeb8f3d8d805508662504333839a`다.
+22:05 KST busy 대기 완료 뒤 작업 트리 루트에서 다음 명령을 셸 제한 600초로 한 번 실행했고,
+22:10 KST 종료 코드 0을 확인했다. 저장소 사본·저장소 내부 basetemp는 사용하지 않았다.
+
+```sh
+~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-225
+```
+
+- 서버 ruff·compileall, 일반/maintenance 테스트 DB 각각의 `alembic upgrade head`·`alembic check`,
+  전체 pytest 통과. `backend-pytest.log`의 실제 마지막 요약:
+  `2026 passed, 46 skipped, 3 warnings in 170.54s (0:02:50)`.
+- 앱 pub-get·analyze·전체 test 통과. `app-test.log`의 마지막 결과:
+  `02:03 +2176: All tests passed!`.
+- 결과·skip 집계 원문은 `.utmp/ticket-225/verify-result.txt`, 단계별 원본은 같은 폴더의
+  `backend-*.log`, `app-*.log`다. 재집계를 위해 검사를 다시 실행하지 않았다.
+
+```text
+pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=10 failed=0 logs=/Users/leehyeongyu/orca/workspaces/Clipback/feed-total-count/.utmp/ticket-225
+```
+
+Skip의 전체 사유는 `backend-pytest.log`의 `SKIPPED` 줄에 있다. deployment 45건은
+Docker 실행 옵션·라벨된 로컬 API/operator 이미지 등 전제 조건이 없고,
+integration 1건은 `CLIPBACK_IMAGE_TEST_S3_ENDPOINT`가 필요한 로컬 합성 CLI 검사다.
+이 skip은 성공한 검사 수에 포함하지 않는다. Docker·시뮬레이터·에뮬레이터·실기기는 실행하지 않았다.
+
+이 결과를 기록하는 후속 커밋은 문서만 변경하며 검증 기준 코드와 같다. 문서 diff·공백·경로를
+확인하고 전체 검증을 다시 실행하지 않는다. 최종 리뷰 후 검증은 `.utmp/ticket-225/final`에 분리한다.
+
 ## 미검증
 
-전체 검증은 감독 검수 반영 뒤 `verify.py`로 실행할 예정이다. 아직 `VERIFY result=PASS`를 주장하지 않는다.
 서버 CI의 operator-recovery 작업은 로컬에서 미검증이다. 운영·실기기·배포된 옛 앱 호환은 미검증이다.
 
 **화면 확인 미완료**. 작업 지시에 따라 시뮬레이터·에뮬레이터·실기기를 켜지 않았다.
