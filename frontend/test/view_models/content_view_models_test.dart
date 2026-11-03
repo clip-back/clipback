@@ -211,6 +211,29 @@ void main() {
     },
   );
 
+  test('selecting the active home category reloads its feed', () async {
+    final fixture = _Fixture((request) {
+      if (request.url.path != '/api/v1/feed') return null;
+      if (request.url.queryParameters['category_id'] == '2') {
+        return _feed([_content(id: 9)]);
+      }
+      return _feed([_content()]);
+    });
+    await fixture.load();
+    final category = fixture.home.categories.single;
+    await fixture.home.selectCategory(category);
+    await fixture.home.selectCategory(category);
+
+    final filtered = fixture.requests.where(
+      (request) =>
+          request.url.path == '/api/v1/feed' &&
+          request.url.queryParameters['category_id'] == '2',
+    );
+    expect(filtered, hasLength(2));
+    expect(fixture.home.page.items.map((item) => item.apiId), [9]);
+    expect(fixture.home.page.loading, isFalse);
+  });
+
   test(
     'home category change rejects a late page from the previous filter',
     () async {
