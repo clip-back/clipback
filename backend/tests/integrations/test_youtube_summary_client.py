@@ -29,20 +29,13 @@ def video(duration="PT20M", privacy="public", live="none"):
     }
 
 
-def output(title="영상 제목", summary="핵심 내용 안내.", category_id=1):
+def output(title="영상 제목", headline="핵심 내용", points=("세부 사항",), category_id=1):
+    answer = {"title": title, "headline": headline, "points": points, "category_id": category_id}
     return {
         "candidates": [
             {
                 "finishReason": "STOP",
-                "content": {
-                    "parts": [
-                        {
-                            "text": json.dumps(
-                                {"title": title, "summary": summary, "category_id": category_id}
-                            )
-                        }
-                    ]
-                },
+                "content": {"parts": [{"text": json.dumps(answer)}]},
             }
         ],
         "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 20},
@@ -97,9 +90,46 @@ async def test_success_and_invalid_category(duration):
         result = await YouTubeSummaryClient(config(), http).summarize(
             "dQw4w9WgXcQ", "model", [{"id": 1}]
         )
-    assert result.summary == "핵심 내용 안내." and result.category_id is None
+    assert result.summary == "핵심 내용\n• 세부 사항" and result.category_id is None
     assert result.usage["promptTokenCount"] == 100
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_gemini_is_asked_for_a_headline_and_points():
+    bodies = []
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=video())
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=output())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [{"id": 1}])
+
+    assert bodies[0]["generationConfig"]["responseJsonSchema"] == {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "maxLength": 120},
+            "headline": {"type": "string", "maxLength": 40},
+            "points": {
+                "type": "array",
+                "items": {"type": "string", "maxLength": 60},
+                "minItems": 1,
+                "maxItems": 5,
+            },
+            "category_id": {"type": ["integer", "null"]},
+        },
+        "required": ["title", "headline", "points", "category_id"],
+        "additionalProperties": False,
+    }
+    prompt = bodies[0]["systemInstruction"]["parts"][0]["text"]
+    for phrase in [
+        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–5개", "되풀이",
+        "추측하지", "신뢰하지 않는",
+    ]:
+        assert phrase in prompt
 
 
 @pytest.mark.asyncio
@@ -126,9 +156,9 @@ async def test_http_errors(status, code, retry):
 @pytest.mark.parametrize(
     "data",
     [
-        output(summary=" "),
+        output(headline=" "),
         output(title="a" * 121),
-        output(summary="a" * 501),
+        output(headline="a" * 501),
         {"candidates": [{"finishReason": "SAFETY"}]},
         {},
     ],

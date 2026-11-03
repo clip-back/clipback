@@ -39,7 +39,12 @@ def page(
 
 
 def completion(**overrides):
-    output = {"title": "성수동 카페 소개", "summary": "신메뉴 출시 안내.", "category_id": 7}
+    output = {
+        "title": "성수동 카페 소개",
+        "headline": "성수동 카페 신메뉴 출시",
+        "points": ["대표 메뉴와 가격 안내"],
+        "category_id": 7,
+    }
     output.update(overrides)
     return httpx.Response(
         200,
@@ -115,7 +120,7 @@ async def test_summarizes_the_caption_with_a_stateless_structured_request():
     result = await summarize(client)
 
     assert (result.title, result.summary, result.category_id) == (
-        "성수동 카페 소개", "신메뉴 출시 안내.", 7,
+        "성수동 카페 소개", "성수동 카페 신메뉴 출시\n• 대표 메뉴와 가격 안내", 7,
     )
     assert result.usage == {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}
     assert [(r.headers["host"], r.url.path) for r in seen["page"]] == [(PAGE_HOST, "/reel/ABC123/")]
@@ -126,6 +131,41 @@ async def test_summarizes_the_caption_with_a_stateless_structured_request():
     sent = json.dumps(body["input"], ensure_ascii=False)
     assert "성수동 카페 신메뉴 출시." in sent
     assert "likes" not in sent and "맛집" in sent and "여행" in sent
+
+
+@pytest.mark.asyncio
+async def test_gpt_is_asked_for_a_headline_and_points():
+    client, seen = build(lambda r: page(), lambda r: completion())
+
+    await summarize(client)
+
+    body = json.loads(seen["openai"][0].content)
+    assert body["text"]["format"]["schema"] == {
+        "type": "object",
+        "title": "SummaryOutput",
+        "properties": {
+            "title": {"type": "string", "title": "Title"},
+            "headline": {"type": "string", "title": "Headline", "maxLength": 40},
+            "points": {
+                "type": "array",
+                "title": "Points",
+                "items": {"type": "string", "maxLength": 60},
+                "minItems": 1,
+                "maxItems": 5,
+            },
+            "category_id": {
+                "anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Category Id",
+            },
+        },
+        "required": ["title", "headline", "points", "category_id"],
+        "additionalProperties": False,
+    }
+    prompt = body["input"][0]["content"]
+    for phrase in [
+        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–5개", "되풀이",
+        "추측하지", "신뢰하지 않는", "제공된 캡션과 이미지 1장만 근거",
+    ]:
+        assert phrase in prompt
 
 
 @pytest.mark.asyncio
@@ -165,9 +205,9 @@ async def test_no_caption_skips_without_calling_gpt(response):
     "overrides",
     [
         {"title": "가" * 121},
-        {"summary": "가" * 501},
+        {"headline": "가" * 501},
         {"title": "  "},
-        {"summary": ""},
+        {"headline": ""},
     ],
 )
 async def test_rejects_out_of_range_output(overrides):
