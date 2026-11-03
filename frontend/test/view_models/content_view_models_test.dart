@@ -1,4 +1,5 @@
 import '../support/asset_access_fixture.dart';
+import '../support/http_response_hold.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -214,10 +215,10 @@ void main() {
   test('home remembers its hero until saved content is known again', () async {
     var saved = <Map<String, Object?>>[];
     var fail = false;
-    Completer<http.Response>? held;
+    HttpResponseHold? held;
     final fixture = _Fixture((request) {
       if (request.url.path != '/api/v1/feed') return null;
-      if (held != null) return held!.future;
+      if (held != null) return held!.hold(request);
       if (fail) return _json({'detail': 'down'}, 500);
       final filtered = request.url.queryParameters.containsKey('category_id');
       return _feed(filtered ? const [] : saved);
@@ -229,13 +230,13 @@ void main() {
 
     Future<void> expectKept(bool empty) async {
       final category = home.categories.single;
-      held = Completer<http.Response>();
-      var sent = fixture.requests.length;
+      held = HttpResponseHold('category feed');
       final loading = home.selectCategory(category);
-      await _until(() => fixture.requests.length > sent);
+      final categoryRequest = await held!.waitForRequest();
+      expect(categoryRequest.url.queryParameters['category_id'], '2');
       expect(home.page.loading, isTrue);
       expect(home.emptyHero, empty, reason: 'chip loading');
-      held!.complete(_feed(const []));
+      held!.release(_feed(const []));
       held = null;
       await loading;
       expect(home.page.items, isEmpty);
@@ -245,15 +246,23 @@ void main() {
       expect(home.page.error, isNotNull);
       expect(home.emptyHero, empty, reason: 'error');
       fail = false;
-      held = Completer<http.Response>();
-      sent = fixture.requests.length;
+      held = HttpResponseHold('all feed');
       final reloading = home.selectCategory(null);
-      await _until(() => fixture.requests.length > sent);
+      final allRequest = await held!.waitForRequest();
+      expect(
+        allRequest.url.queryParameters.containsKey('category_id'),
+        isFalse,
+      );
       expect(home.page.loading, isTrue);
       expect(home.emptyHero, empty, reason: 'reloading all');
-      held!.complete(_feed(saved));
+      held!.release(_feed(saved));
       held = null;
       await reloading;
+      expect(
+        home.page.items.map((item) => item.apiId),
+        saved.map((item) => item['id']),
+      );
+      expect(home.page.error, isNull);
     }
 
     await expectKept(true);
@@ -267,10 +276,10 @@ void main() {
 
   for (final outcome in ['success', 'failure']) {
     test('C01 survives an empty category then all-chip $outcome', () async {
-      Completer<http.Response>? held;
+      HttpResponseHold? held;
       final fixture = _Fixture((request) {
         if (request.url.path != '/api/v1/feed') return null;
-        if (held != null) return held.future;
+        if (held != null) return held.hold(request);
         final filtered = request.url.queryParameters.containsKey('category_id');
         return _feed(filtered ? const [] : [_content()]);
       });
@@ -282,22 +291,29 @@ void main() {
       expect(home.page.error, isNull);
       expect(home.emptyHero, isFalse, reason: 'empty category');
 
-      held = Completer<http.Response>();
-      final sent = fixture.requests.length;
+      held = HttpResponseHold('all-chip $outcome');
       final reloading = home.selectCategory(null);
-      await _until(() => fixture.requests.length > sent);
+      final request = await held.waitForRequest();
+      expect(request.url.path, '/api/v1/feed');
+      expect(request.url.queryParameters.containsKey('category_id'), isFalse);
       expect(home.page.loading, isTrue);
       expect(home.page.categoryId, isNull);
       expect(home.emptyHero, isFalse, reason: 'all-chip loading');
-      held.complete(
+      held.release(
         outcome == 'success'
-            ? _feed([_content()])
+            ? _feed([_content(id: 223, title: 'held all-chip response')])
             : _json({'detail': 'down'}, 500),
       );
       held = null;
       await reloading;
       expect(home.page.loading, isFalse);
       expect(home.page.error, outcome == 'success' ? isNull : isNotNull);
+      if (outcome == 'success') {
+        expect(home.page.items.single.apiId, 223);
+        expect(home.page.items.single.title, 'held all-chip response');
+      } else {
+        expect(home.page.items, isEmpty);
+      }
       expect(home.emptyHero, isFalse, reason: 'all-chip $outcome');
     });
   }
