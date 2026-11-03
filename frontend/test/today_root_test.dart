@@ -65,6 +65,7 @@ void main() {
         );
         home(t).onOpenToday();
         await t.pumpAndSettle();
+        expect(find.text('1 / 5'), findsOneWidget);
         expect(detail(t).content.apiId, 606);
         expect(detail(t).contents.map((i) => i.apiId), [
           606,
@@ -88,6 +89,7 @@ void main() {
         );
         detail(t).onOpenAdjacent(1);
         await t.pumpAndSettle();
+        expect(find.text('2 / 5'), findsOneWidget);
         expect(detail(t).content.apiId, 604);
         expect(
           views(s).last['body'],

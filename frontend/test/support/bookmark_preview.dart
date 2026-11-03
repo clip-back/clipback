@@ -404,7 +404,7 @@ Map<String, Object?> bookmarkMeasure(Element root) {
           .where(
             (e) =>
                 e.widget is Text &&
-                ((e.widget as Text).data ?? '').startsWith('불러온 '),
+                ((e.widget as Text).data ?? '').startsWith('총 '),
           )
           .firstOrNull;
   final toolbar =
@@ -856,7 +856,7 @@ Map<String, Object?> bookmarkJudgment(Map<String, Object?> m) {
     style(roles['count'], [14, 500, -.35, '0xFF767676', null], 'Loaded count');
     if ((roles['sort'] as Map?)?['text'] != '최신순' ||
         (roles['count'] as Map?)?['text'] !=
-            '불러온 ${(m['feedIds'] as List).length}개') {
+            '총 ${(m['feedIds'] as List).length}개') {
       styles.add('Latest/loaded count must use actual loaded favorite data');
     }
     near((b['toolbar'] as Map?)?['height'], 52, 'Toolbar height');

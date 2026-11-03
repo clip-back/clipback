@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.content import ContentRead
 
@@ -15,5 +15,6 @@ class FeedCursor:
 
 
 class FeedResponse(BaseModel):
+    total_count: int = Field(ge=0)
     items: list[ContentRead]
     next_cursor: str | None = None

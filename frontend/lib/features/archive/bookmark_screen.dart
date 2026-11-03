@@ -86,7 +86,11 @@ class BookmarkScreen extends StatelessWidget {
                 onOpenCategoryManagement: onOpenCategoryManagement,
               ),
               if (!confirmedEmpty)
-                BookmarkToolbar(loadedCount: contents.length),
+                BookmarkToolbar(
+                  totalCount: feed == null
+                      ? contents.length
+                      : feed!.displayTotalCount,
+                ),
               Expanded(
                 child: PagedContentList(
                   feed: feed,

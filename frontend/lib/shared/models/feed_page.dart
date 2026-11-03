@@ -13,6 +13,7 @@ class FeedPage {
   bool bookmarkedFirst = false;
   bool _favoritePhase = true;
   String? nextCursor;
+  int? totalCount;
   bool initialized = false;
   bool loading = false;
   bool hasMore = true;
@@ -27,6 +28,13 @@ class FeedPage {
   void trackRequest(Future<void> request) => _pending = request;
   void clearPendingRequest() => _pending = null;
   void finishFavoritePhase() => _favoritePhase = false;
+
+  /// Server totals belong to the committed items, including during refresh.
+  int? get displayTotalCount {
+    if (bookmarkedFirst) return null;
+    final count = totalCount ?? (initialized && !hasMore ? items.length : null);
+    return count == null ? null : (count < items.length ? items.length : count);
+  }
 
   /// The whole unfiltered feed finished loading with nothing saved.
   bool get confirmedEmpty =>
@@ -59,6 +67,7 @@ class FeedPage {
     isFavorite = snapshot.isFavorite;
     bookmarkedFirst = snapshot.bookmarkedFirst;
     nextCursor = snapshot.nextCursor;
+    totalCount = snapshot.totalCount;
     initialized = snapshot.initialized;
     loading = snapshot.loading;
     hasMore = snapshot.hasMore;
@@ -70,6 +79,7 @@ class FeedPage {
     version++;
     items.clear();
     nextCursor = null;
+    totalCount = null;
     initialized = false;
     loading = false;
     hasMore = true;

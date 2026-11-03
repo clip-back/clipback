@@ -44,7 +44,14 @@ class FeedService:
             last = visible_contents[-1]
             next_cursor = self._encode_cursor(FeedCursor(saved_at=last.saved_at, id=last.id))
 
+        total_count = await self.content_repository.count_feed(
+            user_id=user_id,
+            category_id=category_id,
+            is_favorite=is_favorite,
+            search_query=search_query,
+        )
         return FeedResponse(
+            total_count=total_count,
             items=[content_to_read(content) for content in visible_contents],
             next_cursor=next_cursor,
         )

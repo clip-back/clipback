@@ -113,7 +113,7 @@ class ContentListView extends StatelessWidget {
             archiveAllStyle: archiveAllStyle,
             countLabel: feed == null
                 ? '총 ${visibleContents.length}개'
-                : '불러온 ${visibleContents.length}개',
+                : '총 ${feed!.displayTotalCount ?? '-'}개',
             sortLabel: bookmarkedFirst ? '즐겨찾기 우선' : '최신순',
             onSortChanged: onSortChanged,
           ),

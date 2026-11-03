@@ -91,7 +91,7 @@
 | `GET` | `/api/v1/health/ready` | DB·이미지 저장소 준비 상태 | 구현 |
 
 요청·응답의 세부 계약은 [엔드포인트별 계약 안내](#guest-authentication)와 실행 중인 서버의 `/docs`를 참고한다.
-피드 응답은 `items`, `next_cursor`이며 `total_count`는 없다.
+피드 응답은 `items`, `next_cursor`, `total_count`다. `total_count`는 같은 사용자·카테고리·즐겨찾기·검색어 조건의 목록 전체 개수(0 이상의 정수)이며 커서·limit과 무관하게 매 요청 다시 센다.
 `next_cursor`는 해석하지 않고 그대로 전달하는 문자열이며, 검색·카테고리·즐겨찾기 조건이나 계정이 바뀌면 초기화한다.
 
 위 목록은 MVP 현황 문서에서, 다음 엔드포인트별 상세 설명은 기존 백엔드 README에서 이관했습니다. 추천 정책 문서에 있던 추가 HTTP 조건은 마지막 절에 출처를 구분해 보존합니다.
@@ -716,7 +716,11 @@ No version field, conflict response, or database migration is required.
 order. Optional `q` (title, summary, and tags), `category_id`, and `is_favorite` filters
 combine with pagination. `limit` defaults to 20 and accepts 1–100.
 
-- The response remains `{ "items": [...], "next_cursor": "..." }`. `next_cursor` is
+- `total_count` counts the same user/category/favorite/search filters before cursor and limit.
+  It is recalculated on every page; whitespace-only search has no filter. Missing or foreign
+  categories return zero. Multiple category membership does not duplicate a content.
+  This additive field preserves old app compatibility; no schema or index migration is required.
+- The response is `{ "items": [...], "next_cursor": "...", "total_count": 25 }`. `next_cursor` is
   `null` when there is no next page.
 - Pass the returned cursor unchanged in the next request's `cursor` query parameter.
   New cursors use `v1.` followed by unpadded URL-safe Base64 JSON containing `saved_at`

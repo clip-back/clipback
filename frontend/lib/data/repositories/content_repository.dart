@@ -120,6 +120,7 @@ class _FeedState {
   bool bookmarkedFirst = false;
   bool favoritePhase = true;
   String? nextCursor;
+  int? totalCount;
   bool initialized = false;
   bool loading = false;
   bool hasMore = true;
@@ -133,6 +134,7 @@ class _FeedState {
     if (!preserveViewport) {
       viewportVersion++;
       nextCursor = null;
+      totalCount = null;
       initialized = false;
       hasMore = true;
       favoritePhase = true;
@@ -150,6 +152,7 @@ class _FeedState {
     isFavorite: isFavorite,
     bookmarkedFirst: bookmarkedFirst,
     nextCursor: nextCursor,
+    totalCount: totalCount,
     initialized: initialized,
     loading: loading,
     hasMore: hasMore,
@@ -404,6 +407,10 @@ class RemoteContentRepository extends ContentRepository {
               if (knownIds.add(item.id)) page.items.add(item);
               _trackBookmark(item);
             }
+            page.totalCount = page.bookmarkedFirst
+                ? null
+                : response.totalCount ??
+                      (response.nextCursor == null ? page.items.length : null);
             page.initialized = true;
             page.nextCursor = response.nextCursor;
             if (response.nextCursor == null) {
@@ -466,7 +473,9 @@ class RemoteContentRepository extends ContentRepository {
       final page = entry.value;
       final previousItems = List<ApiContent>.of(page.items);
       // Older pages must be invalidated before category metadata is requested.
+      final previousTotalCount = page.totalCount;
       page.reset(preserveViewport: preserveViewport);
+      page.totalCount = previousTotalCount;
       page.items.addAll(previousItems);
       page.loading = true;
       versions[entry.key] = page.version;
@@ -547,6 +556,7 @@ class RemoteContentRepository extends ContentRepository {
     bool current() => isCurrentRefresh(ticket) && page.version == version;
     final items = <ApiContent>[];
     String? cursor;
+    int? totalCount;
     var favoritePhase = true;
     var hasMore = true;
     try {
@@ -560,6 +570,7 @@ class RemoteContentRepository extends ContentRepository {
         );
         if (!current()) return;
         items.addAll(response.items);
+        totalCount = page.bookmarkedFirst ? null : response.totalCount;
         cursor = response.nextCursor;
         if (cursor == null) {
           if (page.bookmarkedFirst && favoritePhase) {
@@ -581,6 +592,9 @@ class RemoteContentRepository extends ContentRepository {
       page.items
         ..clear()
         ..addAll(reconciled.values);
+      page.totalCount = page.bookmarkedFirst
+          ? null
+          : totalCount ?? (!hasMore ? reconciled.length : null);
       page.nextCursor = cursor;
       page.favoritePhase = favoritePhase;
       page.hasMore = hasMore;

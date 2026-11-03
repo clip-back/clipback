@@ -244,7 +244,7 @@ void main() {
           final toolbar = _key('bookmark-toolbar');
           expect(tester.getSize(toolbar).height, 52);
           expect(tester.getRect(toolbar).top, h.bottom);
-          for (final text in [find.text('불러온 1개'), find.text('최신순')]) {
+          for (final text in [find.text('총 1개'), find.text('최신순')]) {
             _style(
               tester,
               text,

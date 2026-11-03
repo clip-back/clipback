@@ -93,7 +93,7 @@ void main() {
         await pumpBody(
           tester,
           ArchiveToolbar(
-            countLabel: '불러온 1개',
+            countLabel: '총 1개',
             sortLabel: sortLabel,
             onSortChanged: (_) {},
           ),

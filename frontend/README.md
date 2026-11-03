@@ -279,3 +279,5 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - <a id="로컬-공유-검증"></a>[로컬 공유 검증](../docs/frontend/development.md#로컬-공유-검증)
 
 </details>
+
+목록 전체 개수와 옛 서버의 `-` 표시는 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.

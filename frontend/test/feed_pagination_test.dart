@@ -193,6 +193,7 @@ class _Server {
     return _json({
       'items': matching.sublist(offset, end),
       'next_cursor': nextCursor,
+      'total_count': matching.length,
     });
   }
 
@@ -488,6 +489,194 @@ void main() {
     await (FontLoader(
       'PretendardDetail',
     )..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'))).load();
+  });
+
+  for (final fails in [false, true]) {
+    testWidgets(
+      'first archive count unknown while ${fails ? 'failed' : 'loading'}',
+      (tester) async {
+        final gate = Completer<http.Response>();
+        addTearDown(() => _release(gate));
+        var archive = false;
+        final server = _Server(
+          respond: (r, _) {
+            if (archive && r.url.path == _feed) return gate.future;
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          archive = true;
+          tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenArchive();
+          await tester.pump();
+          await tester.pump();
+          final page = tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .feed!;
+          expect(page.loading, isTrue);
+          expect(page.initialized, isFalse);
+          if (fails) {
+            gate.complete(_json({'detail': 'offline'}, 503));
+            await tester.pumpAndSettle();
+            expect(page.error, isNotNull);
+          }
+          expect(find.text('총 -개'), findsOneWidget);
+          expect(find.text('총 0개'), findsNothing);
+        });
+      },
+    );
+  }
+  testWidgets('I02 empty total zero hides toolbar', (tester) async {
+    await _withApp(tester, _Server(count: 0), () async {
+      await _openBookmark(tester);
+      final page = tester
+          .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+          .feed!;
+      expect(page.totalCount, 0);
+      expect(page.initialized, isTrue);
+      expect(page.items, isEmpty);
+      expect(
+        find.byKey(const ValueKey('bookmark-empty-group')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('bookmark-toolbar')), findsNothing);
+    });
+  });
+  testWidgets('missing current content wins over server total 25', (
+    tester,
+  ) async {
+    final server = _favoriteServer(
+      count: 2,
+      respond: (r, server) {
+        if (r.url.path != _feed) return null;
+        final body = jsonDecode(server.page(r).body) as Map<String, dynamic>;
+        body['total_count'] = 25;
+        return _json(body);
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _openBookmark(tester);
+      final bookmark = tester.widget<BookmarkScreen>(
+        find.byType(BookmarkScreen),
+      );
+      bookmark.onOpenContent(bookmark.contents.first);
+      await tester.pumpAndSettle();
+      final detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
+      detail.onToggleBookmark(detail.content);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).feed!.totalCount,
+        25,
+      );
+      expect(find.text('현재 목록에 없는 콘텐츠'), findsOneWidget);
+    });
+  });
+  for (final mode in ['server', 'old', 'lower-bound']) {
+    testWidgets('whole app count $mode across page boundary', (tester) async {
+      final server = _Server(
+        count: 25,
+        respond: (request, server) {
+          if (request.url.path != _feed || mode == 'server') return null;
+          final body =
+              jsonDecode(server.page(request).body) as Map<String, dynamic>;
+          if (mode == 'old') body.remove('total_count');
+          if (mode == 'lower-bound') body['total_count'] = 0;
+          return _json(body);
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        final first = mode == 'server'
+            ? '25'
+            : mode == 'old'
+            ? '-'
+            : '20';
+        expect(find.text('총 $first개'), findsOneWidget);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        archive.onOpenContent(archive.contents.last);
+        await tester.pumpAndSettle();
+        expect(find.text('20 / $first'), findsOneWidget);
+        tester
+            .widget<DetailScreen>(find.byType(DetailScreen))
+            .onOpenAdjacent(1);
+        await tester.pumpAndSettle();
+        expect(find.text('21 / 25'), findsOneWidget);
+      });
+    });
+  }
+  for (final origin in [
+    'home',
+    'home-chip',
+    'search',
+    'category',
+    'unclassified',
+    'bookmark',
+  ]) {
+    testWidgets('whole app detail total from $origin', (tester) async {
+      final server = _Server(count: 25);
+      for (final record in server.records) {
+        record['categories'] = [
+          origin == 'unclassified' ? _uncategorized : _category,
+        ];
+        record['is_favorite'] = true;
+      }
+      await _withApp(tester, server, () async {
+        if (origin == 'home' || origin == 'home-chip') {
+          if (origin == 'home-chip') {
+            final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+            home.onCategorySelected!(
+              home.categories.firstWhere((c) => c.id == 101),
+            );
+            await tester.pumpAndSettle();
+          }
+          final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+          home.onOpenContent(home.contents[1]);
+        } else if (origin == 'search') {
+          await _openSearch(tester);
+          await _submitSearch(tester, '피드');
+          final search = tester.widget<SearchScreen>(find.byType(SearchScreen));
+          search.onOpenContent(search.feed!.items[1]);
+        } else if (origin == 'category' || origin == 'unclassified') {
+          await _openArchive(tester);
+          await _openCategory(tester, origin == 'category' ? 101 : 303);
+          final archive = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen),
+          );
+          expect(
+            find.text('총 25개'),
+            origin == 'category' ? findsOneWidget : findsNothing,
+          );
+          archive.onOpenContent(archive.contents[1]);
+        } else {
+          await _openBookmark(tester);
+          final bookmark = tester.widget<BookmarkScreen>(
+            find.byType(BookmarkScreen),
+          );
+          expect(find.text('총 25개'), findsOneWidget);
+          bookmark.onOpenContent(bookmark.contents[1]);
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('2 / 25'), findsOneWidget);
+      });
+    });
+  }
+  testWidgets('favorite-first total stays unknown even after exhaustion', (
+    tester,
+  ) async {
+    final server = _Server(count: 2);
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .onSortChanged(true);
+      await tester.pumpAndSettle();
+      expect(find.text('총 -개'), findsOneWidget);
+      final archive = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
+      archive.onOpenContent(archive.contents.first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 / -'), findsOneWidget);
+    });
   });
 
   testWidgets('E06 actual ID pagination retains the selected server sort', (
@@ -951,6 +1140,7 @@ void main() {
         final before = tester.widget<BookmarkScreen>(
           find.byType(BookmarkScreen),
         );
+        expect(find.text('총 2개'), findsOneWidget);
         final item = before.contents.first;
         before.onToggleBookmark(item);
         await tester.pumpAndSettle();
@@ -961,6 +1151,7 @@ void main() {
         expect(retained.bookmarked, isFalse);
         expect(retained.mutationLabel, isNull);
         expect(failed.feed!.error, isNotNull);
+        expect(find.text('총 2개'), findsOneWidget);
         expect(
           server.records.singleWhere(
             (r) => r['id'] == item.apiId,
@@ -981,6 +1172,7 @@ void main() {
         );
         expect(retried.feed!.error, isNull);
         expect(retried.contents, hasLength(1));
+        expect(find.text('총 1개'), findsOneWidget);
         expect(retried.contents.single.id, isNot(item.id));
         expect(
           server.requests.where((r) => r.method == 'PUT'),
@@ -1343,7 +1535,7 @@ void main() {
     }
     await _withApp(tester, server, () async {
       await _openBookmark(tester);
-      expect(find.text('불러온 20개'), findsOneWidget);
+      expect(find.text('총 45개'), findsOneWidget);
       expect(find.text('999'), findsNothing);
       await _scrollToEnd(tester, BookmarkScreen);
       await _scrollToEnd(tester, BookmarkScreen);
@@ -1351,7 +1543,7 @@ void main() {
           .widget<BookmarkScreen>(find.byType(BookmarkScreen))
           .contents;
       expect(items, hasLength(45));
-      expect(find.text('불러온 45개'), findsOneWidget);
+      expect(find.text('총 45개'), findsOneWidget);
       expect(items.every((content) => content.bookmarked), isTrue);
       final favoriteCalls = server.feedCalls.where(
         (request) => request.url.queryParameters['is_favorite'] != null,
@@ -1883,7 +2075,7 @@ void main() {
           '피드 항목 21',
         );
         expect(server.feedCalls, hasLength(requests));
-        expect(find.text('21 / 불러온 21개'), findsOneWidget);
+        expect(find.text('21 / 21'), findsOneWidget);
       });
     },
   );
@@ -1933,6 +2125,7 @@ void main() {
           '피드 항목 20',
         );
         expect(find.text('다시 시도'), findsOneWidget);
+        expect(find.text('20 / 21'), findsOneWidget);
         fail = false;
         await tester.tap(find.text('다시 시도'));
         await tester.pumpAndSettle();
@@ -2075,6 +2268,7 @@ void main() {
       );
       await _withApp(tester, server, () async {
         await _openArchive(tester);
+        expect(find.text('총 41개'), findsOneWidget);
         final deleting = _archiveItems(tester).first;
         await _scrollToEnd(tester, ContentListView, settle: false);
         tester
@@ -2088,6 +2282,7 @@ void main() {
         gate.complete(oldResponse!);
         await tester.pumpAndSettle();
         expect(_archiveItems(tester), hasLength(20));
+        expect(find.text('총 40개'), findsOneWidget);
         expect(
           _archiveItems(tester).any((content) => content.id == deleting.id),
           isFalse,
@@ -2204,9 +2399,9 @@ void main() {
       final server = _Server(count: 41);
       await _withApp(tester, server, () async {
         await _openArchive(tester);
-        expect(find.text('불러온 20개'), findsOneWidget);
+        expect(find.text('총 41개'), findsOneWidget);
         await _scrollArchiveToEnd(tester);
-        expect(find.text('불러온 40개'), findsOneWidget);
+        expect(find.text('총 41개'), findsOneWidget);
         tester
             .widget<ArchiveScreen>(find.byType(ArchiveScreen))
             .onTab(AppRoute.my);

@@ -11,6 +11,7 @@ class FeedSnapshot {
     required this.isFavorite,
     required this.bookmarkedFirst,
     required this.nextCursor,
+    this.totalCount,
     required this.initialized,
     required this.loading,
     required this.hasMore,
@@ -24,6 +25,7 @@ class FeedSnapshot {
   final bool? isFavorite;
   final bool bookmarkedFirst;
   final String? nextCursor;
+  final int? totalCount;
   final bool initialized;
   final bool loading;
   final bool hasMore;

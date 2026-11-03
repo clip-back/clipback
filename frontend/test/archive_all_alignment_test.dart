@@ -179,13 +179,13 @@ void main() {
       );
     }
   }
-  testWidgets('E01 loaded count never claims the account total', (
+  testWidgets('E01 exhausted old-server feed uses the loaded count', (
     tester,
   ) async {
     final host = await _pump(tester, TargetPlatform.iOS, 375);
     expect(host.currentState!.feed.items.length, 6);
-    expect(find.text('불러온 6개'), findsOneWidget);
-    expect(find.text('총 6개'), findsNothing);
+    expect(find.text('총 6개'), findsOneWidget);
+    expect(find.textContaining('불러온'), findsNothing);
     expect(find.text('999'), findsNothing);
   });
   test(

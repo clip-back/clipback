@@ -17,6 +17,12 @@ class FakeContentRepository:
         self.calls: list[dict[str, object]] = []
         self.cursor_lookups: list[tuple[int, int]] = []
 
+    async def count_feed(self, **filters):
+        calls = len(self.calls)
+        items = await self.list_feed(**filters, cursor=None, limit=10000)
+        del self.calls[calls:]
+        return len(items)
+
     async def get_feed_cursor(self, *, user_id: int, content_id: int) -> FeedCursor | None:
         self.cursor_lookups.append((user_id, content_id))
         for item in self.contents:
