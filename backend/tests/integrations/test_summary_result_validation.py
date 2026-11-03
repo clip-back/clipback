@@ -1,4 +1,5 @@
-"""Locks how each summary client judges a model answer (spec #147 "카테고리 값 처리 표").
+"""Locks how each summary client judges a model answer (spec #147 "카테고리 값 처리 표",
+spec #203 "공통 정리 규칙과 결과 판정").
 
 YouTube judges the decoded JSON value; Instagram judges the value after the OpenAI SDK's
 Pydantic parsing, so the same answer can end differently for the two kinds.
@@ -36,9 +37,13 @@ def gemini_answer(answer):
     }
 
 
-async def summarize_youtube(title="제목", summary="요약", category_id=None):
-    answer = {"title": title, "summary": summary, "category_id": category_id}
+async def summarize_youtube(title="제목", headline="핵심", points=("요점",), category_id=None):
+    return await summarize_youtube_answer(
+        {"title": title, "headline": headline, "points": points, "category_id": category_id}
+    )
 
+
+async def summarize_youtube_answer(answer):
     def handler(request):
         if request.method == "GET":
             return httpx.Response(200, json=video("PT5M"))
@@ -68,9 +73,6 @@ async def summarize_instagram(title="제목", summary="요약", category_id=None
     return await client.summarize("https://www.instagram.com/reel/ABC123/", "model", CANDIDATES)
 
 
-SUMMARIZERS = {"youtube": summarize_youtube, "instagram": summarize_instagram}
-
-
 async def rejected(summarize, **answer):
     with pytest.raises(Exception) as caught:
         await summarize(**answer)
@@ -78,9 +80,8 @@ async def rejected(summarize, **answer):
     return caught.value
 
 
-@pytest.mark.parametrize("kind", ["youtube", "instagram"])
-async def test_title_and_summary_at_the_length_limit_are_kept_trimmed(kind):
-    result = await SUMMARIZERS[kind](title=f"  {TITLE_120} ", summary=f"\n{SUMMARY_500}  ")
+async def test_title_and_summary_at_the_length_limit_are_kept_trimmed():
+    result = await summarize_instagram(title=f"  {TITLE_120} ", summary=f"\n{SUMMARY_500}  ")
 
     assert (result.title, result.summary) == (TITLE_120, SUMMARY_500)
 
@@ -99,12 +100,10 @@ async def test_title_and_summary_at_the_length_limit_are_kept_trimmed(kind):
         "title-121", "summary-501", "blank-title", "blank-summary", "empty-title", "empty-summary",
     ],
 )
-@pytest.mark.parametrize("kind", ["youtube", "instagram"])
-async def test_title_or_summary_outside_the_limits_is_an_invalid_response(kind, answer):
-    error = await rejected(SUMMARIZERS[kind], **answer)
+async def test_title_or_summary_outside_the_limits_is_an_invalid_response(answer):
+    error = await rejected(summarize_instagram, **answer)
 
-    assert error.code == "invalid_response"
-    assert error.provider == ("openai" if kind == "instagram" else None)
+    assert (error.code, error.provider) == ("invalid_response", "openai")
 
 
 @pytest.mark.parametrize(
@@ -132,3 +131,146 @@ async def test_category_value_pydantic_cannot_read_fails_only_the_instagram_summ
 
     error = await rejected(summarize_instagram, category_id=category_id)
     assert (error.code, error.provider) == ("invalid_response", "openai")
+
+
+FIVE = ["요점1", "요점2", "요점3", "요점4", "요점5"]
+FIVE_JOINED = "핵심\n• 요점1\n• 요점2\n• 요점3\n• 요점4\n• 요점5"
+# Headline 45 + five times ("\n• " 3 + point 88) = 500; one more headline character is 501.
+POINTS_88 = ["나" * 88] * 5
+JOINED_500 = "\n".join(["가" * 45, *[f"• {'나' * 88}"] * 5])
+assert len(JOINED_500) == 500
+
+
+def point(text):
+    return {"points": [text]}
+
+
+@pytest.mark.parametrize(
+    "answer,summary",
+    [
+        ({"points": ["내용"]}, "핵심\n• 내용"),
+        (point("• 내용"), "핵심\n• 내용"),
+        (point("· 내용"), "핵심\n• 내용"),
+        (point("- 내용"), "핵심\n• 내용"),
+        (point("* 내용"), "핵심\n• 내용"),
+        (point("2. 내용"), "핵심\n• 내용"),
+        (point("3) 내용"), "핵심\n• 내용"),
+        (point("10. 내용"), "핵심\n• 내용"),
+        (point("  - 내용"), "핵심\n• 내용"),
+        (point("•내용"), "핵심\n• 내용"),
+        (point("·내용"), "핵심\n• 내용"),
+        (point("-12% 하락"), "핵심\n• -12% 하락"),
+        (point("1위 홀마크"), "핵심\n• 1위 홀마크"),
+        (point("1.5배 증가"), "핵심\n• 1.5배 증가"),
+        (point("2)내용"), "핵심\n• 2)내용"),
+        (point("• · 내용"), "핵심\n• · 내용"),
+        (point("내용 - 부연"), "핵심\n• 내용 - 부연"),
+        ({"points": ["", "  ", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["- ", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["•", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["3) ", "내용"]}, "핵심\n• 내용"),
+        (point("a\nb"), "핵심\n• a b"),
+        (point("a\r\nb"), "핵심\n• a b"),
+        (point("a\rb"), "핵심\n• a b"),
+        (point("a\n\nb"), "핵심\n• a b"),
+        (point("a \n b"), "핵심\n• a b"),
+        (point("a  b"), "핵심\n• a b"),
+        (point("a   b"), "핵심\n• a b"),
+        (point("-  내용"), "핵심\n• 내용"),
+        ({"headline": "핵심\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심\r\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심\n\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심  추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "  핵심 \n"}, "핵심\n• 요점"),
+        ({"headline": "- 핵심"}, "- 핵심\n• 요점"),
+        ({"points": [*FIVE, "요점6"]}, FIVE_JOINED),
+        ({"points": ["", *FIVE]}, FIVE_JOINED),
+        ({"points": [*FIVE, "다" * 500]}, FIVE_JOINED),
+        ({"headline": "가" * 41, "points": ["나" * 61]}, f"{'가' * 41}\n• {'나' * 61}"),
+        ({"headline": "가" * 45, "points": POINTS_88}, JOINED_500),
+    ],
+    ids=[
+        "plain", "mark-bullet", "mark-middle-dot", "mark-dash", "mark-star", "mark-number-dot",
+        "mark-number-paren", "mark-two-digit", "space-then-mark", "bullet-no-space",
+        "middle-dot-no-space", "kept-minus-number", "kept-rank", "kept-decimal",
+        "kept-number-paren-no-space", "only-first-mark", "kept-inner-dash", "blank-points-dropped",
+        "dash-only-dropped", "bullet-only-dropped", "number-paren-only-dropped", "point-lf",
+        "point-crlf", "point-cr", "point-double-lf", "point-spaced-lf", "point-two-spaces",
+        "point-three-spaces", "dash-two-spaces", "headline-lf", "headline-crlf",
+        "headline-double-lf", "headline-two-spaces", "headline-trimmed", "headline-mark-kept",
+        "six-points-first-five", "blank-then-five", "five-then-very-long", "over-hint-lengths",
+        "exactly-500",
+    ],
+)
+async def test_youtube_headline_and_points_are_cleaned_and_joined(answer, summary):
+    result = await summarize_youtube(**answer)
+
+    assert result.summary == summary
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"headline": ""},
+        {"headline": "   "},
+        {"headline": " \r\n\n "},
+        {"points": []},
+        {"points": ["- "]},
+        {"points": ["•"]},
+        {"points": ["", " "]},
+        {"headline": "가" * 46, "points": POINTS_88},
+        {"points": [*FIVE, 7]},
+        {"points": [*FIVE, None]},
+        {"headline": None},
+        {"headline": 7},
+        {"headline": True},
+        {"headline": ["핵심"]},
+        {"headline": {"text": "핵심"}},
+        {"points": None},
+        {"points": 7},
+        {"points": "내용"},
+        {"points": {"text": "내용"}},
+        {"points": ["내용", 7]},
+        {"points": ["내용", None]},
+        {"points": ["내용", {"text": "내용"}]},
+        {"points": ["내용", ["내용"]]},
+        {"title": ""},
+        {"title": "   "},
+        {"title": TITLE_120 + "가"},
+    ],
+    ids=[
+        "empty-headline", "blank-headline", "line-break-headline", "no-points", "dash-only",
+        "bullet-only", "blank-points-only", "joined-501", "five-then-number", "five-then-null",
+        "headline-null", "headline-number", "headline-bool", "headline-array", "headline-object",
+        "points-null", "points-number", "points-string", "points-object", "point-number",
+        "point-null", "point-object", "point-array", "empty-title", "blank-title", "title-121",
+    ],
+)
+async def test_youtube_answer_the_cleaning_rules_reject_is_an_invalid_response(answer):
+    error = await rejected(summarize_youtube, **answer)
+
+    assert (error.code, error.retryable, error.provider) == ("invalid_response", False, None)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"title": "제목", "headline": "핵심", "category_id": None},
+        {"title": "제목", "points": ["요점"], "category_id": None},
+        {"title": "제목", "headline": "핵심", "points": ["요점"]},
+        {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": None, "x": 1},
+        {
+            "title": "제목", "headline": "핵심", "points": ["요점"], "summary": "요약",
+            "category_id": None,
+        },
+        {"title": "제목", "summary": "요약", "category_id": None},
+    ],
+    ids=[
+        "missing-points", "missing-headline", "missing-category", "extra-key",
+        "extra-summary", "old-summary-only",
+    ],
+)
+async def test_youtube_answer_without_the_exact_keys_is_an_invalid_response(answer):
+    error = await rejected(summarize_youtube_answer, answer=answer)
+
+    assert (error.code, error.retryable, error.provider) == ("invalid_response", False, None)
