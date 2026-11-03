@@ -62,6 +62,13 @@ flutter test --no-pub
 flutter build web --no-pub
 ```
 
+원격 CI는 [App Validation](../.github/workflows/app-validation.yml)입니다. main 대상 PR과 main push에서
+`frontend/**`나 워크플로 파일이 바뀌었을 때만 실행하며, 수동 실행(`workflow_dispatch`)도 됩니다.
+Flutter 3.47.9(stable)로 `flutter pub get --enforce-lockfile`, `flutter analyze --no-pub`,
+`flutter test --no-pub`를 차례로 실행합니다. `flutter build web`과 iOS·Android 빌드, 시뮬레이터·에뮬레이터 실행은 하지 않습니다.
+리뷰에서는 해당 커밋의 App Validation 통과로 로컬 앱 검사(pub get·analyze·test)를 대신할 수 있습니다.
+로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다. 도입 때의 통과·실패 확인 run은 [작업 이력](../docs/history/2026-11-03-app-validation-ci.md)에 있습니다.
+
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
 
 원본 저장·실제 네이티브 공유·OS 프로세스 재시작·계정 전환을 한 로컬 API에서 확인하는 방법은

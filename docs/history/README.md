@@ -25,6 +25,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-03 | [앱 pub get·analyze·test 원격 검사 워크플로 추가](2026-11-03-app-validation-ci.md) | CI |
 | 2026-11-03 | [frontend 바로 아래의 쓰지 않는 디자인 SVG 7개 삭제](2026-11-03-remove-unused-design-svgs.md) | 앱 |
 | 2026-11-03 | [Flutter 3.47.9 업그레이드](2026-11-03-flutter-3-47-upgrade.md) | 앱 |
 | 2026-11-03 | [화면 문구의 "북마크"를 "즐겨찾기"로 통일](2026-11-03-bookmark-to-favorite-wording.md) | 앱 |
