@@ -14,15 +14,21 @@ class HomeViewModel extends FeedViewModel {
   }
 
   bool _emptyHero = false;
+  int? _seenCategoryId;
 
   /// Whether home last settled on the C02 hero; unknown counts as C01.
   /// Kept here so it survives leaving the home tab.
   bool get emptyHero => _emptyHero;
 
   void _rememberHero() {
+    // A filter change (e.g. deleting the selected category) is announced
+    // before the new feed loads, so the page still holds the old filter's
+    // result; it says nothing about the whole feed yet.
+    final filterChanged = page.categoryId != _seenCategoryId;
+    _seenCategoryId = page.categoryId;
     if (page.items.isNotEmpty) {
       _emptyHero = false;
-    } else if (page.confirmedEmpty) {
+    } else if (!filterChanged && page.confirmedEmpty) {
       _emptyHero = true;
     }
   }
