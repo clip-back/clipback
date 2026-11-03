@@ -211,6 +211,56 @@ void main() {
     },
   );
 
+  test('home remembers its hero until saved content is known again', () async {
+    var saved = <Map<String, Object?>>[];
+    var fail = false;
+    Completer<http.Response>? held;
+    final fixture = _Fixture((request) {
+      if (request.url.path != '/api/v1/feed') return null;
+      if (held != null) return held!.future;
+      if (fail) return _json({'detail': 'down'}, 500);
+      final filtered = request.url.queryParameters.containsKey('category_id');
+      return _feed(filtered ? const [] : saved);
+    });
+    final home = fixture.home;
+    expect(home.emptyHero, isFalse, reason: 'unknown counts as C01');
+    await fixture.load();
+    expect(home.emptyHero, isTrue, reason: 'confirmed zero is C02');
+
+    Future<void> expectKept(bool empty) async {
+      final category = home.categories.single;
+      held = Completer<http.Response>();
+      final loading = home.selectCategory(category);
+      await _until(() => home.page.loading);
+      expect(home.emptyHero, empty, reason: 'chip loading');
+      held!.complete(_feed(const []));
+      held = null;
+      await loading;
+      expect(home.page.items, isEmpty);
+      expect(home.emptyHero, empty, reason: 'empty category');
+      fail = true;
+      await home.retry();
+      expect(home.page.error, isNotNull);
+      expect(home.emptyHero, empty, reason: 'error');
+      fail = false;
+      held = Completer<http.Response>();
+      final reloading = home.selectCategory(null);
+      await _until(() => home.page.loading);
+      expect(home.emptyHero, empty, reason: 'reloading all');
+      held!.complete(_feed(saved));
+      held = null;
+      await reloading;
+    }
+
+    await expectKept(true);
+    expect(home.emptyHero, isTrue);
+    saved = [_content()];
+    await home.retry();
+    expect(home.emptyHero, isFalse, reason: 'cards are C01');
+    await expectKept(false);
+    expect(home.emptyHero, isFalse);
+  });
+
   test('selecting the active home category reloads its feed', () async {
     final fixture = _Fixture((request) {
       if (request.url.path != '/api/v1/feed') return null;

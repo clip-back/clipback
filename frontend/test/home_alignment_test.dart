@@ -109,9 +109,11 @@ Widget _home({
   required List<ContentItem> contents,
   FeedPage? feed,
   int? categoryId,
+  bool previousEmptyHero = false,
   VoidCallback? onOpenToday,
   List<ApiWeeklyRecommendationItem> weeklyItems = const [],
 }) => HomeScreen(
+  previousEmptyHero: previousEmptyHero,
   weeklyItems: weeklyItems,
   feed: feed,
   activeCategoryId: categoryId,
@@ -381,8 +383,7 @@ void main() {
           tester,
           width: width,
           child: HomeHero(
-            hasSavedContent: hasContent,
-            confirmedEmpty: !hasContent,
+            empty: !hasContent,
             onSearch: () {},
             onOpenToday: () {},
           ),
@@ -419,12 +420,8 @@ void main() {
       tester,
     ) async {
       addTearDown(tester.view.reset);
-      Widget buildHero() => HomeHero(
-        hasSavedContent: hasContent,
-        confirmedEmpty: !hasContent,
-        onSearch: () {},
-        onOpenToday: () {},
-      );
+      Widget buildHero() =>
+          HomeHero(empty: !hasContent, onSearch: () {}, onOpenToday: () {});
       await _render(tester, width: 320, child: buildHero());
       final normalHeight = tester.getSize(find.byType(HomeHero)).height;
       await _render(tester, width: 320, textScale: 2, child: buildHero());
@@ -446,58 +443,177 @@ void main() {
     });
   }
 
+  // Issue #217 table: unsettled states keep the previous hero (unknown = C01).
+  const c01 = ['나중에 보려던 것들,', '지금 하나만 꺼내볼까요?', '오늘의 콘텐츠 보기 →'];
+  const c02 = ['아직 저장한 콘텐츠가 없어요.', '지금 하나만 저장해볼까요?', '첫 콘텐츠 저장하기'];
   for (final state in [
+    'chip loading',
+    'empty category',
+    'error',
+    'reloading',
+    'cards',
+    'confirmed zero',
     'missing feed',
     'uninitialized',
-    'loading',
-    'error',
-    'active category',
-    'feed category',
     'stale feed items',
   ]) {
-    testWidgets('unconfirmed empty $state preserves legacy entry copy', (
+    for (final previous in ['C01', 'C02', 'unknown']) {
+      // The last three only reach the unconfirmed EmptyHomeContent panel,
+      // whose fixed height already overflows when scaled (outside #217).
+      final extra = const [
+        'missing feed',
+        'uninitialized',
+        'stale feed items',
+      ].contains(state);
+      for (final textScale in extra ? [1.0] : [1.0, 1.15, 1.3]) {
+        testWidgets('$state after $previous hero at $textScale', (
+          tester,
+        ) async {
+          addTearDown(tester.view.reset);
+          final cards = [_content(0), _content(1)];
+          var contents = const <ContentItem>[];
+          int? categoryId;
+          FeedPage? feed = _feed(const []);
+          switch (state) {
+            case 'chip loading':
+              categoryId = _secondCategory.id;
+              feed
+                ..categoryId = categoryId
+                ..initialized = false
+                ..hasMore = true
+                ..loading = true;
+            case 'empty category':
+              categoryId = _secondCategory.id;
+              feed.categoryId = categoryId;
+            case 'error':
+              categoryId = _secondCategory.id;
+              feed
+                ..categoryId = categoryId
+                ..initialized = false
+                ..hasMore = true
+                ..error = StateError('Fixture cannot load');
+            case 'reloading':
+              feed
+                ..initialized = false
+                ..hasMore = true
+                ..loading = true;
+            case 'cards':
+              contents = cards;
+              feed.items.addAll(cards);
+            case 'missing feed':
+              feed = null;
+            case 'uninitialized':
+              feed.initialized = false;
+            case 'stale feed items':
+              feed.items.add(_content(0));
+          }
+          var todayTaps = 0;
+          await _render(
+            tester,
+            textScale: textScale,
+            settle: !(feed?.loading ?? false),
+            child: _home(
+              contents: contents,
+              feed: feed,
+              categoryId: categoryId,
+              previousEmptyHero: previous == 'C02',
+              onOpenToday: () => todayTaps++,
+            ),
+          );
+          final expectEmpty =
+              state == 'confirmed zero' ||
+              (state != 'cards' && previous == 'C02');
+          final hero = find.byType(HomeHero);
+          expect(tester.widget<HomeHero>(hero).empty, expectEmpty);
+          final heroRect = tester.getRect(hero);
+          for (final text in expectEmpty ? c02 : c01) {
+            final found = find.descendant(of: hero, matching: find.text(text));
+            expect(found, findsOneWidget);
+            _expectContained(tester.getRect(found), heroRect);
+          }
+          for (final text in [
+            ...(expectEmpty ? c01 : c02),
+            '저장한 정보가 없어요.',
+            '지금 하나만 저장할까요?',
+            '저장 방법 보기 →',
+          ]) {
+            expect(find.text(text), findsNothing);
+          }
+          expect(
+            find.descendant(of: hero, matching: _asset(Assets.character2Png)),
+            findsNothing,
+          );
+
+          // Same scale, same hero kind: height matches the settled hero.
+          await _render(
+            tester,
+            textScale: textScale,
+            child: HomeHero(
+              empty: expectEmpty,
+              onSearch: () {},
+              onOpenToday: () {},
+            ),
+          );
+          expect(tester.getSize(find.byType(HomeHero)).height, heroRect.height);
+          expect(tester.takeException(), isNull);
+          expect(todayTaps, 0);
+        });
+      }
+    }
+  }
+
+  for (final state in ['empty category', 'chip loading', 'error']) {
+    testWidgets('C01 button opens today even with no feed items: $state', (
       tester,
     ) async {
       addTearDown(tester.view.reset);
-      final feed = _feed(const []);
+      var todayTaps = 0;
+      final feed = _feed(const [])..categoryId = _secondCategory.id;
       switch (state) {
-        case 'uninitialized':
-          feed.initialized = false;
-        case 'loading':
+        case 'chip loading':
           feed.loading = true;
         case 'error':
           feed.error = StateError('Fixture cannot load');
-        case 'feed category':
-          feed.categoryId = 2;
-        case 'stale feed items':
-          feed.items.add(_content(0));
       }
       await _render(
         tester,
-        settle: state != 'loading',
+        settle: !feed.loading,
         child: _home(
           contents: const [],
-          feed: state == 'missing feed' ? null : feed,
-          categoryId: state == 'active category' ? 2 : null,
+          feed: feed,
+          categoryId: _secondCategory.id,
+          onOpenToday: () => todayTaps++,
         ),
       );
-      expect(find.text('저장한 정보가 없어요.'), findsOneWidget);
-      expect(find.text('지금 하나만 저장할까요?'), findsOneWidget);
-      expect(find.text('저장 방법 보기 →'), findsOneWidget);
-      expect(find.text('첫 콘텐츠 저장하기'), findsNothing);
-      final heroImage = tester.widget<Image>(
-        find.descendant(
-          of: find.byType(HomeHero),
-          matching: find.byType(Image),
-        ),
-      );
-      expect((heroImage.image as AssetImage).assetName, Assets.character2Png);
-      if (state == 'active category') {
-        expect(find.byType(HomeFilteredEmptyContent), findsOneWidget);
-      }
+      await tester.tap(find.text('오늘의 콘텐츠 보기 →'));
+      await tester.pump();
+      expect(todayTaps, 1);
+      expect(find.byType(AddContentSheet), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('remembered C02 button keeps opening the save screen', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    var todayTaps = 0;
+    await _render(
+      tester,
+      child: _home(
+        contents: const [],
+        feed: _feed(const [])..categoryId = _secondCategory.id,
+        categoryId: _secondCategory.id,
+        previousEmptyHero: true,
+        onOpenToday: () => todayTaps++,
+      ),
+    );
+    await tester.tap(find.text('첫 콘텐츠 저장하기'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AddContentSheet), findsOneWidget);
+    expect(todayTaps, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final (categoryId, copy) in [
     (_unclassifiedCategory.id, '분류가 필요한 콘텐츠가 없어요'),
