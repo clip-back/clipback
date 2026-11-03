@@ -2,7 +2,18 @@
 spec #203 "공통 정리 규칙과 결과 판정").
 
 YouTube judges the decoded JSON value; Instagram judges the value after the OpenAI SDK's
-Pydantic parsing, so the same answer can end differently for the two kinds.
+Pydantic parsing, so the same answer can end differently for the two kinds. Both then clean
+and join the headline and points with the same shared rules. Only these rows differ:
+
+| 모델 답 | 유튜브 | 인스타그램 |
+| --- | --- | --- |
+| `category_id` `"7"`, `7.0` / `true` | 후보 아님, `None` | `7` / `1` |
+| `category_id` `"abc"`, `7.5`, `[7]`, `{"id": 7}` | 후보 아님, `None` | `invalid_response` |
+| 스키마에 없는 키가 더 있음(옛 `summary` 포함) | `invalid_response` | 무시하고 completed |
+
+A wrongly typed headline or points value or a missing key fails both kinds with
+`invalid_response`; for Instagram the SDK parsing already rejects it. A failed YouTube answer
+carries no provider, Instagram's carries `openai`.
 """
 
 import json
@@ -20,9 +31,10 @@ from tests.integrations.test_youtube_summary_client import config, video
 
 pytestmark = pytest.mark.asyncio
 
+KINDS = ["youtube", "instagram"]
+PROVIDER = {"youtube": None, "instagram": "openai"}
 CANDIDATES = [{"id": 1, "name": "맛집"}, {"id": 7, "name": "여행"}]
 TITLE_120 = "가" * 120
-SUMMARY_500 = "나" * 500
 
 
 def gemini_answer(answer):
@@ -37,25 +49,29 @@ def gemini_answer(answer):
     }
 
 
-async def summarize_youtube(title="제목", headline="핵심", points=("요점",), category_id=None):
-    return await summarize_youtube_answer(
-        {"title": title, "headline": headline, "points": points, "category_id": category_id}
+def openai_answer(answer):
+    body = json.loads(completion().content)
+    body["output"][0]["content"][0]["text"] = json.dumps(answer, ensure_ascii=False)
+    return httpx.Response(200, json=body)
+
+
+async def summarize(kind, title="제목", headline="핵심", points=("요점",), category_id=None):
+    return await summarize_answer(
+        kind, {"title": title, "headline": headline, "points": points, "category_id": category_id}
     )
 
 
-async def summarize_youtube_answer(answer):
-    def handler(request):
-        if request.method == "GET":
-            return httpx.Response(200, json=video("PT5M"))
-        return httpx.Response(200, json=gemini_answer(answer))
+async def summarize_answer(kind, answer):
+    if kind == "youtube":
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(200, json=video("PT5M"))
+            return httpx.Response(200, json=gemini_answer(answer))
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        return await YouTubeSummaryClient(config(), http).summarize(
-            "dQw4w9WgXcQ", "model", CANDIDATES
-        )
-
-
-async def summarize_instagram(title="제목", summary="요약", category_id=None):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            return await YouTubeSummaryClient(config(), http).summarize(
+                "dQw4w9WgXcQ", "model", CANDIDATES
+            )
     metadata = MetadataClient(
         http_transport=httpx.MockTransport(lambda r: page()), resolver=public_resolver
     )
@@ -63,9 +79,7 @@ async def summarize_instagram(title="제목", summary="요약", category_id=None
         api_key="test",
         max_retries=0,
         http_client=httpx.AsyncClient(
-            transport=httpx.MockTransport(
-                lambda r: completion(title=title, summary=summary, category_id=category_id)
-            )
+            transport=httpx.MockTransport(lambda r: openai_answer(answer))
         ),
     )
     settings = Settings(_env_file=None, youtube_summary_enabled=False)
@@ -73,37 +87,14 @@ async def summarize_instagram(title="제목", summary="요약", category_id=None
     return await client.summarize("https://www.instagram.com/reel/ABC123/", "model", CANDIDATES)
 
 
-async def rejected(summarize, **answer):
+async def rejected(kind, summarize, *args, **answer):
     with pytest.raises(Exception) as caught:
-        await summarize(**answer)
-    assert type(caught.value).__name__ == "SummaryError"
-    return caught.value
-
-
-async def test_title_and_summary_at_the_length_limit_are_kept_trimmed():
-    result = await summarize_instagram(title=f"  {TITLE_120} ", summary=f"\n{SUMMARY_500}  ")
-
-    assert (result.title, result.summary) == (TITLE_120, SUMMARY_500)
-
-
-@pytest.mark.parametrize(
-    "answer",
-    [
-        {"title": TITLE_120 + "가"},
-        {"summary": SUMMARY_500 + "나"},
-        {"title": "   "},
-        {"summary": " \n "},
-        {"title": ""},
-        {"summary": ""},
-    ],
-    ids=[
-        "title-121", "summary-501", "blank-title", "blank-summary", "empty-title", "empty-summary",
-    ],
-)
-async def test_title_or_summary_outside_the_limits_is_an_invalid_response(answer):
-    error = await rejected(summarize_instagram, **answer)
-
-    assert (error.code, error.provider) == ("invalid_response", "openai")
+        await summarize(kind, *args, **answer)
+    error = caught.value
+    assert type(error).__name__ == "SummaryError"
+    assert (error.code, error.retryable, error.provider) == (
+        "invalid_response", False, PROVIDER[kind],
+    )
 
 
 @pytest.mark.parametrize(
@@ -121,16 +112,15 @@ async def test_title_or_summary_outside_the_limits_is_an_invalid_response(answer
 async def test_category_value_is_judged_after_each_kinds_own_parsing(
     category_id, youtube, instagram
 ):
-    assert (await summarize_youtube(category_id=category_id)).category_id == youtube
-    assert (await summarize_instagram(category_id=category_id)).category_id == instagram
+    assert (await summarize("youtube", category_id=category_id)).category_id == youtube
+    assert (await summarize("instagram", category_id=category_id)).category_id == instagram
 
 
 @pytest.mark.parametrize("category_id", ["abc", 7.5, [7], {"id": 7}])
 async def test_category_value_pydantic_cannot_read_fails_only_the_instagram_summary(category_id):
-    assert (await summarize_youtube(category_id=category_id)).category_id is None
+    assert (await summarize("youtube", category_id=category_id)).category_id is None
 
-    error = await rejected(summarize_instagram, category_id=category_id)
-    assert (error.code, error.provider) == ("invalid_response", "openai")
+    await rejected("instagram", summarize, category_id=category_id)
 
 
 FIVE = ["요점1", "요점2", "요점3", "요점4", "요점5"]
@@ -202,14 +192,16 @@ def point(text):
         "exactly-500",
     ],
 )
-async def test_youtube_headline_and_points_are_cleaned_and_joined(answer, summary):
-    result = await summarize_youtube(**answer)
+@pytest.mark.parametrize("kind", KINDS)
+async def test_headline_and_points_are_cleaned_and_joined(kind, answer, summary):
+    result = await summarize(kind, **answer)
 
     assert result.summary == summary
 
 
-async def test_youtube_title_and_joined_summary_at_the_length_limit_are_kept_trimmed():
-    result = await summarize_youtube(title=f"  {TITLE_120} ", headline="가" * 45, points=POINTS_88)
+@pytest.mark.parametrize("kind", KINDS)
+async def test_title_and_joined_summary_at_the_length_limit_are_kept_trimmed(kind):
+    result = await summarize(kind, title=f"  {TITLE_120} ", headline="가" * 45, points=POINTS_88)
 
     assert (result.title, result.summary) == (TITLE_120, JOINED_500)
 
@@ -252,31 +244,40 @@ async def test_youtube_title_and_joined_summary_at_the_length_limit_are_kept_tri
         "point-null", "point-object", "point-array", "empty-title", "blank-title", "title-121",
     ],
 )
-async def test_youtube_answer_the_cleaning_rules_reject_is_an_invalid_response(answer):
-    error = await rejected(summarize_youtube, **answer)
+@pytest.mark.parametrize("kind", KINDS)
+async def test_answer_the_cleaning_rules_reject_is_an_invalid_response(kind, answer):
+    await rejected(kind, summarize, **answer)
 
-    assert (error.code, error.retryable, error.provider) == ("invalid_response", False, None)
 
-
+# Instagram's Pydantic parsing ignores keys the schema does not name; `None` means it fails too.
 @pytest.mark.parametrize(
-    "answer",
+    "answer,instagram",
     [
-        {"title": "제목", "headline": "핵심", "category_id": None},
-        {"title": "제목", "points": ["요점"], "category_id": None},
-        {"title": "제목", "headline": "핵심", "points": ["요점"]},
-        {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": None, "x": 1},
-        {
-            "title": "제목", "headline": "핵심", "points": ["요점"], "summary": "요약",
-            "category_id": None,
-        },
-        {"title": "제목", "summary": "요약", "category_id": None},
+        ({"title": "제목", "headline": "핵심", "category_id": None}, None),
+        ({"title": "제목", "points": ["요점"], "category_id": None}, None),
+        ({"title": "제목", "headline": "핵심", "points": ["요점"]}, None),
+        (
+            {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": None, "x": 1},
+            "핵심\n• 요점",
+        ),
+        (
+            {
+                "title": "제목", "headline": "핵심", "points": ["요점"], "summary": "요약",
+                "category_id": None,
+            },
+            "핵심\n• 요점",
+        ),
+        ({"title": "제목", "summary": "요약", "category_id": None}, None),
     ],
     ids=[
         "missing-points", "missing-headline", "missing-category", "extra-key",
         "extra-summary", "old-summary-only",
     ],
 )
-async def test_youtube_answer_without_the_exact_keys_is_an_invalid_response(answer):
-    error = await rejected(summarize_youtube_answer, answer=answer)
+async def test_youtube_needs_the_exact_keys_and_instagram_ignores_an_extra_key(answer, instagram):
+    await rejected("youtube", summarize_answer, answer)
 
-    assert (error.code, error.retryable, error.provider) == ("invalid_response", False, None)
+    if instagram is None:
+        await rejected("instagram", summarize_answer, answer)
+    else:
+        assert (await summarize_answer("instagram", answer)).summary == instagram

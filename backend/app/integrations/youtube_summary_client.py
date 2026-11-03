@@ -7,7 +7,7 @@ import re
 import httpx
 
 from app.core.config import Settings
-from app.integrations.summary import SummaryError, SummaryResult, joined_summary, validated_result
+from app.integrations.summary import SummaryError, SummaryResult, validated_result
 
 
 class YouTubeSummaryClient:
@@ -185,7 +185,8 @@ class YouTubeSummaryClient:
                 raise ValueError
             return validated_result(
                 output["title"],
-                joined_summary(output["headline"], output["points"]),
+                output["headline"],
+                output["points"],
                 output["category_id"],
                 categories,
                 usage,

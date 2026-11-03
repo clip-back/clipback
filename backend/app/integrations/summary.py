@@ -28,16 +28,18 @@ class SummaryResult:
 
 
 def validated_result(
-    title, summary, category_id, categories: list[dict], usage: dict
+    title, headline, points, category_id, categories: list[dict], usage: dict
 ) -> SummaryResult:
     """Judge a model answer each client has already parsed its own way.
 
     The values arrive untyped because the parsing differs: YouTube passes the decoded JSON
-    as is, Instagram the Pydantic-converted values. An empty or too long title or summary
-    fails; a category that is not an int candidate is dropped.
+    as is, Instagram the Pydantic-converted values. The headline and points are cleaned and
+    joined into the summary; an empty or too long title or joined summary fails; a category
+    that is not an int candidate is dropped.
     """
-    title, summary = title.strip(), summary.strip()
-    if not title or len(title) > 120 or not summary or len(summary) > 500:
+    summary = _joined_summary(headline, points)
+    title = title.strip()
+    if not title or len(title) > 120 or len(summary) > 500:
         raise SummaryError("invalid_response")
     if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
         category_id = None
@@ -54,12 +56,11 @@ def _one_line(text: str) -> str:
     return re.sub(r" {2,}", " ", text)
 
 
-def joined_summary(headline, points) -> str:
+def _joined_summary(headline, points) -> str:
     """Clean the model's headline and points and join them as one plain-text summary.
 
     The steps run in the fixed order of spec #203 "공통 정리 규칙과 결과 판정" (ADR 0005);
-    changing the order changes results. The 500-character limit on the joined text is
-    checked by `validated_result`.
+    changing the order changes results.
     """
     if not isinstance(headline, str):
         raise SummaryError("invalid_response")

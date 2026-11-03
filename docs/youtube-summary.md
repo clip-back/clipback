@@ -128,8 +128,10 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
   10MB 이하여야 하며 5초 안에 받아야 한다. 해상도는 Pillow 기본 압축 폭탄 보호 한도(약 8,900만 화소)를 따른다. 내부망 주소·잘못된 이미지 주소·HTTP 오류·형식/크기/시간 초과·한도 초과·이미지 아님은
   원인과 관계없이 재시도 없이 캡션만으로 진행하며(일시 장애 재시도보다 우선), 캡션도 없을 때만 `insufficient_content`다.
 - 시간 상한: 페이지 5초·1MB, 이미지 5초, GPT 60초이고 시도 1회 전체는 90초다. 90초를 넘으면 재시도 가능한 `timeout`이다.
-- OpenAI Responses API 구조화 출력(`title`/`summary`/`category_id`), `store=False`, SDK 자동 재시도 없음, 60초 상한.
-  제목 120자·요약 500자와 후보 ID를 검증하고, 캡션·카테고리 이름은 명령으로 신뢰하지 않는다.
+- OpenAI Responses API 구조화 출력(`title`/`headline`/`points`/`category_id`), `store=False`, SDK 자동 재시도 없음, 60초 상한.
+  요약은 YouTube와 같이 [핵심 한 줄](../GLOSSARY.md)과 [요점](../GLOSSARY.md) 1–5개로 받아 [분석 조건](#분석-조건)의 같은 규칙으로
+  정리·합친다. 요청 스키마의 요점 개수·길이 제한 때문에 SDK 파싱이 답을 거절하지는 않는다. 스키마에 없는 키는 SDK 파싱이 무시한다.
+  제목 120자·합친 요약 500자와 후보 ID를 검증하고, 캡션·카테고리 이름은 명령으로 신뢰하지 않는다.
   OpenAI 401/403은 `configuration_error`, 429/5xx/네트워크/시간 초과는 30초 뒤 한 번 재시도하는 `provider_error`/`timeout`,
   그 밖의 형식 오류는 `invalid_response`다.
 - 로그는 같은 `youtube_summary_*` 이벤트에 `kind=instagram`으로 남는다. 항목은 [인스타그램 진단 로그](#인스타그램-진단-로그)를 따른다.
