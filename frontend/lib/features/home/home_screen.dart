@@ -119,6 +119,7 @@ class HomeScreen extends StatelessWidget {
     this.activeCategoryId,
     this.onCategorySelected,
     this.onOpenNotifications,
+    this.previousEmptyHero = false,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
@@ -135,6 +136,9 @@ class HomeScreen extends StatelessWidget {
   });
 
   final List<ContentItem> contents;
+
+  /// Hero last shown (true = C02); unknown counts as C01.
+  final bool previousEmptyHero;
   final List<ApiWeeklyRecommendationItem> weeklyItems;
   final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
   final ValueChanged<int>? onWeeklyExposed;
@@ -162,16 +166,9 @@ class HomeScreen extends StatelessWidget {
     final confirmedEmpty =
         !hasSavedContent &&
         activeCategoryId == null &&
-        feed != null &&
-        feed!.categoryId == null &&
-        feed!.query == null &&
-        feed!.isFavorite == null &&
-        !feed!.hasMore &&
-        feed!.nextCursor == null &&
-        feed!.initialized &&
-        !feed!.loading &&
-        feed!.error == null &&
-        feed!.items.isEmpty;
+        (feed?.confirmedEmpty ?? false);
+    // Until saved content is known either way, keep the previous hero.
+    final emptyHero = !hasSavedContent && (confirmedEmpty || previousEmptyHero);
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -191,13 +188,10 @@ class HomeScreen extends StatelessWidget {
               child: Column(
                 children: [
                   HomeHero(
-                    hasSavedContent: hasSavedContent,
-                    confirmedEmpty: confirmedEmpty,
+                    empty: emptyHero,
                     onSearch: onSearch,
                     onOpenNotifications: onOpenNotifications,
-                    onOpenToday: hasSavedContent
-                        ? onOpenToday
-                        : showAddContentSheet,
+                    onOpenToday: emptyHero ? showAddContentSheet : onOpenToday,
                   ),
                   HomeContentPanel(
                     weeklyItems: weeklyItems,
@@ -234,16 +228,15 @@ class HomeScreen extends StatelessWidget {
 
 class HomeHero extends StatelessWidget {
   const HomeHero({
-    required this.hasSavedContent,
-    this.confirmedEmpty = false,
+    required this.empty,
     this.onOpenNotifications,
     required this.onSearch,
     required this.onOpenToday,
     super.key,
   });
 
-  final bool hasSavedContent;
-  final bool confirmedEmpty;
+  /// C02 (nothing saved) when true, otherwise C01.
+  final bool empty;
   final VoidCallback? onOpenNotifications;
   final VoidCallback onSearch;
   final VoidCallback onOpenToday;
@@ -299,88 +292,7 @@ class HomeHero extends StatelessWidget {
             ),
           ),
         ),
-        if (hasSavedContent || confirmedEmpty)
-          _alignedIntro(context)
-        else
-          SizedBox(
-            height: 172,
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 24,
-                  top: 8,
-                  width: 168,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          height: 1.6,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 168,
-                        child: FittedBox(
-                          alignment: Alignment.centerLeft,
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
-                            maxLines: 1,
-                            softWrap: false,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: -0.45,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      GestureDetector(
-                        onTap: onOpenToday,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.text,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
-                            style: const TextStyle(
-                              color: AppColors.main,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              height: 1.4,
-                              letterSpacing: -0.35,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  right: hasSavedContent ? 24 : 30,
-                  top: 0,
-                  child: Image.asset(
-                    hasSavedContent
-                        ? Assets.homeCharacter
-                        : Assets.character2Png,
-                    width: hasSavedContent ? 99 : 81,
-                    height: 123,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        _alignedIntro(context),
       ],
     );
   }
@@ -388,9 +300,9 @@ class HomeHero extends StatelessWidget {
   Widget _alignedIntro(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final textWidth = math.max(1.0, constraints.maxWidth - 147);
-      final title = hasSavedContent ? '나중에 보려던 것들,' : '아직 저장한 콘텐츠가 없어요.';
-      final subtitle = hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장해볼까요?';
-      final button = hasSavedContent ? '오늘의 콘텐츠 보기 →' : '첫 콘텐츠 저장하기';
+      final title = empty ? '아직 저장한 콘텐츠가 없어요.' : '나중에 보려던 것들,';
+      final subtitle = empty ? '지금 하나만 저장해볼까요?' : '지금 하나만 꺼내볼까요?';
+      final button = empty ? '첫 콘텐츠 저장하기' : '오늘의 콘텐츠 보기 →';
       final introHeight = math.max(
         140.0,
         8 +
@@ -488,6 +400,11 @@ class HomeContentPanel extends StatefulWidget {
   final VoidCallback onOpenCategories;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
+
+  /// Card rail (16 + card + 16) plus the 6px dots, so loading and empty
+  /// chip results keep the content below in place.
+  static double recentAreaHeight(BuildContext context) =>
+      HomeContentCard.heightFor(context) + 32 + 6;
 
   @override
   State<HomeContentPanel> createState() => _HomeContentPanelState();
@@ -600,8 +517,12 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
               );
             },
           ),
-          if (widget.feed != null &&
-              (widget.feed!.loading || widget.feed!.error != null))
+          if (widget.feed?.loading ?? false)
+            SizedBox(
+              height: HomeContentPanel.recentAreaHeight(context),
+              child: FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
+            )
+          else if (widget.feed?.error != null)
             FeedStatus(page: widget.feed!, onRetry: widget.onRetry)
           else if (filteredContents.isNotEmpty) ...[
             LayoutBuilder(
@@ -647,10 +568,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
               activeIndex: _activeIndex,
             ),
           ] else if (widget.activeCategoryId != null)
-            HomeFilteredEmptyContent(
-              label: _activeCategoryLabel,
-              onReset: () => widget.onCategorySelected?.call(null),
-            )
+            HomeFilteredEmptyContent(label: _activeCategoryLabel)
           else
             EmptyHomeContent(confirmedEmpty: widget.confirmedEmpty),
           const SizedBox(height: 32),
@@ -668,62 +586,7 @@ class EmptyHomeContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (confirmedEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: SizedBox(
-          width: 260,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 67,
-                height: 78,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      left: -2,
-                      top: 0,
-                      child: Image.asset(
-                        Assets.homeEmptyIllustration,
-                        width: 71,
-                        height: 82,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '저장한 콘텐츠가 없어요',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  inherit: false,
-                  fontFamily: 'Pretendard',
-                  color: AppColors.middle,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.375,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  inherit: false,
-                  fontFamily: 'Pretendard',
-                  color: AppColors.subtle,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  height: 1.6,
-                  letterSpacing: -0.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+      return const _SavedEmptyMessage(title: '저장한 콘텐츠가 없어요');
     }
     return SizedBox(
       height: 211,
@@ -756,33 +619,100 @@ class EmptyHomeContent extends StatelessWidget {
 }
 
 class HomeFilteredEmptyContent extends StatelessWidget {
-  const HomeFilteredEmptyContent({
-    required this.label,
-    required this.onReset,
-    super.key,
-  });
+  const HomeFilteredEmptyContent({required this.label, super.key});
 
   final String label;
-  final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
+    final height = HomeContentPanel.recentAreaHeight(context);
     return SizedBox(
-      height: 218,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset(Assets.character2Png, width: 58, height: 70),
-          const SizedBox(height: 12),
-          Text(
-            label == catUncategorized.name
-                ? '분류가 필요한 콘텐츠가 없어요'
-                : '$label 콘텐츠가 없어요',
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          TextButton(onPressed: onReset, child: const Text('전체보기')),
-        ],
+      height: height,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: _SavedEmptyMessage(
+          title: label == catUncategorized.name
+              ? '분류가 필요한 콘텐츠가 없어요'
+              : '$label 콘텐츠가 없어요',
+          height: height,
+        ),
+      ),
+    );
+  }
+}
+
+/// C02 empty state block, shared by the empty home and empty chip results.
+class _SavedEmptyMessage extends StatelessWidget {
+  const _SavedEmptyMessage({required this.title, this.height});
+
+  final String title;
+
+  /// Fixed block height; null keeps the natural C02 height.
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    final fixed = height != null;
+    return Padding(
+      padding: EdgeInsets.only(top: fixed ? 0 : 16, bottom: 16),
+      child: SizedBox(
+        width: 260,
+        height: fixed ? height! - 16 : null,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // In a fixed height only a two-line title runs out of room, so
+            // this C02 16px gap shrinks by just the overflow.
+            if (fixed) const Flexible(child: SizedBox(height: 16)),
+            SizedBox(
+              width: 67,
+              height: 78,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: -2,
+                    top: 0,
+                    child: Image.asset(
+                      Assets.homeEmptyIllustration,
+                      width: 71,
+                      height: 82,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                inherit: false,
+                fontFamily: 'Pretendard',
+                color: AppColors.middle,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.375,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                inherit: false,
+                fontFamily: 'Pretendard',
+                color: AppColors.subtle,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                height: 1.6,
+                letterSpacing: -0.35,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -971,9 +901,9 @@ class HomeContentCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleBookmark;
 
-  static double heightFor(BuildContext context, ContentItem content) {
+  static double heightFor(BuildContext context, [ContentItem? content]) {
     final categoryHeight = _textHeight(context, '한', _cardCategory) + 8;
-    final mutationHeight = content.mutationLabel == null
+    final mutationHeight = content?.mutationLabel == null
         ? 0.0
         : _textHeight(context, '한', _cardMutation);
     return math.max(

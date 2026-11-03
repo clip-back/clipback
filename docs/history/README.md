@@ -25,6 +25,11 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-03 | [자동 요약을 핵심 한 줄과 요점 목록으로 바꾸기](2026-11-03-summary-headline-points.md) | 백엔드 |
+| 2026-11-03 | [홈 상단의 옛 "저장한 정보가 없어요." 영역 삭제와 직전 상단 유지](2026-11-03-home-hero-fallback.md) | 앱 |
+| 2026-11-03 | [CHANGELOG·이력 목차의 동시 추가 충돌을 merge=union으로 자동 해결](2026-11-03-merge-union-changelog.md) | 문서 |
+| 2026-11-03 | [홈 칩 전환 때 최근 콘텐츠 영역 높이 고정](2026-11-03-home-chip-switch-height.md) | 앱 |
+| 2026-11-03 | [앱 pub get·analyze·test 원격 검사 워크플로 추가](2026-11-03-app-validation-ci.md) | CI |
 | 2026-11-03 | [frontend 바로 아래의 쓰지 않는 디자인 SVG 7개 삭제](2026-11-03-remove-unused-design-svgs.md) | 앱 |
 | 2026-11-03 | [Flutter 3.47.9 업그레이드](2026-11-03-flutter-3-47-upgrade.md) | 앱 |
 | 2026-11-03 | [화면 문구의 "북마크"를 "즐겨찾기"로 통일](2026-11-03-bookmark-to-favorite-wording.md) | 앱 |

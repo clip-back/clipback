@@ -28,6 +28,18 @@ class FeedPage {
   void clearPendingRequest() => _pending = null;
   void finishFavoritePhase() => _favoritePhase = false;
 
+  /// The whole unfiltered feed finished loading with nothing saved.
+  bool get confirmedEmpty =>
+      categoryId == null &&
+      query == null &&
+      isFavorite == null &&
+      !hasMore &&
+      nextCursor == null &&
+      initialized &&
+      !loading &&
+      error == null &&
+      items.isEmpty;
+
   bool get invalidCursor =>
       error is ClipbackApiException &&
       (error as ClipbackApiException).statusCode == 422;

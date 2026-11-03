@@ -1,7 +1,19 @@
-"""Locks how each summary client judges a model answer (spec #147 "카테고리 값 처리 표").
+"""Locks how each summary client judges a model answer (spec #147 "카테고리 값 처리 표",
+spec #203 "공통 정리 규칙과 결과 판정").
 
 YouTube judges the decoded JSON value; Instagram judges the value after the OpenAI SDK's
-Pydantic parsing, so the same answer can end differently for the two kinds.
+Pydantic parsing, so the same answer can end differently for the two kinds. Both then clean
+and join the headline and points with the same shared rules. Only these rows differ:
+
+| 모델 답 | 유튜브 | 인스타그램 |
+| --- | --- | --- |
+| `category_id` `"7"`, `7.0` / `true` | 후보 아님, `None` | `7` / `1` |
+| `category_id` `"abc"`, `7.5`, `[7]`, `{"id": 7}` | 후보 아님, `None` | `invalid_response` |
+| 스키마에 없는 키가 더 있음(옛 `summary` 포함) | `invalid_response` | 무시하고 completed |
+
+A wrongly typed headline or points value or a missing key fails both kinds with
+`invalid_response`; for Instagram the SDK parsing already rejects it. A failed YouTube answer
+carries no provider, Instagram's carries `openai`.
 """
 
 import json
@@ -19,9 +31,10 @@ from tests.integrations.test_youtube_summary_client import config, video
 
 pytestmark = pytest.mark.asyncio
 
+KINDS = ["youtube", "instagram"]
+PROVIDER = {"youtube": None, "instagram": "openai"}
 CANDIDATES = [{"id": 1, "name": "맛집"}, {"id": 7, "name": "여행"}]
 TITLE_120 = "가" * 120
-SUMMARY_500 = "나" * 500
 
 
 def gemini_answer(answer):
@@ -36,21 +49,29 @@ def gemini_answer(answer):
     }
 
 
-async def summarize_youtube(title="제목", summary="요약", category_id=None):
-    answer = {"title": title, "summary": summary, "category_id": category_id}
-
-    def handler(request):
-        if request.method == "GET":
-            return httpx.Response(200, json=video("PT5M"))
-        return httpx.Response(200, json=gemini_answer(answer))
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        return await YouTubeSummaryClient(config(), http).summarize(
-            "dQw4w9WgXcQ", "model", CANDIDATES
-        )
+def openai_answer(answer):
+    body = json.loads(completion().content)
+    body["output"][0]["content"][0]["text"] = json.dumps(answer, ensure_ascii=False)
+    return httpx.Response(200, json=body)
 
 
-async def summarize_instagram(title="제목", summary="요약", category_id=None):
+async def summarize(kind, title="제목", headline="핵심", points=("요점",), category_id=None):
+    return await summarize_answer(
+        kind, {"title": title, "headline": headline, "points": points, "category_id": category_id}
+    )
+
+
+async def summarize_answer(kind, answer):
+    if kind == "youtube":
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(200, json=video("PT5M"))
+            return httpx.Response(200, json=gemini_answer(answer))
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            return await YouTubeSummaryClient(config(), http).summarize(
+                "dQw4w9WgXcQ", "model", CANDIDATES
+            )
     metadata = MetadataClient(
         http_transport=httpx.MockTransport(lambda r: page()), resolver=public_resolver
     )
@@ -58,9 +79,7 @@ async def summarize_instagram(title="제목", summary="요약", category_id=None
         api_key="test",
         max_retries=0,
         http_client=httpx.AsyncClient(
-            transport=httpx.MockTransport(
-                lambda r: completion(title=title, summary=summary, category_id=category_id)
-            )
+            transport=httpx.MockTransport(lambda r: openai_answer(answer))
         ),
     )
     settings = Settings(_env_file=None, youtube_summary_enabled=False)
@@ -68,43 +87,14 @@ async def summarize_instagram(title="제목", summary="요약", category_id=None
     return await client.summarize("https://www.instagram.com/reel/ABC123/", "model", CANDIDATES)
 
 
-SUMMARIZERS = {"youtube": summarize_youtube, "instagram": summarize_instagram}
-
-
-async def rejected(summarize, **answer):
+async def rejected(kind, summarize, *args, **answer):
     with pytest.raises(Exception) as caught:
-        await summarize(**answer)
-    assert type(caught.value).__name__ == "SummaryError"
-    return caught.value
-
-
-@pytest.mark.parametrize("kind", ["youtube", "instagram"])
-async def test_title_and_summary_at_the_length_limit_are_kept_trimmed(kind):
-    result = await SUMMARIZERS[kind](title=f"  {TITLE_120} ", summary=f"\n{SUMMARY_500}  ")
-
-    assert (result.title, result.summary) == (TITLE_120, SUMMARY_500)
-
-
-@pytest.mark.parametrize(
-    "answer",
-    [
-        {"title": TITLE_120 + "가"},
-        {"summary": SUMMARY_500 + "나"},
-        {"title": "   "},
-        {"summary": " \n "},
-        {"title": ""},
-        {"summary": ""},
-    ],
-    ids=[
-        "title-121", "summary-501", "blank-title", "blank-summary", "empty-title", "empty-summary",
-    ],
-)
-@pytest.mark.parametrize("kind", ["youtube", "instagram"])
-async def test_title_or_summary_outside_the_limits_is_an_invalid_response(kind, answer):
-    error = await rejected(SUMMARIZERS[kind], **answer)
-
-    assert error.code == "invalid_response"
-    assert error.provider == ("openai" if kind == "instagram" else None)
+        await summarize(kind, *args, **answer)
+    error = caught.value
+    assert type(error).__name__ == "SummaryError"
+    assert (error.code, error.retryable, error.provider) == (
+        "invalid_response", False, PROVIDER[kind],
+    )
 
 
 @pytest.mark.parametrize(
@@ -122,13 +112,172 @@ async def test_title_or_summary_outside_the_limits_is_an_invalid_response(kind, 
 async def test_category_value_is_judged_after_each_kinds_own_parsing(
     category_id, youtube, instagram
 ):
-    assert (await summarize_youtube(category_id=category_id)).category_id == youtube
-    assert (await summarize_instagram(category_id=category_id)).category_id == instagram
+    assert (await summarize("youtube", category_id=category_id)).category_id == youtube
+    assert (await summarize("instagram", category_id=category_id)).category_id == instagram
 
 
 @pytest.mark.parametrize("category_id", ["abc", 7.5, [7], {"id": 7}])
 async def test_category_value_pydantic_cannot_read_fails_only_the_instagram_summary(category_id):
-    assert (await summarize_youtube(category_id=category_id)).category_id is None
+    assert (await summarize("youtube", category_id=category_id)).category_id is None
 
-    error = await rejected(summarize_instagram, category_id=category_id)
-    assert (error.code, error.provider) == ("invalid_response", "openai")
+    await rejected("instagram", summarize, category_id=category_id)
+
+
+FIVE = ["요점1", "요점2", "요점3", "요점4", "요점5"]
+FIVE_JOINED = "핵심\n• 요점1\n• 요점2\n• 요점3\n• 요점4\n• 요점5"
+# Headline 45 + five times ("\n• " 3 + point 88) = 500; one more headline character is 501.
+POINTS_88 = ["나" * 88] * 5
+JOINED_500 = "\n".join(["가" * 45, *[f"• {'나' * 88}"] * 5])
+assert len(JOINED_500) == 500
+
+
+def point(text):
+    return {"points": [text]}
+
+
+@pytest.mark.parametrize(
+    "answer,summary",
+    [
+        ({"points": ["내용"]}, "핵심\n• 내용"),
+        (point("• 내용"), "핵심\n• 내용"),
+        (point("· 내용"), "핵심\n• 내용"),
+        (point("- 내용"), "핵심\n• 내용"),
+        (point("* 내용"), "핵심\n• 내용"),
+        (point("2. 내용"), "핵심\n• 내용"),
+        (point("3) 내용"), "핵심\n• 내용"),
+        (point("10. 내용"), "핵심\n• 내용"),
+        (point("  - 내용"), "핵심\n• 내용"),
+        (point("•내용"), "핵심\n• 내용"),
+        (point("·내용"), "핵심\n• 내용"),
+        (point("-12% 하락"), "핵심\n• -12% 하락"),
+        (point("1위 홀마크"), "핵심\n• 1위 홀마크"),
+        (point("1.5배 증가"), "핵심\n• 1.5배 증가"),
+        (point("2)내용"), "핵심\n• 2)내용"),
+        (point("• · 내용"), "핵심\n• · 내용"),
+        (point("내용 - 부연"), "핵심\n• 내용 - 부연"),
+        ({"points": ["", "  ", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["- ", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["•", "내용"]}, "핵심\n• 내용"),
+        ({"points": ["3) ", "내용"]}, "핵심\n• 내용"),
+        (point("a\nb"), "핵심\n• a b"),
+        (point("a\r\nb"), "핵심\n• a b"),
+        (point("a\rb"), "핵심\n• a b"),
+        (point("a\n\nb"), "핵심\n• a b"),
+        (point("a \n b"), "핵심\n• a b"),
+        (point("a  b"), "핵심\n• a b"),
+        (point("a   b"), "핵심\n• a b"),
+        (point("-  내용"), "핵심\n• 내용"),
+        ({"headline": "핵심\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심\r\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심\n\n추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "핵심  추가"}, "핵심 추가\n• 요점"),
+        ({"headline": "  핵심 \n"}, "핵심\n• 요점"),
+        ({"headline": "- 핵심"}, "- 핵심\n• 요점"),
+        ({"points": [*FIVE, "요점6"]}, FIVE_JOINED),
+        ({"points": ["", *FIVE]}, FIVE_JOINED),
+        ({"points": [*FIVE, "다" * 500]}, FIVE_JOINED),
+        ({"headline": "가" * 41, "points": ["나" * 61]}, f"{'가' * 41}\n• {'나' * 61}"),
+        ({"headline": "가" * 45, "points": POINTS_88}, JOINED_500),
+    ],
+    ids=[
+        "plain", "mark-bullet", "mark-middle-dot", "mark-dash", "mark-star", "mark-number-dot",
+        "mark-number-paren", "mark-two-digit", "space-then-mark", "bullet-no-space",
+        "middle-dot-no-space", "kept-minus-number", "kept-rank", "kept-decimal",
+        "kept-number-paren-no-space", "only-first-mark", "kept-inner-dash", "blank-points-dropped",
+        "dash-only-dropped", "bullet-only-dropped", "number-paren-only-dropped", "point-lf",
+        "point-crlf", "point-cr", "point-double-lf", "point-spaced-lf", "point-two-spaces",
+        "point-three-spaces", "dash-two-spaces", "headline-lf", "headline-crlf",
+        "headline-double-lf", "headline-two-spaces", "headline-trimmed", "headline-mark-kept",
+        "six-points-first-five", "blank-then-five", "five-then-very-long", "over-hint-lengths",
+        "exactly-500",
+    ],
+)
+@pytest.mark.parametrize("kind", KINDS)
+async def test_headline_and_points_are_cleaned_and_joined(kind, answer, summary):
+    result = await summarize(kind, **answer)
+
+    assert result.summary == summary
+
+
+@pytest.mark.parametrize("kind", KINDS)
+async def test_title_and_joined_summary_at_the_length_limit_are_kept_trimmed(kind):
+    result = await summarize(kind, title=f"  {TITLE_120} ", headline="가" * 45, points=POINTS_88)
+
+    assert (result.title, result.summary) == (TITLE_120, JOINED_500)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"headline": ""},
+        {"headline": "   "},
+        {"headline": " \r\n\n "},
+        {"points": []},
+        {"points": ["- "]},
+        {"points": ["•"]},
+        {"points": ["", " "]},
+        {"headline": "가" * 46, "points": POINTS_88},
+        {"points": [*FIVE, 7]},
+        {"points": [*FIVE, None]},
+        {"headline": None},
+        {"headline": 7},
+        {"headline": True},
+        {"headline": ["핵심"]},
+        {"headline": {"text": "핵심"}},
+        {"points": None},
+        {"points": 7},
+        {"points": "내용"},
+        {"points": {"text": "내용"}},
+        {"points": ["내용", 7]},
+        {"points": ["내용", None]},
+        {"points": ["내용", {"text": "내용"}]},
+        {"points": ["내용", ["내용"]]},
+        {"title": ""},
+        {"title": "   "},
+        {"title": TITLE_120 + "가"},
+    ],
+    ids=[
+        "empty-headline", "blank-headline", "line-break-headline", "no-points", "dash-only",
+        "bullet-only", "blank-points-only", "joined-501", "five-then-number", "five-then-null",
+        "headline-null", "headline-number", "headline-bool", "headline-array", "headline-object",
+        "points-null", "points-number", "points-string", "points-object", "point-number",
+        "point-null", "point-object", "point-array", "empty-title", "blank-title", "title-121",
+    ],
+)
+@pytest.mark.parametrize("kind", KINDS)
+async def test_answer_the_cleaning_rules_reject_is_an_invalid_response(kind, answer):
+    await rejected(kind, summarize, **answer)
+
+
+# Instagram's Pydantic parsing ignores keys the schema does not name; `None` means it fails too.
+@pytest.mark.parametrize(
+    "answer,instagram",
+    [
+        ({"title": "제목", "headline": "핵심", "category_id": None}, None),
+        ({"title": "제목", "points": ["요점"], "category_id": None}, None),
+        ({"title": "제목", "headline": "핵심", "points": ["요점"]}, None),
+        (
+            {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": None, "x": 1},
+            "핵심\n• 요점",
+        ),
+        (
+            {
+                "title": "제목", "headline": "핵심", "points": ["요점"], "summary": "요약",
+                "category_id": None,
+            },
+            "핵심\n• 요점",
+        ),
+        ({"title": "제목", "summary": "요약", "category_id": None}, None),
+    ],
+    ids=[
+        "missing-points", "missing-headline", "missing-category", "extra-key",
+        "extra-summary", "old-summary-only",
+    ],
+)
+async def test_youtube_needs_the_exact_keys_and_instagram_ignores_an_extra_key(answer, instagram):
+    await rejected("youtube", summarize_answer, answer)
+
+    if instagram is None:
+        await rejected("instagram", summarize_answer, answer)
+    else:
+        assert (await summarize_answer("instagram", answer)).summary == instagram
