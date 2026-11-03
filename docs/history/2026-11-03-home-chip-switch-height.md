@@ -34,7 +34,9 @@
   - 2줄 제한 뒤: 1.3배에서 2줄 제목이 여전히 5px 넘쳤다. 1.3배에서는 '가' 9자부터 제목이 2줄이 된다(테스트마다 새 위젯으로 1–40자 측정).
   - 여백 축소 뒤: 6개 모두 통과했다. 미분류는 세 배율 모두 1줄이고 그림 위 여백 16px이다.
 - 같은 칩 재탭 재조회는 `frontend/test/view_models/content_view_models_test.dart`에서 같은 `category_id` 요청이 두 번 나가는지로 고정했다.
-- 전체 검사: `95a4dfa`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-216`.
+- 전체 검사(1차): `95a4dfa`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-216`.
+  `VERIFY result=PASS scope=all checks=10 failed=0`.
+- 전체 검사(최종): main(`7086d81`, #215 앱 원격 검사 워크플로)을 merge한 `b5b1ef8`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-216/final`을 한 번 돌렸다.
   `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2041개 통과,
   백엔드 pytest 1896개 통과·46개 건너뜀(`pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`,
   `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`). 백엔드는 바뀌지 않았다.
@@ -62,7 +64,7 @@
   응답이 와서 카드가 다시 보이면 원래대로 돌아간다. 변경 전·후 같다. 그래서 패널 높이는 고정됐지만 칩 전환 중 홈 아래 내용의 위치는 이 차이만큼 움직인다.
 - Android 촬영에서 킷의 `run_android_phase.sh`는 설치와 설치본 확인까지 마쳤지만, 창 확인이 첫 `mCurrentFocus` 줄(null)을 읽어 찍지 못했다.
   화면은 같은 실행에서 `adb exec-out screencap`으로 찍었고 설치본 해시가 변경 전 APK와 같은 것을 확인했다.
-- 화면 자료는 저장소 밖 `.utmp/ticket-216-screens/`(비교 이미지)와 `.utmp/ticket-216/screens/`에 두었다(새 checkout에는 없다).
+- 화면은 merge 뒤 다시 찍지 않았다(main에서 들어온 것은 CI 워크플로·문서뿐). 화면 자료는 저장소 밖 `.utmp/ticket-216-screens/`(비교 이미지)와 `.utmp/ticket-216/screens/`에 두었다(새 checkout에는 없다).
   Figma 기준은 C01 `111:3584`, C02 `111:3681`(2026-11-03 조회)이다. 칩 전환 중 로딩과 칩 결과 빈 상태의 전용 노드는 없다.
 
 ## 미검증 범위
