@@ -548,6 +548,79 @@ void main() {
     });
   }
 
+  final longName = '가' * 40;
+  for (final textScale in [1.0, 1.15, 1.3]) {
+    for (final (name, copy, lines) in [
+      (longName, '$longName 콘텐츠가 없어요', 2),
+      (_unclassifiedCategory.name, '분류가 필요한 콘텐츠가 없어요', 1),
+    ]) {
+      testWidgets(
+        'filtered empty ${name.length}-char "${name.substring(0, 2)}" '
+        'fits at text scale $textScale',
+        (tester) async {
+          addTearDown(tester.view.reset);
+          final category = CategoryItem(
+            id: 9,
+            name: name,
+            color: AppColors.main,
+            tint: AppColors.mainSubtle,
+            deep: AppColors.mainDeep,
+          );
+          await _render(
+            tester,
+            textScale: textScale,
+            child: _panel(
+              contents: const [],
+              feed: _feed(const []),
+              categoryId: category.id,
+              categories: [_category, category],
+            ),
+          );
+          final empty = find.byType(HomeFilteredEmptyContent);
+          final emptyRect = tester.getRect(empty);
+          expect(
+            emptyRect.height,
+            closeTo(
+              HomeContentPanel.recentAreaHeight(tester.element(empty)),
+              0.001,
+            ),
+          );
+          final title = find.descendant(of: empty, matching: find.text(copy));
+          expect(title, findsOneWidget);
+          final paragraph = tester.renderObject<RenderParagraph>(title);
+          final lineTops = paragraph
+              .getBoxesForSelection(
+                TextSelection(baseOffset: 0, extentOffset: copy.length),
+              )
+              .map((box) => box.top.round())
+              .toSet();
+          expect(lineTops.length, lines);
+          final imageTop =
+              tester
+                  .getRect(
+                    find.descendant(
+                      of: empty,
+                      matching: _asset(Assets.homeEmptyIllustration),
+                    ),
+                  )
+                  .top -
+              emptyRect.top;
+          if (lines == 1) {
+            expect(imageTop, 16, reason: 'one-line title keeps C02 16px');
+          } else {
+            expect(imageTop, inInclusiveRange(0, 16));
+          }
+          final message = find.descendant(
+            of: empty,
+            matching: find.byType(Column),
+          );
+          _expectContained(tester.getRect(message.first), emptyRect);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   for (final textScale in [1.0, 1.15, 1.3]) {
     testWidgets(
       'chip switch keeps the recent area height at text scale $textScale',

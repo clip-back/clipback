@@ -713,14 +713,16 @@ class HomeFilteredEmptyContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final height = HomeContentPanel.recentAreaHeight(context);
     return SizedBox(
-      height: HomeContentPanel.recentAreaHeight(context),
+      height: height,
       child: Align(
         alignment: Alignment.topCenter,
         child: _SavedEmptyMessage(
           title: label == catUncategorized.name
               ? '분류가 필요한 콘텐츠가 없어요'
               : '$label 콘텐츠가 없어요',
+          height: height,
         ),
       ),
     );
@@ -729,19 +731,27 @@ class HomeFilteredEmptyContent extends StatelessWidget {
 
 /// C02 empty state block, shared by the empty home and empty chip results.
 class _SavedEmptyMessage extends StatelessWidget {
-  const _SavedEmptyMessage({required this.title});
+  const _SavedEmptyMessage({required this.title, this.height});
 
   final String title;
 
+  /// Fixed block height; null keeps the natural C02 height.
+  final double? height;
+
   @override
   Widget build(BuildContext context) {
+    final fixed = height != null;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: EdgeInsets.only(top: fixed ? 0 : 16, bottom: 16),
       child: SizedBox(
         width: 260,
+        height: fixed ? height! - 16 : null,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // In a fixed height only a two-line title runs out of room, so
+            // this C02 16px gap shrinks by just the overflow.
+            if (fixed) const Flexible(child: SizedBox(height: 16)),
             SizedBox(
               width: 67,
               height: 78,
@@ -763,6 +773,8 @@ class _SavedEmptyMessage extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 inherit: false,
