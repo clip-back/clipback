@@ -28,7 +28,7 @@ defaults:
     working-directory: frontend
 
 jobs:
-  # 명령은 로컬 verify.py --only app과 같다.
+  # 로컬 verify.py --only app의 검사에 Dart 포맷 검사를 추가한다.
   app:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -44,6 +44,8 @@ jobs:
         run: flutter --version
       - name: Get dependencies
         run: flutter pub get --enforce-lockfile
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test
       - name: Analyze
         run: flutter analyze --no-pub
       - name: Test

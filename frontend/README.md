@@ -57,6 +57,7 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 의존성 준비 후 `frontend/`에서 실행합니다.
 
 ```bash
+dart format --output=none --set-exit-if-changed lib test
 flutter analyze --no-pub
 flutter test --no-pub
 flutter build web --no-pub
@@ -64,8 +65,13 @@ flutter build web --no-pub
 
 원격 CI는 [App Validation](../.github/workflows/app-validation.yml)입니다. main 대상 PR과 main push에서
 `frontend/**`나 워크플로 파일이 바뀌었을 때만 실행하며, 수동 실행(`workflow_dispatch`)도 됩니다.
-Flutter 3.47.9(stable)로 `flutter pub get --enforce-lockfile`, `flutter analyze --no-pub`,
-`flutter test --no-pub`를 차례로 실행합니다. `flutter build web`과 iOS·Android 빌드, 시뮬레이터·에뮬레이터 실행은 하지 않습니다.
+Flutter 3.47.9(stable)로 의존성 설치(`flutter pub get --enforce-lockfile`),
+포맷 검사(`dart format --output=none --set-exit-if-changed lib test`),
+`flutter analyze --no-pub`, `flutter test --no-pub`를 차례로 실행합니다.
+포맷 검사는 `lib/`와 `test/` 전체의 Dart 파일을 대상으로 하며 파일을 수정하지 않고 불일치가 있으면 실패합니다.
+포맷을 맞추려면 `frontend/`에서 `dart format lib test`를 실행하고 변경 목록을 확인합니다.
+개인 도구 `verify.py --only app`은 pub get·analyze·test만 실행하므로 포맷 검사는 별도로 실행해야 합니다.
+`flutter build web`과 iOS·Android 빌드, 시뮬레이터·에뮬레이터 실행은 하지 않습니다.
 리뷰에서는 해당 커밋의 App Validation 통과로 로컬 앱 검사(pub get·analyze·test)를 대신할 수 있습니다.
 로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다. 도입 때의 통과·실패 확인 run은 [작업 이력](../docs/history/2026-11-03-app-validation-ci.md)에 있습니다.
 
