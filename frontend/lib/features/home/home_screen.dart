@@ -208,7 +208,6 @@ class HomeScreen extends StatelessWidget {
                     onRetry: onRetry,
                     activeCategoryId: activeCategoryId,
                     onCategorySelected: onCategorySelected,
-                    hasSavedContent: hasSavedContent,
                     confirmedEmpty: confirmedEmpty,
                     contents: contents,
                     categories: categories,
@@ -462,7 +461,6 @@ class HomeContentPanel extends StatefulWidget {
     this.onRetry,
     this.activeCategoryId,
     this.onCategorySelected,
-    required this.hasSavedContent,
     this.confirmedEmpty = false,
     required this.contents,
     required this.categories,
@@ -474,7 +472,6 @@ class HomeContentPanel extends StatefulWidget {
     super.key,
   });
 
-  final bool hasSavedContent;
   final bool confirmedEmpty;
   final List<ApiWeeklyRecommendationItem> weeklyItems;
   final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
@@ -657,18 +654,6 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
           else
             EmptyHomeContent(confirmedEmpty: widget.confirmedEmpty),
           const SizedBox(height: 32),
-          if (!widget.hasSavedContent) ...[
-            SectionHeader(title: '최근 카테고리', onTap: widget.onOpenCategories),
-            const SizedBox(height: 8),
-            for (final category in widget.categories.take(2))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: CategoryHomeRow(
-                  category: category,
-                  onTap: widget.onOpenCategories,
-                ),
-              ),
-          ],
         ],
       ),
     );

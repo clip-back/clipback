@@ -7,7 +7,8 @@ Flutter 앱의 현재 코드 구조·설정·실행과 API 연결 안내입니�
 
 ## 준비 사항
 
-잠금파일은 Flutter `>=3.44.0`·Dart `>=3.12.0 <4.0.0`을 요구합니다.
+잠금파일은 Flutter `>=3.47.0`·Dart `>=3.12.0 <4.0.0`을 요구합니다.
+Flutter 하한은 `pubspec.yaml`의 `environment.flutter`에 있어 3.47 미만 SDK에서는 `flutter pub get`이 버전 오류로 멈춥니다.
 해당 조건을 만족하는 SDK로 의존성을 준비하며 잠금파일을 재해석하지 않습니다.
 
 Flutter·Dart 조건은 아래 잠금파일 기준을 따릅니다. 모바일 실행에는 Android SDK 또는 Xcode가 필요합니다. 소셜 설정을 생략해도 게스트 실행·빌드는 가능하며, 실제 소셜 인증에는 [공개 앱 설정](../docs/frontend/development.md#공개-앱-설정)을 먼저 준비합니다. 로컬 API를 사용할 때는 [백엔드 준비](../backend/README.md)를 먼저 마칩니다.

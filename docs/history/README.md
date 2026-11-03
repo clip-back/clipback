@@ -25,6 +25,9 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-03 | [Flutter 3.47.9 업그레이드](2026-11-03-flutter-3-47-upgrade.md) | 앱 |
+| 2026-11-03 | [화면 문구의 "북마크"를 "즐겨찾기"로 통일](2026-11-03-bookmark-to-favorite-wording.md) | 앱 |
+| 2026-11-03 | [홈에서 Figma에 없는 "최근 카테고리" 영역 제거](2026-11-03-home-remove-recent-categories.md) | 앱 |
 | 2026-11-03 | [홈 미분류 칩의 빈 화면 문구에서 "콘텐츠" 중복 제거](2026-11-03-home-unclassified-empty-text.md) | 앱 |
 | 2026-11-03 | [회원 탈퇴를 여러 번 누르면 알림이 이어서 뜨던 문제 수정](2026-11-03-withdraw-notice-repeat.md) | 앱 |
 | 2026-11-02 | [복구 지점 계약 2차: 읽기 전용 점검 모듈, `storage_key` 규칙, 객체 오류 코드](2026-11-02-recovery-point-contract-2.md) | 백업·복원 |

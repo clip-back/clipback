@@ -325,7 +325,7 @@ Map<String, Object?> f01Measure(Element root) {
     'headerTitle': f01Paragraph(header, w.activeCategoryName!),
     'randomLabel': f01Paragraph(random, '랜덤 보기'),
     'countLabel': f01Paragraph(toolbar, '불러온 ${w.contents.length}개'),
-    'sortLabel': f01Paragraph(toolbar, w.bookmarkedFirst ? '북마크 우선' : '최신순'),
+    'sortLabel': f01Paragraph(toolbar, w.bookmarkedFirst ? '즐겨찾기 우선' : '최신순'),
     'headerAssets': [
       for (final e in f01Elements(header))
         if (e.widget is SvgPicture) f01Svg(e),
