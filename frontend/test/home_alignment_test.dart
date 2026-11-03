@@ -516,16 +516,188 @@ void main() {
           categories: const [_category, _secondCategory, _unclassifiedCategory],
         ),
       );
+      final empty = find.byType(HomeFilteredEmptyContent);
+      expect(
+        find.descendant(of: empty, matching: find.text(copy)),
+        findsOneWidget,
+      );
       expect(
         find.descendant(
-          of: find.byType(HomeFilteredEmptyContent),
-          matching: find.text(copy),
+          of: empty,
+          matching: find.text('SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.'),
         ),
         findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: empty,
+          matching: _asset(Assets.homeEmptyIllustration),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: empty, matching: find.text('전체보기')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: empty, matching: find.byType(TextButton)),
+        findsNothing,
       );
       expect(find.textContaining('콘텐츠 콘텐츠'), findsNothing);
       expect(tester.takeException(), isNull);
     });
+  }
+
+  final longName = '가' * 40;
+  for (final textScale in [1.0, 1.15, 1.3]) {
+    for (final (name, copy, lines) in [
+      (longName, '$longName 콘텐츠가 없어요', 2),
+      (_unclassifiedCategory.name, '분류가 필요한 콘텐츠가 없어요', 1),
+    ]) {
+      testWidgets(
+        'filtered empty ${name.length}-char "${name.substring(0, 2)}" '
+        'fits at text scale $textScale',
+        (tester) async {
+          addTearDown(tester.view.reset);
+          final category = CategoryItem(
+            id: 9,
+            name: name,
+            color: AppColors.main,
+            tint: AppColors.mainSubtle,
+            deep: AppColors.mainDeep,
+          );
+          await _render(
+            tester,
+            textScale: textScale,
+            child: _panel(
+              contents: const [],
+              feed: _feed(const []),
+              categoryId: category.id,
+              categories: [_category, category],
+            ),
+          );
+          final empty = find.byType(HomeFilteredEmptyContent);
+          final emptyRect = tester.getRect(empty);
+          expect(
+            emptyRect.height,
+            closeTo(
+              HomeContentPanel.recentAreaHeight(tester.element(empty)),
+              0.001,
+            ),
+          );
+          final title = find.descendant(of: empty, matching: find.text(copy));
+          expect(title, findsOneWidget);
+          final paragraph = tester.renderObject<RenderParagraph>(title);
+          final lineTops = paragraph
+              .getBoxesForSelection(
+                TextSelection(baseOffset: 0, extentOffset: copy.length),
+              )
+              .map((box) => box.top.round())
+              .toSet();
+          expect(lineTops.length, lines);
+          final imageTop =
+              tester
+                  .getRect(
+                    find.descendant(
+                      of: empty,
+                      matching: _asset(Assets.homeEmptyIllustration),
+                    ),
+                  )
+                  .top -
+              emptyRect.top;
+          if (lines == 1) {
+            expect(imageTop, 16, reason: 'one-line title keeps C02 16px');
+          } else {
+            expect(imageTop, inInclusiveRange(0, 16));
+          }
+          final message = find.descendant(
+            of: empty,
+            matching: find.byType(Column),
+          );
+          _expectContained(tester.getRect(message.first), emptyRect);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final textScale in [1.0, 1.15, 1.3]) {
+    testWidgets(
+      'chip switch keeps the recent area height at text scale $textScale',
+      (tester) async {
+        addTearDown(tester.view.reset);
+        final cards = [_content(0, long: true), _content(1)];
+        var contents = <ContentItem>[...cards];
+        var feed = _feed(contents)..categoryId = _category.id;
+        int? categoryId = _category.id;
+        final reloads = <int?>[];
+        late StateSetter setHarness;
+        await _render(
+          tester,
+          textScale: textScale,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              setHarness = setState;
+              return _panel(
+                contents: contents,
+                feed: feed,
+                categoryId: categoryId,
+                onCategorySelected: (category) => setState(() {
+                  // Mirrors the repository reset: items clear while loading.
+                  reloads.add(category?.id);
+                  categoryId = category?.id;
+                  contents = const [];
+                  feed = _feed(const [])
+                    ..categoryId = category?.id
+                    ..loading = true;
+                }),
+              );
+            },
+          ),
+        );
+        double panelHeight() =>
+            tester.getSize(find.byType(HomeContentPanel)).height;
+        void respond(List<ContentItem> items) => setHarness(() {
+          contents = items;
+          feed.items.addAll(items);
+          feed.loading = false;
+        });
+        final chips = find.byType(CategoryChips);
+        Finder chip(String label) =>
+            find.descendant(of: chips, matching: find.text(label));
+
+        expect(find.byType(HomeContentCard), findsNWidgets(2));
+        expect(find.byType(PageDots), findsOneWidget);
+        final cardsHeight = panelHeight();
+
+        await tester.tap(chip('여행'));
+        await tester.pump();
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(panelHeight(), cardsHeight, reason: 'loading after switch');
+
+        respond(cards);
+        await tester.pump();
+        expect(find.byType(HomeContentCard), findsNWidgets(2));
+        expect(panelHeight(), cardsHeight);
+
+        await tester.tap(chip('여행'));
+        await tester.pump();
+        expect(reloads, [_secondCategory.id, _secondCategory.id]);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(panelHeight(), cardsHeight, reason: 'loading after re-tap');
+
+        respond(const []);
+        await tester.pump();
+        expect(find.byType(HomeFilteredEmptyContent), findsOneWidget);
+        expect(panelHeight(), cardsHeight, reason: 'empty category');
+
+        await tester.tap(chip('생활'));
+        await tester.pump();
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(panelHeight(), cardsHeight, reason: 'loading after empty');
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final state in [
