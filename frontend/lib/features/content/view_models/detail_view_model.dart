@@ -221,7 +221,7 @@ class DetailViewModel extends ContentViewModel {
         repository.todayVersion,
       );
       _projectToday(context);
-      return _openTodayContent(
+      return await _openTodayContent(
         response.items.first.content.id,
         context,
         isCurrent: isCurrent,
