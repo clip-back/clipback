@@ -593,7 +593,7 @@ Map<String, Object?> archiveAllMeasure(Element root) {
   bounds['toolbar'] = _rect(archiveAllRect(toolbar));
   final sort = archiveAllFind<ArchiveSortButton>(toolbar)!;
   styles['sort'] = _paragraph(
-    archiveAllText(sort, sw.bookmarkedFirst ? '북마크 우선' : '최신순')!,
+    archiveAllText(sort, sw.bookmarkedFirst ? '즐겨찾기 우선' : '최신순')!,
   );
   styles['count'] = _paragraph(
     archiveAllText(
@@ -1460,7 +1460,7 @@ Future<void> _run() async {
   await _jump(300);
   final sort = archiveAllFind<ArchiveSortButton>(_root)!;
   await _tap(archiveAllText(sort, '최신순')!);
-  await _tap(archiveAllText(_root, '북마크 우선')!);
+  await _tap(archiveAllText(_root, '즐겨찾기 우선')!);
   await _wait(
     () =>
         (archiveAllFind<ArchiveScreen>(_root)!.widget as ArchiveScreen)
@@ -1493,7 +1493,7 @@ Future<void> _run() async {
     'resetOffset': archiveAllPosition(_root).pixels,
   });
   await _tap(
-    archiveAllText(archiveAllFind<ArchiveSortButton>(_root)!, '북마크 우선')!,
+    archiveAllText(archiveAllFind<ArchiveSortButton>(_root)!, '즐겨찾기 우선')!,
   );
   await _tap(archiveAllText(_root, '최신순')!);
   await _settle();

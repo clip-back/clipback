@@ -920,7 +920,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const ValueKey('bookmark-toolbar')), findsNothing);
-        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
+        expect(find.text('즐겨찾기한 콘텐츠가 없어요'), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     },
@@ -1374,7 +1374,7 @@ void main() {
       final server = _Server(count: 21);
       await _withApp(tester, server, () async {
         await _openBookmark(tester);
-        expect(find.text('북마크한 콘텐츠가 없어요'), findsOneWidget);
+        expect(find.text('즐겨찾기한 콘텐츠가 없어요'), findsOneWidget);
         expect(
           tester.widget<BookmarkScreen>(find.byType(BookmarkScreen)).contents,
           isEmpty,
