@@ -92,7 +92,8 @@
 
 요청·응답의 세부 계약은 [엔드포인트별 계약 안내](#guest-authentication)와 실행 중인 서버의 `/docs`를 참고한다.
 피드 응답은 `items`, `next_cursor`, `total_count`다. `total_count`는 같은 사용자·카테고리·즐겨찾기·검색어 조건의 목록 전체 개수(0 이상의 정수)이며 커서·limit과 무관하게 매 요청 다시 센다.
-`next_cursor`는 해석하지 않고 그대로 전달하는 문자열이며, 검색·카테고리·즐겨찾기 조건이나 계정이 바뀌면 초기화한다.
+`next_cursor`는 해석하지 않고 그대로 전달하는 문자열이며, 검색·카테고리·즐겨찾기 조건, 정렬이나 계정이 바뀌면 초기화한다.
+`sort`는 `latest`(기본) 또는 `favorites_first`이며 상세 계약은 [Feed Pagination](#feed-pagination)을 따른다.
 
 위 목록은 MVP 현황 문서에서, 다음 엔드포인트별 상세 설명은 기존 백엔드 README에서 이관했습니다. 추천 정책 문서에 있던 추가 HTTP 조건은 마지막 절에 출처를 구분해 보존합니다.
 
@@ -713,35 +714,43 @@ No version field, conflict response, or database migration is required.
 ## Feed Pagination
 
 `GET /api/v1/feed` returns the authenticated user's content in `saved_at DESC, id DESC`
-order. Optional `q` (title, summary, and tags), `category_id`, and `is_favorite` filters
+order by default (`sort=latest`). `sort=favorites_first` puts favorites first, then uses
+`saved_at DESC, id DESC` within each segment. Other sort values (including empty) return
+request validation `422`. Optional `q` (title, summary, and tags), `category_id`, and `is_favorite` filters
 combine with pagination. `limit` defaults to 20 and accepts 1–100.
 
-- `total_count` counts the same user/category/favorite/search filters before cursor and limit.
+- `total_count` counts the same user/category/favorite/search filters before cursor and limit, independently of sort.
   It is recalculated on every page; whitespace-only search has no filter. Missing or foreign
   categories return zero. Multiple category membership does not duplicate a content.
   This additive field preserves old app compatibility; no schema or index migration is required.
 - The response is `{ "items": [...], "next_cursor": "...", "total_count": 25 }`. `next_cursor` is
   `null` when there is no next page.
 - Pass the returned cursor unchanged in the next request's `cursor` query parameter.
-  New cursors use `v1.` followed by unpadded URL-safe Base64 JSON containing `saved_at`
+  Latest cursors keep the existing `v1.` format followed by unpadded URL-safe Base64 JSON containing `saved_at`
   and `id`. The timestamp uses UTC and preserves microseconds. Clients must treat this
   value as opaque rather than deriving a cursor from an item ID.
-- The next page uses both sort keys, so ID allocation order does not cause missing or
+  Favorites-first cursors use `f1.` with the same fields plus a boolean `is_favorite`.
+  A cursor from a different sort, or a numeric cursor with favorites-first, returns
+  `422 {"detail":"Invalid feed cursor"}`.
+- The next page uses all keys of the selected sort, so ID allocation order does not cause missing or
   repeated items. A new cursor continues to work after its anchor content is deleted.
   Newly saved content before the cursor is visible on refresh; pagination does not
   hold a database snapshot across requests.
 - Existing numeric ID cursors are still accepted when the anchor content belongs to
-  the current user and still exists. Only its saved time and ID are looked up; changes
+  the current user and still exists, for latest sort only. Only its saved time and ID are looked up; changes
   to its categories, favorites, or text do not invalidate the anchor. Responses always
   emit the new format when another page exists.
 - Malformed or unsupported cursors, invalid field types, timezone-less timestamps,
   IDs outside `1..2147483647`, and cursors longer than 512 characters return `422`.
   Missing, deleted, and other users' numeric anchors return the same `422` error.
   Clear the cursor and reload the first page after an invalid cursor response.
-- Reset the cursor whenever the account or search/category/favorite filters change.
+- Reset the cursor whenever the account, sort, or search/category/favorite filters change.
   Every page enforces the authenticated user's ownership filter.
 
-No database migration or new frontend response field is required.
+Old apps may continue their `is_favorite=true` then `false` requests without `sort`.
+Deploy the server first. An old server ignores the new sort and returns latest order.
+Changing favorites while paging can move items across the cursor; write success reloads
+from page one. No database migration is required.
 
 ## Screenshot Storage
 

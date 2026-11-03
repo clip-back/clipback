@@ -52,6 +52,7 @@ typedef _FeedRequest = ({
   String? query,
   int? categoryId,
   bool? favorite,
+  String? sort,
   String? cursor,
   int limit,
 });
@@ -82,6 +83,7 @@ class _Api extends ClipbackApi {
     String? query,
     int? categoryId,
     bool? isFavorite,
+    String? sort,
     int limit = 100,
     String? cursor,
   }) {
@@ -89,6 +91,7 @@ class _Api extends ClipbackApi {
       query: query,
       categoryId: categoryId,
       favorite: isFavorite,
+      sort: sort,
       cursor: cursor,
       limit: limit,
     );
@@ -231,23 +234,20 @@ void main() {
   );
 
   test(
-    'empty favorite phase falls through and nonempty pages remain bounded',
+    'no favorites uses one sorted feed and nonempty pages remain bounded',
     () async {
       repository.configureFeed(FeedKey.archive, bookmarkedFirst: true);
-      api.onFeed = (request) async => request.favorite == true
-          ? const ApiFeed(items: [])
-          : ApiFeed(items: [_item()], nextCursor: 'ordinary-2');
+      api.onFeed = (request) async =>
+          ApiFeed(items: [_item()], nextCursor: 'ordinary-2');
       await repository.loadNext(FeedKey.archive);
-      expect(api.feedRequests.map((request) => request.favorite), [
-        true,
-        false,
-      ]);
+      expect(api.feedRequests.map((request) => request.favorite), [null]);
+      expect(api.feedRequests.single.sort, 'favorites_first');
       expect(repository.feed(FeedKey.archive).hasMore, isTrue);
       expect(repository.feed(FeedKey.archive).nextCursor, 'ordinary-2');
       api.onFeed = (request) async => ApiFeed(items: [_item(id: 2)]);
       await repository.loadNext(FeedKey.archive);
       expect(api.feedRequests.last.cursor, 'ordinary-2');
-      expect(api.feedRequests.length, 3);
+      expect(api.feedRequests.length, 2);
       expect(repository.feed(FeedKey.archive).items.map((item) => item.id), [
         1,
         2,

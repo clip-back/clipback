@@ -118,7 +118,6 @@ class _FeedState {
   String? query;
   bool? isFavorite;
   bool bookmarkedFirst = false;
-  bool favoritePhase = true;
   String? nextCursor;
   int? totalCount;
   bool initialized = false;
@@ -137,7 +136,6 @@ class _FeedState {
       totalCount = null;
       initialized = false;
       hasMore = true;
-      favoritePhase = true;
     }
     items.clear();
     loading = false;
@@ -385,7 +383,6 @@ class RemoteContentRepository extends ContentRepository {
     _notify();
     unawaited(() async {
       try {
-        // Empty favorites fall through without prefetching the entire segment.
         do {
           final read = _beginContentRead();
           try {
@@ -393,9 +390,8 @@ class RemoteContentRepository extends ContentRepository {
               limit: 20,
               query: page.query,
               categoryId: page.categoryId,
-              isFavorite: page.bookmarkedFirst
-                  ? page.favoritePhase
-                  : page.isFavorite,
+              isFavorite: page.isFavorite,
+              sort: page.bookmarkedFirst ? 'favorites_first' : null,
               cursor: page.nextCursor,
             );
             if (!current()) return;
@@ -407,19 +403,12 @@ class RemoteContentRepository extends ContentRepository {
               if (knownIds.add(item.id)) page.items.add(item);
               _trackBookmark(item);
             }
-            page.totalCount = page.bookmarkedFirst
-                ? null
-                : response.totalCount ??
-                      (response.nextCursor == null ? page.items.length : null);
+            page.totalCount =
+                response.totalCount ??
+                (response.nextCursor == null ? page.items.length : null);
             page.initialized = true;
             page.nextCursor = response.nextCursor;
-            if (response.nextCursor == null) {
-              if (page.bookmarkedFirst && page.favoritePhase) {
-                page.favoritePhase = false;
-              } else {
-                page.hasMore = false;
-              }
-            }
+            page.hasMore = response.nextCursor != null;
             _notify();
           } finally {
             _endContentRead(read.key);
@@ -557,7 +546,6 @@ class RemoteContentRepository extends ContentRepository {
     final items = <ApiContent>[];
     String? cursor;
     int? totalCount;
-    var favoritePhase = true;
     var hasMore = true;
     try {
       do {
@@ -565,20 +553,15 @@ class RemoteContentRepository extends ContentRepository {
           limit: 20,
           query: page.query,
           categoryId: page.categoryId,
-          isFavorite: page.bookmarkedFirst ? favoritePhase : page.isFavorite,
+          isFavorite: page.isFavorite,
+          sort: page.bookmarkedFirst ? 'favorites_first' : null,
           cursor: cursor,
         );
         if (!current()) return;
         items.addAll(response.items);
-        totalCount = page.bookmarkedFirst ? null : response.totalCount;
+        totalCount = response.totalCount;
         cursor = response.nextCursor;
-        if (cursor == null) {
-          if (page.bookmarkedFirst && favoritePhase) {
-            favoritePhase = false;
-          } else {
-            hasMore = false;
-          }
-        }
+        hasMore = cursor != null;
       } while (hasMore && (items.isEmpty || items.length < targetCount));
       if (!current()) return;
       final reconciled = <int, ApiContent>{};
@@ -592,11 +575,8 @@ class RemoteContentRepository extends ContentRepository {
       page.items
         ..clear()
         ..addAll(reconciled.values);
-      page.totalCount = page.bookmarkedFirst
-          ? null
-          : totalCount ?? (!hasMore ? reconciled.length : null);
+      page.totalCount = totalCount ?? (!hasMore ? reconciled.length : null);
       page.nextCursor = cursor;
-      page.favoritePhase = favoritePhase;
       page.hasMore = hasMore;
       page.initialized = true;
     } catch (error) {

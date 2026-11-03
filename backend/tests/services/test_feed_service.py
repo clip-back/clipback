@@ -39,6 +39,7 @@ class FakeContentRepository:
         limit: int,
         is_favorite: bool | None = None,
         search_query: str | None = None,
+        sort: str = "latest",
     ) -> list[SimpleNamespace]:
         self.calls.append(
             {
@@ -415,3 +416,19 @@ async def test_invalid_cursor_is_422_without_repository_queries(cursor):
     assert exc_info.value.status_code == 422
     assert repository.calls == []
     assert repository.cursor_lookups == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [None, [], {},
+    {"saved_at": "2026-01-01T00:00:00Z", "id": 1},
+    *[{"saved_at": "2026-01-01T00:00:00Z", "id": 1, "is_favorite": value}
+      for value in [None, 0, 1, "true", [], {}]],
+])
+async def test_favorites_cursor_rejects_missing_or_wrong_types(payload):
+    service = FeedService(FakeContentRepository([]))
+    cursor = "f1." + cursor_payload(payload)[3:]
+    with pytest.raises(HTTPException) as error:
+        await service.read_feed(user_id=1, category_id=None, limit=20,
+                                cursor=cursor, sort="favorites_first")
+    assert error.value.status_code == 422
+    assert error.value.detail == "Invalid feed cursor"

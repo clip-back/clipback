@@ -1262,6 +1262,7 @@ class ClipbackApi {
     String? query,
     int? categoryId,
     bool? isFavorite,
+    String? sort,
     int limit = 100,
     String? cursor,
   }) async {
@@ -1269,6 +1270,7 @@ class ClipbackApi {
     if (query != null && query.isNotEmpty) parameters['q'] = query;
     if (categoryId != null) parameters['category_id'] = '$categoryId';
     if (isFavorite != null) parameters['is_favorite'] = '$isFavorite';
+    if (sort != null) parameters['sort'] = sort;
     if (cursor != null) parameters['cursor'] = cursor;
     final queryString = Uri(queryParameters: parameters).query;
     return ApiFeed.fromJson(await _json('GET', '/feed?$queryString'));

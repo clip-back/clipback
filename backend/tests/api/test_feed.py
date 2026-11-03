@@ -23,6 +23,7 @@ class FakeFeedService:
         is_favorite: bool | None,
         limit: int,
         cursor: str | None,
+        sort: str = "latest",
     ) -> FeedResponse:
         self.calls.append(
             {

@@ -11,7 +11,6 @@ class FeedPage {
   String? query;
   bool? isFavorite;
   bool bookmarkedFirst = false;
-  bool _favoritePhase = true;
   String? nextCursor;
   int? totalCount;
   bool initialized = false;
@@ -23,15 +22,12 @@ class FeedPage {
   Future<void>? _pending;
 
   Future<void>? get pendingRequest => _pending;
-  bool get isFavoritePhase => _favoritePhase;
 
   void trackRequest(Future<void> request) => _pending = request;
   void clearPendingRequest() => _pending = null;
-  void finishFavoritePhase() => _favoritePhase = false;
 
   /// Server totals belong to the committed items, including during refresh.
   int? get displayTotalCount {
-    if (bookmarkedFirst) return null;
     final count = totalCount ?? (initialized && !hasMore ? items.length : null);
     return count == null ? null : (count < items.length ? items.length : count);
   }
@@ -56,7 +52,6 @@ class FeedPage {
   void project(FeedSnapshot snapshot, List<ContentItem> contents) {
     if (version != snapshot.version) {
       scrollOffset = 0;
-      _favoritePhase = true;
       _pending = null;
     }
     items
@@ -85,7 +80,6 @@ class FeedPage {
     hasMore = true;
     error = null;
     scrollOffset = 0;
-    _favoritePhase = true;
     _pending = null;
   }
 }

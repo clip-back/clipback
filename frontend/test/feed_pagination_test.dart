@@ -1,3 +1,6 @@
+import 'package:clipback_frontend/data/repositories/content_repository.dart';
+import 'package:clipback_frontend/data/models/content_state.dart';
+import 'support/http_response_hold.dart';
 import 'auth_navigation.dart';
 import 'support/app_startup.dart';
 import 'dart:async';
@@ -154,7 +157,7 @@ class _Server {
     final parameters = request.url.queryParameters;
     final key =
         '${parameters['q']}|${parameters['category_id']}|'
-        '${parameters['is_favorite']}';
+        '${parameters['is_favorite']}|${parameters['sort']}';
     final cursor = parameters['cursor'];
     final position = cursor == null ? null : _offsets[cursor]!;
     if (position != null && position.key != key) {
@@ -183,6 +186,18 @@ class _Server {
       }
       return true;
     }).toList();
+    if (parameters['sort'] == 'favorites_first') {
+      final favorites = matching
+          .where((item) => item['is_favorite'] == true)
+          .toList();
+      final ordinary = matching
+          .where((item) => item['is_favorite'] != true)
+          .toList();
+      matching
+        ..clear()
+        ..addAll(favorites)
+        ..addAll(ordinary);
+    }
     final limit = int.parse(parameters['limit']!);
     final end = (offset + limit).clamp(0, matching.length);
     String? nextCursor;
@@ -661,23 +676,28 @@ void main() {
       });
     });
   }
-  testWidgets('favorite-first total stays unknown even after exhaustion', (
-    tester,
-  ) async {
-    final server = _Server(count: 2);
-    await _withApp(tester, server, () async {
-      await _openArchive(tester);
-      tester
-          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
-          .onSortChanged(true);
-      await tester.pumpAndSettle();
-      expect(find.text('총 -개'), findsOneWidget);
-      final archive = tester.widget<ArchiveScreen>(find.byType(ArchiveScreen));
-      archive.onOpenContent(archive.contents.first);
-      await tester.pumpAndSettle();
-      expect(find.text('1 / -'), findsOneWidget);
-    });
-  });
+  testWidgets(
+    'favorite-first uses the same total before and after pagination',
+    (tester) async {
+      final server = _Server(count: 25);
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        expect(find.text('총 25개'), findsOneWidget);
+        await _scrollArchiveToEnd(tester);
+        expect(find.text('총 25개'), findsOneWidget);
+        final archive = tester.widget<ArchiveScreen>(
+          find.byType(ArchiveScreen),
+        );
+        archive.onOpenContent(archive.contents.first);
+        await tester.pumpAndSettle();
+        expect(find.text('1 / 25'), findsOneWidget);
+      });
+    },
+  );
 
   testWidgets('E06 actual ID pagination retains the selected server sort', (
     tester,
@@ -714,12 +734,14 @@ void main() {
         isTrue,
       );
       expect(
-        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'true'),
+        filtered.every(
+          (r) => r.url.queryParameters['sort'] == 'favorites_first',
+        ),
         isTrue,
       );
       expect(
-        filtered.any((r) => r.url.queryParameters['is_favorite'] == 'false'),
-        isTrue,
+        filtered.any((r) => r.url.queryParameters['is_favorite'] != null),
+        isFalse,
       );
       final firstNonFavorite = feed.items.indexWhere(
         (item) => !item.bookmarked,
@@ -1662,7 +1684,13 @@ void main() {
             .map((request) => request.url.queryParameters['is_favorite'])
             .whereType<String>()
             .toList();
-        expect(conditions, ['true', 'true', 'false', 'false']);
+        expect(conditions, isEmpty);
+        expect(
+          server.feedCalls.where(
+            (r) => r.url.queryParameters['sort'] == 'favorites_first',
+          ),
+          hasLength(3),
+        );
         final calls = server.feedCalls.length;
         await _scrollArchiveToEnd(tester);
         expect(server.feedCalls, hasLength(calls));
@@ -1684,15 +1712,16 @@ void main() {
         expect(find.text('저장한 콘텐츠가 없어요'), findsNothing);
         expect(
           server.feedCalls.where(
-            (request) => request.url.queryParameters['is_favorite'] == 'true',
+            (request) =>
+                request.url.queryParameters['sort'] == 'favorites_first',
           ),
           hasLength(1),
         );
         expect(
           server.feedCalls.where(
-            (request) => request.url.queryParameters['is_favorite'] == 'false',
+            (request) => request.url.queryParameters['is_favorite'] != null,
           ),
-          hasLength(1),
+          isEmpty,
         );
         await _scrollArchiveToEnd(tester);
         expect(_archiveItems(tester), hasLength(21));
@@ -1703,18 +1732,20 @@ void main() {
   testWidgets('changing archive sort discards an older pending favorite page', (
     tester,
   ) async {
-    final gate = Completer<http.Response>();
-    addTearDown(() => _release(gate));
+    final hold = HttpResponseHold('old favorites page');
     http.Response? oldResponse;
     final server = _Server(
       count: 41,
       respond: (request, server) {
         final parameters = request.url.queryParameters;
         if (request.url.path == _feed &&
-            parameters['is_favorite'] == 'true' &&
+            parameters['sort'] == 'favorites_first' &&
             parameters['cursor'] != null) {
-          oldResponse = server.page(request);
-          return gate.future;
+          oldResponse = _json({
+            ...jsonDecode(server.page(request).body) as Map<String, dynamic>,
+            'total_count': 99,
+          });
+          return hold.hold(request);
         }
         return null;
       },
@@ -1729,13 +1760,15 @@ void main() {
           .onSortChanged(true);
       await tester.pumpAndSettle();
       await _scrollToEnd(tester, ContentListView, settle: false);
+      await hold.waitForRequest();
       tester
           .widget<ArchiveScreen>(find.byType(ArchiveScreen))
           .onSortChanged(false);
       await tester.pumpAndSettle();
       expect(_archiveItems(tester).first.title, '피드 항목 1');
-      gate.complete(oldResponse!);
+      hold.release(oldResponse!);
       await tester.pumpAndSettle();
+      expect(find.text('총 41개'), findsOneWidget);
       expect(_archiveItems(tester), hasLength(20));
       expect(_archiveItems(tester).first.title, '피드 항목 1');
       expect(server.feedCalls.last.url.queryParameters['is_favorite'], isNull);
@@ -1927,36 +1960,65 @@ void main() {
     });
   });
 
-  testWidgets('invalid additional cursor offers a first-page reset', (
-    tester,
-  ) async {
-    var reject = true;
-    final server = _Server(
-      count: 21,
-      respond: (request, server) {
-        if (request.url.path == _feed &&
-            request.url.queryParameters['cursor'] != null &&
-            reject) {
-          return _json({'detail': 'Invalid feed cursor'}, 422);
-        }
-        return null;
+  for (final detailMode in [false, true]) {
+    testWidgets(
+      '422 retains count and resets from first page detail=$detailMode',
+      (tester) async {
+        var retrying = false;
+        final hold = HttpResponseHold('422 recovery first page');
+        final server = _Server(
+          count: 25,
+          respond: (request, server) {
+            if (request.url.path != _feed) return null;
+            if (request.url.queryParameters['cursor'] != null && !retrying) {
+              return _json({'detail': 'Invalid feed cursor'}, 422);
+            }
+            if (retrying) return hold.hold(request);
+            return null;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _openArchive(tester);
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .onSortChanged(true);
+          await tester.pumpAndSettle();
+          if (detailMode) {
+            final archive = tester.widget<ArchiveScreen>(
+              find.byType(ArchiveScreen),
+            );
+            archive.onOpenContent(archive.contents.last);
+            await tester.pumpAndSettle();
+            tester
+                .widget<DetailScreen>(find.byType(DetailScreen))
+                .onOpenAdjacent(1);
+            await tester.pumpAndSettle();
+            expect(find.text('20 / 25'), findsOneWidget);
+          } else {
+            await _scrollArchiveToEnd(tester);
+            expect(_archiveItems(tester), hasLength(20));
+            expect(find.text('총 25개'), findsOneWidget);
+          }
+          expect(find.text('처음부터 다시 불러오기'), findsOneWidget);
+          retrying = true;
+          await tester.tap(find.text('처음부터 다시 불러오기'));
+          await tester.pump();
+          final request = await hold.waitForRequest();
+          expect(request.url.queryParameters['cursor'], isNull);
+          expect(request.url.queryParameters['sort'], 'favorites_first');
+          if (!detailMode) expect(find.text('총 -개'), findsOneWidget);
+          server.records.removeRange(0, 20);
+          hold.release(server.page(request));
+          await tester.pumpAndSettle();
+          expect(
+            find.text(detailMode ? '현재 목록에 없는 콘텐츠' : '총 5개'),
+            findsOneWidget,
+          );
+          expect(find.text('처음부터 다시 불러오기'), findsNothing);
+        });
       },
     );
-    await _withApp(tester, server, () async {
-      await _openArchive(tester);
-      await _scrollArchiveToEnd(tester);
-      expect(_archiveItems(tester), hasLength(20));
-      expect(find.text('처음부터 다시 불러오기'), findsOneWidget);
-      reject = false;
-      await tester.tap(find.text('처음부터 다시 불러오기'));
-      await tester.pumpAndSettle();
-      expect(server.feedCalls.last.url.queryParameters['cursor'], isNull);
-      expect(_archiveItems(tester), hasLength(20));
-      expect(find.text('처음부터 다시 불러오기'), findsNothing);
-      await _scrollArchiveToEnd(tester);
-      expect(_archiveItems(tester), hasLength(21));
-    });
-  });
+  }
 
   testWidgets(
     'initial category failure offers retry without claiming no saved content',
@@ -2790,70 +2852,71 @@ void main() {
     );
   }
 
-  testWidgets(
-    'non-favorite phase failure retries false without restarting favorite pages',
-    (tester) async {
-      var fail = true;
-      final server = _Server(
-        count: 41,
-        respond: (request, server) {
-          if (request.url.path == _feed &&
-              request.url.queryParameters['is_favorite'] == 'false' &&
-              fail) {
-            return _json({'detail': '일반 구간 조회 실패'}, 503);
-          }
-          return null;
-        },
-      );
-      for (final record in server.records.take(21)) {
-        record['is_favorite'] = true;
-      }
-      await _withApp(tester, server, () async {
-        await _openArchive(tester);
-        tester
-            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
-            .onSortChanged(true);
-        await tester.pumpAndSettle();
-        await _scrollArchiveToEnd(tester);
-        if (!server.feedCalls.any(
-          (request) => request.url.queryParameters['is_favorite'] == 'false',
-        )) {
-          await _scrollArchiveToEnd(tester);
+  testWidgets('favorite boundary page failure retries the same sorted cursor', (
+    tester,
+  ) async {
+    var fail = true;
+    final server = _Server(
+      count: 41,
+      respond: (request, server) {
+        if (request.url.path == _feed &&
+            request.url.queryParameters['sort'] == 'favorites_first' &&
+            request.url.queryParameters['cursor'] != null &&
+            fail) {
+          return _json({'detail': '일반 구간 조회 실패'}, 503);
         }
-        expect(_archiveItems(tester), hasLength(21));
-        expect(find.text('다시 시도'), findsOneWidget);
-        final favoriteCalls = server.feedCalls
-            .where(
-              (request) => request.url.queryParameters['is_favorite'] == 'true',
-            )
-            .length;
-        final failed = server.feedCalls.last.url.queryParameters;
-        expect(failed['is_favorite'], 'false');
-        fail = false;
-        await tester.ensureVisible(find.text('다시 시도'));
-        await tester.tap(find.text('다시 시도'));
-        await tester.pumpAndSettle();
-        expect(_archiveItems(tester), hasLength(41));
-        expect(server.feedCalls.last.url.queryParameters, failed);
-        expect(
-          server.feedCalls.where(
+        return null;
+      },
+    );
+    for (final record in server.records.take(21)) {
+      record['is_favorite'] = true;
+    }
+    await _withApp(tester, server, () async {
+      await _openArchive(tester);
+      tester
+          .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+          .onSortChanged(true);
+      await tester.pumpAndSettle();
+      await _scrollArchiveToEnd(tester);
+      if (!server.feedCalls.any(
+        (request) =>
+            request.url.queryParameters['sort'] == 'favorites_first' &&
+            request.url.queryParameters['cursor'] != null,
+      )) {
+        await _scrollArchiveToEnd(tester);
+      }
+      expect(_archiveItems(tester), hasLength(20));
+      expect(find.text('다시 시도'), findsOneWidget);
+      final favoriteCalls = server.feedCalls
+          .where(
             (request) => request.url.queryParameters['is_favorite'] == 'true',
-          ),
-          hasLength(favoriteCalls),
-        );
-        expect(
-          _archiveItems(tester).take(21).every((content) => content.bookmarked),
-          isTrue,
-        );
-        expect(
-          _archiveItems(
-            tester,
-          ).skip(21).every((content) => !content.bookmarked),
-          isTrue,
-        );
-      });
-    },
-  );
+          )
+          .length;
+      final failed = server.feedCalls.last.url.queryParameters;
+      expect(failed['is_favorite'], isNull);
+      expect(failed['sort'], 'favorites_first');
+      fail = false;
+      await tester.ensureVisible(find.text('다시 시도'));
+      await tester.tap(find.text('다시 시도'));
+      await tester.pumpAndSettle();
+      expect(_archiveItems(tester), hasLength(40));
+      expect(server.feedCalls.last.url.queryParameters, failed);
+      expect(
+        server.feedCalls.where(
+          (request) => request.url.queryParameters['is_favorite'] == 'true',
+        ),
+        hasLength(favoriteCalls),
+      );
+      expect(
+        _archiveItems(tester).take(21).every((content) => content.bookmarked),
+        isTrue,
+      );
+      expect(
+        _archiveItems(tester).skip(21).every((content) => !content.bookmarked),
+        isTrue,
+      );
+    });
+  });
 
   testWidgets('scroll and detail share the same in-flight next page', (
     tester,
@@ -2910,7 +2973,7 @@ void main() {
         respond: (request, server) {
           if (request.url.path == _feed &&
               request.url.queryParameters['cursor'] == null) {
-            server._offsets[cursor] = (key: 'null|null|null', offset: 3);
+            server._offsets[cursor] = (key: 'null|null|null|null', offset: 3);
             return _json({
               'items': server.records.take(3).toList(),
               'next_cursor': cursor,
@@ -3277,4 +3340,184 @@ void main() {
       });
     },
   );
+  testWidgets(
+    'old server ignores favorites sort and falls back only at exhaustion',
+    (tester) async {
+      final server = _Server(
+        count: 25,
+        respond: (request, server) {
+          if (request.url.path != _feed) return null;
+          final parameters = Map<String, String>.of(request.url.queryParameters)
+            ..remove('sort');
+          final response = server.page(
+            http.Request(
+              'GET',
+              request.url.replace(queryParameters: parameters),
+            ),
+          );
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          body.remove('total_count');
+          return _json(body);
+        },
+      );
+      server.records.last['is_favorite'] = true;
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        expect(_archiveItems(tester).first.title, '피드 항목 1');
+        expect(find.text('총 -개'), findsOneWidget);
+        await _scrollArchiveToEnd(tester);
+        expect(_archiveItems(tester), hasLength(25));
+        expect(_archiveItems(tester).last.bookmarked, isTrue);
+        expect(find.text('총 25개'), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'sort reset clears items count and scroll until its response arrives',
+    (tester) async {
+      final hold = HttpResponseHold('new sort first page');
+      final server = _Server(
+        count: 45,
+        respond: (request, server) {
+          if (request.url.path == _feed &&
+              request.url.queryParameters['sort'] == 'favorites_first') {
+            return hold.hold(request);
+          }
+          return null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _openArchive(tester);
+        await _scrollArchiveToEnd(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pump();
+        final request = await hold.waitForRequest();
+        expect(_archiveItems(tester), isEmpty);
+        expect(find.text('총 -개'), findsOneWidget);
+        expect(
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .feed!
+              .scrollOffset,
+          0,
+        );
+        hold.release(server.page(request));
+        await tester.pumpAndSettle();
+        expect(find.text('총 45개'), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'category favorites sort and home search bookmark request contracts',
+    (tester) async {
+      final server = _Server(count: 25);
+      await _withApp(tester, server, () async {
+        expect(
+          server.feedCalls.every((r) => r.url.queryParameters['sort'] == null),
+          isTrue,
+        );
+        await _openArchive(tester);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onSortChanged(true);
+        await tester.pumpAndSettle();
+        await _openCategory(tester, 101);
+        final request = server.feedCalls.last;
+        expect(request.url.queryParameters['sort'], 'favorites_first');
+        expect(request.url.queryParameters['category_id'], '101');
+        expect(request.url.queryParameters['is_favorite'], isNull);
+        expect(find.text('총 25개'), findsOneWidget);
+        tester
+            .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+            .onTab(AppRoute.bookmark);
+        await tester.pumpAndSettle();
+        expect(server.feedCalls.last.url.queryParameters['sort'], isNull);
+        tester
+            .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+            .onTab(AppRoute.home);
+        await tester.pumpAndSettle();
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드');
+        expect(server.feedCalls.last.url.queryParameters['q'], '피드');
+        expect(server.feedCalls.last.url.queryParameters['sort'], isNull);
+      });
+    },
+  );
+  for (final failure in [false, true]) {
+    test(
+      'sorted visible refresh commits count atomically failure=$failure',
+      () async {
+        var refreshing = false;
+        final hold = HttpResponseHold('sorted refresh second page');
+        final server = _Server(
+          count: 45,
+          respond: (request, server) {
+            if (request.url.path != _feed || !refreshing) return null;
+            if (request.url.queryParameters['cursor'] != null) {
+              return hold.hold(request);
+            }
+            return _json({
+              ...jsonDecode(server.page(request).body) as Map<String, dynamic>,
+              'total_count': 99,
+            });
+          },
+        );
+        final api = ClipbackApi(client: server.client);
+        api.restoreSession(
+          const ApiSession(
+            accessToken: 'test-access',
+            refreshToken: 'test-refresh',
+            expiresIn: 3600,
+            refreshExpiresIn: 86400,
+          ),
+        );
+        final repository = RemoteContentRepository(api);
+        addTearDown(repository.dispose);
+        addTearDown(server.client.close);
+        repository.configureFeed(FeedKey.archive, bookmarkedFirst: true);
+        await repository.loadNext(FeedKey.archive);
+        await repository.loadNext(FeedKey.archive);
+        final before = repository
+            .feed(FeedKey.archive)
+            .items
+            .map((i) => i.id)
+            .toList();
+        server.records.first['title'] = '새로 받은 제목';
+        refreshing = true;
+        final ticket = repository.beginRefresh(preserveViewport: true);
+        final pending = repository.refresh(ticket, includeCategories: false);
+        final request = await hold.waitForRequest();
+        expect(request.url.queryParameters['sort'], 'favorites_first');
+        expect(repository.feed(FeedKey.archive).loading, isTrue);
+        expect(repository.feed(FeedKey.archive).items.first.title, '피드 항목 1');
+        expect(repository.feed(FeedKey.archive).totalCount, 45);
+        expect(repository.feed(FeedKey.archive).items.map((i) => i.id), before);
+        hold.release(
+          failure
+              ? _json({'detail': 'failed'}, 503)
+              : _json({
+                  ...jsonDecode(server.page(request).body)
+                      as Map<String, dynamic>,
+                  'total_count': 80,
+                }),
+        );
+        await pending;
+        expect(repository.feed(FeedKey.archive).totalCount, failure ? 45 : 80);
+        expect(repository.feed(FeedKey.archive).items.map((i) => i.id), before);
+        expect(
+          repository.feed(FeedKey.archive).items.first.title,
+          failure ? '피드 항목 1' : '새로 받은 제목',
+        );
+        expect(repository.feed(FeedKey.archive).error != null, failure);
+      },
+    );
+  }
 }

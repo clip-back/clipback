@@ -215,6 +215,7 @@ class ContentRepository:
         limit: int,
         is_favorite: bool | None = None,
         search_query: str | None = None,
+        sort: str = "latest",
     ) -> list[Content]:
         statement = self._feed_statement(
             user_id=user_id,
@@ -229,13 +230,18 @@ class ContentRepository:
         )
 
         if cursor is not None:
-            statement = statement.where(
-                or_(
-                    Content.saved_at < cursor.saved_at,
-                    and_(Content.saved_at == cursor.saved_at, Content.id < cursor.id),
-                )
+            after = or_(
+                Content.saved_at < cursor.saved_at,
+                and_(Content.saved_at == cursor.saved_at, Content.id < cursor.id),
             )
+            if sort == "favorites_first":
+                after = and_(Content.is_favorite == cursor.is_favorite, after)
+                if cursor.is_favorite:
+                    after = or_(Content.is_favorite.is_(False), after)
+            statement = statement.where(after)
 
+        if sort == "favorites_first":
+            statement = statement.order_by(Content.is_favorite.desc())
         statement = statement.order_by(Content.saved_at.desc(), Content.id.desc()).limit(limit)
 
         result = await self.session.scalars(statement)
