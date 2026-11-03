@@ -208,6 +208,12 @@ async def test_youtube_headline_and_points_are_cleaned_and_joined(answer, summar
     assert result.summary == summary
 
 
+async def test_youtube_title_and_joined_summary_at_the_length_limit_are_kept_trimmed():
+    result = await summarize_youtube(title=f"  {TITLE_120} ", headline="가" * 45, points=POINTS_88)
+
+    assert (result.title, result.summary) == (TITLE_120, JOINED_500)
+
+
 @pytest.mark.parametrize(
     "answer",
     [
