@@ -77,6 +77,9 @@ Flutter 3.47.9(stable)로 의존성 설치(`flutter pub get --enforce-lockfile`)
 
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
 
+MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스트는
+[HTTP 응답 보류 도우미](test/support/README.md)를 사용합니다.
+
 원본 저장·실제 네이티브 공유·OS 프로세스 재시작·계정 전환을 한 로컬 API에서 확인하는 방법은
 [이미지 저장소 통합 검증](../docs/frontend/image-storage-validation.md)을 따릅니다.
 
