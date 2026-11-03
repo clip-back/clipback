@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 상세·목록 개수를 N / 전체·총 N개로 표시 (#224·#225, CHANGELOG 앱 0.4.0 추가); [앱][서버] 아카이브 즐겨찾기 우선 정렬을 서버 단일 목록으로 전환 (#224·#226, CHANGELOG 앱 0.4.0 개선); [앱] 홈 상단 소개 영역의 옛 "저장한 정보가 없어요." 삭제와 직전 소개 유지 (#217, CHANGELOG 앱 0.4.0 수정); [앱] 홈 최근 저장한 콘텐츠 영역 높이 고정 (#216, CHANGELOG 앱 0.4.0 수정); [앱] 화면 문구 북마크를 즐겨찾기로 통일 (#198, CHANGELOG 앱 0.4.0 수정); [앱] 홈의 최근 카테고리 영역 제거 (#197, CHANGELOG 앱 0.4.0 수정); [앱] 홈 미분류 칩 빈 화면 문구의 콘텐츠 중복 제거 (#189, CHANGELOG 앱 0.4.0 수정); [앱] 회원 탈퇴 안내 알림 중복 표시 수정 (#190, CHANGELOG 앱 0.4.0 수정); [앱] 앱 아이콘·시작 화면 로고 가운데 맞춤 (#180, CHANGELOG 앱 0.4.0 수정)
 - 관련 PR·작업 링크: [아이콘·로고 가운데 맞춤 #181](https://github.com/clip-back/clipback/pull/181)(#180), [회원 탈퇴 알림 #192](https://github.com/clip-back/clipback/pull/192)(#190), [미분류 빈 화면 문구 #194](https://github.com/clip-back/clipback/pull/194)(#189), [최근 카테고리 제거 #199](https://github.com/clip-back/clipback/pull/199)(#197), [즐겨찾기 문구 #208](https://github.com/clip-back/clipback/pull/208)(#198), [최근 콘텐츠 높이 고정 #218](https://github.com/clip-back/clipback/pull/218)(#216), [홈 상단 소개 유지 #220](https://github.com/clip-back/clipback/pull/220)(#217), [전체 개수·즐겨찾기 우선 서버 정렬 #229](https://github.com/clip-back/clipback/pull/229)(#224, [ADR 0006](../adr/0006-feed-total-count.md), [작업 기록](../history/2026-11-03-feed-count-final.md))
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.3.0(8)·Android 0.3.0(4)](app-v0.3.0-ios-b8-android-b4.md)
-- 후보 준비 상태·미확인 사유: iOS 0.4.0(9) 아카이브·IPA와 Android 0.4.0(5) AAB 빌드 완료(2026-11-04). 후보 태그 미생성, TestFlight·Play 업로드 미실행(사용자 승인 대기). 테스트 배포·심사·실기기 확인·정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.4.0(9) 아카이브·IPA와 Android 0.4.0(5) AAB 빌드 완료(2026-11-04). 후보 태그 생성·푸시(2026-11-04). TestFlight·Play 업로드는 사용자가 직접 하며 결과 미확인. 테스트 배포·심사·실기기 확인·정식 공개 미실행
 
 포함 변경은 CHANGELOG `미배포`의 `[앱]` 항목 9개 전부입니다(`[iOS]`·`[Android]` 항목은 없었음). 앱의 목록 전체 개수와 즐겨찾기 우선 정렬(#224)은
 서버의 `total_count`·`sort`에 의존하며, 서버는 main 자동 배포로 `78aecf5`가 운영에 반영된 것을 조율이 확인했습니다(2026-11-04).
@@ -43,10 +43,10 @@
 | 실제 앱 버전 | 0.4.0 | 0.4.0 |
 | 실제 빌드 번호 | 9 | 5 |
 | 빌드 소스 SHA | 78aecf596cd02c7cc7993beda2fd9c0035cd96b0 | 78aecf596cd02c7cc7993beda2fd9c0035cd96b0 |
-| 후보 태그·실제 생성 여부 | app-ios-v0.4.0-b9 (미생성) | app-android-v0.4.0-b5 (미생성) |
+| 후보 태그·실제 생성 여부 | app-ios-v0.4.0-b9 (2026-11-04 생성·푸시, annotated) | app-android-v0.4.0-b5 (2026-11-04 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 테스트 배포·실기기 확인 전 | 미결정 — 테스트 배포·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.4.0-ios-b9/Runner.xcarchive`(생성 2026-11-04 02:24 KST), IPA `frontend/build/release-candidates/app-v0.4.0-ios-b9/ipa/clipback_frontend.ipa` 41,821,122바이트, SHA-256 `4bba490ef56f4443081b5f9fcb6f575f02d90098079b68506f6d3fe70347a7f4` — 본앱 `com.huturu.app` 0.4.0(9), 공유 확장 `com.huturu.app.ShareExtension` 0.4.0(9), 팀 `8X6N747PQM`, 권한 설명 3종 존재 | Release AAB 성공. `frontend/build/release-candidates/app-v0.4.0-android-b5/app-release.aab`, 73,387,360바이트, SHA-256 `7955a776a81c2b0ab30c1cb7a9b04580563908b5577d5234518ffe00193b0f44`. versionName 0.4.0·versionCode 5 확인 |
-| 업로드·처리 상태 | 미실행 — 사용자 승인 대기 | 미실행 — 사용자 승인 대기 |
+| 업로드·처리 상태 | 미확인 — 사용자가 직접 업로드 예정 | 미확인 — 사용자가 직접 업로드 예정 |
 | 테스트 배포 상태·대상 트랙 또는 그룹 | 미실행 — 업로드 전 | 미실행 — 업로드 전 |
 | 심사 상태 | 미실행 — 업로드 전 | 미실행 — 업로드 전 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
@@ -98,3 +98,4 @@
 | 2026-11-04 02:22 | 후보 예약 | 사용자 확인 스토어 최대 업로드(App Store Connect 8, Play 4, 2026-11-04 채팅)로 iOS 0.4.0(9)·Android 0.4.0(5) 예약. 소스 main `78aecf5` | `prepare_release app` created=true, identifier_checks_complete=true(수동 확인값·원격 태그 범위). 태그 미생성 |
 | 2026-11-04 02:22–02:25 | iOS 아카이브·IPA 내보내기 | Git 제외 `SocialAuth.xcconfig`를 본체에서 복사해 같음을 확인(값 미출력). `flutter build ipa --release --no-pub -t lib/main.dart --build-name=0.4.0 --build-number=9`, 공개 소셜 Dart define 3개. Flutter 3.47.9. 작업 트리 HEAD `78aecf5`, 변경은 CHANGELOG·이 기록뿐 | 아카이브 86초·IPA 37초 성공, 0.4.0(9) 확인. 산출물을 후보 폴더로 복사. 업로드 미실행 |
 | 2026-11-04 02:25–02:28 | Android AAB | iOS 빌드 종료 후 실행. 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.4.0 --build-number=5`, 운영 API·공개 SDK 설정 지정. 빌드 전 단독 `validateReleaseSigning`은 `android/gradlew`가 아직 생성되지 않아 실행되지 않았고, Release 빌드 안에서 자동 실행된 뒤 빌드 후 단독으로 다시 실행해 BUILD SUCCESSFUL | 약 120초 빌드 성공, 0.4.0(5) 확인. 후보 폴더로 복사, `./gradlew --stop`으로 데몬 1개 정지. 업로드 미실행 |
+| 2026-11-04 | 태그 생성·푸시 | 사용자 승인(태그·브랜치 push만, 업로드는 사용자가 직접). annotated 태그 `app-ios-v0.4.0-b9`·`app-android-v0.4.0-b5`를 `78aecf5`에 만들어 origin에 푸시, 배포 브랜치 푸시 | origin `ls-remote`로 두 태그가 `78aecf5`를 가리킴을 확인. 업로드·처리·테스터 제공은 사용자 보고 후 기록 |
