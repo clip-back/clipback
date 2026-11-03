@@ -20,10 +20,7 @@ import 'asset_access_fixture.dart';
 import '../fixtures/today_server.dart';
 
 const originalPreviewUrl = 'https://example.com/?clipback=original#source';
-const _phase = String.fromEnvironment(
-  'TODAY_PHASE',
-  defaultValue: 'before',
-);
+const _phase = String.fromEnvironment('TODAY_PHASE', defaultValue: 'before');
 final _rootKey = GlobalKey();
 final _frameworkErrors = <String>[];
 final _asyncErrors = <String>[];
@@ -159,7 +156,6 @@ Future<void> _scene(String kind) async {
   for (var i = 0; i < 100 && _find<HomeScreen>() == null; i++) {
     await _settle();
   }
-
 }
 
 Map<String, Object?> _state() {
@@ -172,10 +168,19 @@ Map<String, Object?> _state() {
   return {
     'phase': _phase,
     'kind': _kind,
-    'homePresent':_find<HomeScreen>()!=null,
-    'sequence':detail==null?null:(detail.widget as DetailScreen).contents.map((c)=>c.apiId).toList(),
-    'calls':_api.calls,
-    'snackbars':_elements(_root).where((e)=>e.widget is SnackBar).map((e)=>(e.widget as SnackBar).content is Text?((e.widget as SnackBar).content as Text).data:'other').toList(),
+    'homePresent': _find<HomeScreen>() != null,
+    'sequence': detail == null
+        ? null
+        : (detail.widget as DetailScreen).contents.map((c) => c.apiId).toList(),
+    'calls': _api.calls,
+    'snackbars': _elements(_root)
+        .where((e) => e.widget is SnackBar)
+        .map(
+          (e) => (e.widget as SnackBar).content is Text
+              ? ((e.widget as SnackBar).content as Text).data
+              : 'other',
+        )
+        .toList(),
     'ready': true,
     'platform': Platform.operatingSystem,
     'logicalSize': {
@@ -202,9 +207,9 @@ Map<String, Object?> _state() {
         isolated.archiveAllShareMessenger?.unknownShareMethods,
     'nativeShareDelegations':
         isolated.archiveAllShareMessenger?.nativeDelegationCount,
-    'passed':_frameworkErrors.isEmpty && _asyncErrors.isEmpty,
-    'layoutPassed':_frameworkErrors.isEmpty,
-    'stylePassed':_frameworkErrors.isEmpty,
+    'passed': _frameworkErrors.isEmpty && _asyncErrors.isEmpty,
+    'layoutPassed': _frameworkErrors.isEmpty,
+    'stylePassed': _frameworkErrors.isEmpty,
   };
 }
 
@@ -233,7 +238,7 @@ Future<void> main() => http.runWithClient(() async {
         case '/scene':
           await _scene(req.uri.queryParameters['kind'] ?? 'link');
         case '/today':
-          await _tap(_text('오늘의 콘텐츠 보기 →')!, settle:false);
+          await _tap(_text('오늘의 콘텐츠 보기 →')!, settle: false);
           await _settle();
         case '/next':
           (_find<DetailScreen>()!.widget as DetailScreen).onOpenAdjacent(1);
@@ -245,9 +250,9 @@ Future<void> main() => http.runWithClient(() async {
           (_find<DetailScreen>()!.widget as DetailScreen).onBack();
           await _settle();
         case '/mode':
-          _api.mode=req.uri.queryParameters['value']??'normal';
+          _api.mode = req.uri.queryParameters['value'] ?? 'normal';
         case '/bookmark':
-          final d=_find<DetailScreen>()!.widget as DetailScreen;
+          final d = _find<DetailScreen>()!.widget as DetailScreen;
           d.onToggleBookmark(d.content);
           await _settle();
         case '/original':
