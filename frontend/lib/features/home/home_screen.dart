@@ -119,6 +119,7 @@ class HomeScreen extends StatelessWidget {
     this.activeCategoryId,
     this.onCategorySelected,
     this.onOpenNotifications,
+    this.previousEmptyHero = false,
     required this.contents,
     required this.categories,
     required this.bookmarkedIds,
@@ -135,6 +136,9 @@ class HomeScreen extends StatelessWidget {
   });
 
   final List<ContentItem> contents;
+
+  /// Hero last shown (true = C02); unknown counts as C01.
+  final bool previousEmptyHero;
   final List<ApiWeeklyRecommendationItem> weeklyItems;
   final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
   final ValueChanged<int>? onWeeklyExposed;
@@ -162,16 +166,9 @@ class HomeScreen extends StatelessWidget {
     final confirmedEmpty =
         !hasSavedContent &&
         activeCategoryId == null &&
-        feed != null &&
-        feed!.categoryId == null &&
-        feed!.query == null &&
-        feed!.isFavorite == null &&
-        !feed!.hasMore &&
-        feed!.nextCursor == null &&
-        feed!.initialized &&
-        !feed!.loading &&
-        feed!.error == null &&
-        feed!.items.isEmpty;
+        (feed?.confirmedEmpty ?? false);
+    // Until saved content is known either way, keep the previous hero.
+    final emptyHero = !hasSavedContent && (confirmedEmpty || previousEmptyHero);
     void showAddContentSheet() {
       showContentSaveScreen(
         context: context,
@@ -191,13 +188,10 @@ class HomeScreen extends StatelessWidget {
               child: Column(
                 children: [
                   HomeHero(
-                    hasSavedContent: hasSavedContent,
-                    confirmedEmpty: confirmedEmpty,
+                    empty: emptyHero,
                     onSearch: onSearch,
                     onOpenNotifications: onOpenNotifications,
-                    onOpenToday: hasSavedContent
-                        ? onOpenToday
-                        : showAddContentSheet,
+                    onOpenToday: emptyHero ? showAddContentSheet : onOpenToday,
                   ),
                   HomeContentPanel(
                     weeklyItems: weeklyItems,
@@ -234,16 +228,15 @@ class HomeScreen extends StatelessWidget {
 
 class HomeHero extends StatelessWidget {
   const HomeHero({
-    required this.hasSavedContent,
-    this.confirmedEmpty = false,
+    required this.empty,
     this.onOpenNotifications,
     required this.onSearch,
     required this.onOpenToday,
     super.key,
   });
 
-  final bool hasSavedContent;
-  final bool confirmedEmpty;
+  /// C02 (nothing saved) when true, otherwise C01.
+  final bool empty;
   final VoidCallback? onOpenNotifications;
   final VoidCallback onSearch;
   final VoidCallback onOpenToday;
@@ -299,88 +292,7 @@ class HomeHero extends StatelessWidget {
             ),
           ),
         ),
-        if (hasSavedContent || confirmedEmpty)
-          _alignedIntro(context)
-        else
-          SizedBox(
-            height: 172,
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 24,
-                  top: 8,
-                  width: 168,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasSavedContent ? '나중에 보려던 것들,' : '저장한 정보가 없어요.',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          height: 1.6,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 168,
-                        child: FittedBox(
-                          alignment: Alignment.centerLeft,
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장할까요?',
-                            maxLines: 1,
-                            softWrap: false,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: -0.45,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      GestureDetector(
-                        onTap: onOpenToday,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.text,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            hasSavedContent ? '오늘의 콘텐츠 보기 →' : '저장 방법 보기 →',
-                            style: const TextStyle(
-                              color: AppColors.main,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              height: 1.4,
-                              letterSpacing: -0.35,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  right: hasSavedContent ? 24 : 30,
-                  top: 0,
-                  child: Image.asset(
-                    hasSavedContent
-                        ? Assets.homeCharacter
-                        : Assets.character2Png,
-                    width: hasSavedContent ? 99 : 81,
-                    height: 123,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        _alignedIntro(context),
       ],
     );
   }
@@ -388,9 +300,9 @@ class HomeHero extends StatelessWidget {
   Widget _alignedIntro(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final textWidth = math.max(1.0, constraints.maxWidth - 147);
-      final title = hasSavedContent ? '나중에 보려던 것들,' : '아직 저장한 콘텐츠가 없어요.';
-      final subtitle = hasSavedContent ? '지금 하나만 꺼내볼까요?' : '지금 하나만 저장해볼까요?';
-      final button = hasSavedContent ? '오늘의 콘텐츠 보기 →' : '첫 콘텐츠 저장하기';
+      final title = empty ? '아직 저장한 콘텐츠가 없어요.' : '나중에 보려던 것들,';
+      final subtitle = empty ? '지금 하나만 저장해볼까요?' : '지금 하나만 꺼내볼까요?';
+      final button = empty ? '첫 콘텐츠 저장하기' : '오늘의 콘텐츠 보기 →';
       final introHeight = math.max(
         140.0,
         8 +

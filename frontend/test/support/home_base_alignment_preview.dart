@@ -594,7 +594,7 @@ Future<void> _run() async {
   await _existingPendingParentTap();
   await _fresh('empty');
   _require(
-    (f.homeBaseFind<HomeHero>(_home)!.widget as HomeHero).confirmedEmpty,
+    (f.homeBaseFind<HomeHero>(_home)!.widget as HomeHero).empty,
     'Strict C02 not selected',
   );
   _record('empty_static_strict_global_feed');

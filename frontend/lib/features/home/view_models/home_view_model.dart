@@ -7,12 +7,39 @@ import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
 
 class HomeViewModel extends FeedViewModel {
   HomeViewModel(ContentRepository repository, this.actions)
-    : super(repository, FeedKey.home);
+    : super(repository, FeedKey.home) {
+    // Registered first, so it runs on the new page before other listeners.
+    addListener(_rememberHero);
+    _rememberHero();
+  }
+
+  bool _emptyHero = false;
+  int? _seenCategoryId;
+
+  /// Whether home last settled on the C02 hero; unknown counts as C01.
+  /// Kept here so it survives leaving the home tab.
+  bool get emptyHero => _emptyHero;
+
+  void _rememberHero() {
+    // A filter change (e.g. deleting the selected category) is announced
+    // before the new feed loads, so the page still holds the old filter's
+    // result; it says nothing about the whole feed yet.
+    final filterChanged = page.categoryId != _seenCategoryId;
+    _seenCategoryId = page.categoryId;
+    if (page.items.isNotEmpty) {
+      _emptyHero = false;
+    } else if (!filterChanged && page.confirmedEmpty) {
+      _emptyHero = true;
+    }
+  }
 
   Future<void> selectCategory(CategoryItem? category) async {
     if (category?.id != null && repository.isCategoryDeleted(category!.id!)) {
       return;
     }
+    // Drop the previous filter's result first so the new filter is never
+    // observed with it (an empty chip would otherwise read as confirmed zero).
+    repository.resetFeed(key);
     repository.configureFeed(key, categoryId: category?.id);
     await repository.loadNext(key, reset: true);
   }
