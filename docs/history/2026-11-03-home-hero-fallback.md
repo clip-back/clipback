@@ -44,7 +44,11 @@
   없는지 본다. 옛 테스트에 있던 3상태(피드 없음, 초기화 전, 남은 항목) × 직전 3종 × 1.0배 = 9개를 더했다. 이 3상태는 범위 밖의
   확정 전 빈 화면(`EmptyHomeContent`, 고정 211)이 1.15·1.3배에서 넘쳐 1.0배만 본다(임시 위젯 테스트로 1.3배 2px 넘침을 확인했다).
   C01 버튼이 피드가 비어도 오늘의 콘텐츠를 여는 테스트 3개와 기억된 C02 버튼이 저장 화면을 여는 테스트 1개를 더했다.
-- 전체 검사: `daec89d`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217`.
+- 전체 검사(1차): `daec89d`에서 `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217`.
+  `VERIFY result=PASS scope=all checks=10 failed=0`. 앱 테스트 2108개, 백엔드 pytest 1896개 통과·46개 건너뜀.
+- 전체 검사(최종): main(`129f500`, #219 `.gitattributes` merge=union)을 merge한 `a043401`에서
+  `python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-217/final`을 한 번 돌렸다.
+  merge 때 `docs/history/README.md` 목차가 충돌해 두 줄을 모두 남겼다(이 브랜치 줄을 위에).
   `VERIFY result=PASS scope=all checks=10 failed=0`. `flutter analyze --no-pub` 문제 없음, `flutter test --no-pub` 2108개 통과,
   백엔드 pytest 1896개 통과·46개 건너뜀(`pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`,
   `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`). 백엔드는 바뀌지 않았다.
@@ -96,6 +100,7 @@
 - Android 촬영에서 킷의 `run_android_phase.sh`는 설치와 설치본 확인을 마쳤지만, 변경 전 normal·두 empty·C01 버튼 확인 때
   창 확인이 `mCurrentFocus=null`을 읽어 첫 사진을 찍지 못했다(#216과 같은 문제). 비교 사진은 모두 같은 실행에서 `adb exec-out screencap`으로
   찍었고, 설치본 해시가 각 APK와 같은 것을 확인했다.
+- 화면은 merge 뒤 다시 찍지 않았다(main에서 들어온 것은 설정·문서뿐).
 - 화면 크기와 안전 영역: Figma C01·C02 프레임은 375×910이고 상태 표시줄·홈 표시를 그림으로 포함한다. 앱은 실제 OS 안전 영역을 쓰므로
   폭과 세로 위치·하단 탭 위치가 Figma와 다르다. Figma의 "이번주 허투루 픽"은 메모리 데이터의 주간 추천이 비어 있어 앱 화면에 없다.
   원본 화면은 보정하지 않았다.
