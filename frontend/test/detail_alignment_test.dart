@@ -657,7 +657,7 @@ Future<void> _checkScreen(
     failures,
     'pager loaded-list meaning',
     tester.widget<Text>(pager).data,
-    '${currentIndex + 1} / 불러온 ${scene.contents.length}개',
+    '${currentIndex + 1} / ${scene.contents.length}',
   );
   _style(
     tester,

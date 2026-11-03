@@ -23,6 +23,7 @@ class FakeFeedService:
         is_favorite: bool | None,
         limit: int,
         cursor: str | None,
+        sort: str = "latest",
     ) -> FeedResponse:
         self.calls.append(
             {
@@ -34,7 +35,7 @@ class FakeFeedService:
                 "cursor": cursor,
             }
         )
-        return FeedResponse(items=[], next_cursor=None)
+        return FeedResponse(items=[], next_cursor=None, total_count=0)
 
 
 def authorize(monkeypatch) -> dict[str, str]:
@@ -76,7 +77,7 @@ def test_read_feed_passes_favorite_filter_with_existing_parameters(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "next_cursor": None}
+    assert response.json() == {"items": [], "next_cursor": None, "total_count": 0}
     assert service.calls == [
         {
             "user_id": 7,

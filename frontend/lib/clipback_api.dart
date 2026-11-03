@@ -270,14 +270,18 @@ class ApiContent {
 }
 
 class ApiFeed {
-  const ApiFeed({required this.items, this.nextCursor});
+  const ApiFeed({required this.items, this.nextCursor, this.totalCount});
 
   final List<ApiContent> items;
   final String? nextCursor;
+  final int? totalCount;
 
   factory ApiFeed.fromJson(Map<String, dynamic> json) => ApiFeed(
     items: _jsonList(json['items']).map(ApiContent.fromJson).toList(),
     nextCursor: json['next_cursor'] as String?,
+    totalCount: json['total_count'] is int && (json['total_count'] as int) >= 0
+        ? json['total_count'] as int
+        : null,
   );
 }
 
@@ -1258,6 +1262,7 @@ class ClipbackApi {
     String? query,
     int? categoryId,
     bool? isFavorite,
+    String? sort,
     int limit = 100,
     String? cursor,
   }) async {
@@ -1265,6 +1270,7 @@ class ClipbackApi {
     if (query != null && query.isNotEmpty) parameters['q'] = query;
     if (categoryId != null) parameters['category_id'] = '$categoryId';
     if (isFavorite != null) parameters['is_favorite'] = '$isFavorite';
+    if (sort != null) parameters['sort'] = sort;
     if (cursor != null) parameters['cursor'] = cursor;
     final queryString = Uri(queryParameters: parameters).query;
     return ApiFeed.fromJson(await _json('GET', '/feed?$queryString'));

@@ -39,6 +39,7 @@ async def test_feed_pages_match_full_order_when_ids_and_times_disagree(
         if cursor is not None:
             params["cursor"] = cursor
         page = await request(api, "GET", "feed", headers=headers, params=params)
+        assert page["total_count"] == 5
         assert len(page["items"]) <= limit
         found.extend(item["id"] for item in page["items"])
         cursor = page["next_cursor"]
@@ -164,7 +165,7 @@ async def test_versioned_cursor_cannot_bypass_user_filter(api, database_connecti
 async def test_feed_empty_exact_size_and_exhausted_pages(api, database_connection):
     headers, _, _ = await guest(api)
     empty = await request(api, "GET", "feed", headers=headers)
-    assert empty == {"items": [], "next_cursor": None}
+    assert empty == {"items": [], "next_cursor": None, "total_count": 0}
     items = [await save_at(api, headers, database_connection, 10) for _ in range(2)]
     exact = await request(api, "GET", "feed", headers=headers, params={"limit": 2})
     assert [item["id"] for item in exact["items"]] == [item["id"] for item in reversed(items)]
@@ -172,10 +173,116 @@ async def test_feed_empty_exact_size_and_exhausted_pages(api, database_connectio
     exhausted = await request(
         api, "GET", "feed", headers=headers, params={"cursor": str(items[0]["id"])}
     )
-    assert exhausted == {"items": [], "next_cursor": None}
+    assert exhausted == {"items": [], "next_cursor": None, "total_count": 2}
 
 
 @pytest.mark.parametrize("cursor", ["v1.a", "v1._w", "v2.e30", "2147483648", "9" * 513])
 async def test_feed_api_returns_422_for_invalid_cursors(api, cursor):
     headers, _, _ = await guest(api)
     await request(api, "GET", "feed", headers=headers, params={"cursor": cursor}, status=422)
+
+
+@pytest.mark.parametrize("sort", ["latest", "favorites_first"])
+async def test_total_count_filters_and_category_counts(api, sort):
+    headers, _, _ = await guest(api)
+    other, _, _ = await guest(api)
+    categories = await request(api, "GET", "categories", headers=headers)
+    first, second = [c["id"] for c in categories if c["name"] != "미분류"][:2]
+    foreign = (await request(api, "GET", "categories", headers=other))[0]["id"]
+    await link(api, other, title="needle")
+    await link(api, headers, category_ids=[first, second], title="needle", is_favorite=True)
+    await link(api, headers, category_ids=[first], title="needle", is_favorite=False)
+    await link(api, headers, category_ids=[second], title="other", is_favorite=True)
+    full = await request(api, "GET", "feed", headers=headers)
+    assert full["total_count"] == 3
+    assert len(full["items"]) == 3
+    for category_id in [None, first, second, foreign, 2147483647]:
+        for favorite in [None, True, False]:
+            for query in [None, "needle", "   "]:
+                params = {"limit": 1, "sort": sort}
+                if category_id is not None:
+                    params["category_id"] = category_id
+                if favorite is not None:
+                    params["is_favorite"] = favorite
+                if query is not None:
+                    params["q"] = query
+                found, totals = [], []
+                while True:
+                    page = await request(api, "GET", "feed", headers=headers, params=params)
+                    totals.append(page["total_count"])
+                    found.extend(c["id"] for c in page["items"])
+                    if page["next_cursor"] is None:
+                        break
+                    params["cursor"] = page["next_cursor"]
+                assert totals == [len(found)] * len(totals)
+                assert len(set(found)) == len(found)
+                if category_id in [foreign, 2147483647]:
+                    assert totals == [0]
+    categories = await request(api, "GET", "categories", headers=headers)
+    for category in categories:
+        page = await request(api, "GET", "feed", headers=headers,
+                             params={"category_id": category["id"]})
+        assert page["total_count"] == category["content_count"]
+
+
+async def test_total_count_recounts_after_insert_and_delete(api):
+    headers, _, _ = await guest(api)
+    for _ in range(3):
+        await link(api, headers)
+    first = await request(api, "GET", "feed", headers=headers, params={"limit": 1})
+    assert first["total_count"] == 3
+    added = await link(api, headers)
+    second = await request(api, "GET", "feed", headers=headers,
+                           params={"limit": 1, "cursor": first["next_cursor"]})
+    assert second["total_count"] == 4
+    await request(api, "DELETE", f"contents/{added['id']}", headers=headers, status=204)
+    third = await request(api, "GET", "feed", headers=headers,
+                          params={"limit": 1, "cursor": second["next_cursor"]})
+    assert third["total_count"] == 3
+
+
+@pytest.mark.parametrize("favorites", [[], [0, 1, 2, 3, 4], [0, 2, 4]])
+@pytest.mark.parametrize("limit", [1, 2, 3])
+async def test_favorites_first_pages(api, database_connection, favorites, limit):
+    headers, _, _ = await guest(api)
+    items = [
+        await save_at(api, headers, database_connection, offset, is_favorite=i in favorites)
+        for i, offset in enumerate([30, 10, 30, 20, 10])
+    ]
+    latest = [2, 0, 3, 4, 1]
+    order = [i for i in latest if i in favorites] + [i for i in latest if i not in favorites]
+    found = []
+    params = {"limit": limit, "sort": "favorites_first"}
+    for _ in range(6):
+        page = await request(api, "GET", "feed", headers=headers, params=params)
+        assert page["total_count"] == 5
+        found.extend(item["id"] for item in page["items"])
+        if page["next_cursor"] is None:
+            break
+        params["cursor"] = page["next_cursor"]
+    assert found == [items[i]["id"] for i in order]
+    assert page["next_cursor"] is None
+
+
+async def test_sort_cursor_compatibility_and_legacy_two_phase(api, database_connection):
+    headers, _, _ = await guest(api)
+    for i in range(6):
+        await save_at(api, headers, database_connection, i, is_favorite=i % 2 == 0)
+    latest = await request(api, "GET", "feed", headers=headers, params={"limit": 1})
+    favorite = await request(api, "GET", "feed", headers=headers,
+                             params={"limit": 1, "sort": "favorites_first"})
+    for sort, cursor in [("latest", favorite["next_cursor"]),
+                         ("favorites_first", latest["next_cursor"]),
+                         ("favorites_first", str(latest["items"][0]["id"]))]:
+        error = await request(api, "GET", "feed", headers=headers,
+                              params={"sort": sort, "cursor": cursor}, status=422)
+        assert error == {"detail": "Invalid feed cursor"}
+    for sort in ["nonsense", "", "123"]:
+        await request(api, "GET", "feed", headers=headers, params={"sort": sort}, status=422)
+    for is_favorite in [True, False]:
+        old = await request(api, "GET", "feed", headers=headers,
+                            params={"is_favorite": is_favorite})
+        new = await request(api, "GET", "feed", headers=headers,
+                            params={"is_favorite": is_favorite, "sort": "favorites_first"})
+        assert old["items"] == new["items"]
+        assert old["total_count"] == new["total_count"] == 3

@@ -83,8 +83,8 @@ class _BookmarkAssetButton extends StatelessWidget {
 }
 
 class BookmarkToolbar extends StatelessWidget {
-  const BookmarkToolbar({required this.loadedCount, super.key});
-  final int loadedCount;
+  const BookmarkToolbar({required this.totalCount, super.key});
+  final int? totalCount;
 
   static const _style = TextStyle(
     inherit: false,
@@ -106,7 +106,7 @@ class BookmarkToolbar extends StatelessWidget {
         children: [
           const Text('최신순', key: ValueKey('bookmark-sort'), style: _style),
           Text(
-            '불러온 $loadedCount개',
+            '총 ${totalCount ?? '-'}개',
             key: const ValueKey('bookmark-count'),
             style: _style,
           ),

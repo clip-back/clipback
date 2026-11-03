@@ -508,7 +508,9 @@ class _DetailScreenState extends State<DetailScreen> {
             DetailPager(
               expanded: _showFullText,
               currentIndex: currentIndex,
-              totalCount: widget.contents.length,
+              totalCount: widget.feed == null
+                  ? widget.contents.length
+                  : widget.feed!.displayTotalCount,
               onPrevious: !widget.moving && currentIndex > 0
                   ? () => widget.onOpenAdjacent(-1)
                   : null,
@@ -825,7 +827,7 @@ class DetailPager extends StatelessWidget {
   });
 
   final int currentIndex;
-  final int totalCount;
+  final int? totalCount;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final bool expanded;
@@ -855,7 +857,7 @@ class DetailPager extends StatelessWidget {
               child: Text(
                 currentIndex < 0
                     ? '현재 목록에 없는 콘텐츠'
-                    : '${currentIndex + 1} / 불러온 $totalCount개',
+                    : '${currentIndex + 1} / ${totalCount ?? '-'}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: _DetailText.pager,

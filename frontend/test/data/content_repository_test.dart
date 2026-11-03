@@ -52,6 +52,7 @@ typedef _FeedRequest = ({
   String? query,
   int? categoryId,
   bool? favorite,
+  String? sort,
   String? cursor,
   int limit,
 });
@@ -82,6 +83,7 @@ class _Api extends ClipbackApi {
     String? query,
     int? categoryId,
     bool? isFavorite,
+    String? sort,
     int limit = 100,
     String? cursor,
   }) {
@@ -89,6 +91,7 @@ class _Api extends ClipbackApi {
       query: query,
       categoryId: categoryId,
       favorite: isFavorite,
+      sort: sort,
       cursor: cursor,
       limit: limit,
     );
@@ -231,23 +234,20 @@ void main() {
   );
 
   test(
-    'empty favorite phase falls through and nonempty pages remain bounded',
+    'no favorites uses one sorted feed and nonempty pages remain bounded',
     () async {
       repository.configureFeed(FeedKey.archive, bookmarkedFirst: true);
-      api.onFeed = (request) async => request.favorite == true
-          ? const ApiFeed(items: [])
-          : ApiFeed(items: [_item()], nextCursor: 'ordinary-2');
+      api.onFeed = (request) async =>
+          ApiFeed(items: [_item()], nextCursor: 'ordinary-2');
       await repository.loadNext(FeedKey.archive);
-      expect(api.feedRequests.map((request) => request.favorite), [
-        true,
-        false,
-      ]);
+      expect(api.feedRequests.map((request) => request.favorite), [null]);
+      expect(api.feedRequests.single.sort, 'favorites_first');
       expect(repository.feed(FeedKey.archive).hasMore, isTrue);
       expect(repository.feed(FeedKey.archive).nextCursor, 'ordinary-2');
       api.onFeed = (request) async => ApiFeed(items: [_item(id: 2)]);
       await repository.loadNext(FeedKey.archive);
       expect(api.feedRequests.last.cursor, 'ordinary-2');
-      expect(api.feedRequests.length, 3);
+      expect(api.feedRequests.length, 2);
       expect(repository.feed(FeedKey.archive).items.map((item) => item.id), [
         1,
         2,
@@ -522,7 +522,8 @@ void main() {
       final handle = repository.beginBookmark(1)!;
       final writing = repository.executeContentMutation(handle);
       repository.resetAccount(1);
-      oldFeed.complete(ApiFeed(items: [_item()]));
+      oldFeed.complete(ApiFeed(items: [_item()], totalCount: 99));
+      expect(repository.feed(FeedKey.home).totalCount, isNull);
       oldCategories.complete(_categories);
       oldWrite.complete(_item(favorite: true));
       await Future.wait([reading, categories]);
@@ -530,6 +531,7 @@ void main() {
       repository.finishContentMutation(handle);
       expect(repository.categories, isEmpty);
       expect(repository.feed(FeedKey.search).items, isEmpty);
+      expect(repository.feed(FeedKey.search).totalCount, isNull);
       expect(repository.feed(FeedKey.home).items, isEmpty);
       expect(repository.bookmarkedIds, isEmpty);
     },
@@ -633,6 +635,7 @@ void main() {
           ? ApiFeed(
               items: List.generate(20, (i) => _item(id: i + 100)),
               nextCursor: 'new-next',
+              totalCount: 75,
             )
           : second.future;
       final ticket = repository.beginRefresh(preserveViewport: true);
@@ -643,11 +646,16 @@ void main() {
         before.items.map((item) => item.id),
       );
       expect(repository.feed(FeedKey.search).version, before.version);
+      expect(repository.feed(FeedKey.search).totalCount, 40);
       second.complete(
-        ApiFeed(items: List.generate(20, (i) => _item(id: i + 120))),
+        ApiFeed(
+          items: List.generate(20, (i) => _item(id: i + 120)),
+          totalCount: 80,
+        ),
       );
       await refresh;
       expect(repository.feed(FeedKey.search).items.length, 40);
+      expect(repository.feed(FeedKey.search).totalCount, 80);
       expect(repository.feed(FeedKey.search).version, before.version);
       expect(repository.feed(FeedKey.search).query, 'kept query');
       expect(repository.feed(FeedKey.search).categoryId, 1);
@@ -658,6 +666,68 @@ void main() {
       );
     },
   );
+  for (final preserve in [false, true]) {
+    test(
+      'total count stays with committed refresh items preserve=$preserve',
+      () async {
+        api.onFeed = (_) async => ApiFeed(items: [_item()], totalCount: 25);
+        await repository.loadNext(FeedKey.home);
+        final gate = Completer<ApiFeed>();
+        api.onFeed = (_) => gate.future;
+        final refresh = repository.refresh(
+          repository.beginRefresh(preserveViewport: preserve),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(repository.feed(FeedKey.home).totalCount, 25);
+        gate.completeError(const ClipbackApiException('offline'));
+        await refresh;
+        expect(repository.feed(FeedKey.home).totalCount, 25);
+        expect(repository.feed(FeedKey.home).items.single.id, 1);
+        api.onFeed = (_) async =>
+            ApiFeed(items: [_item(id: 2)], totalCount: 44);
+        await repository.refresh(
+          repository.beginRefresh(preserveViewport: preserve),
+        );
+        expect(repository.feed(FeedKey.home).totalCount, 44);
+        expect(repository.feed(FeedKey.home).items.single.id, 2);
+        repository.resetFeed(FeedKey.home);
+        expect(repository.feed(FeedKey.home).totalCount, isNull);
+      },
+    );
+  }
+  test('partial refresh count is discarded on middle page failure', () async {
+    api.onFeed = (r) async => ApiFeed(
+      items: [_item(id: r.cursor == null ? 1 : 2)],
+      nextCursor: r.cursor == null ? 'next' : null,
+      totalCount: 25,
+    );
+    await repository.loadNext(FeedKey.home);
+    await repository.loadNext(FeedKey.home);
+    api.onFeed = (r) async {
+      if (r.cursor != null) throw const ClipbackApiException('offline');
+      return ApiFeed(items: [_item(id: 3)], nextCursor: 'new', totalCount: 99);
+    };
+    await repository.refresh(repository.beginRefresh(preserveViewport: true));
+    expect(repository.feed(FeedKey.home).totalCount, 25);
+    expect(repository.feed(FeedKey.home).items.map((i) => i.id), [1, 2]);
+  });
+  test(
+    'late reset response and duplicate request cannot replace total',
+    () async {
+      final old = Completer<ApiFeed>();
+      api.onFeed = (_) => old.future;
+      final pending = repository.loadNext(FeedKey.home);
+      final duplicate = repository.loadNext(FeedKey.home);
+      expect(api.feedRequests, hasLength(1));
+      repository.resetFeed(FeedKey.home);
+      api.onFeed = (_) async => ApiFeed(items: [_item(id: 2)], totalCount: 42);
+      await repository.loadNext(FeedKey.home);
+      old.complete(ApiFeed(items: [_item()], totalCount: 99));
+      await Future.wait([pending, duplicate]);
+      expect(repository.feed(FeedKey.home).totalCount, 42);
+    },
+  );
+
   test('failed external refresh retains previously loaded content', () async {
     api.onFeed = (_) async =>
         ApiFeed(items: [_item()], nextCursor: 'kept-cursor');

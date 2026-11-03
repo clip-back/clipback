@@ -598,9 +598,7 @@ Map<String, Object?> archiveAllMeasure(Element root) {
   styles['count'] = _paragraph(
     archiveAllText(
       toolbar,
-      sw.feed == null
-          ? '총 ${sw.contents.length}개'
-          : '불러온 ${sw.contents.length}개',
+      '총 ${sw.feed == null ? sw.contents.length : (sw.feed!.displayTotalCount ?? '-')}개',
     )!,
   );
   assets['sort'] = _asset(sort);
@@ -807,8 +805,8 @@ Map<String, Object?> archiveAllJudgment(Map<String, Object?> m) {
     (m['viewPaddingTop'] as num) + 180,
     'Viewport top after OS/header/tabs/toolbar',
   );
-  if (!(roles['count'] as Map)['text'].toString().startsWith('불러온 ')) {
-    styles.add('Loaded count must not claim entire account total');
+  if (!(roles['count'] as Map)['text'].toString().startsWith('총 ')) {
+    styles.add('Count must use the total-count label');
   }
   for (final row in m['rows'] as List) {
     final r = row as Map,

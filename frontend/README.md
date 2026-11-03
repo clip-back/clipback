@@ -282,3 +282,8 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - <a id="로컬-공유-검증"></a>[로컬 공유 검증](../docs/frontend/development.md#로컬-공유-검증)
 
 </details>
+
+목록 전체 개수와 옛 서버의 `-` 표시는 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.
+
+아카이브 전체보기·카테고리·미분류의 즐겨찾기 우선은 서버 `sort=favorites_first` 단일 피드를 사용합니다.
+개수·옛 서버 호환·커서 복구 기준은 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.
