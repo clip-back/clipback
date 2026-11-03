@@ -55,13 +55,13 @@ Map<String, Object?> _content(int id) => {
   'summary_status': 'completed',
 };
 
-/// Home API whose global feed is [saved]; category feeds can be held open.
+/// Home API whose global feed is [saved]; feed requests can be held open.
 class _Server {
   _Server({required this.saved});
 
   final List<Map<String, Object?>> saved;
   Completer<http.Response>? held;
-  bool holdCategoryFeed = false;
+  bool holdFeed = false;
 
   late final client = MockClient((request) async {
     switch (request.url.path) {
@@ -73,7 +73,7 @@ class _Server {
             ? saved
             : saved.where((_) => category == '101').toList();
         final response = _json({'items': items, 'next_cursor': null});
-        if (category != null && holdCategoryFeed) {
+        if (holdFeed) {
           held = Completer<http.Response>();
           return held!.future;
         }
@@ -110,12 +110,20 @@ class _Server {
     throw StateError('Unexpected request: ${request.method} ${request.url}');
   });
 
-  /// Answers the held category request with that category's real result.
-  void release(String categoryId) => held!.complete(
+  /// Answers the held request with that feed's real result; null is all.
+  void release(String? categoryId) => held!.complete(
     _json({
-      'items': categoryId == '101' ? saved : <Object>[],
+      'items': categoryId == null || categoryId == '101' ? saved : <Object>[],
       'next_cursor': null,
     }),
+  );
+
+  void fail() => held!.complete(
+    http.Response(
+      jsonEncode({'detail': 'down'}),
+      500,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    ),
   );
 }
 
@@ -172,7 +180,10 @@ Future<void> _tapChip(WidgetTester tester, String label) async {
   await tester.pump();
 }
 
-Future<void> _visitArchiveAndReturn(WidgetTester tester) async {
+Future<void> _visitArchiveAndReturn(WidgetTester tester, _Server server) async {
+  // The archive tab loads its own feed; only home requests are held.
+  final hold = server.holdFeed;
+  server.holdFeed = false;
   tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.archive);
   await tester.pumpAndSettle();
   expect(find.byType(HomeScreen), findsNothing);
@@ -180,6 +191,7 @@ Future<void> _visitArchiveAndReturn(WidgetTester tester) async {
   tester.widget<ArchiveScreen>(find.byType(ArchiveScreen)).onTab(AppRoute.home);
   await tester.pumpAndSettle();
   expect(find.byType(HomeScreen), findsOneWidget);
+  server.holdFeed = hold;
 }
 
 void main() {
@@ -199,7 +211,7 @@ void main() {
     await _withApp(tester, server, () async {
       _expectHero(tester, _c01, 'cards');
       final height = _heroHeight(tester);
-      server.holdCategoryFeed = true;
+      server.holdFeed = true;
 
       await _tapChip(tester, '여행');
       _expectHero(tester, _c01, 'chip loading');
@@ -221,6 +233,49 @@ void main() {
     });
   });
 
+  for (final outcome in ['success', 'failure']) {
+    testWidgets('C01 stays through empty category then all-chip $outcome', (
+      tester,
+    ) async {
+      final server = _Server(saved: [_content(1), _content(2)]);
+      await _withApp(tester, server, () async {
+        _expectHero(tester, _c01, 'cards');
+        final height = _heroHeight(tester);
+        server.holdFeed = true;
+        await _tapChip(tester, '여행');
+        server.release('102');
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeFilteredEmptyContent), findsOneWidget);
+        _expectHero(tester, _c01, 'empty category');
+
+        await _tapChip(tester, '전체보기');
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        _expectHero(tester, _c01, 'all-chip loading');
+        expect(_heroHeight(tester), height, reason: 'all-chip loading');
+        final hero = tester.widget<HomeHero>(find.byType(HomeHero));
+        expect(
+          hero.onOpenToday,
+          same(tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenToday),
+          reason: 'C01 button opens today',
+        );
+
+        if (outcome == 'success') {
+          server.release(null);
+        } else {
+          server.fail();
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        _expectHero(tester, _c01, 'all-chip $outcome');
+        expect(_heroHeight(tester), height, reason: 'all-chip $outcome');
+
+        await _visitArchiveAndReturn(tester, server);
+        _expectHero(tester, _c01, 'after another tab');
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
   testWidgets(
     'zero-saved home keeps C02 for chips, including after another tab',
     (tester) async {
@@ -228,7 +283,7 @@ void main() {
       await _withApp(tester, server, () async {
         _expectHero(tester, _c02, 'confirmed zero');
         final height = _heroHeight(tester);
-        server.holdCategoryFeed = true;
+        server.holdFeed = true;
 
         await _tapChip(tester, '여행');
         _expectHero(tester, _c02, 'chip loading');
@@ -238,7 +293,7 @@ void main() {
         _expectHero(tester, _c02, 'empty category');
         expect(_heroHeight(tester), height, reason: 'empty category');
 
-        await _visitArchiveAndReturn(tester);
+        await _visitArchiveAndReturn(tester, server);
         _expectHero(tester, _c02, 'after another tab');
 
         await _tapChip(tester, '공부');

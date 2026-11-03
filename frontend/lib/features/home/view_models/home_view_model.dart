@@ -31,6 +31,9 @@ class HomeViewModel extends FeedViewModel {
     if (category?.id != null && repository.isCategoryDeleted(category!.id!)) {
       return;
     }
+    // Drop the previous filter's result first so the new filter is never
+    // observed with it (an empty chip would otherwise read as confirmed zero).
+    repository.resetFeed(key);
     repository.configureFeed(key, categoryId: category?.id);
     await repository.loadNext(key, reset: true);
   }

@@ -230,8 +230,10 @@ void main() {
     Future<void> expectKept(bool empty) async {
       final category = home.categories.single;
       held = Completer<http.Response>();
+      var sent = fixture.requests.length;
       final loading = home.selectCategory(category);
-      await _until(() => home.page.loading);
+      await _until(() => fixture.requests.length > sent);
+      expect(home.page.loading, isTrue);
       expect(home.emptyHero, empty, reason: 'chip loading');
       held!.complete(_feed(const []));
       held = null;
@@ -244,8 +246,10 @@ void main() {
       expect(home.emptyHero, empty, reason: 'error');
       fail = false;
       held = Completer<http.Response>();
+      sent = fixture.requests.length;
       final reloading = home.selectCategory(null);
-      await _until(() => home.page.loading);
+      await _until(() => fixture.requests.length > sent);
+      expect(home.page.loading, isTrue);
       expect(home.emptyHero, empty, reason: 'reloading all');
       held!.complete(_feed(saved));
       held = null;
@@ -260,6 +264,43 @@ void main() {
     await expectKept(false);
     expect(home.emptyHero, isFalse);
   });
+
+  for (final outcome in ['success', 'failure']) {
+    test('C01 survives an empty category then all-chip $outcome', () async {
+      Completer<http.Response>? held;
+      final fixture = _Fixture((request) {
+        if (request.url.path != '/api/v1/feed') return null;
+        if (held != null) return held.future;
+        final filtered = request.url.queryParameters.containsKey('category_id');
+        return _feed(filtered ? const [] : [_content()]);
+      });
+      final home = fixture.home;
+      await fixture.load();
+      expect(home.emptyHero, isFalse, reason: 'cards are C01');
+      await home.selectCategory(home.categories.single);
+      expect(home.page.items, isEmpty);
+      expect(home.page.error, isNull);
+      expect(home.emptyHero, isFalse, reason: 'empty category');
+
+      held = Completer<http.Response>();
+      final sent = fixture.requests.length;
+      final reloading = home.selectCategory(null);
+      await _until(() => fixture.requests.length > sent);
+      expect(home.page.loading, isTrue);
+      expect(home.page.categoryId, isNull);
+      expect(home.emptyHero, isFalse, reason: 'all-chip loading');
+      held.complete(
+        outcome == 'success'
+            ? _feed([_content()])
+            : _json({'detail': 'down'}, 500),
+      );
+      held = null;
+      await reloading;
+      expect(home.page.loading, isFalse);
+      expect(home.page.error, outcome == 'success' ? isNull : isNotNull);
+      expect(home.emptyHero, isFalse, reason: 'all-chip $outcome');
+    });
+  }
 
   test('selecting the active home category reloads its feed', () async {
     final fixture = _Fixture((request) {
