@@ -32,7 +32,13 @@
   이 설정이 main에 들어가기 전에 만든 브랜치는 첫 main 병합에서 기존처럼 손으로 푼다.
 - `git diff --check` 통과. 앱·백엔드 코드는 바뀌지 않아 `verify.py`는 돌리지 않았다.
 
+## GitHub PR 화면 (PR [#219](https://github.com/clip-back/clipback/pull/219))
+
+- 2026-11-03T07:15:22Z, head `14ffdd0`: `gh pr view --json mergeable,mergeStateStatus`는 `MERGEABLE`, `UNSTABLE`이었다.
+  `UNSTABLE`은 이때 백엔드 검사(lint·test·migration)가 진행 중이어서다.
+- 이 PR을 열 때 main은 시작 커밋 `d1ec34f`에서 움직이지 않아 두 파일에 겹치는 추가 줄이 없었다. 그래서 이 표시는 GitHub가 `union`을 따르는지를 보여 주지 않는다.
+
 ## 미검증
 
-- GitHub PR 화면의 병합 가능(충돌) 표시, 웹 병합·"Update branch" 버튼이 `union`을 따르는지는 PR을 연 뒤에만 볼 수 있어 아직 확인하지 않았다.
-  따르지 않으면 그 사실만 적고 지금처럼 로컬 `git merge origin/main`으로 푼다.
+- 같은 위치에 줄을 추가한 두 PR에서 GitHub의 병합 가능 표시, 웹 병합·"Update branch" 버튼이 `union`을 따르는지는 확인하지 못했다.
+  이 설정이 main에 들어간 뒤 그런 PR이 생기면 확인한다. 따르지 않으면 지금처럼 로컬 `git merge origin/main`으로 푼다.
