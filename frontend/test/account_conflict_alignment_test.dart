@@ -220,21 +220,28 @@ void main() {
       },
     );
   }
-  testWidgets(
-    '393 realwindow caps frame375 and keeps entire footer safe once',
-    (tester) async {
-      await _withConflict(
-        tester,
-        () async {
-          final m = _measure(tester), j = f.conflictJudgment(m);
-          expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
-          expect((m['frame'] as Map)['width'], 375);
-          expect(m['background'], '0xFFF5F5F5');
-          expect(tester.takeException(), isNull);
-        },
-        width: 393,
-        height: 852,
-      );
-    },
-  );
+  for (final (width, frameWidth, left, right) in [
+    (393.0, 393.0, 0.0, 393.0),
+    (600.0, 375.0, 112.5, 487.5),
+  ]) {
+    testWidgets(
+      '$width px window follows mobile/tablet edges and keeps entire conflict footer safe once',
+      (tester) async {
+        await _withConflict(
+          tester,
+          () async {
+            final m = _measure(tester), j = f.conflictJudgment(m);
+            expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
+            expect((m['frame'] as Map)['width'], frameWidth);
+            expect((m['frame'] as Map)['left'], left);
+            expect((m['frame'] as Map)['right'], right);
+            expect(m['background'], '0xFFF5F5F5');
+            expect(tester.takeException(), isNull);
+          },
+          width: width,
+          height: 852,
+        );
+      },
+    );
+  }
 }
