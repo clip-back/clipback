@@ -1,7 +1,7 @@
-# 모바일 전체 폭 — #233 구현·리뷰·자동 검증
+# 모바일 전체 폭 — #233 구현·리뷰·자동 검증·화면 비교
 
 2026-11-05, 시작 커밋 `800aa81`, `fix/phone-full-width` 워크트리에서 수행했다.
-구현·부분 검사 이후 main 병합, 티켓 리뷰와 전체 자동 검증까지 기록한다. 변경 후 촬영·3열 비교·사용자 화면 판정은 감독의 후속 단계다.
+구현·부분 검사 이후 main 병합, 티켓 리뷰, 전체 자동 검증과 감독의 변경 후 촬영·비교까지 기록한다. 사용자 화면 판정은 대기 중이다.
 
 ## 결정과 구현
 
@@ -104,6 +104,42 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 VERIFY result=PASS scope=all checks=10 failed=0 logs=/Users/leehyeongyu/orca/workspaces/Clipback/phone-full-width/.utmp/ticket-233/final
 ```
 
-## 남은 검증
+## 감독의 최종 기기 실행·화면 비교
 
-변경 후 iOS/Android 촬영, 플랫폼별 변경 전·후·Figma 3열 비교 및 최종 화면 판정은 미완료다. 위젯 대역의 인셋/입력 검사를 실제 OS 키보드 검증으로 대체하지 않는다. 실기기·실제 OAuth·운영 API·원격 CI는 이번 단계에서 실행하지 않았다. 이슈 댓글·종료·push·PR 생성도 하지 않았다.
+2026-11-05 KST, 자동 검증·회귀 보완 커밋 `f06315a`의 제품으로 촬영했다. 검증한 테스트4개 해시는 `verification-final-source.json`과 일치한다. 촬영 뒤 제품·테스트 수정은 없고 최종 변경은 이력·현재 안내 문서뿐이다.
+
+| 플랫폼 | 변경 후 실행과 증거 |
+| --- | --- |
+| iOS | iPhone16 / iOS18.6 /393×852, OS 안전 영역 top59·bottom34. kernel `cca3b0b002f7`. 01:55 실행부터02:04까지39상태·5영상, 검색 정지 화면은 시스템 붙여넣기 메뉴를 제거하고02:23 재촬영 |
+| Android | Medium_Phone / Android16(API36) /411.428571×914.285714, OS 안전 영역 top24·bottom24. APK SHA-256 `6479bac927660d23364dc655f5f91b7b15d43c2e4e58973aa295fe6cfb75d6c6`. 02:06 실행부터02:18까지39상태·5영상 |
+
+빌드·기기는 플랫폼 순서대로 실행했고 Android 빌드 뒤 Gradle daemon 정지 출력을 확인했다. 마지막 iOS 종료 뒤 `busy.sh --wait`는02:23:41에 idle이었다. 산출물·촬영 진입 파일 해시는 `after-source-manifest.json`, 명령·입력 기록은 `capture-operations.jsonl`, 동작 중 앱 상태는 `screens/*-video.json`과 timing JSON에 보존했다.
+
+시뮬레이터·에뮬레이터 조작과 로컬 대역 데이터에서 확인한 범위:
+
+- 홈·아카이브·상세·검색·카테고리·마이·계정·인증·저장 및 관련 시트39개 대표 상태를 전후 각각 촬영했다. 논리 폭375·393·430·599·600·768 경계는 앞 절의 자동 검사 근거이며, 태블릿을 실제 실행한 증거로 세지 않는다.
+- 검색어 `clip233` 입력·검색 결과, iOS 저장 URL 입력, 양쪽 카테고리 한글40자 붙여넣기와 수정 버튼 접근을 확인했다. iOS 실제 키보드 인셋336, Android336.380952를 OS/app에서 함께 확인했다. 카테고리 저장 완료는 확인 범위에 포함하지 않았다. 변경 전 영상 끝의 PATCH 대역 부재는 실제 서버 저장 실패 증거가 아니다.
+- **Android 저장 입력은 실제 타이핑이 아닌 대역 입력**이다. 사용자 승인대로 전후 모두 `/save-prefill`에서 URL을 채우고 실제 키보드·저장 버튼을 촬영했다. 변경 후도 성공하여 save-input 장면을 미검증으로 제외하는 승인 예외는 사용하지 않았다.
+- 권한 안내 배율1.3에서 iOS는 스크롤13/max13 후 드래그로 닫혀 LoginScreen으로 돌아왔다. Android는 전체 폭 확장 뒤 내용이 들어맞아 max0·offset0이며, 스크롤 제스처 뒤에도0이고 드래그 닫힘·로그인 복귀를 확인했다. 변경 전 iOS 영상은 바깥 탭 닫힘, Android는 스크롤13 후 드래그 닫힘이므로 조작을 동일하다고 쓰지 않는다.
+- 홈 가로 목록 스크롤을 확인했다(iOS offset918, Android220.952381). 마이의 리마인드 설정 시트는 양쪽에서 드래그로 닫혔다. 영상에는 촬영 모드 초기화 시 시작 화면을 거치는 구간도 있으며 제품 오류로 분류하지 않는다.
+
+### 비교 산출물과 조건 차이
+
+모든 경로는 Git 제외 디렉터리 `.utmp/ticket-233/` 기준이다. 원본 PNG는 잘라내거나 안전 영역을 보정하지 않았다.
+
+- `evidence-gallery.html`: 플랫폼별39상태의 변경 전·후 원본, 조건 JSON, 대응 Figma와 원본 동작 영상. Figma26개 원본 조회 기록은 앞 절과 같다.
+- `compare-ios-group-01.png`에서 `13.png`, `compare-android-group-01.png`에서 `13.png`: 플랫폼별38상태의3열 비교. 감독이26개 미리보기를 확인했다. `compare-ios-home.png`·`compare-android-home.png`는 대표 홈 비교다.
+- `ios-after-audit.json`·`android-after-audit.json`: 각각39쌍 중38쌍의 메타데이터가 일치한다. 나머지 `category-input-13`은 아래 차이로 자동 비교 생성이 거부됐고, 갤러리에 경고와 원본을 별도로 표시했다. 조건 불일치를 PASS로 바꾸지 않았다.
+- `compare-{ios|android}-{search|save|category|permission|home}-video.mp4`: 비교 영상10개와1초 간격/끝 프레임 미리보기. 모두 원본 마지막 프레임 보존 검사를 통과했다(칸별 최대 차이3.8에서10.5, 허용20). 감독이 미리보기의 입력·전환·끝 장면을 확인했다. 조작 시작 시점은 동기화하지 않았고 짧은 쪽의 마지막 프레임을 늘렸다. Android save는 실패 native 영상 대신 승인된 prefill 영상이다. `final-video-manifest.json`과 `video-comparison-results.json`에 원본·길이·결과를 보존했다.
+
+| 동일 조건 비교의 한계 | 기록과 처리 |
+| --- | --- |
+| 카테고리40자 입력의 가로 위치 | 같은40자·포커스·배율1.3·키보드·세로offset0이지만 caret 끝의 가로offset이 iOS465→447, Android465.547619→429.047619다. 입력칸 확장과 최대 스크롤 범위 감소에 따른 차이이며 원본 수치를 유지했다. 두 장면의 동일 가로 위치 비교는 미확보이고 사용자 시각 판정 대상으로 남긴다. |
+| iOS 변경 전 저장 PNG | OS/app 인셋336인데 키보드 영상층이 PNG에 없다. 변경 후 PNG와 양쪽 원본 영상에는 키보드가 보인다. PNG만으로 키보드까지 동일한3열 비교를 확보했다고 하지 않는다. |
+| 전용 Figma 원본 미확보 | detail-action, detail-category, my-permission, my-version, login-link, pending-share, onboarding, auth-progress, restore-error의9상태. 대응하는 전용 원본을 확보하지 못해 Figma 열을 비웠고 대체 디자인을 만들지 않았다. |
+| Figma와 실행 환경 차이 | 원본375 프레임의 높이·OS 안전 영역·데이터·기존 화면 구성이 기기와 다르다. 사용자 결정의 폭 정책을 적용했고 원본을 확대해 맞추지 않았다. 홈 흰 패널 높이 차이에는 main에서 병합한 #232가 포함된다. |
+| iOS 검색 시스템 메뉴 | 조건 JSON으로는 OS 붙여넣기 메뉴를 판별하지 못했다. 정지 화면을 다시 촬영해 메뉴 없음·실제 키보드를 직접 확인했다. 기존 PNG/JSON은 `screens/unmatched-conditions/`, 이전 비교는 `superseded-comparisons/`에 보존했다. 입력 과정의 메뉴는 원본 영상에 남아 있다. |
+
+## 남은 판정과 범위 밖
+
+사용자 화면 판정은 대기 중이다. 위 비교 한계를 기록한 PR 본문 초안을 준비하며 이슈를 닫지 않았다. 실제 OAuth·운영 API·실기기는 범위 밖이며 원격 CI도 이 단계에서 실행하지 않았다. push·PR 생성은 하지 않았다.
