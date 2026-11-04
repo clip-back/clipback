@@ -35,7 +35,7 @@
 
 ## 앱 0.4.0
 
-[iOS 0.4.0(9)·Android 0.4.0(5) 후보 기록](docs/releases/app-v0.4.0-ios-b9-android-b5.md): 준비 중인 후보입니다. 목록 전체 개수와 즐겨찾기 우선 정렬은 운영 서버의 `total_count`·`sort`(main `78aecf5`)에 의존합니다.
+[iOS 0.4.0(9)·Android 0.4.0(5) 후보 기록](docs/releases/app-v0.4.0-ios-b9-android-b5.md): iOS 9는 TestFlight 내부 그룹에, Android 5는 Play 내부 테스트로 제공했습니다. 실기기 확인 결과는 미확인이고 양 플랫폼의 정식 공개는 미실행입니다. 목록 전체 개수와 즐겨찾기 우선 정렬은 운영 서버의 `total_count`·`sort`(main `78aecf5`)에 의존합니다.
 
 ### 추가
 
