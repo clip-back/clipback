@@ -991,6 +991,7 @@ class ClipbackApi {
   Future<ApiContent> uploadScreenshot({
     required Uint8List bytes,
     required String filename,
+    String? submissionKey,
     List<int> categoryIds = const [],
     List<String> tagNames = const [],
   }) async {
@@ -1005,6 +1006,9 @@ class ClipbackApi {
           Uri.parse('$_baseUrl/uploads/screenshots'),
         );
         request.headers['Authorization'] = 'Bearer ${session!.accessToken}';
+        if (submissionKey != null) {
+          request.headers['Idempotency-Key'] = submissionKey;
+        }
         request.files.add(
           http.MultipartFile.fromBytes('file', fileBytes, filename: filename),
         );
@@ -1029,7 +1033,38 @@ class ClipbackApi {
       throw const ClipbackApiException('서버에 연결하지 못했어요.');
     }
     _throwForError(response);
-    return ApiContent.fromJson(_decodeJson(response));
+    final data = _decodeJson(response);
+    try {
+      for (final field in ['categories', 'tags', 'assets']) {
+        final value = data[field];
+        if (value is! List ||
+            value.any((item) => item is! Map<String, dynamic>)) {
+          throw const FormatException('Invalid photo result collection');
+        }
+      }
+      if (data['is_favorite'] is! bool ||
+          !data.containsKey('original_url') ||
+          !data.containsKey('last_viewed_at')) {
+        throw const FormatException('Incomplete photo result');
+      }
+      if (data['last_viewed_at'] != null &&
+          _dateTime(data['last_viewed_at']) == null) {
+        throw const FormatException('Invalid photo result date');
+      }
+      final result = ApiContent.fromJson(data);
+      if (result.id <= 0 ||
+          result.contentType != 'screenshot' ||
+          result.source != 'screenshot' ||
+          result.assets.isEmpty ||
+          result.categories.isEmpty) {
+        throw const FormatException('Invalid saved photo');
+      }
+      return result;
+    } on FormatException {
+      throw const ClipbackApiException('저장 결과를 확인하지 못했어요. 다시 시도해 주세요.');
+    } on TypeError {
+      throw const ClipbackApiException('저장 결과를 확인하지 못했어요. 다시 시도해 주세요.');
+    }
   }
 
   Future<Uint8List> readAsset(int assetId) async {

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:clipback_frontend/clipback_api.dart';
+import 'package:clipback_frontend/data/services/api_request_scope.dart';
+import 'package:clipback_frontend/data/services/event_uuid.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
@@ -14,6 +16,7 @@ import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -67,6 +70,8 @@ class _AddContentSheetState extends State<AddContentSheet> {
   var _photoStage = SaveFlowStage.editing;
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
+  String? _photoSubmissionKey;
+  ApiRequestScope? _photoRequest;
   var _isSaving = false;
   _SaveSubmission? _pendingSubmission;
   String? _saveError;
@@ -74,6 +79,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
 
   @override
   void dispose() {
+    _photoRequest?.cancel();
     _validationTimer?.cancel();
     _saveErrorTimer?.cancel();
     _urlController.dispose();
@@ -157,9 +163,13 @@ class _AddContentSheetState extends State<AddContentSheet> {
       if (submission.isLink) {
         savedContent = await widget.onAddLink(url: submission.label);
       } else {
-        savedContent = await widget.onAddScreenshot(
-          bytes: submission.photoBytes!,
-          filename: submission.label,
+        _photoRequest = ApiRequestScope();
+        savedContent = await _photoRequest!.run(
+          () => widget.onAddScreenshot(
+            bytes: submission.photoBytes!,
+            filename: submission.label,
+            submissionKey: _photoSubmissionKey ??= newEventUuid(),
+          ),
         );
       }
       if (mounted) {
@@ -206,7 +216,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _selectPhoto() async {
-    if (_savedResult != null) return;
+    if (_savedResult != null || _isSaving) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowCompression: false,
@@ -215,9 +225,14 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final photo = result != null && result.files.isNotEmpty
         ? result.files.first
         : null;
-    if (!mounted || _savedResult != null || photo?.bytes == null) return;
+    if (!mounted || _savedResult != null || _isSaving || photo?.bytes == null) {
+      return;
+    }
     setState(() {
-      _selectedPhotoBytes = photo!.bytes;
+      if (!listEquals(_selectedPhotoBytes, photo!.bytes)) {
+        _photoSubmissionKey = null;
+      }
+      _selectedPhotoBytes = photo.bytes;
       _selectedPhotoFilename = photo.name;
       _photoStage = SaveFlowStage.valid;
     });
@@ -321,11 +336,11 @@ class _AddContentSheetState extends State<AddContentSheet> {
                             ? _PhotoPendingBody(
                                 photoBytes: pending.photoBytes!,
                                 label: pending.label,
-                                onSelect: _selectPhoto,
+                                onSelect: _isSaving ? null : _selectPhoto,
                               )
                             : PhotoSaveBody(
                                 stage: _photoStage,
-                                onSelect: _selectPhoto,
+                                onSelect: _isSaving ? null : _selectPhoto,
                                 photoBytes: _selectedPhotoBytes,
                               ),
                       ),
@@ -802,7 +817,7 @@ class _SubmittedPhotoSummary extends StatelessWidget {
           photoBytes,
           key: ValueKey('$keyPrefix-image'),
           fit: BoxFit.cover,
-          alignment: Alignment.center,
+          alignment: Alignment.topCenter,
           semanticLabel: label,
         ),
       ),
@@ -818,7 +833,7 @@ class _PhotoPendingBody extends StatelessWidget {
   });
   final Uint8List photoBytes;
   final String label;
-  final Future<void> Function() onSelect;
+  final Future<void> Function()? onSelect;
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -930,7 +945,7 @@ class SavedContentConfirmation extends StatelessWidget {
                           photoBytes!,
                           key: const ValueKey('save-result-preview-image'),
                           fit: BoxFit.cover,
-                          alignment: Alignment.center,
+                          alignment: Alignment.topCenter,
                         )
                       : Image.asset(
                           Assets.saveLinkPreview,
@@ -1053,7 +1068,7 @@ class PhotoSaveBody extends StatelessWidget {
   });
 
   final SaveFlowStage stage;
-  final Future<void> Function() onSelect;
+  final Future<void> Function()? onSelect;
   final Uint8List? photoBytes;
 
   @override

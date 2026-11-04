@@ -83,6 +83,7 @@ abstract class ContentRepository extends ChangeNotifier {
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
     required String filename,
+    String? submissionKey,
     int? categoryId,
   });
   void insertSavedContent(ApiContent content);
@@ -1051,11 +1052,13 @@ class RemoteContentRepository extends ContentRepository {
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
     required String filename,
+    String? submissionKey,
     int? categoryId,
   }) => _save(
     () => _api.uploadScreenshot(
       bytes: bytes,
       filename: filename,
+      submissionKey: submissionKey,
       categoryIds: categoryId == null ? const [] : [categoryId],
     ),
   );
@@ -1063,6 +1066,7 @@ class RemoteContentRepository extends ContentRepository {
   @override
   void insertSavedContent(ApiContent content) {
     if (_disposed) return;
+    _feeds[FeedKey.home]!.items.removeWhere((item) => item.id == content.id);
     _feeds[FeedKey.home]!.items.insert(0, _normalizeContentCategories(content));
     _notify();
   }

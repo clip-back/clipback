@@ -188,6 +188,13 @@ void main() {
     await repository.loadNext(FeedKey.home);
   }
 
+  test('replayed saved ID appears once in home before refresh', () {
+    repository.insertSavedContent(_item());
+    repository.insertSavedContent(_item(title: 'replayed'));
+    expect(repository.feed(FeedKey.home).items, hasLength(1));
+    expect(repository.feed(FeedKey.home).items.single.title, 'replayed');
+  });
+
   test(
     'shares the in-flight page request and publishes immutable snapshots',
     () async {

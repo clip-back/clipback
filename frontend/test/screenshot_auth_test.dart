@@ -417,6 +417,262 @@ void main() {
     await fonts.load();
   });
 
+  testWidgets('timed out photo retries the committed submission once', (
+    tester,
+  ) async {
+    final first = Completer<http.Response?>();
+    final keys = <String?>[];
+    final stored = <String, int>{};
+    final server = _Server(
+      respond: (call) async {
+        if (call.request.url.path != _upload) return null;
+        final key = call.request.headers['Idempotency-Key'];
+        keys.add(key);
+        if (keys.length == 1) return first.future;
+        final id = stored.putIfAbsent(key ?? 'attempt-${keys.length}', () => 8);
+        return _json({..._content(), 'id': id}, 201);
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _selectPhoto(tester);
+      await tester.tap(find.text('허투루에 저장하기'));
+      await tester.pump();
+      expect(keys, hasLength(1));
+      expect(
+        find.byKey(const ValueKey('photo-pending-skeleton')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).enabled,
+        isFalse,
+      );
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pump();
+      _expectSelection(tester);
+      expect(find.text('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
+      stored[keys.first ?? 'attempt-1'] = 7;
+      first.complete(_json(_content(), 201));
+      await tester.pumpAndSettle();
+      expect(first.isCompleted, isTrue);
+      expect(find.byType(SavedContentConfirmation), findsNothing);
+      expect(keys, hasLength(1));
+      await tester.tap(find.text('허투루에 저장하기'));
+      await tester.pumpAndSettle();
+      expect(keys.first, isNotNull);
+      expect(keys.last, keys.first);
+      expect(stored.values, [7]);
+      expect(find.byType(SavedContentConfirmation), findsOneWidget);
+      _expectSavedPhotoResult(tester);
+      await tester.tap(find.text('닫기'));
+      await tester.pumpAndSettle();
+      tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+      await tester.pumpAndSettle();
+      final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+      expect(home.contents.where((item) => item.apiId == 7), hasLength(1));
+    });
+  });
+
+  for (final field in [
+    'assets',
+    'categories',
+    'tags',
+    'is_favorite',
+    'saved_at',
+  ]) {
+    for (final bad in [null, 23, 'wrong']) {
+      test('photo response rejects invalid $field=$bad', () async {
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload
+              ? _json({..._content(), field: bad}, 201)
+              : null,
+        );
+        addTearDown(server.client.close);
+        final api = ClipbackApi(client: server.client)..restoreSession(_old);
+        final result = await _outcome(_uploadPhoto(api));
+        expect(result.error, isNotNull);
+      });
+    }
+  }
+
+  for (final bad in [23, <Object>[], 'not-a-date']) {
+    test(
+      'photo response rejects invalid nullable last_viewed_at=$bad',
+      () async {
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload
+              ? _json({..._content(), 'last_viewed_at': bad}, 201)
+              : null,
+        );
+        addTearDown(server.client.close);
+        final api = ClipbackApi(client: server.client)..restoreSession(_old);
+        expect((await _outcome(_uploadPhoto(api))).error, isNotNull);
+      },
+    );
+  }
+
+  for (final field in _content().keys) {
+    test('photo response rejects missing $field', () async {
+      final data = _content()..remove(field);
+      final server = _Server(
+        respond: (call) async =>
+            call.request.url.path == _upload ? _json(data, 201) : null,
+      );
+      addTearDown(server.client.close);
+      final api = ClipbackApi(client: server.client)..restoreSession(_old);
+      expect((await _outcome(_uploadPhoto(api))).error, isNotNull);
+    });
+  }
+
+  testWidgets(
+    'closed photo screen ignores late success and new screen gets new key',
+    (tester) async {
+      final response = Completer<http.Response?>();
+      var calls = 0;
+      final server = _Server(
+        respond: (call) async {
+          if (call.request.url.path != _upload) return null;
+          calls++;
+          return calls == 1 ? response.future : _json(_content(), 201);
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _selectPhoto(tester);
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pump();
+        expect(calls, 1);
+        Navigator.of(tester.element(find.byType(AddContentSheet))).pop();
+        await tester.pumpAndSettle();
+        response.complete(_json(_content(), 201));
+        await tester.pumpAndSettle();
+        expect(find.byType(SavedContentConfirmation), findsNothing);
+        expect(find.byType(DetailScreen), findsNothing);
+        expect(tester.takeException(), isNull);
+        await _selectPhoto(tester);
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+        final uploads = server.calls(_upload);
+        expect(uploads, hasLength(2));
+        expect(
+          uploads.first.request.headers['Idempotency-Key'],
+          isNot(uploads.last.request.headers['Idempotency-Key']),
+        );
+      });
+    },
+  );
+
+  test('photo submission key survives authentication refresh', () async {
+    final server = _Server(
+      respond: (call) async =>
+          call.request.url.path == _upload && _expired(call)
+          ? _unauthorized()
+          : null,
+    );
+    addTearDown(server.client.close);
+    final api = ClipbackApi(client: server.client)..restoreSession(_old);
+    await api.uploadScreenshot(
+      bytes: _png,
+      filename: 'screen.png',
+      submissionKey: '7c6ae050-df1c-4f3e-a280-5a09319e3a7e',
+      categoryIds: [101],
+    );
+    expect(server.calls(_upload), hasLength(2));
+    for (final call in server.calls(_upload)) {
+      expect(
+        call.request.headers['Idempotency-Key'],
+        '7c6ae050-df1c-4f3e-a280-5a09319e3a7e',
+      );
+      expect(call.values('category_ids'), ['101']);
+      expect(call.file.bytes, orderedEquals(_png));
+    }
+  });
+
+  for (final status in [409, 410]) {
+    testWidgets('photo $status never becomes success or a fresh submission', (
+      tester,
+    ) async {
+      final server = _Server(
+        respond: (call) async => call.request.url.path == _upload
+            ? _json({'detail': 'Submission rejected'}, status)
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _selectPhoto(tester);
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pumpAndSettle();
+          _expectSelection(tester);
+        }
+        final calls = server.calls(_upload);
+        expect(calls, hasLength(2));
+        expect(calls.first.request.headers['Idempotency-Key'], isNotNull);
+        expect(
+          calls.last.request.headers['Idempotency-Key'],
+          calls.first.request.headers['Idempotency-Key'],
+        );
+      });
+    });
+  }
+
+  for (final completeFirstBeforeRetry in [false, true]) {
+    testWidgets(
+      'manual retry while first request pending, first completes before retry=$completeFirstBeforeRetry',
+      (tester) async {
+        final first = Completer<http.Response?>();
+        final retry = Completer<http.Response?>();
+        var uploads = 0;
+        final server = _Server(
+          respond: (call) async {
+            if (call.request.url.path != _upload) return null;
+            return ++uploads == 1 ? first.future : retry.future;
+          },
+        );
+        await _withApp(tester, server, () async {
+          await _selectPhoto(tester);
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pump();
+          expect(uploads, 1);
+          expect(
+            find.byKey(const ValueKey('photo-pending-skeleton')),
+            findsOneWidget,
+          );
+          await tester.pump(const Duration(seconds: 11));
+          await tester.pump();
+          _expectSelection(tester);
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pump();
+          expect(uploads, 2);
+          expect(first.isCompleted, isFalse);
+          final calls = server.calls(_upload);
+          expect(calls.first.request.headers['Idempotency-Key'], isNotNull);
+          expect(
+            calls.last.request.headers['Idempotency-Key'],
+            calls.first.request.headers['Idempotency-Key'],
+          );
+          if (completeFirstBeforeRetry) {
+            first.complete(_json(_content(), 201));
+            await tester.pump();
+            expect(find.byType(SavedContentConfirmation), findsNothing);
+          }
+          retry.complete(_json(_content(), 201));
+          await tester.pumpAndSettle();
+          _expectSavedPhotoResult(tester);
+          if (!first.isCompleted) {
+            first.complete(_json({..._content(), 'title': 'stale'}, 201));
+          }
+          await tester.pumpAndSettle();
+          expect(find.text('stale'), findsNothing);
+          expect(uploads, 2);
+          await tester.tap(find.text('닫기'));
+          await tester.pumpAndSettle();
+          tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+          await tester.pumpAndSettle();
+          final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+          expect(home.contents.where((item) => item.apiId == 7), hasLength(1));
+        });
+      },
+    );
+  }
+
   test(
     'expired screenshot upload refreshes once and replays its file',
     () async {

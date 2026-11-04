@@ -11,5 +11,6 @@ typedef SaveScreenshotCallback =
     Future<ContentItem> Function({
       required Uint8List bytes,
       required String filename,
+      String? submissionKey,
       CategoryItem? category,
     });
