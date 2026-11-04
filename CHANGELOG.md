@@ -28,6 +28,8 @@
 
 ### 수정
 
+- [앱] 홈의 흰 콘텐츠 패널이 콘텐츠 양이나 화면 높이와 관계없이 하단 탭까지 이어지도록 회색 배경이 드러나던 문제를 수정했습니다. (#232)
+
 - [서버] 백업 복구 지점의 manifest가 손상되면 `verify`·`download`·`maintain`과 격리 복원 검사가 명령마다 다른 오류를 내거나, 복원할 수 없는 지점을 `verify`·`maintain`이 성공으로 보고하던 문제를 수정했습니다. 이제 모든 명령이 같은 기준으로 검사해 `invalid_manifest`로 보고하고, `download`는 손상 manifest에서 다운로드 폴더를 만들지 않습니다. 지점 ID `.`·`..`도 거부합니다.
 - [서버] 복구 지점 읽기 전용 점검을 운영 문서의 코드 블록 대신 `backend/`의 `python -m scripts.recovery_point_audit` 명령 하나로 실행합니다. 실패한 완료 지점·정리 receipt가 있거나 점검 중 예상 밖 오류가 나도 JSON으로 보고하고 종료 코드 1로 끝납니다.
 - [서버] 백업 복구 지점 asset의 `storage_key`가 `u/./1.png`처럼 정규화되지 않은 경로이면 `verify`·`maintain`은 성공하는데 `download`는 폴더를 다 만든 뒤 `missing_asset`으로 실패하던 문제를 수정했습니다. 이제 `verify`·`download`·`maintain`, 격리 복원 검증, 읽기 전용 점검이 모두 `invalid_manifest`로 보고하고, `download`는 폴더를 만들지 않으며 `maintain`은 아무것도 지우지 않습니다.
