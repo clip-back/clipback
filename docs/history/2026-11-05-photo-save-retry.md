@@ -67,7 +67,7 @@ Flutter `app-test.log`는 `01:59 +2457: All tests passed!`, backend `backend-pyt
 | Android | Medium_Phone Emulator, Android 16 API 36 | 411.4286×914.2857 | 24/24 |
 
 일반 흐름은 양 플랫폼의 앱 글자 배율 1.0·1.3에서 사진 선택 → 실제 10초 응답 제한 → 기존 지연 토스트 → 기존 저장 버튼으로 수동 재시도 → 결과 화면을 확인했다.
-추가 세로 사진(300×900, 위 파랑·중앙 노랑·아래 초록)은 배율 1.0에서 처리 중·결과 썸네일을 확인했다.
+추가 세로 사진은 배율 1.0에서 처리 중·결과 썸네일을 확인했다. 현재 비교 자료는 아래 재촬영 절의 TOP/MID/BOTTOM 글자가 있는 같은 300×900 PNG를 사용한다.
 스크롤은 모두 맨 위다. 배율은 앱 MediaQuery 기준이며 OS 배율을 바꾼 검사가 아니다.
 
 실제 ClipbackApp에 FilePicker·HTTP 대역을 연결하고, 최초 요청을 보류한 뒤 timeout 후 서버 대역을 완료시켜 재시도했다.
@@ -77,7 +77,7 @@ Orca 실제 탭으로 요청 중 사진을 눌러도 picker 호출이 1회로 �
 변경 전에는 키 없는 두 요청이 records=[700,701] 두 건을 만들었다. 이는 로컬 대역 증거이며 실제 DB 보장은 위 PostgreSQL 검사로 별도 확인했다.
 하네스 사전 위젯 검사 2개는 결과 닫기·상세 뒤로가기 후 홈에 ID 700이 한 번 나타나는 것까지 통과했다.
 
-처리 중·결과 썸네일은 중앙 노랑에서 상단 파랑으로 바뀌었고 크기·위치는 유지했다. 선택 화면 미리보기는 기존 전체 사진 표시를 유지했다.
+처리 중·결과 썸네일은 같은 원본의 중앙 MID에서 상단 TOP으로 바뀌었고 크기·위치는 유지했다. 선택 화면 미리보기는 기존 전체 사진 표시를 유지했다.
 일반 결과는 빈 OCR의 기존 기본 제목·요약·미분류이며 Figma의 예시 콘텐츠와 다르다.
 변경 전·후의 기종·화면 크기·글자 배율·안전 영역·스크롤을 대조해 비교 이미지를 생성했다.
 Android 지연 토스트는 원본 영상의 toast=true 기록 +0.6초 프레임으로 보완했다. 추출 시점 JSON과 늦게 찍힌 원본 PNG 모두 보존했다.
@@ -91,9 +91,9 @@ Figma 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 D07 `111:4814`(04:06 KST), D08 `111:483
 | 일반 변경 전·후·Figma | `.utmp/ticket-235-screens/compare-ios.png`, `compare-android.png` |
 | 처리 중·결과 썸네일 변경 전·후·Figma | `.utmp/ticket-235-screens/compare-ios-thumbnail.png`, `compare-android-thumbnail.png` |
 | 일반 1.0·1.3 비교 영상 | `.utmp/ticket-235-screens/compare-ios-flow.mp4`, `compare-ios-1_3-flow.mp4`, `compare-android-flow.mp4`, `compare-android-1_3-flow.mp4` |
-| 세로 사진 비교 영상 | `.utmp/ticket-235-screens/compare-ios-thumbnail-flow.mp4`, `compare-android-thumbnail-flow.mp4` |
+| 동일 TOP/MID/BOTTOM 사진 비교 영상 | `.utmp/ticket-235-screens/compare-ios-thumbnail-flow.mp4`, `compare-android-thumbnail-flow.mp4` |
 | 원본·상태 기록·진입 파일 | `.utmp/ticket-235/`, `.utmp/ticket-235-thumbnail/`, `.utmp/ticket-235-after/`, `.utmp/ticket-235-thumbnail-after/` |
-| 조건·요청·해시 대조 | `.utmp/ticket-235-screens/evidence-audit.json` |
+| 조건·요청·해시 대조 | `.utmp/ticket-235-screens/evidence-audit.json`, `labelled-evidence-audit.json` |
 
 비교 영상은 원본 마지막 프레임과 합성 영상 끝 장면을 검사하고 장면 미리보기를 직접 확인했다.
 자동 검사와 감독 확인을 마쳤으며 최종 시각 판정은 사용자에게 남아 있다.
@@ -105,3 +105,66 @@ Figma 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 D07 `111:4814`(04:06 KST), D08 `111:483
 - 원격 CI·운영 서버·실제 OCR/S3 제공자·실기기는 범위 밖이며 실행하지 않았다.
 - 기존 `frontend/test/support/photo_pending_preview.dart`의 요청 중 재선택 시나리오는 새 사용자 결정과 맞지 않는다. 촬영 파일 수정 금지 범위로 보존하고 이번 촬영에는 별도 감독 하네스를 사용했다. 공유 fixture를 쓰는 `image_storage_live_preview.dart`는 picker 타입만 가져오며 영향 없는 것을 확인했다.
 - 네이티브 공유의 별도 응답 파서는 assets를 확인하지 않는다. 이번 본앱 사진 저장 범위 밖의 코드 관찰이며 재현된 실패로 보고하지 않는다.
+
+
+## 썸네일 위치를 글자로 확인하는 재촬영 (2026-11-05)
+
+사용자 요청으로 색만 보이던 썸네일 비교를 TOP/MID/BOTTOM 글자가 있는 사진으로 교체했다.
+기존 사진도 변경 전·후의 바이트가 같았지만 잘린 색만으로는 위치를 확인하기 어려웠다.
+새 비교의 첫 행은 양쪽에 같은 전체 원본, 둘째 행은 처리 중, 셋째 행은 결과 화면이다.
+iPhone 16 iOS 18.6와 Medium_Phone Android 16 모두 변경 전에는 **MID**, 변경 후에는 **TOP**이 처리 중·결과 썸네일에서 읽히는 것을 원본 스크린샷으로 직접 확인했다.
+위젯 크기·위치, 글자 배율 1.0, 스크롤 0과 OS 안전 영역은 동일하다. Figma는 앞서 확보한 D07·D08·D09 원본을 재사용한다.
+
+현재 비교 이미지도 이력과 함께 커밋했다. 각 열은 변경 전·변경 후·Figma 순서다.
+
+| iOS | Android |
+| --- | --- |
+| [원본 크기로 보기](assets/photo-save-235-compare-ios.png) | [원본 크기로 보기](assets/photo-save-235-compare-android.png) |
+| <img width="400" alt="iOS MID에서 TOP으로 변경" src="assets/photo-save-235-compare-ios.png" /> | <img width="400" alt="Android MID에서 TOP으로 변경" src="assets/photo-save-235-compare-android.png" /> |
+
+원본 파일: [photo-save-235-top-mid-bottom.png](assets/photo-save-235-top-mid-bottom.png) (300×900, 7,958 bytes).
+SHA-256: `03c98e90d757eae9ca525080ffa2e7b1185e9ba81d9d2188d1be6813b3208100`.
+
+![TOP/MID/BOTTOM 시험 원본](assets/photo-save-235-top-mid-bottom.png)
+
+사진은 아래 코드로 생성했다(Python 3, Pillow 12.2.0의 내장 글꼴, 저장소 루트에서 실행).
+기기 캡처나 비교 화면을 그려 만든 것이 아니라 파일 선택 대역이 실제 앱에 전달하는 입력 PNG다.
+
+```python
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+
+asset = Path("docs/history/assets/photo-save-235-top-mid-bottom.png")
+asset.parent.mkdir(exist_ok=True)
+im = Image.new("RGB", (300, 900))
+d = ImageDraw.Draw(im)
+font = ImageFont.load_default(size=40)
+for y, color in [(0, "#1757db"), (300, "#efaa13"), (600, "#16a268")]:
+    d.rectangle((0, y, 299, y + 299), fill=color)
+for label, y in [("TOP", 5), ("MID", 430), ("BOTTOM", 850)]:
+    box = d.textbbox((0, 0), label, font=font)
+    d.text(((300 - box[2]) / 2, y - box[1]), label,
+           font=font, fill="white", stroke_width=1)
+for y in [100, 200, 400, 500, 700, 800]:
+    d.line((16, y, 284, y), fill="white", width=2)
+im.save(asset)
+```
+
+두 진입 파일의 base64를 디코딩해 원본 PNG와 바이트 단위로 대조했다.
+iOS kernel_blob.bin과 Android APK 안 kernel_blob.bin에도 같은 PNG 리터럴이 들어 있는지 확인하고, 설치 도구의 빌드 해시 대조를 거쳤다.
+네 실행의 ready/processing/result JSON에 같은 원본 해시·길이가 기록됐으며 unexpected=[]였다.
+BEFORE는 시작 커밋 `f264735`의 앱 파일로 일시 복원해 빌드한 뒤 현재 파일을 복구했고 AFTER의 제품 코드는 `48dd1d7`과 같다.
+각 진입 파일 사전 테스트 1개씩, iOS·Android 변경 전/후 빌드 4개, 실제 촬영 4흐름이 통과했다.
+변경 전 대역 저장은 두 건, 변경 후는 동일 키의 한 건이며 새 사진으로도 재현 흐름을 확인했다.
+모든 빌드·기기 사용은 busy 대기 후 순차 실행했고 종료 뒤 기기를 껐다.
+
+새 진입 파일·원본 스크린샷·상태·영상·빌드 로그는 `.utmp/ticket-235-labelled-before/`와 `.utmp/ticket-235-labelled-after/`에 있다.
+비교 결과는 앞 표의 `compare-{ios,android}-thumbnail.png`와 `compare-{ios,android}-thumbnail-flow.mp4`를 새 결과로 교체했다.
+이전 색 영역만 있던 비교는 `.utmp/ticket-235-screens/previous-color-only/`에 보존했다.
+새 영상도 끝 프레임 검사를 통과했고 장면 미리보기를 직접 확인했다.
+사진·앱 빌드·스크린샷 해시는 `.utmp/ticket-235-screens/labelled-evidence-audit.json`, 실행 로그는 `.utmp/ticket-235-labelled-{ios,android}-console.log`에 있다.
+
+별도 일반 재시도 비교(`compare-ios.png`, `compare-android.png`, 1.0/1.3배 영상)는 변경 전·후에 동일한 70-byte PNG를 사용했음을 다시 확인했다.
+그 SHA-256은 `c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77`이며 이번에 사진이나 기존 결과를 바꾸지 않았다.
+입력 대조 기록은 `.utmp/ticket-235-labelled-input-audit.json`이다.
+이번 후속 변경은 시험 사진·촬영 자료·문서만 바꿨으므로 전체 VERIFY는 다시 실행하지 않았고 위 제품 코드의 PASS를 유지한다.
