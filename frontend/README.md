@@ -153,6 +153,7 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다(iOS·Android 공유 저장 시트는 OS 알림창). Dart API 오류 검사는
   `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
   [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
+- 홈의 `home-scroll`은 `CustomScrollView`로 상단 소개와 흰 콘텐츠 패널을 함께 스크롤합니다. 패널은 상단 소개의 실제 높이를 제외한 뷰포트의 남은 높이를 최소 높이로 채우며, 내용이 길면 자연 높이로 늘어납니다. 하단 배경 회귀는 `flutter test --no-pub test/home_panel_background_test.dart`로 확인합니다. [화면 기준](../docs/figma-ui-alignment-plan.md#figma-current-home-panel-bottom)을 따릅니다.
 - 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.
 - 마이 통계는 사용자 Repository가 조회 상태를 소유하고 계정 ViewModel이 화면에 투영합니다. 미확인 값은 `—`이며, 실제 마이 진입 때 갱신하고 실패하면 통계만 다시 시도합니다. 같은 계정의 진행 중 조회는 전체10초의 남은 시간을 공유하고, 마지막 확인값은 이번 앱 실행 동안 유지합니다. 프로필 조회와 통계 표시는 독립적입니다. 자세한 동작은 [마이 통계 정책](../docs/frontend/account-stats-recovery.md)을 따릅니다.
 - 카테고리 생성·수정은 공통 시트가 비동기 제출 결과를 기다리고 Action이 인증 갱신 포함 전체10초를 관리합니다. 실패·미확인 시 초안을 유지하며, 미확인은 같은 제출 키로 수동 재확인합니다. 수정은 현재 이름·색상으로 시작하며 삭제된 대상은 목록 복귀를 제공합니다. 키 없는 호출·프리뷰·삭제의 기존 인터페이스는 유지합니다. [정책·디자인](../docs/frontend/category-save-recovery.md)과 [구현 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)을 따릅니다.
