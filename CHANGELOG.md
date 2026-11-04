@@ -19,15 +19,31 @@
 ## 미배포
 
 - [서버] 피드 응답에 필터 조건의 목록 전체 개수 `total_count`를 추가했습니다. (#225)
-- [앱] 상세·목록의 개수를 `N / 전체`·`총 N개`로 표시하고, 모르는 개수는 `-`로 표시합니다. (#225)
 
 ### 추가
 
 ### 개선
 
-- [앱][서버] 아카이브 즐겨찾기 우선 정렬을 서버 단일 목록으로 전환해 전체 개수를 표시합니다. (#226)
-
 - [서버] 유튜브·인스타그램 링크의 자동 요약을 한 문단 대신, 영상·게시물이 무엇을 다루는지 밝힌 첫 줄과 그 아래 `• `로 나열한 요점 1–5개로 저장합니다. 앱 업데이트 없이 적용되며, 이미 저장된 요약은 그대로이고 배포 뒤 새로 요약하는 링크부터 바뀝니다.
+
+### 수정
+
+- [서버] 백업 복구 지점의 manifest가 손상되면 `verify`·`download`·`maintain`과 격리 복원 검사가 명령마다 다른 오류를 내거나, 복원할 수 없는 지점을 `verify`·`maintain`이 성공으로 보고하던 문제를 수정했습니다. 이제 모든 명령이 같은 기준으로 검사해 `invalid_manifest`로 보고하고, `download`는 손상 manifest에서 다운로드 폴더를 만들지 않습니다. 지점 ID `.`·`..`도 거부합니다.
+- [서버] 복구 지점 읽기 전용 점검을 운영 문서의 코드 블록 대신 `backend/`의 `python -m scripts.recovery_point_audit` 명령 하나로 실행합니다. 실패한 완료 지점·정리 receipt가 있거나 점검 중 예상 밖 오류가 나도 JSON으로 보고하고 종료 코드 1로 끝납니다.
+- [서버] 백업 복구 지점 asset의 `storage_key`가 `u/./1.png`처럼 정규화되지 않은 경로이면 `verify`·`maintain`은 성공하는데 `download`는 폴더를 다 만든 뒤 `missing_asset`으로 실패하던 문제를 수정했습니다. 이제 `verify`·`download`·`maintain`, 격리 복원 검증, 읽기 전용 점검이 모두 `invalid_manifest`로 보고하고, `download`는 폴더를 만들지 않으며 `maintain`은 아무것도 지우지 않습니다.
+- [서버] 백업 복구 지점의 dump나 원본 보관본이 없거나 읽을 수 없을 때 `maintain`은 `backup_object_missing_or_unavailable`인데 `verify`·`download`는 `backup_operation_failed`나 `backup_store_unavailable`로 보고하고, 읽기 전용 점검은 `NoSuchKey` 같은 예외 이름을 찍던 문제를 수정했습니다. 이제 모두 `backup_object_missing_or_unavailable`로 보고합니다. `verify` 도중 manifest가 사라지면 `backup_point_changed`로 보고합니다.
+
+## 앱 0.4.0
+
+[iOS 0.4.0(9)·Android 0.4.0(5) 후보 기록](docs/releases/app-v0.4.0-ios-b9-android-b5.md): iOS 9는 TestFlight 내부 그룹에, Android 5는 Play 내부 테스트로 제공했습니다. 실기기 확인 결과는 미확인이고 양 플랫폼의 정식 공개는 미실행입니다. 목록 전체 개수와 즐겨찾기 우선 정렬은 운영 서버의 `total_count`·`sort`(main `78aecf5`)에 의존합니다.
+
+### 추가
+
+- [앱] 상세·목록의 개수를 `N / 전체`·`총 N개`로 표시하고, 모르는 개수는 `-`로 표시합니다. (#225)
+
+### 개선
+
+- [앱][서버] 아카이브 즐겨찾기 우선 정렬을 서버 단일 목록으로 전환해 전체 개수를 표시합니다. (#226)
 
 ### 수정
 
@@ -38,10 +54,6 @@
 - [앱] 홈에서 "분류가 필요한 콘텐츠" 칩을 골랐는데 해당 콘텐츠가 없으면 "분류가 필요한 콘텐츠 콘텐츠가 없어요"로 "콘텐츠"가 두 번 나오던 문제를 수정했습니다. 이제 아카이브와 같이 "분류가 필요한 콘텐츠가 없어요"로 보입니다.
 - [앱] 계정 관리에서 "회원 탈퇴"를 여러 번 누르면 안내 알림이 누른 횟수만큼 4초씩 이어서 뜨던 문제를 수정했습니다. 이제 몇 번을 눌러도 알림은 하나만 보이고, 마지막으로 누른 뒤 한 번만 사라집니다.
 - [앱] 앱 아이콘과 시작 화면의 "허투루" 로고가 왼쪽으로 치우쳐 보이던 문제를 수정했습니다. 오른쪽 위 반짝임을 뺀 글자가 가운데에 옵니다.
-- [서버] 백업 복구 지점의 manifest가 손상되면 `verify`·`download`·`maintain`과 격리 복원 검사가 명령마다 다른 오류를 내거나, 복원할 수 없는 지점을 `verify`·`maintain`이 성공으로 보고하던 문제를 수정했습니다. 이제 모든 명령이 같은 기준으로 검사해 `invalid_manifest`로 보고하고, `download`는 손상 manifest에서 다운로드 폴더를 만들지 않습니다. 지점 ID `.`·`..`도 거부합니다.
-- [서버] 복구 지점 읽기 전용 점검을 운영 문서의 코드 블록 대신 `backend/`의 `python -m scripts.recovery_point_audit` 명령 하나로 실행합니다. 실패한 완료 지점·정리 receipt가 있거나 점검 중 예상 밖 오류가 나도 JSON으로 보고하고 종료 코드 1로 끝납니다.
-- [서버] 백업 복구 지점 asset의 `storage_key`가 `u/./1.png`처럼 정규화되지 않은 경로이면 `verify`·`maintain`은 성공하는데 `download`는 폴더를 다 만든 뒤 `missing_asset`으로 실패하던 문제를 수정했습니다. 이제 `verify`·`download`·`maintain`, 격리 복원 검증, 읽기 전용 점검이 모두 `invalid_manifest`로 보고하고, `download`는 폴더를 만들지 않으며 `maintain`은 아무것도 지우지 않습니다.
-- [서버] 백업 복구 지점의 dump나 원본 보관본이 없거나 읽을 수 없을 때 `maintain`은 `backup_object_missing_or_unavailable`인데 `verify`·`download`는 `backup_operation_failed`나 `backup_store_unavailable`로 보고하고, 읽기 전용 점검은 `NoSuchKey` 같은 예외 이름을 찍던 문제를 수정했습니다. 이제 모두 `backup_object_missing_or_unavailable`로 보고합니다. `verify` 도중 manifest가 사라지면 `backup_point_changed`로 보고합니다.
 
 ## backend-2026-11-02-1
 
