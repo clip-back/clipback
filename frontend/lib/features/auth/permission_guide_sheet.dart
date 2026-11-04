@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
-import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:flutter/material.dart';
 
 /// A local explanation only. Confirming this sheet does not grant OS access.
@@ -277,7 +276,7 @@ class PermissionGuideRoute extends ModalBottomSheetRoute<bool> {
            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
          ),
          clipBehavior: Clip.antiAlias,
-         constraints: const BoxConstraints(maxWidth: phoneWidth),
+         // Inherit the app theme so an open route follows window width changes.
          modalBarrierColor: Colors.black.withValues(alpha: .5),
          barrierLabel: MaterialLocalizations.of(
            context,

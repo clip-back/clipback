@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
@@ -38,7 +37,7 @@ class PhoneFrame extends StatelessWidget {
       color: AppColors.bg,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final contentWidth = math.min(phoneWidth, constraints.maxWidth);
+          final contentWidth = appContentWidth(constraints.maxWidth);
           final contentHeight = constraints.hasBoundedHeight
               ? constraints.maxHeight
               : phoneHeight;

@@ -243,39 +243,47 @@ void main() {
       expect(_legacyMetric(), _legacyMetricBefore);
     },
   );
-  testWidgets(
-    '393px actual window measures inner375 frame at9 and real SafeArea once',
-    (tester) async {
-      await _pump(tester, width: 393, height: 852);
-      final m = _measure(tester), frame = m['frame'] as Map;
-      expect(frame['width'], 375);
-      expect(frame['left'], 9);
-      expect(frame['right'], 384);
-      expect(frame['top'], 0);
-      expect(frame['height'], 852);
-      expect(m['safeTop'], 59);
-      expect(m['safeBottom'], 34);
-      final viewport = m['viewport'] as Map?;
-      if (viewport != null) {
-        expect(viewport['left'], 9);
-        expect(viewport['width'], 375);
-        expect(viewport['top'], 59);
-        expect(viewport['bottom'] as num, lessThanOrEqualTo(818));
-        expect(viewport['bottom'] as num, greaterThan(viewport['top'] as num));
-        final guestHit = m['guestHit'] as Map;
-        expect(
-          guestHit['top'] as num,
-          greaterThanOrEqualTo(viewport['top'] as num),
-        );
-        expect(
-          guestHit['bottom'] as num,
-          lessThanOrEqualTo(viewport['bottom'] as num),
-        );
-      }
-      expect((m['logo'] as Map)['bounds']['top'], greaterThanOrEqualTo(59));
-      expect(tester.takeException(), isNull);
-    },
-  );
+  for (final (width, frameWidth, left, right) in [
+    (393.0, 393.0, 0.0, 393.0),
+    (600.0, 375.0, 112.5, 487.5),
+  ]) {
+    testWidgets(
+      '$width px window follows mobile/tablet edges and real SafeArea once',
+      (tester) async {
+        await _pump(tester, width: width, height: 852);
+        final m = _measure(tester), frame = m['frame'] as Map;
+        expect(frame['width'], frameWidth);
+        expect(frame['left'], left);
+        expect(frame['right'], right);
+        expect(frame['top'], 0);
+        expect(frame['height'], 852);
+        expect(m['safeTop'], 59);
+        expect(m['safeBottom'], 34);
+        final viewport = m['viewport'] as Map?;
+        if (viewport != null) {
+          expect(viewport['left'], left);
+          expect(viewport['width'], frameWidth);
+          expect(viewport['top'], 59);
+          expect(viewport['bottom'] as num, lessThanOrEqualTo(818));
+          expect(
+            viewport['bottom'] as num,
+            greaterThan(viewport['top'] as num),
+          );
+          final guestHit = m['guestHit'] as Map;
+          expect(
+            guestHit['top'] as num,
+            greaterThanOrEqualTo(viewport['top'] as num),
+          );
+          expect(
+            guestHit['bottom'] as num,
+            lessThanOrEqualTo(viewport['bottom'] as num),
+          );
+        }
+        expect((m['logo'] as Map)['bounds']['top'], greaterThanOrEqualTo(59));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final variant in ['linking', 'back', 'empty']) {
     testWidgets(
       'legacy $variant keeps prior labels entry widgets order and public callbacks',
