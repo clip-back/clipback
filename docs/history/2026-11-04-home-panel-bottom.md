@@ -4,7 +4,8 @@
 한 이슈로 수정했다. 구현 `0434c31`, CHANGELOG `3a43897`이다.
 사용자 결정은 "37·48은 이슈 만들어도 되고", 40분 중단 뒤 재개 결정은
 "232 계속 진행하라고 해줘"다. 두 제보의 공통 원인을 수정했으며 시트 자체는 변경하지 않았다.
-사용자 시각 판정과 이슈 종료는 대기 중이다. push·PR 생성·배포는 하지 않았다.
+2026-11-04 사용자 "PR 승인"으로 화면 판정과 PR 초안 승인을 받았다.
+승인 범위는 main 병합·전체 재검증·push·PR 생성이며, PR 병합·배포는 포함하지 않는다.
 
 ## 구현과 검수
 
@@ -63,11 +64,44 @@ VERIFY result=PASS scope=all checks=10 failed=0
 
 `verify-result.txt`, `verify-console.log`, `backend-pytest.log`, `app-test.log`를 감독이 직접 대조했다.
 skip은 통과에 포함하지 않는다. Docker 복구와 로컬 S3 통합 46건은 이 실행에서 미검증이다.
-이후 CHANGELOG와 이력 문서만 변경해 제품 코드가 동일하므로 전체 검사를 반복하지 않았다.
+이 검사 이후 main 병합 전까지는 문서만 변경해 전체 검사를 반복하지 않았다.
+main 병합 후 재검증은 다음 절에 별도로 기록한다.
+
+## 전체 검사(최종)
+
+사용자 승인 뒤 `git fetch origin`으로 main의 #234(`#231`, `800aa81`)를 확인하고
+아래 명령으로 병합했다. 병합 커밋은 `397aa5d4b79df83b7d09b6e95bffd15444bdae30`이며 충돌은 없었다.
+
+```sh
+git merge origin/main -m "merge: main의 #231 반영 (#232)"
+```
+
+`busy.sh --wait`로 다른 작업 종료를 기다린 뒤, 저장소 루트에서 셸 제한 600초로
+아래 전체 검사를 다시 실행했다. 2026-11-04 22:46:42 시작·22:51:56 종료(KST), exit0이다.
+
+```sh
+~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-232/final
+```
+
+```text
+pytest: 2047 passed, 46 skipped, 3 warnings in 166.60s (0:02:46)
+pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+Flutter: 2407 tests passed
+VERIFY result=PASS scope=all checks=10 failed=0
+```
+
+감독이 `final/verify-result.txt`, `final/backend-pytest.log`, `final/app-test.log`를
+직접 대조했다. Docker 복구·로컬 S3 통합 46건은 실행 조건 미충족으로 미검증이다.
+추가로 `frontend/`에서 `dart format --output=none --set-exit-if-changed lib test`를 실행해
+282개 파일, 변경 0개를 확인했다(`final/dart-format.log`). 이후 변경은 승인 상태·검증 이력 문서뿐이다.
 
 ## 변경 전·후 화면
 
 변경 전 양 플랫폼 촬영은 제품 수정 전에 `8202d4f`로 완료했다.
+변경 후 촬영은 제품 커밋 `0434c31` 기준이다. main 병합 후 다시 촬영하지 않았으며,
+병합으로 들어온 #231의 weekly 문구·이름 색 변경은 이 촬영본에 반영되지 않았다.
+병합 후 자동 검증과 병합 전 화면 검증을 구분한다.
 조율 위임에 따라 감독이 완료 조건에서 대표 상태를 골라 `.utmp/ticket-232-summary.md`에
 상태 ID·재현 방법·선정 기준을 먼저 기록했다. 상태별 처음/끝, 플랫폼당 10행을 촬영했다.
 weekly가 패널 자연 높이를 늘리는 경우와 남은 높이를 채워야 하는 짧은 경우,
@@ -130,7 +164,7 @@ C01은 375×936, C02는 375×956이고 패널은 흰색·위쪽 반경 16px로 �
   offset 85 → 69, `emptyweekly-bottom`은 57 → 41로 외부 16px 제거에 따라 끝 위치가 달라졌다.
   두 행은 동일 offset 3열 비교를 만들지 않았고 각 끝의 원본·JSON과 차이를 보존했다.
 - 대표 화면 접촉 시트와 iOS 끝 원본을 감독이 직접 확인했다. 상단·카드·탭 배치를 유지하면서
-  아래 회색 면적이 흰색으로 채워졌다. 사용자 시각 판정은 아직 대기다.
+  아래 회색 면적이 흰색으로 채워졌다. 2026-11-04 사용자 "PR 승인"으로 화면 판정을 승인받았다.
 - 비교 영상은 `compare_video.py`로 생성했다. 마지막 프레임의 원본 대조도 통과했다.
   도구 칸별 차이(허용20)는 iOS 전13.3/후13.9, Android 전16.3/후18.6이다.
   1초별 장면과 마지막 프레임 미리보기를 직접 확인했다. 영상 길이를 반응시간 근거로 사용하지 않는다.
@@ -150,6 +184,6 @@ C01은 375×936, C02는 375×956이고 패널은 흰색·위쪽 반경 16px로 �
 ## 한계와 현재 상태
 
 - iOS 끝 2행의 동일 offset 3열 비교는 위 이유로 미확보다. 각 끝 상태의 촬영·마지막 내용 접근 검증은 했다.
-- 사용자 시각 판정 대기이며 #232는 열어 둔다. 로컬 자동/메모리 API 실행을 원격 CI·실기기·운영 검증으로 대신하지 않는다.
-- 원격 CI·실기기·운영 실행은 이번 범위 밖이다. 화면 검증 이후에는 이력·목차·현재 안내만 갱신한다.
-- PR 초안에는 `Closes #232` 한 줄을 사용한다. 사용자 지시에 따라 push·PR 생성은 하지 않는다.
+- 사용자 화면 판정·PR 초안 승인을 받았다. #232는 PR 병합 시 닫도록 `Closes #232`를 사용한다.
+- 원격 CI는 push·PR 생성 후 별도로 확인한다. 로컬 자동/메모리 API 실행을 원격 CI·실기기·운영 검증으로 대신하지 않는다. 실기기·운영 실행은 미검증이다.
+- 승인에 따라 push·PR을 생성하며, PR의 이미지 자리는 사용자가 직접 첨부한다. PR 병합·배포는 승인 범위 밖이다.
