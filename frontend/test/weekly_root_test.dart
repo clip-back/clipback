@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -126,6 +127,30 @@ void main() {
       });
     },
   );
+  for (final type in WeeklyCardType.values) {
+    testWidgets('weekly card tap opens the same category ID $type', (t) async {
+      await withHome(
+        t,
+        (s) async {
+          final item = home(
+            t,
+          ).weeklyItems.singleWhere((item) => item.type == type);
+          final card = find.byKey(ValueKey('weekly-card-${item.id}'));
+          await t.ensureVisible(card);
+          await t.pumpAndSettle();
+          await t.tap(card);
+          await t.pumpAndSettle();
+          expect(find.byType(ArchiveScreen), findsOneWidget);
+          expect(archive(t).feed!.categoryId, item.category.id);
+          expect(archive(t).activeCategoryName, item.category.name);
+          expect(views(s), isEmpty);
+        },
+        setup: (s) {
+          if (type == WeeklyCardType.rediscovery) s.weeklyMode = 'rediscovery';
+        },
+      );
+    });
+  }
   testWidgets(
     'sheet and background retain visit; delivery behind either records no exposure',
     (t) async {

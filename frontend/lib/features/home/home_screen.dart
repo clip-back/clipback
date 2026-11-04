@@ -863,12 +863,9 @@ class _WeeklyPickRailState extends State<WeeklyPickRail> {
                           children: [
                             if (pick.type == WeeklyCardType.mostViewed)
                               const TextSpan(text: '내가 관심 있던 '),
-                            TextSpan(
-                              text: pick.category.name,
-                              style: const TextStyle(color: Color(0xFFFF0000)),
-                            ),
+                            TextSpan(text: pick.category.name),
                             if (pick.type != WeeklyCardType.mostViewed)
-                              const TextSpan(text: ' 콘텐츠를 다시 볼까요?'),
+                              const TextSpan(text: ' 카테고리를 다시 볼까요?'),
                           ],
                         ),
                         maxLines: 2,

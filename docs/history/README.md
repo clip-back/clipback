@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [Weekly 카드 문구·이름 색 결정](2026-11-04-weekly-pick-wording.md)
+
 - [운영 원본 접근·백업·격리 복원 통합 검증](2026-10-26-image-operator-readiness.md)
 
 - [2026-10-26 실제 점검을 확인하는 격리 복원](2026-10-26-live-isolated-restore.md)
