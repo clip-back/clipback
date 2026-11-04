@@ -278,7 +278,7 @@ Map<String, Object?> homeBaseMeasure(Element root) {
   }
   final dots = homeBaseFind<PageDots>(screen)?.widget as PageDots?;
   final empty = homeBaseFind<EmptyHomeContent>(screen);
-  final body = homeBaseFind<SingleChildScrollView>(screen)!;
+  final body = common.logoutKey(screen, 'home-scroll')!;
   return {
     'active': true,
     'bounds': {

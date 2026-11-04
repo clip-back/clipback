@@ -326,7 +326,7 @@ Future<void> _closeSave() async {
 
 Future<void> _maxScroll() async {
   final p = f.homeBasePosition(_root)!;
-  final viewport = f.homeBaseFind<SingleChildScrollView>(_home)!;
+  final viewport = common.logoutKey(_home, 'home-scroll')!;
   await _drag(viewport, const Offset(0, -360));
   p.jumpTo(p.maxScrollExtent);
   await _settle(3);

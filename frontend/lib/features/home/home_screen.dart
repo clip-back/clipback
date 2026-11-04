@@ -182,37 +182,49 @@ class HomeScreen extends StatelessWidget {
         body: ScrollNotificationObserver(
           child: SafeArea(
             bottom: false,
-            child: SingleChildScrollView(
+            child: CustomScrollView(
               key: const ValueKey('home-scroll'),
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                children: [
-                  HomeHero(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: HomeHero(
                     empty: emptyHero,
                     onSearch: onSearch,
                     onOpenNotifications: onOpenNotifications,
                     onOpenToday: emptyHero ? showAddContentSheet : onOpenToday,
                   ),
-                  HomeContentPanel(
-                    weeklyItems: weeklyItems,
-                    onWeeklySelected: onWeeklySelected,
-                    onWeeklyExposed: onWeeklyExposed,
-                    weeklyExposureEnabled: weeklyExposureEnabled,
-                    feed: feed,
-                    onRetry: onRetry,
-                    activeCategoryId: activeCategoryId,
-                    onCategorySelected: onCategorySelected,
-                    confirmedEmpty: confirmedEmpty,
-                    contents: contents,
-                    categories: categories,
-                    bookmarkedIds: bookmarkedIds,
-                    onOpenArchive: onOpenArchive,
-                    onOpenCategories: onOpenCategories,
-                    onOpenContent: onOpenContent,
-                    onToggleBookmark: onToggleBookmark,
+                ),
+                SliverLayoutBuilder(
+                  builder: (context, constraints) => SliverToBoxAdapter(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: math.max(
+                          0,
+                          constraints.viewportMainAxisExtent -
+                              constraints.precedingScrollExtent,
+                        ),
+                      ),
+                      child: HomeContentPanel(
+                        weeklyItems: weeklyItems,
+                        onWeeklySelected: onWeeklySelected,
+                        onWeeklyExposed: onWeeklyExposed,
+                        weeklyExposureEnabled: weeklyExposureEnabled,
+                        feed: feed,
+                        onRetry: onRetry,
+                        activeCategoryId: activeCategoryId,
+                        onCategorySelected: onCategorySelected,
+                        confirmedEmpty: confirmedEmpty,
+                        contents: contents,
+                        categories: categories,
+                        bookmarkedIds: bookmarkedIds,
+                        onOpenArchive: onOpenArchive,
+                        onOpenCategories: onOpenCategories,
+                        onOpenContent: onOpenContent,
+                        onToggleBookmark: onToggleBookmark,
+                      ),
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

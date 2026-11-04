@@ -39,7 +39,7 @@ ScrollPosition _vertical(WidgetTester tester) => tester
       find
           .descendant(
             of: _underHome(
-              find.byType(SingleChildScrollView, skipOffstage: false),
+              find.byKey(const ValueKey('home-scroll'), skipOffstage: false),
             ).first,
             matching: find.byType(Scrollable, skipOffstage: false),
             skipOffstage: false,
