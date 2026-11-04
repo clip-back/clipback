@@ -510,6 +510,115 @@ void main() {
     );
   }
 
+  for (final badAssets in [
+    [
+      {
+        'id': 9,
+        'asset_type': 'thumbnail',
+        'download_url': '/api/v1/uploads/assets/9',
+        'mime_type': 'image/png',
+      },
+    ],
+    [
+      {
+        'id': 0,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/0',
+        'mime_type': 'image/png',
+      },
+    ],
+    [
+      {
+        'id': -1,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/-1',
+        'mime_type': 'image/png',
+      },
+    ],
+    [
+      {
+        'id': 0,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/0',
+        'mime_type': 'image/png',
+      },
+      {
+        'id': 9,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/9',
+        'mime_type': 'image/png',
+      },
+    ],
+  ]) {
+    test(
+      'photo API rejects unusable originals $badAssets without a submission key',
+      () async {
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload
+              ? _json({..._content(), 'assets': badAssets}, 201)
+              : null,
+        );
+        addTearDown(server.client.close);
+        final api = ClipbackApi(client: server.client)..restoreSession(_old);
+        await expectLater(
+          _uploadPhoto(api),
+          throwsA(isA<ClipbackApiException>()),
+        );
+      },
+    );
+
+    testWidgets(
+      'unusable originals $badAssets cannot publish success and retry retains key',
+      (tester) async {
+        var invalid = true;
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload && invalid
+              ? _json({..._content(), 'assets': badAssets}, 201)
+              : null,
+        );
+        await _withApp(tester, server, () async {
+          await _selectPhoto(tester);
+          final feedCalls = server.calls('/api/v1/feed').length;
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pumpAndSettle();
+          _expectSelection(tester);
+          expect(find.byType(DetailScreen), findsNothing);
+          expect(
+            tester.widget<HomeScreen>(find.byType(HomeScreen)).contents,
+            isEmpty,
+          );
+          expect(server.calls('/api/v1/feed'), hasLength(feedCalls));
+          final originalKey = server
+              .calls(_upload)
+              .single
+              .request
+              .headers['Idempotency-Key'];
+          expect(originalKey, isNotNull);
+          invalid = false;
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pumpAndSettle();
+          expect(server.calls(_upload), hasLength(2));
+          expect(
+            server.calls(_upload).last.request.headers['Idempotency-Key'],
+            originalKey,
+          );
+          _expectSavedPhotoResult(tester);
+          await tester.tap(find.text('닫기'));
+          await tester.pumpAndSettle();
+          tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .contents
+                .where((item) => item.apiId == 7),
+            hasLength(1),
+          );
+        });
+      },
+    );
+  }
+
   for (final field in _content().keys) {
     test('photo response rejects missing $field', () async {
       final data = _content()..remove(field);

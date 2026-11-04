@@ -1055,7 +1055,8 @@ class ClipbackApi {
       if (result.id <= 0 ||
           result.contentType != 'screenshot' ||
           result.source != 'screenshot' ||
-          result.assets.isEmpty ||
+          !result.assets.any((asset) => asset.assetType == 'screenshot') ||
+          result.assets.any((asset) => asset.id <= 0) ||
           result.categories.isEmpty) {
         throw const FormatException('Invalid saved photo');
       }

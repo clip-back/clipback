@@ -130,31 +130,27 @@ void main() {
                   find.byKey(const ValueKey('photo-pending-skeleton')),
                   findsOneWidget,
                 );
-                picker.cancelNext = true;
-                await tester.tap(
-                  find.byKey(const ValueKey('photo-pending-reselect')),
+                final pickerCalls = picker.calls;
+                expect(pickerCalls, 1);
+                final reselect = find.byKey(
+                  const ValueKey('photo-pending-reselect'),
                 );
-                await tester.pump();
-                await tester.pump(const Duration(milliseconds: 30));
-                expect(
-                  find.byKey(const ValueKey('photo-pending-skeleton')),
-                  findsOneWidget,
-                );
-                await tester.tap(
-                  find.byKey(const ValueKey('photo-pending-reselect')),
-                );
-                await tester.pump();
-                await tester.pump(const Duration(milliseconds: 30));
-                expect(
-                  find.byKey(const ValueKey('photo-pending-skeleton')),
-                  findsNothing,
-                );
-                expect(
-                  tester
-                      .widget<PhotoSaveBody>(find.byType(PhotoSaveBody))
-                      .photoBytes,
-                  same(_alternate),
-                );
+                expect(tester.widget<GestureDetector>(reselect).onTap, isNull);
+                for (var attempt = 0; attempt < 2; attempt++) {
+                  await tester.tap(reselect);
+                  await tester.pump();
+                  await tester.pump(const Duration(milliseconds: 30));
+                  expect(picker.calls, pickerCalls);
+                  expect(
+                    find.byKey(const ValueKey('photo-pending-skeleton')),
+                    findsOneWidget,
+                  );
+                  final image = tester.widget<Image>(
+                    find.byKey(const ValueKey('photo-pending-image')),
+                  );
+                  expect((image.image as MemoryImage).bytes, same(_bytes));
+                  expect(image.alignment, Alignment.topCenter);
+                }
                 server.resolve();
                 await tester.pumpAndSettle();
                 final result = tester.widget<SavedContentConfirmation>(
