@@ -268,6 +268,7 @@ class CategoryArchivePreviewState extends State<CategoryArchivePreviewHost> {
           ({
             required Uint8List bytes,
             required String filename,
+            String? submissionKey,
             CategoryItem? category,
           }) async {
             record('savePhoto');

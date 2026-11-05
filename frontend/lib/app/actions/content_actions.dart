@@ -416,6 +416,7 @@ class ContentActions {
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
     required String filename,
+    String? submissionKey,
     int? categoryId,
     required void Function(ApiContent) onSaved,
     required ContentFeedback feedback,
@@ -428,13 +429,24 @@ class ContentActions {
     final item = await content.saveScreenshot(
       bytes: bytes,
       filename: filename,
+      submissionKey: submissionKey,
       categoryId: categoryId,
     );
-    if (!_current(generation)) return item;
+    ApiRequestScope.current?.checkActive();
+    if (!_current(generation)) {
+      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    }
     content.insertSavedContent(item);
-    if (!_current(generation)) return item;
+    ApiRequestScope.current?.checkActive();
+    if (!_current(generation)) {
+      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    }
     onSaved(item);
     if (_current(generation)) await refresh(feedback);
+    ApiRequestScope.current?.checkActive();
+    if (!_current(generation)) {
+      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    }
     return item;
   }
 

@@ -249,6 +249,7 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
           ({
             required Uint8List bytes,
             required String filename,
+            String? submissionKey,
             CategoryItem? category,
           }) async => contents.first,
       onOpenCategory: (_) {},

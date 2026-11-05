@@ -79,8 +79,12 @@ Future<void> _open(
               onAddLink: ({required url, category}) async =>
                   save == null ? _saved : await save(url),
               onAddScreenshot:
-                  ({required bytes, required filename, category}) async =>
-                      throw StateError('Unexpected photo save'),
+                  ({
+                    required bytes,
+                    required filename,
+                    String? submissionKey,
+                    category,
+                  }) async => throw StateError('Unexpected photo save'),
             ),
             child: const Text('open save'),
           ),

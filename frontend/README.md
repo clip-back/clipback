@@ -38,6 +38,8 @@ Android Release는 저장소 밖의 업로드 키 설정을 요구합니다.
 [Release 서명과 AAB 빌드](../docs/frontend/development.md#android-release-서명과-aab)를 따릅니다.
 
 앱의 사진 첨부는 파일 선택기의 압축을 끄고 선택한 파일 바이트와 이름을 그대로 업로드합니다.
+사진 저장 요청 중에는 사진 선택을 잠그고, 시간 초과 뒤 같은 사진을 수동 재시도하면 같은 제출 키로 기존 저장 결과를 받습니다.
+처리 중·결과 썸네일은 원본의 상단을 표시합니다. [사진 저장·재시도 계약](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)을 따릅니다.
 PNG 투명도·화질을 바꾸는 JPEG 변환을 요청하지 않으며, Android 이미지 URI 공유도 제공된 원본을 읽습니다.
 원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
 Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.

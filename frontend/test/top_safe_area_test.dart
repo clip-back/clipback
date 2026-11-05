@@ -37,6 +37,7 @@ Future<ContentItem> saveLink({
 Future<ContentItem> saveImage({
   required Uint8List bytes,
   required String filename,
+  String? submissionKey,
   CategoryItem? category,
 }) async => initialContents.first;
 

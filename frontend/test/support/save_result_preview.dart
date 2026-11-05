@@ -557,8 +557,13 @@ Future<void> _open(
       context: navigator.context,
       onAddLink: ({required url, category}) =>
           state.save(kind: 'link', url: url),
-      onAddScreenshot: ({required bytes, required filename, category}) =>
-          state.save(kind: 'photo', bytes: bytes, filename: filename),
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) => state.save(kind: 'photo', bytes: bytes, filename: filename),
     ),
   );
   await _settle();
