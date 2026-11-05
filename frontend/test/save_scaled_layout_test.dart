@@ -271,7 +271,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('분류는 상세 화면에서 변경할 수 있어요.').hitTestable(), findsOneWidget);
-      await tester.tap(find.text('닫기'));
+      await tester.tap(find.text('저장 완료'));
       await tester.pumpAndSettle();
       expect(find.byType(AddContentSheet), findsNothing);
       expect(uploads, hasLength(1));

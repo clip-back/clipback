@@ -1100,7 +1100,7 @@ void main() {
           (await backing.readFromDisk())?.refreshToken,
           _rotated.refreshToken,
         );
-        await tester.tap(find.text('닫기'));
+        await tester.tap(find.text('저장 완료'));
         await tester.pumpAndSettle();
         expect(find.byType(AddContentSheet), findsNothing);
         final content = tester
@@ -1268,7 +1268,7 @@ void main() {
             (await backing.readFromDisk())?.refreshToken,
             _old.refreshToken,
           );
-          await tester.tap(find.text('닫기'));
+          await tester.tap(find.text('저장 완료'));
           await tester.pumpAndSettle();
           expect(find.text(_warning), findsOneWidget);
           for (var attempt = 0; attempt < 2; attempt++) {

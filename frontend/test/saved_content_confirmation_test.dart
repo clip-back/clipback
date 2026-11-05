@@ -72,12 +72,21 @@ Future<void> _open(
   WidgetTester tester, {
   required SaveLinkCallback onAddLink,
   required SaveScreenshotCallback onAddScreenshot,
+  double width = 375,
+  double scale = 1,
 }) async {
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(375, 812);
+  tester.view.physicalSize = Size(width, 812);
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
+      theme: ThemeData(fontFamily: 'Pretendard'),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
@@ -137,6 +146,14 @@ void _expectActiveTab(WidgetTester tester, String label) {
 void main() {
   setUpAll(FilePickerIO.registerWith);
 
+  setUpAll(() async {
+    final fonts = FontLoader('Pretendard');
+    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
+      fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
+    }
+    await fonts.load();
+  });
+
   late Uint8List firstBytes;
   late Uint8List secondBytes;
   late _Picker picker;
@@ -159,6 +176,129 @@ void main() {
   });
 
   tearDown(() => FilePicker.platform = originalPicker);
+
+  for (final photo in [false, true]) {
+    for (final width in [320.0, 375.0]) {
+      for (final scale in [1.0, 1.15, 1.3]) {
+        testWidgets(
+          'successful ${photo ? 'photo' : 'link'} completion width$width scale$scale',
+          (tester) async {
+            var calls = 0;
+            final returned = _savedContent(isScreenshot: photo);
+            await _open(
+              tester,
+              width: width,
+              scale: scale,
+              onAddLink: ({required url, category}) async {
+                calls++;
+                return returned;
+              },
+              onAddScreenshot:
+                  ({required bytes, required filename, category}) async {
+                    calls++;
+                    return returned;
+                  },
+            );
+            if (photo) {
+              await _photo(tester);
+            } else {
+              await _link(tester, 'https://example.com/saved');
+            }
+            await _submit(tester);
+            await tester.pumpAndSettle();
+            expect(_result(tester).content, same(returned));
+            expect(calls, 1);
+            final button = tester.widget<SaveFlowButton>(
+              find.byType(SaveFlowButton),
+            );
+            expect(button.label, '저장 완료');
+            expect(button.enabled, isTrue);
+            expect(button.loading, isFalse);
+            final semantics = tester.ensureSemantics();
+            expect(
+              tester.getSemantics(find.byType(SaveFlowButton)).label,
+              contains('저장 완료'),
+            );
+            final bounds = tester.getRect(find.byType(SaveFlowButton));
+            expect(bounds.height, 56);
+            expect(bounds.width, width - 32);
+            final label = find.text('저장 완료');
+            final paragraph = tester.renderObject<RenderParagraph>(label);
+            expect(paragraph.didExceedMaxLines, isFalse);
+            expect(bounds.contains(tester.getRect(label).topLeft), isTrue);
+            expect(bounds.contains(tester.getRect(label).bottomRight), isTrue);
+            expect(tester.takeException(), isNull);
+            await tester.tap(label);
+            await tester.pumpAndSettle();
+            expect(find.byType(AddContentSheet), findsNothing);
+            expect(calls, 1);
+            semantics.dispose();
+          },
+        );
+      }
+    }
+    testWidgets(
+      '${photo ? 'photo' : 'link'} request pending and failure keep completion hidden',
+      (tester) async {
+        final pending = Completer<ContentItem>();
+        var calls = 0;
+        await _open(
+          tester,
+          onAddLink: ({required url, category}) {
+            calls++;
+            return pending.future;
+          },
+          onAddScreenshot: ({required bytes, required filename, category}) {
+            calls++;
+            return pending.future;
+          },
+        );
+        expect(find.text('저장 완료'), findsNothing);
+        if (photo) {
+          await _photo(tester);
+        } else {
+          await _link(tester, 'https://example.com/pending');
+        }
+        await _submit(tester);
+        expect(calls, 1);
+        expect(find.byType(SavedContentConfirmation), findsNothing);
+        if (photo) {
+          expect(
+            find.byKey(const ValueKey('photo-pending-skeleton')),
+            findsOneWidget,
+          );
+        } else {
+          expect(
+            find.byKey(const ValueKey('link-pending-skeleton')),
+            findsOneWidget,
+          );
+        }
+        final button = tester.widget<SaveFlowButton>(
+          find.byType(SaveFlowButton),
+        );
+        expect(button.label, '닫기');
+        expect(button.enabled, isFalse);
+        expect(button.loading, isFalse);
+        expect(find.text('저장 완료'), findsNothing);
+        await tester.tap(find.text('닫기'));
+        button.onPressed();
+        await tester.pump();
+        expect(calls, 1);
+        expect(find.byType(AddContentSheet), findsOneWidget);
+        pending.completeError(const ClipbackApiException('저장 실패'));
+        await tester.pumpAndSettle();
+        expect(find.text('저장 실패'), findsOneWidget);
+        expect(find.byType(SavedContentConfirmation), findsNothing);
+        expect(find.text('저장 완료'), findsNothing);
+        expect(
+          tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).label,
+          '허투루에 저장하기',
+        );
+        expect(calls, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('photo result uses photo wording without link validation', (
     tester,
@@ -292,7 +432,7 @@ void main() {
           await _tab(tester, '링크 첨부');
           _expectActiveTab(tester, '사진 첨부');
           expect(_result(tester).photoBytes, same(bytes));
-          await tester.tap(find.text('닫기'));
+          await tester.tap(find.text('저장 완료'));
           await tester.pumpAndSettle();
           expect(find.byType(AddContentSheet), findsNothing);
           expect(tester.takeException(), isNull);
@@ -375,7 +515,7 @@ void main() {
       expect(_result(tester).photoBytes, orderedEquals(firstBytes));
       expect(uploads, hasLength(1));
       expect(linkCalls, 0);
-      await tester.tap(find.text('닫기'));
+      await tester.tap(find.text('저장 완료'));
       await tester.pumpAndSettle();
       expect(find.byType(AddContentSheet), findsNothing);
       expect(tester.takeException(), isNull);

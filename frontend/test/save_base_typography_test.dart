@@ -691,7 +691,7 @@ void _contracts(
     );
   }
   final button = tester.getRect(find.byType(SaveFlowButton));
-  final label = scene.result ? '닫기' : '허투루에 저장하기';
+  final label = scene.result ? '저장 완료' : '허투루에 저장하기';
   _near(failures, 'CTA height', button.height, 56);
   _near(failures, 'CTA left', button.left, 16);
   _near(failures, 'CTA right', button.right, width - 16);
@@ -1280,7 +1280,7 @@ Future<void> _interaction(
     expect(saved.label, scene.photo ? _filename : _url);
     if (scene.photo) expect(saved.photo, orderedEquals(photo));
     expect(find.byType(SavedContentConfirmation), findsOneWidget);
-    await tester.tap(find.text('닫기'));
+    await tester.tap(find.text('저장 완료'));
     await tester.pumpAndSettle();
     expect(find.byType(AddContentSheet), findsNothing);
   } else {
