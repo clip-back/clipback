@@ -57,13 +57,11 @@ class NotificationListScreen extends StatelessWidget {
   const NotificationListScreen({
     required this.items,
     required this.onBack,
-    required this.onOpenSettings,
     super.key,
   });
 
   final List<({String title, String time})> items;
   final VoidCallback onBack;
-  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) => PopScope<void>(
@@ -77,7 +75,7 @@ class NotificationListScreen extends StatelessWidget {
         body: SafeArea(
           child: Column(
             children: [
-              _NotificationHeader(onBack: onBack, onSettings: onOpenSettings),
+              _NotificationHeader(onBack: onBack),
               Expanded(
                 child: SizedBox(
                   key: const ValueKey('notification-viewport'),
@@ -145,9 +143,8 @@ class NotificationListScreen extends StatelessWidget {
 }
 
 class _NotificationHeader extends StatelessWidget {
-  const _NotificationHeader({required this.onBack, required this.onSettings});
+  const _NotificationHeader({required this.onBack});
   final VoidCallback onBack;
-  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -176,18 +173,6 @@ class _NotificationHeader extends StatelessWidget {
             asset: Assets.detailBack,
             hitSize: 48,
             onTap: onBack,
-          ),
-        ),
-        Positioned(
-          right: 6,
-          top: 10.5,
-          child: _HeaderButton(
-            hitKey: const ValueKey('notification-settings-hit'),
-            imageKey: const ValueKey('notification-settings-image'),
-            label: '리마인드 설정',
-            asset: Assets.notificationSettings,
-            hitSize: 44,
-            onTap: onSettings,
           ),
         ),
       ],

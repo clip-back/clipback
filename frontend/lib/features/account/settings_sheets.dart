@@ -1,4 +1,3 @@
-import 'package:clipback_frontend/shared/models/app_info.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
@@ -35,7 +34,7 @@ class ReminderSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSheet(
-      title: '리마인드 설정',
+      title: '알림 설정',
       children: [
         for (final item in mockReminderSettings)
           SheetInfoRow(label: item.label, value: item.value),
@@ -91,28 +90,6 @@ class ContactSheet extends StatelessWidget {
         Text(
           '문의는 help@hutureu.app 으로 보내주세요. 목데이터 기준 응답 시간은 평일 24시간 이내입니다.',
           style: TextStyle(color: AppColors.subtle, fontSize: 14, height: 1.5),
-        ),
-      ],
-    );
-  }
-}
-
-class AppVersionSheet extends StatelessWidget {
-  const AppVersionSheet({required this.appInfo, super.key});
-
-  final AppInfo? appInfo;
-
-  @override
-  Widget build(BuildContext context) {
-    final info = appInfo;
-    return AppSheet(
-      title: '앱 버전',
-      children: [
-        SheetInfoRow(
-          label: '현재 버전',
-          value: info == null
-              ? '-'
-              : 'ver. ${info.version} (${info.buildNumber})',
         ),
       ],
     );

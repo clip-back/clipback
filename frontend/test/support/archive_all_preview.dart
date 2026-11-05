@@ -448,6 +448,7 @@ class ArchiveAllStaticState extends State<ArchiveAllStaticHost> {
           ({
             required Uint8List bytes,
             required String filename,
+            String? submissionKey,
             CategoryItem? category,
           }) async => feed.items.first,
       onOpenCategory: (_) {},

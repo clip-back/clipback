@@ -128,8 +128,13 @@ Widget _home({
   onOpenContent: (_) {},
   onToggleBookmark: (_) {},
   onAddLink: ({required url, category}) async => _content(0),
-  onAddScreenshot: ({required bytes, required filename, category}) async =>
-      _content(0),
+  onAddScreenshot:
+      ({
+        required bytes,
+        required filename,
+        String? submissionKey,
+        category,
+      }) async => _content(0),
   onTab: (_) {},
 );
 

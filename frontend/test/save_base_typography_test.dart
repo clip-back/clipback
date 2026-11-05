@@ -121,7 +121,12 @@ void _resultPhoto(
   }
   final image = tester.widget<Image>(imageFinder);
   _same(failures, 'photo summary fit', image.fit, BoxFit.cover);
-  _same(failures, 'photo summary alignment', image.alignment, Alignment.center);
+  _same(
+    failures,
+    'photo summary alignment',
+    image.alignment,
+    Alignment.topCenter,
+  );
   _same(
     failures,
     'photo filename semantic label',
@@ -297,7 +302,12 @@ Future<_Saved> _open(
                 return saved.content();
               },
               onAddScreenshot:
-                  ({required bytes, required filename, category}) async {
+                  ({
+                    required bytes,
+                    required filename,
+                    String? submissionKey,
+                    category,
+                  }) async {
                     saved.calls++;
                     saved.label = filename;
                     saved.photo = bytes;
@@ -921,7 +931,7 @@ void _preview(
     failures,
     'thumbnail alignment remains center',
     tester.widget<Image>(image).alignment,
-    Alignment.center,
+    saved.photo != null ? Alignment.topCenter : Alignment.center,
   );
 
   for (final entry in [

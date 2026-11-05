@@ -158,6 +158,7 @@ Future<ContentItem> _saveLink({
 Future<ContentItem> _saveScreenshot({
   required Uint8List bytes,
   required String filename,
+  String? submissionKey,
   CategoryItem? category,
 }) async => _content;
 
@@ -240,7 +241,6 @@ Widget _screen(
         onAddLink: _saveLink,
         onAddScreenshot: _saveScreenshot,
         onOpenAccount: () {},
-        onOpenCategoryManagement: () {},
         onTab: onTab,
       );
     case 'detail':

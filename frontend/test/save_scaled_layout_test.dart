@@ -208,7 +208,12 @@ void main() {
                   onAddLink: ({required url, category}) async =>
                       throw StateError('unexpected link save'),
                   onAddScreenshot:
-                      ({required bytes, required filename, category}) async {
+                      ({
+                        required bytes,
+                        required filename,
+                        String? submissionKey,
+                        category,
+                      }) async {
                         uploads.add((filename, bytes));
                         return _content;
                       },
@@ -387,7 +392,7 @@ void main() {
                 expect(submitted, findsOneWidget);
                 final image = tester.widget<Image>(submitted);
                 expect(image.fit, BoxFit.cover);
-                expect(image.alignment, Alignment.center);
+                expect(image.alignment, Alignment.topCenter);
                 expect(
                   image.semanticLabel,
                   contains('사진 파일 이름이 길어도 기존처럼 한 줄.png'),
@@ -417,7 +422,10 @@ void main() {
               expect(thumbnail.size, const Size(164, 100));
               final imageWidget = tester.widget<Image>(_previewImage());
               expect(imageWidget.fit, BoxFit.cover);
-              expect(imageWidget.alignment, Alignment.center);
+              expect(
+                imageWidget.alignment,
+                photo ? Alignment.topCenter : Alignment.center,
+              );
               final borderWidget = tester.widget<Container>(
                 find
                     .ancestor(

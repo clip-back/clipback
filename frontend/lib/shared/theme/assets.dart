@@ -27,7 +27,6 @@ class Assets {
   static const homeInitialLoadingDots =
       'assets/figma/home-initial-loading-dots.svg';
   static const notificationMarker = 'assets/figma/notification-marker.svg';
-  static const notificationSettings = 'assets/figma/notification-settings.svg';
   static const contentEmptyIllustration =
       'assets/figma/content-empty-original.png';
   static const notificationEmptyIllustration = contentEmptyIllustration;

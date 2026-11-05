@@ -308,7 +308,12 @@ class _HostState extends State<_Host> {
                 return _item('saved-link');
               },
               onAddScreenshot:
-                  ({required bytes, required filename, category}) async {
+                  ({
+                    required bytes,
+                    required filename,
+                    String? submissionKey,
+                    category,
+                  }) async {
                     _record('savePhoto', {
                       'filename': filename,
                       'byteLength': bytes.length,

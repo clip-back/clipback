@@ -205,8 +205,15 @@ class _PreviewState extends State<_Preview> {
       onToggleBookmark: (_) => count('bookmark'),
       onAddLink: ({required url, category}) =>
           Future<ContentItem>.error(UnsupportedError('Fixture does not save')),
-      onAddScreenshot: ({required bytes, required filename, category}) =>
-          Future<ContentItem>.error(UnsupportedError('Fixture does not save')),
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) => Future<ContentItem>.error(
+            UnsupportedError('Fixture does not save'),
+          ),
       onTab: (_) => count('tab'),
     );
     return RepaintBoundary(

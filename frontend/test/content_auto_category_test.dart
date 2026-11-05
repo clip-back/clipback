@@ -76,7 +76,15 @@ Map<String, Object?> _content({bool screenshot = false}) => {
   'id': 7,
   'categories': [_recommended],
   'tags': <Object>[],
-  'assets': <Object>[],
+  'assets': <Object>[
+    if (screenshot)
+      {
+        'id': 9,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/9',
+        'mime_type': 'image/png',
+      },
+  ],
   'content_type': screenshot ? 'screenshot' : 'link',
   'source': screenshot ? 'screenshot' : 'web',
   'title': '서버 응답 제목',

@@ -74,7 +74,12 @@ void main() {
                       throw const ClipbackApiException('fixture failure');
                     },
                     onAddScreenshot:
-                        ({required bytes, required filename, category}) async {
+                        ({
+                          required bytes,
+                          required filename,
+                          String? submissionKey,
+                          category,
+                        }) async {
                           uploads.add((filename, bytes));
                           throw const ClipbackApiException('fixture failure');
                         },

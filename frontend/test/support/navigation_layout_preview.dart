@@ -110,6 +110,7 @@ Future<ContentItem> _saveLink({required String url, CategoryItem? category}) =>
 Future<ContentItem> _savePhoto({
   required Uint8List bytes,
   required String filename,
+  String? submissionKey,
   CategoryItem? category,
 }) => Future.error(UnsupportedError('Fixture does not save'));
 void _noop() {}
@@ -224,7 +225,6 @@ class _PreviewState extends State<_Preview> {
       user: defaultUser,
       appInfo: null,
       onOpenAccount: _noop,
-      onOpenCategoryManagement: _noop,
       onAddLink: _saveLink,
       onAddScreenshot: _savePhoto,
       onTab: go,

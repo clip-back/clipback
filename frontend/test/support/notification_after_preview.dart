@@ -4,9 +4,6 @@ import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'notification_alignment_preview.dart' as preview;
 
 Future<void> main() => preview.startNotificationPreview(
-  emptyBuilder: (onBack, onOpenSettings) => NotificationListScreen(
-    items: const [],
-    onBack: onBack,
-    onOpenSettings: onOpenSettings,
-  ),
+  emptyBuilder: (onBack) =>
+      NotificationListScreen(items: const [], onBack: onBack),
 );

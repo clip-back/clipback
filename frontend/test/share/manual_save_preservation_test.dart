@@ -102,7 +102,12 @@ void main() {
                       throw const ClipbackApiException('수동 저장 실패 확인');
                     },
                     onAddScreenshot:
-                        ({required bytes, required filename, category}) async {
+                        ({
+                          required bytes,
+                          required filename,
+                          String? submissionKey,
+                          category,
+                        }) async {
                           uploads.add((filename, bytes));
                           throw const ClipbackApiException('수동 저장 실패 확인');
                         },

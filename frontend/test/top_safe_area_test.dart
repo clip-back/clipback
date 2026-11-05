@@ -37,6 +37,7 @@ Future<ContentItem> saveLink({
 Future<ContentItem> saveImage({
   required Uint8List bytes,
   required String filename,
+  String? submissionKey,
   CategoryItem? category,
 }) async => initialContents.first;
 
@@ -232,7 +233,6 @@ void main() {
                   onAddLink: saveLink,
                   onAddScreenshot: saveImage,
                   onOpenAccount: noop,
-                  onOpenCategoryManagement: noop,
                   onTab: one,
                 ),
                 () => find.byType(MyPageTopBar),

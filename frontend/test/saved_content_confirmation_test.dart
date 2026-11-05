@@ -300,6 +300,77 @@ void main() {
     );
   }
 
+  testWidgets(
+    'photo selection locks only during submission and keeps retry key',
+    (tester) async {
+      final pending = Completer<ContentItem>();
+      final keys = <String?>[];
+      await _open(
+        tester,
+        onAddLink: ({required url, category}) async => throw StateError('link'),
+        onAddScreenshot:
+            ({
+              required bytes,
+              required filename,
+              category,
+              String? submissionKey,
+            }) {
+              keys.add(submissionKey);
+              return keys.length == 1
+                  ? pending.future
+                  : Future.error(const ClipbackApiException('retry'));
+            },
+      );
+      await _photo(tester);
+      await _photo(tester);
+      expect(picker.calls, 2);
+      await _submit(tester);
+      expect(
+        find.byKey(const ValueKey('photo-pending-skeleton')),
+        findsOneWidget,
+      );
+      final image = tester.widget<Image>(
+        find.byKey(const ValueKey('photo-pending-image')),
+      );
+      expect(image.alignment, Alignment.topCenter);
+      expect(image.fit, BoxFit.cover);
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('photo-pending-summary')))
+            .height,
+        89,
+      );
+      final clip = find
+          .ancestor(
+            of: find.byKey(const ValueKey('photo-pending-image')),
+            matching: find.byType(ClipRect),
+          )
+          .first;
+      expect(tester.getSize(clip).height, 57);
+      await _photo(tester);
+      expect(picker.calls, 2);
+      pending.completeError(
+        const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'),
+      );
+      await tester.pumpAndSettle();
+      await _submit(tester);
+      await tester.pumpAndSettle();
+      expect(keys.first, isNotNull);
+      expect(keys[1], keys.first);
+      picker.photos.add(_Photo('same-photo.png', secondBytes));
+      await _photo(tester);
+      await _submit(tester);
+      await tester.pumpAndSettle();
+      expect(keys[2], keys.first);
+      picker.photos.add(_Photo('different-photo.png', firstBytes));
+      await _photo(tester);
+      await _submit(tester);
+      await tester.pumpAndSettle();
+      expect(keys[3], isNot(keys.first));
+      expect(picker.calls, 4);
+    },
+  );
+
   testWidgets('photo result uses photo wording without link validation', (
     tester,
   ) async {
@@ -307,8 +378,13 @@ void main() {
     await _open(
       tester,
       onAddLink: ({required url, category}) async => throw StateError('link'),
-      onAddScreenshot: ({required bytes, required filename, category}) async =>
-          returned,
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) async => returned,
     );
     await _photo(tester);
     await _submit(tester);
@@ -348,8 +424,12 @@ void main() {
             onAddLink: ({required url, category}) async =>
                 throw StateError('link'),
             onAddScreenshot:
-                ({required bytes, required filename, category}) async =>
-                    _savedContent(),
+                ({
+                  required bytes,
+                  required filename,
+                  String? submissionKey,
+                  category,
+                }) async => _savedContent(),
           );
           await _photo(tester);
           await _submit(tester);
@@ -390,7 +470,7 @@ void main() {
             expect(image.image, isA<MemoryImage>());
             expect((image.image as MemoryImage).bytes, same(bytes));
             expect(image.fit, BoxFit.cover);
-            expect(image.alignment, Alignment.center);
+            expect(image.alignment, Alignment.topCenter);
             final render = tester.renderObject<RenderImage>(
               find.descendant(of: imageFinder, matching: find.byType(RawImage)),
             );
@@ -453,8 +533,13 @@ void main() {
         calls.add(url);
         return _savedContent(isScreenshot: true);
       },
-      onAddScreenshot: ({required bytes, required filename, category}) async =>
-          throw StateError('photo'),
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) async => throw StateError('photo'),
     );
     await _link(tester, '  https://example.com/submitted  ');
     await _submit(tester);
@@ -482,17 +567,23 @@ void main() {
           linkCalls++;
           return _savedContent();
         },
-        onAddScreenshot: ({required bytes, required filename, category}) {
-          uploads.add((filename, bytes));
-          return response.future;
-        },
+        onAddScreenshot:
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) {
+              uploads.add((filename, bytes));
+              return response.future;
+            },
       );
       await _photo(tester);
       await _submit(tester);
       await _link(tester, 'https://example.com/other-draft');
       expect(find.byType(TextField), findsOneWidget);
       await _photo(tester);
-      expect(picker.calls, 2);
+      expect(picker.calls, 1);
       await _tab(tester, '링크 첨부');
 
       response.complete(_savedContent());
@@ -534,10 +625,16 @@ void main() {
         urls.add(url);
         return response.future;
       },
-      onAddScreenshot: ({required bytes, required filename, category}) async {
-        photoCalls++;
-        return _savedContent();
-      },
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) async {
+            photoCalls++;
+            return _savedContent();
+          },
     );
     await _link(tester, '  https://example.com/original  ');
     await _submit(tester);
@@ -570,16 +667,21 @@ void main() {
     await _open(
       tester,
       onAddLink: ({required url, category}) async => throw StateError('link'),
-      onAddScreenshot: ({required bytes, required filename, category}) {
-        uploads.add((filename, bytes));
-        return uploads.length == 1
-            ? firstResponse.future
-            : Future.value(_savedContent());
-      },
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) {
+            uploads.add((filename, bytes));
+            return uploads.length == 1
+                ? firstResponse.future
+                : Future.value(_savedContent());
+          },
     );
     await _photo(tester);
     await _submit(tester);
-    await _photo(tester);
     firstResponse.completeError(const ClipbackApiException('사진 저장 실패'));
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -587,6 +689,7 @@ void main() {
     expect(find.text('사진 저장 실패'), findsOneWidget);
     expect(find.byType(SelectedPhotoPreview), findsOneWidget);
     expect(uploads, hasLength(1));
+    await _photo(tester);
     await _submit(tester);
     await tester.pumpAndSettle();
 
@@ -615,8 +718,13 @@ void main() {
             ? firstResponse.future
             : Future.value(_savedContent());
       },
-      onAddScreenshot: ({required bytes, required filename, category}) async =>
-          throw StateError('photo'),
+      onAddScreenshot:
+          ({
+            required bytes,
+            required filename,
+            String? submissionKey,
+            category,
+          }) async => throw StateError('photo'),
     );
     await _link(tester, 'https://example.com/failed');
     await _submit(tester);
@@ -646,18 +754,24 @@ void main() {
       await _open(
         tester,
         onAddLink: ({required url, category}) async => throw StateError('link'),
-        onAddScreenshot: ({required bytes, required filename, category}) {
-          calls++;
-          return response.future;
-        },
+        onAddScreenshot:
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) {
+              calls++;
+              return response.future;
+            },
       );
       tester.view.physicalSize = const Size(375, 650);
       await tester.pump();
       await _photo(tester);
-      await _submit(tester);
       picker.pendingResult = Completer<FilePickerResult?>();
       await _photo(tester);
       expect(picker.calls, 2);
+      await _submit(tester);
       response.complete(_savedContent());
       await tester.pumpAndSettle();
       final scroll = tester
@@ -705,7 +819,12 @@ void main() {
             return _savedContent();
           },
           onAddScreenshot:
-              ({required bytes, required filename, category}) async {
+              ({
+                required bytes,
+                required filename,
+                String? submissionKey,
+                category,
+              }) async {
                 photoCalls++;
                 return _savedContent();
               },
@@ -743,8 +862,12 @@ void main() {
             return response.future;
           },
           onAddScreenshot:
-              ({required bytes, required filename, category}) async =>
-                  throw StateError('photo'),
+              ({
+                required bytes,
+                required filename,
+                String? submissionKey,
+                category,
+              }) async => throw StateError('photo'),
         );
         await _link(tester, 'https://example.com/pending');
         final submit = tester

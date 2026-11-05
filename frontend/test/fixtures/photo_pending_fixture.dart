@@ -68,9 +68,18 @@ class PhotoPendingServer extends base.LinkPendingServer {
     'title': '저장 결과 확인',
     'summary': '제출한 사진의 결과입니다.',
     'original_url': null,
-    'categories': <Object>[],
+    'categories': <Object>[
+      {'id': 1, 'name': '미분류', 'color': null, 'is_default': true},
+    ],
     'tags': <Object>[],
-    'assets': <Object>[],
+    'assets': <Object>[
+      {
+        'id': 9,
+        'asset_type': 'screenshot',
+        'download_url': '/api/v1/uploads/assets/9',
+        'mime_type': 'image/png',
+      },
+    ],
     'is_favorite': false,
     'saved_at': '2026-10-19T00:00:00Z',
     'last_viewed_at': null,
@@ -170,7 +179,7 @@ Map<String, Object?> photoPendingMeasure(
     'summaryImage': {
       'bounds': b.splashRect(b.splashBox(image)),
       'fit': w.fit?.name,
-      'centered': w.alignment == Alignment.center,
+      'topAligned': w.alignment == Alignment.topCenter,
       'label': w.semanticLabel,
       'sameBytes': bytes != null && listEquals(bytes, expectedBytes),
       'byteLength': bytes?.length,
@@ -227,7 +236,7 @@ Map<String, Object?> photoPendingJudgment(Map<String, Object?> m) {
     style.add('summary colors/borders');
   }
   if (image['fit'] != 'cover' ||
-      image['centered'] != true ||
+      image['topAligned'] != true ||
       image['sameBytes'] != true ||
       image['label'] != photoName ||
       image['clipped'] != true) {

@@ -366,7 +366,7 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
     (header['top'] as num) + 32.5,
     'header center+.5',
   );
-  for (final entry in {'back': back, 'settings': settings}.entries) {
+  for (final entry in {'back': back}.entries) {
     final r = entry.value['bounds'] as Map?;
     if (r == null) {
       af.add('Missing ${entry.key} SVG');
@@ -383,20 +383,15 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
   if (back['asset'] != notificationBackAsset || back['unfiltered'] != true) {
     af.add('Original back SVG');
   }
-  if (settings['asset'] != 'assets/figma/notification-settings.svg' ||
-      settings['unfiltered'] != true) {
-    af.add('Original notification settings SVG');
+  if (settings['asset'] != null || b['settingsHit'] != null) {
+    af.add('Removed notification settings entry remains');
   }
   final br = back['bounds'] as Map?;
   if (br != null) {
     n((br['left'] as num) - (frame['left'] as num), 16, 'back left16');
     n((ht['left'] as num) - (br['right'] as num), 8, 'title gap8');
   }
-  final sr = settings['bounds'] as Map?;
-  if (sr != null) {
-    n((frame['right'] as num) - (sr['right'] as num), 16, 'settings right16');
-  }
-  for (final pair in {'backHit': 48, 'settingsHit': 44}.entries) {
+  for (final pair in {'backHit': 48}.entries) {
     final r = b[pair.key] as Map?;
     if (r == null) {
       lf.add('Missing ${pair.key}');

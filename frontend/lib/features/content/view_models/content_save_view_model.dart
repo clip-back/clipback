@@ -31,12 +31,14 @@ class ContentSaveViewModel extends ContentViewModel {
   Future<ContentItem> addScreenshot({
     required Uint8List bytes,
     required String filename,
+    String? submissionKey,
     CategoryItem? category,
   }) async {
     ContentItem? saved;
     final response = await actions.saveScreenshot(
       bytes: bytes,
       filename: filename,
+      submissionKey: submissionKey,
       categoryId: category?.id,
       onSaved: (ApiContent item) {
         saved = present(item);

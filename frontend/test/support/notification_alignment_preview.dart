@@ -46,8 +46,7 @@ bool _busy = false, _done = false, _coverage = false;
 int _epoch = 0, _pointer = 68000;
 double _openingHomeOffset = 0, _openingRecentOffset = 0;
 String _sessionKind = 'member';
-Widget Function(VoidCallback onBack, VoidCallback onOpenSettings)?
-_emptyBuilder;
+Widget Function(VoidCallback onBack)? _emptyBuilder;
 bool _emptyScene = false;
 Element get _root => _capture.currentContext! as Element;
 Element get _home => f.notificationFind<HomeScreen>(_root)!;
@@ -80,7 +79,6 @@ String _route() {
     return 'permissionSheet';
   }
   if (f.notificationFind<ContactSheet>(_root) != null) return 'contactSheet';
-  if (f.notificationFind<AppVersionSheet>(_root) != null) return 'versionSheet';
   if (f.notificationFind<AccountManagementScreen>(_root) != null) {
     return 'account';
   }
@@ -244,15 +242,7 @@ Future<void> _openEmpty() async {
   unawaited(
     state.push<void>(
       MaterialPageRoute<void>(
-        builder: (context) => _emptyBuilder!(
-          () => Navigator.of(context).pop(),
-          () => showModalBottomSheet<void>(
-            context: context,
-            useSafeArea: true,
-            backgroundColor: Colors.transparent,
-            builder: (_) => const ReminderSheet(),
-          ),
-        ),
+        builder: (context) => _emptyBuilder!(() => Navigator.of(context).pop()),
       ),
     ),
   );
@@ -441,24 +431,20 @@ Future<void> _maxScroll() async {
 Future<void> _settings() async {
   final requests = _server.requests.length;
   if (f.notificationScreen(_root) == null) return;
-  await _tap(f.notificationKey(_notification, 'notification-settings-hit')!);
-  await _wait(
-    () => _route() == 'reminderSheet',
-    'Existing ReminderSheet missing',
+  _require(
+    f.notificationKey(_notification, 'notification-settings-hit') == null,
+    'Removed settings hit remains',
   );
-  await _settle(8);
-  _record('existing_reminder_settings_open');
-  await WidgetsBinding.instance.handlePopRoute();
-  await _wait(
-    () => _route() == 'notificationList',
-    'Settings dismiss did not retain list',
+  _require(
+    f.notificationKey(_notification, 'notification-settings-image') == null,
+    'Removed settings icon remains',
   );
-  await _settle(8);
+  _require(_route() == 'notificationList', 'Notifications changed route');
   _require(
     _server.requests.length == requests,
-    'Settings open/dismiss unexpectedly requested HTTP',
+    'Settings absence requested HTTP',
   );
-  _record('existing_reminder_settings_close_no_requests');
+  _record('notification_settings_entry_absent');
 }
 
 Future<void> _run() async {
@@ -575,9 +561,7 @@ Future<void> _run() async {
   await _open();
   if (f.notificationScreen(_root) != null) {
     final VoidCallback staleBack =
-            (f.notificationScreen(_root)!.widget as dynamic).onBack,
-        staleSettings =
-            (f.notificationScreen(_root)!.widget as dynamic).onOpenSettings;
+        (f.notificationScreen(_root)!.widget as dynamic).onBack;
     _social.revoked = true;
     WidgetsBinding.instance.handleAppLifecycleStateChanged(
       AppLifecycleState.paused,
@@ -589,13 +573,12 @@ Future<void> _run() async {
     _require(_storage.value == null, 'Revoked session storage not cleared');
     final requests = _server.requests.length;
     staleBack();
-    staleSettings();
     await _settle(5);
     _require(
       _route() == 'login' && _server.requests.length == requests,
       'Stale notification callback escaped session guard',
     );
-    _record('session_invalidation_blocks_stale_back_and_settings');
+    _record('session_invalidation_blocks_stale_back');
   }
   await _fresh('member');
   _record('final_member_list_scroll_zero');
@@ -605,8 +588,7 @@ Future<void> _run() async {
 
 Future<void> main() => startNotificationPreview();
 Future<void> startNotificationPreview({
-  Widget Function(VoidCallback onBack, VoidCallback onOpenSettings)?
-  emptyBuilder,
+  Widget Function(VoidCallback onBack)? emptyBuilder,
 }) => http.runWithClient(() async {
   _emptyBuilder = emptyBuilder;
   isolated.ArchiveAllFixtureBinding();
