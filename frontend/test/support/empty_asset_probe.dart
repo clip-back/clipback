@@ -5,6 +5,26 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Actual render clips, including the private single-child scroll viewport.
+List<Rect> emptyImagePaintClips(WidgetTester tester, Finder finder) {
+  final clips = <Rect>[];
+  RenderObject child = tester.renderObject(finder);
+  while (child.parent != null) {
+    final parent = child.parent!;
+    final clip = parent.describeApproximatePaintClip(child);
+    if (clip != null && parent is RenderBox) {
+      clips.add(
+        Rect.fromPoints(
+          parent.localToGlobal(clip.topLeft),
+          parent.localToGlobal(clip.bottomRight),
+        ),
+      );
+    }
+    child = parent;
+  }
+  return clips;
+}
+
 /// Decode the asset selected by the rendered state at its native resolution.
 Future<void> expectEmptyAssetResolution(
   WidgetTester tester,
@@ -108,6 +128,17 @@ Future<void> expectEmptyAssetResolution(
     expect(outline.top, closeTo(-.04047, .01));
     expect(outline.right, closeTo(79.18724, .01));
     expect(outline.bottom, closeTo(125.81550, .01));
+    final globalOutline = outline.shift(slotRect.topLeft);
+    for (final clip in emptyImagePaintClips(tester, finder)) {
+      expect(
+        clip.top,
+        lessThanOrEqualTo(globalOutline.top + 1e-7),
+        reason: 'Initial outline must survive the real viewport clip',
+      );
+      expect(clip.bottom, greaterThanOrEqualTo(globalOutline.bottom - 1e-7));
+      expect(clip.left, lessThanOrEqualTo(globalOutline.left + 1e-7));
+      expect(clip.right, greaterThanOrEqualTo(globalOutline.right - 1e-7));
+    }
     final stacks = find.ancestor(of: finder, matching: find.byType(Stack));
     final localStack = tester.widget<Stack>(stacks.first);
     expect(

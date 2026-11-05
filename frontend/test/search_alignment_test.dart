@@ -90,6 +90,7 @@ Future<_Calls> _pump(
   double width = 375,
   double height = 812,
   double textScale = 1,
+  double keyboardInset = 0,
   String query = '검증',
   List<String> historyTerms = recentSearches,
   FeedPage? page,
@@ -99,6 +100,7 @@ Future<_Calls> _pump(
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
+  tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
   final top = platform == TargetPlatform.iOS ? 59.0 : 24.0;
   final bottom = platform == TargetPlatform.iOS ? 34.0 : 0.0;
   tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
@@ -681,6 +683,102 @@ void main() {
           );
           final title = _paragraph(tester, _key('search-empty-title'));
           expect(title.textScaler.scale(16), 20.8);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final callback in [false, true]) {
+      for (final (height, scale, keyboard) in [
+        (300.0, 1.0, 0.0),
+        (300.0, 1.3, 0.0),
+        (812.0, 1.3, 512.0),
+      ]) {
+        testWidgets('H03 initial render clip and bounded scrolling $platform '
+            'callback$callback height$height scale$scale keyboard$keyboard', (
+          tester,
+        ) async {
+          final gate = Completer<List<ContentItem>>();
+          final calls = await _pump(
+            tester,
+            platform: platform,
+            width: 320,
+            height: height,
+            textScale: scale,
+            keyboardInset: keyboard,
+            page: _page(items: []),
+            attachFeed: !callback,
+            search: (_) => gate.future,
+          );
+          if (callback) {
+            expect(_key('search-empty-group'), findsNothing);
+            tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
+            await tester.pump();
+            expect(_key('search-empty-group'), findsNothing);
+            gate.complete(const []);
+            await tester.pump();
+            expect(calls.searches, ['검증']);
+          }
+          expect(_key('search-empty-group'), findsOneWidget);
+          final source = _key('search-empty-image-source');
+          final viewport = tester.getRect(_key('search-empty-viewport'));
+          final slot = tester.getRect(_key('search-empty-image'));
+          final scrollable = find.descendant(
+            of: _key('search-empty-viewport'),
+            matching: find.byType(Scrollable),
+          );
+          final position = tester.state<ScrollableState>(scrollable).position;
+          expect(position.pixels, 0);
+          expect(slot.top, closeTo(viewport.top, 1e-7));
+          expect(position.maxScrollExtent, greaterThan(0));
+          expect(
+            position.maxScrollExtent,
+            closeTo(
+              tester.getSize(_key('search-empty-group')).height -
+                  viewport.height,
+              1e-7,
+            ),
+          );
+          if (keyboard > 0) {
+            expect(tester.view.viewInsets.bottom, keyboard);
+            expect(viewport.bottom, lessThanOrEqualTo(height - keyboard));
+          }
+          await expectEmptyAssetResolution(
+            tester,
+            source,
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
+          // Exercise a real drag before reaching the end of the scroll.
+          await tester.drag(scrollable, const Offset(0, -40));
+          await tester.pumpAndSettle();
+          expect(position.pixels, greaterThan(0));
+          // At the end of a real scroll, the illustration has moved outside
+          // the viewport. A bounded render clip must still hide that content.
+          position.jumpTo(position.maxScrollExtent);
+          await tester.pump();
+          final clips = emptyImagePaintClips(tester, source);
+          final viewportClip = clips.firstWhere(
+            (clip) =>
+                (clip.bottom - viewport.bottom).abs() < 1e-7 &&
+                (clip.height - viewport.height).abs() < .1,
+          );
+          expect(viewportClip.top, closeTo(viewport.top - 59 / 1458, 1e-7));
+          expect(viewportClip.bottom, closeTo(viewport.bottom, 1e-7));
+          expect(
+            viewportClip.top,
+            greaterThan(tester.getRect(_key('search-empty-image')).top),
+          );
+          expect(
+            _inside(tester.getRect(_key('search-empty-cta')), viewport),
+            isTrue,
+          );
           expect(tester.takeException(), isNull);
         });
       }
