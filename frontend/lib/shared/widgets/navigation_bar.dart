@@ -65,9 +65,7 @@ class ClipbackNavigationBar extends StatelessWidget {
         activeAsset: Assets.navArchiveFilled,
       ),
       NavSpec(
-        activeIndex == 1
-            ? Assets.navBookmarkOutlineArchive
-            : Assets.navBookmarkOutline,
+        Assets.navBookmarkOutline,
         '즐겨찾기',
         AppRoute.bookmark,
         2,

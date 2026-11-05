@@ -21,8 +21,6 @@ const navigationActiveAssets = [
   'assets/icons/nav-bookmark-filled.svg',
   'assets/icons/nav-account-filled.svg',
 ];
-const navigationArchiveBookmarkAsset =
-    'assets/icons/nav-bookmark-outline-archive.svg';
 const navigationMyInnerAsset = 'assets/icons/nav-account-outline-inner.svg';
 const navigationAddAsset = 'assets/icons/nav-add-plus.svg';
 
@@ -257,8 +255,6 @@ Map<String, Object?> navigationJudgment(Map<String, Object?> measure) {
     final svgs = s['svgs'] as List;
     final expected = index == active
         ? navigationActiveAssets[index]
-        : index == 2 && active == 1
-        ? navigationArchiveBookmarkAsset
         : navigationInactiveAssets[index];
     final expectedSources = [
       expected,

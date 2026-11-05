@@ -43,8 +43,6 @@ class Assets {
   static const navArchiveOutline = 'assets/icons/nav-archive-outline.svg';
   static const navArchiveFilled = 'assets/icons/nav-archive-filled.svg';
   static const navBookmarkOutline = 'assets/icons/nav-bookmark-outline.svg';
-  static const navBookmarkOutlineArchive =
-      'assets/icons/nav-bookmark-outline-archive.svg';
   static const navBookmarkFilled = 'assets/icons/nav-bookmark-filled.svg';
   static const navAccountOutline = 'assets/icons/nav-account-outline.svg';
   static const navAccountFilled = 'assets/icons/nav-account-filled.svg';
