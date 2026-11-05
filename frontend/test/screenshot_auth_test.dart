@@ -463,7 +463,7 @@ void main() {
       expect(stored.values, [7]);
       expect(find.byType(SavedContentConfirmation), findsOneWidget);
       _expectSavedPhotoResult(tester);
-      await tester.tap(find.text('닫기'));
+      await tester.tap(find.text('저장 완료'));
       await tester.pumpAndSettle();
       tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
       await tester.pumpAndSettle();
@@ -603,7 +603,7 @@ void main() {
             originalKey,
           );
           _expectSavedPhotoResult(tester);
-          await tester.tap(find.text('닫기'));
+          await tester.tap(find.text('저장 완료'));
           await tester.pumpAndSettle();
           tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
           await tester.pumpAndSettle();
@@ -771,7 +771,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('stale'), findsNothing);
           expect(uploads, 2);
-          await tester.tap(find.text('닫기'));
+          await tester.tap(find.text('저장 완료'));
           await tester.pumpAndSettle();
           tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
           await tester.pumpAndSettle();
