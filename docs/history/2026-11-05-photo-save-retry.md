@@ -1,6 +1,6 @@
 # 사진 저장 응답 지연 뒤 수동 재시도 (#235)
 
-시작 기준: `f264735`. 구현 `a4afedc`, 리뷰 반영 `48dd1d7` 기준으로 전체 검사와 양 플랫폼 변경 후 촬영을 마쳤다. 사용자 시각 판정·PR 초안 승인은 대기 중이며 push·PR 생성은 하지 않았다.
+시작 기준: `f264735`. 구현 `a4afedc`, 리뷰 반영 `48dd1d7` 기준으로 전체 검사와 양 플랫폼 변경 후 촬영을 마쳤다. 사용자가 2026-11-05 “승인”으로 시각 판정과 PR 초안을 승인했으며, 아래 병합 후 전체 검사 결과를 포함해 push·PR을 진행한다.
 
 ## 사용자 결정
 
@@ -41,16 +41,29 @@ S1의 thumbnail-only 또는 screenshot ID 0인 응답이 성공하는 실패를 
 
 ## 전체 검사(최종)
 
-2026-11-05, `48dd1d7`과 동일한 제품·테스트 코드에서 실행했다. 실행 전 `~/.heoturu-agents/busy.sh --wait`가 idle임을 확인했다.
-저장소 루트에서 `~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-235/s1-final`을 600초 제한으로 실행했다.
+2026-11-05 사용자 승인 뒤 `origin/main`의 #233 `6c9c668`을 병합한 뒤 테스트 콜백 서명을 연결한 `64a8e20`과 동일한 제품·테스트 코드에서 다시 실행했다.
+실행 전 `~/.heoturu-agents/busy.sh --wait`가 idle임을 확인했다(첫 실행 13:01:32 KST, 실패 보완 뒤 13:08:13 KST 재확인).
+저장소 루트에서 `~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-235/post-merge-final`을 600초 제한으로 실행했다.
 
 ```text
-VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/workspaces/Clipback/photo-save-timeout/.utmp/ticket-235/s1-final
+VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/workspaces/Clipback/photo-save-timeout/.utmp/ticket-235/post-merge-final
 ```
 
-감독이 `verify-result.txt`와 단계별 실제 로그를 직접 대조했다.
-Flutter `app-test.log`는 `01:59 +2457: All tests passed!`, backend `backend-pytest.log`는 `2048 passed, 46 skipped, 3 warnings in 169.57s (0:02:49)`다.
-분석·포맷·정적 검사 등 11개 단계가 통과했다. skip은 deployment 45개(라벨이 있는 로컬 Docker 이미지 등 실행 조건 없음), integration 1개(로컬 S3 endpoint 없음)이며 운영 복구·실제 S3 실행 증거가 아니다.
+감독이 `verify-result.txt`와 실제 단계별 로그를 직접 대조했다.
+Flutter `app-test.log`: `02:22 +2897: All tests passed!`.
+Backend `backend-pytest.log`: `2048 passed, 46 skipped, 3 warnings in 167.72s (0:02:47)`.
+분석·포맷·정적 검사 등 11개 단계가 통과했다. skip 사유는 결과 파일 원문을 유지한다.
+
+```text
+pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+```
+
+Docker 복구·실제 S3 실행 증거가 아니며 원격 CI 결과는 PR에서 별도 확인한다.
+병합 직후 첫 실행은 #233이 새로 추가한 `phone_width_test.dart`의 대역 함수가 #235의 선택적 `submissionKey` 인자를 받지 못해 analyze와 해당 테스트 컴파일에서 실패했다.
+이 대역 함수의 인자만 추가하고 테스트 이름·기대값은 유지했다. `frontend/`에서 `flutter test --no-pub test/phone_width_test.dart` 부분 검사 360개가 통과한 뒤 전체 검증을 다시 실행했다.
+첫 실패 결과·로그는 `.utmp/ticket-235/post-merge/`, 최종 결과는 `.utmp/ticket-235/post-merge-final/`에 각각 보존했다.
+이전 `48dd1d7` 기준 전체 PASS는 `.utmp/ticket-235/s1-final/`에 보존했고, 현재 최종 검증 기준은 위 병합 코드다.
 
 별도 부분 서버 검사 47개는 실제 임시 PostgreSQL DB와 독립 연결의 동시 제출, commit 응답 유실, 기존 결과 재사용, 다른 입력 409·삭제된 결과 410, 원본 한 개와 빈 OCR 정책을 확인했다.
 서버 제품 코드·스키마를 바꾸지 않았고 기존 키 없는 앱 0.4.0 계약을 유지했다. OCR은 대역, S3는 moto이며 운영 제공자 검증과 구분한다.
@@ -96,13 +109,13 @@ Figma 파일 `svNWsTFh8Ws1Mpt8XQIcrN`의 D07 `111:4814`(04:06 KST), D08 `111:483
 | 조건·요청·해시 대조 | `.utmp/ticket-235-screens/evidence-audit.json`, `labelled-evidence-audit.json` |
 
 비교 영상은 원본 마지막 프레임과 합성 영상 끝 장면을 검사하고 장면 미리보기를 직접 확인했다.
-자동 검사와 감독 확인을 마쳤으며 최종 시각 판정은 사용자에게 남아 있다.
+자동 검사와 감독 확인 뒤 2026-11-05 사용자가 시각 판정을 승인했다. 아래 main 병합과 겹치는 전체 폭 변경은 재촬영 없이 기록하라는 사용자 지시를 따랐다.
 
 ## 남은 결정과 한계
 
-- 사용자 시각 판정과 PR 본문 초안 승인이 필요하다. `.utmp/pr-235-draft.md`에서 멈추며 GitHub 게시·이슈 종료·push·PR 생성은 하지 않는다.
-- 리뷰 전에 fetch한 `origin/main`은 `6c9c668`이고 `git merge-tree --write-tree origin/main HEAD`는 충돌 없이 종료했다. main은 아직 합치지 않았으며 화면·검사는 이 작업 브랜치 기준이다. 승인 뒤 push 직전에 main을 새로 확인하고 필요하면 merge·전체 검증해야 한다.
-- 원격 CI·운영 서버·실제 OCR/S3 제공자·실기기는 범위 밖이며 실행하지 않았다.
+- 사용자가 시각 판정과 PR 초안을 승인했다. `.utmp/pr-235-draft.md` 본문으로 push·PR을 진행하며, 이미지 자리는 사용자가 PR 편집 화면에 끌어다 놓는다.
+- 승인 뒤 fetch한 `origin/main`의 #233 `6c9c668`을 `534df05`로 충돌 없이 병합하고 전체 검증을 다시 마쳤다. 승인된 화면은 병합 전 `48dd1d7` 기준이며 변경하지 않았다.
+- 원격 CI는 PR 생성 뒤 시작을 확인하며 로컬 결과와 구분한다. 운영 서버·실제 OCR/S3 제공자·실기기는 이번 범위 밖이며 실행하지 않았다.
 - 기존 `frontend/test/support/photo_pending_preview.dart`의 요청 중 재선택 시나리오는 새 사용자 결정과 맞지 않는다. 촬영 파일 수정 금지 범위로 보존하고 이번 촬영에는 별도 감독 하네스를 사용했다. 공유 fixture를 쓰는 `image_storage_live_preview.dart`는 picker 타입만 가져오며 영향 없는 것을 확인했다.
 - 네이티브 공유의 별도 응답 파서는 assets를 확인하지 않는다. 이번 본앱 사진 저장 범위 밖의 코드 관찰이며 재현된 실패로 보고하지 않는다.
 
@@ -167,4 +180,18 @@ BEFORE는 시작 커밋 `f264735`의 앱 파일로 일시 복원해 빌드한 �
 별도 일반 재시도 비교(`compare-ios.png`, `compare-android.png`, 1.0/1.3배 영상)는 변경 전·후에 동일한 70-byte PNG를 사용했음을 다시 확인했다.
 그 SHA-256은 `c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77`이며 이번에 사진이나 기존 결과를 바꾸지 않았다.
 입력 대조 기록은 `.utmp/ticket-235-labelled-input-audit.json`이다.
-이번 후속 변경은 시험 사진·촬영 자료·문서만 바꿨으므로 전체 VERIFY는 다시 실행하지 않았고 위 제품 코드의 PASS를 유지한다.
+재촬영 단계는 시험 사진·촬영 자료·문서만 바꿔 전체 VERIFY를 반복하지 않았다. 이후 사용자 승인 뒤 main을 병합한 검증은 위 “전체 검사(최종)”에서 새 결과로 갱신했다.
+
+
+## 사용자 승인 뒤 main 병합 (2026-11-05)
+
+사용자 원문: “승인”. 화면 판정과 `.utmp/pr-235-draft.md`를 승인하고 push·PR 생성을 지시했다.
+fetch 뒤 `HEAD..origin/main`은 #233 `6c9c668` 한 건이었으며 기존 PR 조회는 빈 목록이었다.
+`git merge origin/main -m "merge: main의 #233 반영 (#235)"`로 `534df05`를 만들었고 충돌은 없었다.
+CHANGELOG와 이력 목차의 양쪽 추가 항목이 보존된 것을 확인했다.
+
+#233은 `save_content_screen.dart` 저장 시트의 고정 최대 폭 375를 `appContentWidth(MediaQuery.sizeOf(context).width)`로 바꾼다.
+논리 폭 600 미만 휴대폰의 전체 폭을 쓰므로 #235가 촬영한 393/411.4 폭 화면과 겹친다.
+사용자 지시대로 이 사실만 기록하고 승인된 비교 이미지·영상을 그대로 뒀다. 병합 후 화면을 재촬영하거나 동일하다고 주장하지 않는다.
+승인 미디어 SHA-256 목록 `.utmp/ticket-235/post-merge/approved-media-sha256.json`과 실제 파일을 대조해 변경 없음을 확인했다.
+최종 전체 검증은 병합 코드에서 재실행했고 위 결과와 PR 초안의 VERIFY 줄을 같은 push에 포함한다.
