@@ -158,6 +158,7 @@ Future<ContentItem> _saveLink({
 Future<ContentItem> _saveScreenshot({
   required Uint8List bytes,
   required String filename,
+  String? submissionKey,
   CategoryItem? category,
 }) async => _content;
 

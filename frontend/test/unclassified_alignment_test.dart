@@ -122,7 +122,12 @@ Future<_Calls> _pump(
         onDeleteCategory: (_) {},
         onAddLink: ({required url, category}) async => _item,
         onAddScreenshot:
-            ({required bytes, required filename, category}) async => _item,
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async => _item,
         onOpenCategory: (_) {},
         onTab: (_) {},
       ),

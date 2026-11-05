@@ -66,8 +66,12 @@ Future<void> _pump(
         onAddLink: ({required url, category}) async =>
             fixture.homeBaseContents().first,
         onAddScreenshot:
-            ({required bytes, required filename, category}) async =>
-                fixture.homeBaseContents().first,
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async => fixture.homeBaseContents().first,
         onTab: (_) {},
       ),
     ),

@@ -232,8 +232,12 @@ class CategoryContentHostState extends State<CategoryContentHost> {
       onOpenCategory: (_) {},
       onAddLink: ({required String url, category}) async => feed.items.first,
       onAddScreenshot:
-          ({required bytes, required String filename, category}) async =>
-              feed.items.first,
+          ({
+            required bytes,
+            required String filename,
+            String? submissionKey,
+            category,
+          }) async => feed.items.first,
       onTab: (_) => calls.add('tab'),
     ),
   );

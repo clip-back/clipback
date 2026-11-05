@@ -328,3 +328,36 @@ async def test_retry_winning_before_commit_verification_cleans_only_failed_attem
     finally:
         allow_verification.set()
         await asyncio.gather(failed, return_exceptions=True)
+
+
+async def test_empty_ocr_photo_replay_preserves_original_and_default_content(
+    independent_api, png_bytes, monkeypatch,
+):
+    from app.integrations.ocr_client import ScreenshotOCRResult
+
+    api, headers, _, _, _, path = independent_api
+    calls = 0
+
+    async def empty_ocr(self, **kwargs):
+        nonlocal calls
+        calls += 1
+        return ScreenshotOCRResult(text="", title="", summary="")
+
+    monkeypatch.setattr(OCRClient, "extract", empty_ocr)
+    headers = {**headers, "Idempotency-Key": str(uuid4())}
+    payload = {"files": {"file": ("image.png", png_bytes, "image/png")}}
+    first = await request(api, "POST", "uploads/screenshots", status=201,
+                          headers=headers, **payload)
+    replay = await request(api, "POST", "uploads/screenshots", status=201,
+                           headers=headers, **payload)
+    assert replay == first
+    assert calls == 1
+    assert first["title"] == "저장한 콘텐츠"
+    assert first["summary"] == "요약 정보가 아직 없습니다."
+    assert [category["name"] for category in first["categories"]] == ["미분류"]
+    assert len(first["assets"]) == 1
+    originals = list(path.rglob("*.png"))
+    assert len(originals) == 1 and originals[0].read_bytes() == png_bytes
+    # Classification is part of the same-key input contract, even with identical bytes.
+    await request(api, "POST", "uploads/screenshots", status=409, headers=headers,
+                  data={"category_ids": str(first["categories"][0]["id"])}, **payload)

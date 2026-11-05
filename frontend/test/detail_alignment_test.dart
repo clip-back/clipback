@@ -175,8 +175,12 @@ Future<_Calls> _pump(
         onOpenContent: calls.opened.add,
         onAddLink: ({required url, category}) async => scene.current,
         onAddScreenshot:
-            ({required bytes, required filename, category}) async =>
-                scene.current,
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async => scene.current,
         onTab: calls.tabs.add,
       ),
     ),

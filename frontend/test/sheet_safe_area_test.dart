@@ -83,7 +83,12 @@ Future<void> _pumpDetail(
         onOpenContent: (_) {},
         onAddLink: ({required url, category}) async => _content,
         onAddScreenshot:
-            ({required bytes, required filename, category}) async => _content,
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async => _content,
         onTab: (_) {},
       ),
     ),

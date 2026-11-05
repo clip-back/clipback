@@ -43,7 +43,12 @@ void main() {
             onOpenContent: (_) {},
             onAddLink: ({required url, category}) async => _link,
             onAddScreenshot:
-                ({required bytes, required filename, category}) async => _link,
+                ({
+                  required bytes,
+                  required filename,
+                  String? submissionKey,
+                  category,
+                }) async => _link,
             onTab: (_) {},
           ),
         ),

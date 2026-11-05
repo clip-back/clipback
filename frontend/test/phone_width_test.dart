@@ -440,8 +440,12 @@ void main() {
                   onOpenContent: (_) {},
                   onAddLink: ({required url, category}) async => content,
                   onAddScreenshot:
-                      ({required bytes, required filename, category}) async =>
-                          content,
+                      ({
+                        required bytes,
+                        required filename,
+                        submissionKey,
+                        category,
+                      }) async => content,
                   onTab: (_) {},
                 ),
               ),

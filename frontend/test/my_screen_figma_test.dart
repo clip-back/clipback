@@ -53,10 +53,16 @@ Future<_Calls> _pump(
           calls.links++;
           throw StateError('Unrequested save');
         },
-        onAddScreenshot: ({required bytes, required filename, category}) async {
-          calls.photos++;
-          throw StateError('Unrequested save');
-        },
+        onAddScreenshot:
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async {
+              calls.photos++;
+              throw StateError('Unrequested save');
+            },
         onOpenAccount: () => calls.account++,
         onTab: calls.tabs.add,
       ),
