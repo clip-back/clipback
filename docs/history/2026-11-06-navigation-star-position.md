@@ -84,3 +84,7 @@ VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/wor
 양 플랫폼 스크린샷·네 탭 전환 영상과 변경 전/후/Figma 3열 비교는 아직 없다.
 C01/E01/I01/J01 및 승인 통일 기준을 함께 명시하고 C01/J01 승인 예외와 OS 안전 영역 차이를 설명해야 한다.
 이 자동 검증을 기기·CI·실기기·운영 검증으로 보고하지 않는다. 기기 실행·촬영·push·PR·GitHub 댓글/종료·배포는 하지 않았다.
+
+## 후속 최종 확인
+
+main 병합 뒤 전체 검증·양 플랫폼 변경 전/후/Figma 비교는 [작은 UI 묶음 최종 이력](2026-11-06-small-ui-batch-1.md)에 기록했다. 사용자 시각 판정은 대기 중이다.
