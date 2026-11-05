@@ -28,10 +28,10 @@ class Assets {
       'assets/figma/home-initial-loading-dots.svg';
   static const notificationMarker = 'assets/figma/notification-marker.svg';
   static const notificationSettings = 'assets/figma/notification-settings.svg';
-  static const notificationEmptyIllustration =
-      'assets/figma/notification-empty-original.png';
-  static const unclassifiedEmptyIllustration =
-      'assets/figma/unclassified-empty.png';
+  static const contentEmptyIllustration =
+      'assets/figma/content-empty-original.png';
+  static const notificationEmptyIllustration = contentEmptyIllustration;
+  static const unclassifiedEmptyIllustration = contentEmptyIllustration;
 
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';

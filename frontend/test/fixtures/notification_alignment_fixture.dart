@@ -464,7 +464,7 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
         af.add('Original alpha shadow black12% srcIn');
       }
       if ((shadow['asset'] as Map?)?['asset'] !=
-          'assets/figma/notification-empty-original.png') {
+          'assets/figma/content-empty-original.png') {
         af.add('Shadow uses exact original alpha image');
       }
     }
@@ -503,7 +503,7 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
       'empty top max16 V/2-240',
     );
     if (((m['assets'] as Map)['empty'] as Map)['asset'] !=
-        'assets/figma/notification-empty-original.png') {
+        'assets/figma/content-empty-original.png') {
       af.add('Empty original asset missing');
     }
     if ((group['bottom'] as num) > (viewport['bottom'] as num) + .22 &&

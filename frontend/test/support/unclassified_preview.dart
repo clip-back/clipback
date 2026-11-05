@@ -767,7 +767,7 @@ Map<String, Object?> unclassifiedJudgment(Map<String, Object?> m) {
       }
       final imageData = a['emptyImage'] as Map?,
           r = imageData?['bounds'] as Map?;
-      if (imageData?['asset'] != 'assets/figma/unclassified-empty.png') {
+      if (imageData?['asset'] != 'assets/figma/content-empty-original.png') {
         styles.add('Empty exact source PNG missing');
       }
       if (r != null) {

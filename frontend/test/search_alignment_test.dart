@@ -1,3 +1,4 @@
+import 'support/empty_asset_probe.dart';
 import 'fixtures/search_history_examples.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -703,35 +704,46 @@ void main() {
     },
   );
   for (final outcome in ['success', 'failure']) {
-    testWidgets(
-      'H03 callback-only $outcome requires completed current request',
-      (tester) async {
-        final gate = Completer<List<ContentItem>>();
-        await _pump(
+    testWidgets('H03 callback-only $outcome requires completed current request', (
+      tester,
+    ) async {
+      final gate = Completer<List<ContentItem>>();
+      final calls = await _pump(
+        tester,
+        query: '검증',
+        attachFeed: false,
+        contents: const [],
+        search: (_) => gate.future,
+      );
+      expect(_key('search-empty-group'), findsNothing);
+      tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
+      await tester.pump();
+      expect(_key('search-empty-group'), findsNothing);
+      if (outcome == 'success') {
+        gate.complete(const []);
+      } else {
+        gate.completeError(StateError('검색 실패'));
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        _key('search-empty-group'),
+        outcome == 'success' ? findsOneWidget : findsNothing,
+      );
+      if (outcome == 'success') {
+        expect(calls.searches, ['검증']);
+        await expectEmptyAssetResolution(
           tester,
-          query: '검증',
-          attachFeed: false,
-          contents: const [],
-          search: (_) => gate.future,
+          _key('search-empty-image-source'),
+          minimumWidth: 243,
+          minimumHeight: 369,
+          transparent: true,
+          digest:
+              '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
         );
-        expect(_key('search-empty-group'), findsNothing);
-        tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
-        await tester.pump();
-        expect(_key('search-empty-group'), findsNothing);
-        if (outcome == 'success') {
-          gate.complete(const []);
-        } else {
-          gate.completeError(StateError('검색 실패'));
-        }
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(
-          _key('search-empty-group'),
-          outcome == 'success' ? findsOneWidget : findsNothing,
-        );
-        expect(tester.takeException(), isNull);
-      },
-    );
+      }
+      expect(tester.takeException(), isNull);
+    });
   }
   testWidgets('H03 late callback cannot make another edited query empty', (
     tester,
