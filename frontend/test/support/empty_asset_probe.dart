@@ -14,6 +14,7 @@ Future<void> expectEmptyAssetResolution(
   String? digest,
   bool transparent = false,
   bool homeCrop = false,
+  bool searchLayout = false,
 }) async {
   expect(finder, findsOneWidget);
   final provider = tester.widget<Image>(finder).image as AssetImage;
@@ -49,6 +50,87 @@ Future<void> expectEmptyAssetResolution(
       ).any((alpha) => alpha == 255),
       isTrue,
     );
+  }
+  if (searchLayout) {
+    final slot = find.byKey(const ValueKey('search-empty-image'));
+    final slotRect = tester.getRect(slot), imageRect = tester.getRect(finder);
+    final widget = tester.widget<Image>(finder);
+    final native = Size(decoded.width.toDouble(), decoded.height.toDouble());
+    final fitted = applyBoxFit(
+      widget.fit ?? BoxFit.scaleDown,
+      native,
+      imageRect.size,
+    );
+    final alignment = widget.alignment.resolve(TextDirection.ltr);
+    final source = alignment.inscribe(fitted.source, Offset.zero & native);
+    final destination = alignment.inscribe(fitted.destination, imageRect);
+    Rect visibleBounds(int threshold) {
+      var left = decoded.width, top = decoded.height, right = 0, bottom = 0;
+      for (var y = 0; y < decoded.height; y++) {
+        for (var x = 0; x < decoded.width; x++) {
+          if (pixels[(y * decoded.width + x) * 4 + 3] > threshold) {
+            left = x < left ? x : left;
+            top = y < top ? y : top;
+            right = x + 1 > right ? x + 1 : right;
+            bottom = y + 1 > bottom ? y + 1 : bottom;
+          }
+        }
+      }
+      return Rect.fromLTRB(
+        destination.left +
+            (left - source.left) * destination.width / source.width,
+        destination.top +
+            (top - source.top) * destination.height / source.height,
+        destination.left +
+            (right - source.left) * destination.width / source.width,
+        destination.top +
+            (bottom - source.top) * destination.height / source.height,
+      );
+    }
+
+    final body = visibleBounds(128).shift(-slotRect.topLeft);
+    final outline = visibleBounds(0).shift(-slotRect.topLeft);
+    expect(slotRect.size, const Size(81, 123));
+    expect(
+      destination.width / source.width,
+      closeTo(destination.height / source.height, .000001),
+      reason: 'The approved original must keep a uniform scale',
+    );
+    expect(body.top, closeTo(2, .01));
+    expect(body.height, closeTo(119, .01));
+    expect(body.center.dx, closeTo(40.5, .01));
+    expect(body.width, closeTo(76.88477, .01));
+    final title = tester.getRect(
+      find.byKey(const ValueKey('search-empty-title')),
+    );
+    expect(title.top - (slotRect.top + body.bottom), closeTo(18, .01));
+    expect(outline.left, closeTo(.75171, .01));
+    expect(outline.top, closeTo(-.04047, .01));
+    expect(outline.right, closeTo(79.18724, .01));
+    expect(outline.bottom, closeTo(125.81550, .01));
+    final stacks = find.ancestor(of: finder, matching: find.byType(Stack));
+    final localStack = tester.widget<Stack>(stacks.first);
+    expect(
+      localStack.clipBehavior,
+      Clip.none,
+      reason: 'Do not cut the faint original outline at the 81x123 slot',
+    );
+    // Reject a new local clip between the actual image and the slot's column.
+    final clips = find.ancestor(
+      of: finder,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is ClipRect || widget is ClipRRect || widget is ClipPath,
+      ),
+    );
+    for (final element in clips.evaluate()) {
+      final rect = tester.getRect(find.byWidget(element.widget));
+      expect(
+        rect.size == slotRect.size,
+        isFalse,
+        reason: 'A slot-sized clip would hide the approved overflow',
+      );
+    }
   }
   if (homeCrop) {
     final logical = find.ancestor(

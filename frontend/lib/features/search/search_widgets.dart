@@ -179,6 +179,16 @@ class SearchEmptyState extends StatelessWidget {
   const SearchEmptyState({required this.onOpenArchive, super.key});
   final VoidCallback onOpenArchive;
 
+  // Approved original's alpha>128 bounds: (16,28)-(958,1486).
+  // Keep the old body top2/height119/centre40.5 in the 81x123 slot.
+  // The uniform scale makes the body ~1px wider per side; faint outline
+  // overflow is explicitly approved and must remain visible.
+  static const _sourceScale = 119 / 1458;
+  static const _sourceWidth = 1018 * _sourceScale;
+  static const _sourceHeight = 1545 * _sourceScale;
+  static const _sourceLeft = 40.5 - 487 * _sourceScale;
+  static const _sourceTop = 2 - 28 * _sourceScale;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     key: const ValueKey('search-empty-viewport'),
@@ -198,11 +208,23 @@ class SearchEmptyState extends StatelessWidget {
                   key: const ValueKey('search-empty-image'),
                   width: 81,
                   height: 123,
-                  child: Image.asset(
-                    Assets.searchEmptyIllustration,
-                    key: const ValueKey('search-empty-image-source'),
-                    excludeFromSemantics: true,
-                    fit: BoxFit.cover,
+                  child: Stack(
+                    key: const ValueKey('search-empty-image-stack'),
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: _sourceLeft,
+                        top: _sourceTop,
+                        width: _sourceWidth,
+                        height: _sourceHeight,
+                        child: Image.asset(
+                          Assets.searchEmptyIllustration,
+                          key: const ValueKey('search-empty-image-source'),
+                          excludeFromSemantics: true,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),

@@ -1,3 +1,4 @@
+import 'support/search_preview.dart' as preview;
 import 'support/empty_asset_probe.dart';
 import 'fixtures/search_history_examples.dart';
 import 'dart:async';
@@ -88,6 +89,7 @@ Future<_Calls> _pump(
   TargetPlatform platform = TargetPlatform.iOS,
   double width = 375,
   double height = 812,
+  double textScale = 1,
   String query = '검증',
   List<String> historyTerms = recentSearches,
   FeedPage? page,
@@ -108,6 +110,12 @@ Future<_Calls> _pump(
   await tester.pumpWidget(
     MaterialApp(
       key: UniqueKey(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       theme: ThemeData(
         useMaterial3: true,
         platform: platform,
@@ -465,6 +473,16 @@ void main() {
             width: width,
             page: _page(items: []),
           );
+          await expectEmptyAssetResolution(
+            tester,
+            _key('search-empty-image-source'),
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
           final viewport = _key('search-empty-viewport'),
               group = _key('search-empty-group');
           expect(group, findsOneWidget);
@@ -611,6 +629,64 @@ void main() {
     });
   }
 
+  testWidgets('H03 capture fixture distinguishes source from external slot', (
+    tester,
+  ) async {
+    await _pump(tester, page: _page(items: []));
+    final measured = preview.searchMeasure(
+      tester.element(find.byType(MaterialApp)),
+    );
+    final assets = measured['assetGeometry'] as Map;
+    final source = assets['emptyImage'] as Map;
+    final bounds = measured['bounds'] as Map;
+    final slot = bounds['emptyImageSlot'] as Map;
+    expect(slot['width'], 81);
+    expect(slot['height'], 123);
+    expect((source['bounds'] as Map)['width'], closeTo(83.08779, .01));
+    expect((source['bounds'] as Map)['height'], closeTo(126.10082, .01));
+    expect(source['slotClip'], 'none');
+    expect(source['asset'], Assets.searchEmptyIllustration);
+    expect(source['fit'], 'cover');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final width in [320.0, 375.0]) {
+      for (final height in [300.0, 812.0]) {
+        testWidgets('H03 approved body and unclipped slot outline $platform '
+            'width$width height$height scale1.3', (tester) async {
+          final page = _page(items: []);
+          await _pump(
+            tester,
+            platform: platform,
+            width: width,
+            height: height,
+            textScale: 1.3,
+            page: page,
+          );
+          expect(page.initialized, isTrue);
+          expect(page.loading, isFalse);
+          expect(page.error, isNull);
+          expect(page.items, isEmpty);
+          expect(_key('search-empty-group'), findsOneWidget);
+          await expectEmptyAssetResolution(
+            tester,
+            _key('search-empty-image-source'),
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
+          final title = _paragraph(tester, _key('search-empty-title'));
+          expect(title.textScaler.scale(16), 20.8);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
   for (final state in [
     'missing-query',
     'other-query',
@@ -738,6 +814,7 @@ void main() {
           minimumWidth: 243,
           minimumHeight: 369,
           transparent: true,
+          searchLayout: true,
           digest:
               '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
         );
