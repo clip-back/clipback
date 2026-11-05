@@ -30,8 +30,12 @@ Future<void> _my(
         onAddLink: ({required url, category}) async =>
             throw UnimplementedError(),
         onAddScreenshot:
-            ({required bytes, required filename, category}) async =>
-                throw UnimplementedError(),
+            ({
+              required bytes,
+              required filename,
+              String? submissionKey,
+              category,
+            }) async => throw UnimplementedError(),
         onOpenAccount: () {},
         onTab: (_) {},
       ),
