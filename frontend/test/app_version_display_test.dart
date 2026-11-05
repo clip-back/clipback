@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
+import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
+import 'package:clipback_frontend/features/categories/category_management_screen.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/shared/models/app_info.dart';
@@ -24,16 +27,13 @@ Finder get _versionRow =>
 Finder _versionRowText(String text) =>
     find.descendant(of: _versionRow, matching: find.text(text));
 
-Finder _sheetText(String text) => find.descendant(
-  of: find.byType(AppVersionSheet),
-  matching: find.text(text),
-);
-
-Future<void> _openVersionSheet(WidgetTester tester) async {
+Future<void> _checkVersionDoesNotOpen(WidgetTester tester) async {
   await tester.ensureVisible(_versionRow);
-  await tester.tap(_versionRow);
+  final route = ModalRoute.of(tester.element(_versionRow));
+  await tester.tapAt(tester.getCenter(_versionRow));
   await tester.pumpAndSettle();
-  expect(find.byType(AppVersionSheet), findsOneWidget);
+  expect(find.byType(BottomSheet), findsNothing);
+  expect(ModalRoute.of(tester.element(_versionRow)), same(route));
 }
 
 Future<http.Response> _forward(http.Client client, http.Request request) async {
@@ -128,6 +128,49 @@ void main() {
     });
   });
 
+  testWidgets('마이 카테고리 줄 제거 후 아카이브와 즐겨찾기의 관리 진입과 복귀는 유지된다', (tester) async {
+    final server = fixture.LogoutServer('member');
+    await _runApp(tester, server.client, () async {
+      await _openMy(tester);
+      expect(find.text('카테고리 관리'), findsNothing);
+      for (final route in [AppRoute.archive, AppRoute.bookmark]) {
+        tester.widget<MyScreen>(find.byType(MyScreen)).onTab(route);
+        await tester.pumpAndSettle();
+        if (route == AppRoute.archive) {
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .onOpenCategoryManagement!();
+        } else {
+          tester
+              .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+              .onOpenCategoryManagement!();
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(CategoryManagementScreen), findsOneWidget);
+        tester
+            .widget<CategoryManagementScreen>(
+              find.byType(CategoryManagementScreen),
+            )
+            .onBack();
+        await tester.pumpAndSettle();
+        if (route == AppRoute.archive) {
+          expect(find.byType(ArchiveScreen), findsOneWidget);
+          tester
+              .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+              .onTab(AppRoute.my);
+        } else {
+          expect(find.byType(BookmarkScreen), findsOneWidget);
+          tester
+              .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+              .onTab(AppRoute.my);
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(MyScreen), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    }, appInfo: _installed);
+  });
+
   testWidgets('계정을 바꿔도 같은 앱 버전이 보인다', (tester) async {
     final member = fixture.LogoutServer('member'),
         guest = fixture.LogoutServer('guest');
@@ -194,30 +237,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(MyScreen), findsOneWidget);
       expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
-      await _openVersionSheet(tester);
-      expect(_sheetText('ver. 0.2.0 (6)'), findsOneWidget);
+      await _checkVersionDoesNotOpen(tester);
+      expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
+      expect(find.text('ver. 0.2.0 (6)'), findsNothing);
     }, appInfo: _installed);
   });
 
-  testWidgets('앱 버전 시트의 현재 버전에 앱 버전과 빌드 번호가 보이고 업데이트 안내는 없다', (tester) async {
+  testWidgets('앱 버전은 표시 전용이며 탭해도 시트와 업데이트 안내는 없다', (tester) async {
     final server = fixture.LogoutServer('member');
     await _runApp(tester, server.client, () async {
       await _openMy(tester);
-      await _openVersionSheet(tester);
-      expect(_sheetText('현재 버전'), findsOneWidget);
-      expect(_sheetText('ver. 0.2.0 (6)'), findsOneWidget);
-      expect(_sheetText('업데이트'), findsNothing);
+      await _checkVersionDoesNotOpen(tester);
+      expect(find.text('현재 버전'), findsNothing);
+      expect(_versionRowText('ver. 0.2.0'), findsOneWidget);
+      expect(find.text('ver. 0.2.0 (6)'), findsNothing);
+      expect(find.text('업데이트'), findsNothing);
       expect(find.text('최신 버전입니다'), findsNothing);
     }, appInfo: _installed);
   });
 
-  testWidgets('앱 정보가 없으면 앱 버전 시트의 현재 버전에 -가 보이고 예전 고정값은 없다', (tester) async {
+  testWidgets('앱 정보가 없으면 표시 전용 버전에 -가 보이고 팝업과 예전 고정값은 없다', (tester) async {
     final server = fixture.LogoutServer('member');
     await _runApp(tester, server.client, () async {
       await _openMy(tester);
-      await _openVersionSheet(tester);
-      expect(_sheetText('현재 버전'), findsOneWidget);
-      expect(_sheetText('-'), findsOneWidget);
+      await _checkVersionDoesNotOpen(tester);
+      expect(find.text('현재 버전'), findsNothing);
+      expect(_versionRowText('-'), findsOneWidget);
       expect(find.textContaining('ver. 1.1'), findsNothing);
     });
   });

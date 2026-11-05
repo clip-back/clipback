@@ -89,7 +89,6 @@ class MyScreen extends StatelessWidget {
     required this.onAddLink,
     required this.onAddScreenshot,
     required this.onOpenAccount,
-    required this.onOpenCategoryManagement,
     required this.onTab,
     this.onOpenNotices,
     this.statsMessage,
@@ -104,7 +103,6 @@ class MyScreen extends StatelessWidget {
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
-  final VoidCallback onOpenCategoryManagement;
   final VoidCallback? onOpenNotices;
   final ValueChanged<AppRoute> onTab;
 
@@ -177,17 +175,13 @@ class MyScreen extends StatelessWidget {
                     MyListGroup(
                       children: [
                         MyListTile(
-                          title: '리마인드 설정',
+                          title: '알림 설정',
                           onTap: () => showModalBottomSheet<void>(
                             context: context,
                             useSafeArea: true,
                             backgroundColor: Colors.transparent,
                             builder: (context) => const ReminderSheet(),
                           ),
-                        ),
-                        MyListTile(
-                          title: '카테고리 관리',
-                          onTap: onOpenCategoryManagement,
                         ),
                         MyListTile(
                           title: '앱 권한',
@@ -229,13 +223,6 @@ class MyScreen extends StatelessWidget {
                           trailingText: appInfo == null
                               ? '-'
                               : 'ver. ${appInfo!.version}',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) =>
-                                AppVersionSheet(appInfo: appInfo),
-                          ),
                         ),
                       ],
                     ),
@@ -548,51 +535,49 @@ class MyListGroup extends StatelessWidget {
 class MyListTile extends StatelessWidget {
   const MyListTile({
     required this.title,
-    required this.onTap,
+    this.onTap,
     this.trailingText,
     super.key,
   });
 
   final String title;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String? trailingText;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        height: 41,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Expanded(child: Text(title, style: _MyText.menu)),
-              if (trailingText != null)
-                Text(trailingText!, style: _MyText.version)
-              else
-                SizedBox(
-                  key: ValueKey('my-menu-arrow-$title'),
-                  width: 5,
-                  height: 10,
-                  child: OverflowBox(
-                    minWidth: 6.66667,
-                    maxWidth: 6.66667,
-                    minHeight: 11.6667,
-                    maxHeight: 11.6667,
-                    child: SvgPicture.asset(
-                      _MyAssets.menuArrow,
-                      key: ValueKey('my-menu-arrow-image-$title'),
-                      width: 6.66667,
-                      height: 11.6667,
-                    ),
+    final content = SizedBox(
+      height: 41,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(child: Text(title, style: _MyText.menu)),
+            if (trailingText != null)
+              Text(trailingText!, style: _MyText.version)
+            else
+              SizedBox(
+                key: ValueKey('my-menu-arrow-$title'),
+                width: 5,
+                height: 10,
+                child: OverflowBox(
+                  minWidth: 6.66667,
+                  maxWidth: 6.66667,
+                  minHeight: 11.6667,
+                  maxHeight: 11.6667,
+                  child: SvgPicture.asset(
+                    _MyAssets.menuArrow,
+                    key: ValueKey('my-menu-arrow-image-$title'),
+                    width: 6.66667,
+                    height: 11.6667,
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
+    return onTap == null ? content : InkWell(onTap: onTap, child: content);
   }
 }
 

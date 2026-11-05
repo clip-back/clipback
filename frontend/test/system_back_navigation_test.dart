@@ -129,7 +129,11 @@ void main() {
             await t.pumpAndSettle();
             final my = t.widget<MyScreen>(find.byType(MyScreen));
             if (scene == 'category-management') {
-              my.onOpenCategoryManagement();
+              my.onTab(AppRoute.archive);
+              await t.pumpAndSettle();
+              t
+                  .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+                  .onOpenCategoryManagement!();
               await t.pumpAndSettle();
             } else if (scene != 'my') {
               my.onOpenAccount();
@@ -170,7 +174,7 @@ void main() {
             'account': 'MyScreen',
             'category-list': 'ArchiveScreen',
             'card-review': 'ArchiveScreen',
-            'category-management': 'MyScreen',
+            'category-management': 'ArchiveScreen',
             'notifications': 'HomeScreen',
             'logout-confirmation': 'AccountManagementScreen',
           };

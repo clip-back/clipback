@@ -224,7 +224,6 @@ class _PreviewState extends State<_Preview> {
       user: defaultUser,
       appInfo: null,
       onOpenAccount: _noop,
-      onOpenCategoryManagement: _noop,
       onAddLink: _saveLink,
       onAddScreenshot: _savePhoto,
       onTab: go,

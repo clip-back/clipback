@@ -93,9 +93,6 @@ VoidCallback _openCallback(WidgetTester tester) {
 VoidCallback _back(WidgetTester tester) =>
     (tester.widget(_notifications) as dynamic).onBack as VoidCallback;
 
-VoidCallback _settings(WidgetTester tester) =>
-    (tester.widget(_notifications) as dynamic).onOpenSettings as VoidCallback;
-
 Future<void> _open(WidgetTester tester) async {
   await tester.tap(_bell);
   await tester.pumpAndSettle();
@@ -406,7 +403,7 @@ void main() {
               isTrue,
             );
             final oldRequests = server.requests.length;
-            // The bell shares its coordinates with the visible settings button.
+            // The notification header has no settings button.
             // Tap the retained My tab's coordinates instead: C03 has no bottom bar
             // or row action there, so a route change would expose hidden input.
             final retainedMyLabel = _underHome(
@@ -432,7 +429,7 @@ void main() {
   );
 
   testWidgets(
-    'settings opens the existing ReminderSheet and preserves notification and home state',
+    'notification settings entry is absent and preserves notification and home state',
     (tester) async {
       final server = fixture.NotificationServer('member');
       await _root(
@@ -448,35 +445,29 @@ void main() {
               .length;
           await _open(tester);
           final notificationElement = tester.element(_notifications);
-          final savedBack = _back(tester);
           for (var i = 0; i < 2; i++) {
-            await tester.tap(
+            expect(
               find.byKey(const ValueKey('notification-settings-hit')),
+              findsNothing,
             );
-            await tester.pumpAndSettle();
-            expect(find.byType(ReminderSheet), findsOneWidget);
-            expect(find.text('리마인드 설정'), findsOneWidget);
-            for (final setting in mockReminderSettings) {
-              expect(find.text(setting.label), findsOneWidget);
-              expect(find.text(setting.value), findsOneWidget);
-            }
-            savedBack();
-            _back(tester)();
-            await tester.pumpAndSettle();
-            expect(find.byType(ReminderSheet), findsOneWidget);
-            expect(tester.element(_notifications), same(notificationElement));
-            expect(_home, findsNothing);
-            await tester.binding.handlePopRoute();
+            expect(
+              find.byKey(const ValueKey('notification-settings-image')),
+              findsNothing,
+            );
+            final rect = tester.getRect(
+              find.byKey(const ValueKey('notification-header')),
+            );
+            await tester.tapAt(Offset(rect.right - 28, rect.center.dy));
             await tester.pumpAndSettle();
             expect(find.byType(ReminderSheet), findsNothing);
             expect(tester.element(_notifications), same(notificationElement));
+            expect(_home, findsNothing);
             _preserved(tester, before);
           }
           _back(tester)();
           await tester.pumpAndSettle();
           _preserved(tester, before);
           expect(server.requests.length, requests + 1);
-          // Leaving notifications for Home is a new Weekly visit.
           expect(
             server.requests
                 .where((r) => r['path'] == '/api/v1/recommendations/weekly')
@@ -551,7 +542,7 @@ void main() {
         final before = await _prime(tester);
         final staleOpen = _openCallback(tester);
         await _open(tester);
-        final staleBack = _back(tester), staleSettings = _settings(tester);
+        final staleBack = _back(tester);
         server.logoutGate = Completer<http.Response>();
         social.revoked = true;
         _resume(tester);
@@ -562,9 +553,7 @@ void main() {
         expect(find.byType(ReminderSheet), findsNothing);
         staleOpen();
         staleBack();
-        staleSettings();
         _back(tester)();
-        _settings(tester)();
         await tester.pumpAndSettle();
         expect(_notifications, findsOneWidget);
         expect(find.byType(ReminderSheet), findsNothing);
@@ -574,7 +563,6 @@ void main() {
         expect(find.byType(LoginScreen), findsOneWidget);
         staleOpen();
         staleBack();
-        staleSettings();
         await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(tester.takeException(), isNull);
@@ -583,7 +571,7 @@ void main() {
   );
 
   testWidgets(
-    'pending session clear blocks previous and rebuilt back and settings callbacks',
+    'pending session clear blocks previous and rebuilt back callbacks',
     (tester) async {
       final server = fixture.NotificationServer('member');
       final storage = fixture.NotificationMemoryStorage();
@@ -592,7 +580,7 @@ void main() {
         await _prime(tester);
         final staleOpen = _openCallback(tester);
         await _open(tester);
-        final staleBack = _back(tester), staleSettings = _settings(tester);
+        final staleBack = _back(tester);
         storage.clearGate = Completer<void>();
         social.revoked = true;
         _resume(tester);
@@ -601,12 +589,10 @@ void main() {
         expect(storage.clearStarted, greaterThan(0));
         expect(storage.value, isNotNull);
         expect(_notifications, findsOneWidget);
-        final pendingBack = _back(tester), pendingSettings = _settings(tester);
+        final pendingBack = _back(tester);
         staleOpen();
         staleBack();
-        staleSettings();
         pendingBack();
-        pendingSettings();
         await tester.pumpAndSettle();
         expect(_notifications, findsOneWidget);
         expect(find.byType(ReminderSheet), findsNothing);
@@ -615,7 +601,6 @@ void main() {
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(storage.value, isNull);
         pendingBack();
-        pendingSettings();
         staleOpen();
         await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsOneWidget);
@@ -634,7 +619,7 @@ void main() {
         final before = await _prime(tester);
         final staleOpen = _openCallback(tester);
         await _open(tester);
-        final staleBack = _back(tester), staleSettings = _settings(tester);
+        final staleBack = _back(tester);
         // The unchanged introduction overflows at 320x480. Use an ordinary
         // height only for that auth sequence; Home/notifications remain 320x480.
         tester.view.physicalSize = const Size(320, 812);
@@ -653,7 +638,6 @@ void main() {
         expect(_vertical(tester).pixels, 0);
         staleOpen();
         staleBack();
-        staleSettings();
         await tester.pumpAndSettle();
         expect(_home, findsOneWidget);
         expect(_notifications, findsNothing);
@@ -661,7 +645,6 @@ void main() {
         await _open(tester);
         staleOpen();
         staleBack();
-        staleSettings();
         await tester.pumpAndSettle();
         expect(_notifications, findsOneWidget);
         expect(find.byType(ReminderSheet), findsNothing);

@@ -21,7 +21,6 @@ import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/session_restore_screen.dart';
 import 'package:clipback_frontend/features/home/home_initial_loading_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/share/pending_share_prompt.dart';
 import 'package:clipback_frontend/data/repositories/share_repository.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -317,29 +316,22 @@ void main() {
               );
             }
             await _close(tester, 'AddContentSheet');
-            original.onOpenNotifications!();
-            await tester.pumpAndSettle();
-            tester
-                .widget<NotificationListScreen>(_type('NotificationListScreen'))
-                .onOpenSettings();
-            await tester.pumpAndSettle();
-            _sheet(tester, 'ReminderSheet', edges);
-            await _close(tester, 'ReminderSheet');
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
             for (final row in [
-              ('리마인드 설정', 'ReminderSheet'),
+              ('알림 설정', 'ReminderSheet'),
               ('앱 권한', 'PermissionSheet'),
               ('문의하기', 'ContactSheet'),
-              ('앱 버전', 'AppVersionSheet'),
             ]) {
               await _tap(tester, find.text(row.$1));
               _sheet(tester, row.$2, edges);
               await _close(tester, row.$2);
             }
+            tester.widget<MyScreen>(_type('MyScreen')).onTab(AppRoute.archive);
+            await tester.pumpAndSettle();
             tester
-                .widget<MyScreen>(_type('MyScreen'))
-                .onOpenCategoryManagement();
+                .widget<ArchiveScreen>(_type('ArchiveScreen'))
+                .onOpenCategoryManagement!();
             await tester.pumpAndSettle();
             await _tap(tester, find.byKey(const ValueKey('management-add')));
             _sheet(tester, 'CategoryCreateSheet', edges);

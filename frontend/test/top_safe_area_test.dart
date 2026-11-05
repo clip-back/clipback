@@ -232,7 +232,6 @@ void main() {
                   onAddLink: saveLink,
                   onAddScreenshot: saveImage,
                   onOpenAccount: noop,
-                  onOpenCategoryManagement: noop,
                   onTab: one,
                 ),
                 () => find.byType(MyPageTopBar),

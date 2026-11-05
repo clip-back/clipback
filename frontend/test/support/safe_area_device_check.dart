@@ -269,7 +269,9 @@ Future<void> _runChecks() async {
   );
   _widget<AccountManagementScreen>().onBack();
   await _waitFor<MyScreen>();
-  _widget<MyScreen>().onOpenCategoryManagement();
+  _widget<MyScreen>().onTab(AppRoute.archive);
+  await _waitFor<ArchiveScreen>();
+  _widget<ArchiveScreen>().onOpenCategoryManagement!();
   await _waitFor<CategoryManagementScreen>();
   await _header(
     '09_categories',

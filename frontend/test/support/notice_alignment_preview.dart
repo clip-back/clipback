@@ -16,6 +16,7 @@ import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/share/pending_share_prompt.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -64,7 +65,6 @@ String _route() {
   if (f.noticeFind<ReminderSheet>(_root) != null) return 'reminderSheet';
   if (f.noticeFind<PermissionSheet>(_root) != null) return 'permissionSheet';
   if (f.noticeFind<ContactSheet>(_root) != null) return 'contactSheet';
-  if (f.noticeFind<AppVersionSheet>(_root) != null) return 'versionSheet';
   if (f.noticeFind<AccountManagementScreen>(_root) != null) return 'account';
   if (f.noticeFind<CategoryManagementScreen>(_root) != null) {
     return 'categoryManagement';
@@ -404,10 +404,9 @@ Future<void> _run() async {
   }
   await _fresh('member', open: false);
   for (final pair in const {
-    '리마인드 설정': 'reminderSheet',
+    '알림 설정': 'reminderSheet',
     '앱 권한': 'permissionSheet',
     '문의하기': 'contactSheet',
-    '앱 버전': 'versionSheet',
   }.entries) {
     final text = f.noticeText(_my, pair.key)!;
     await _show(text);
@@ -431,16 +430,21 @@ Future<void> _run() async {
     'Unrelated account route retained notice-only My position',
   );
   _record('account_return_resets_my');
-  final category = f.noticeText(_my, '카테고리 관리')!;
-  await _show(category);
-  await _tap(category);
+  (_my.widget as MyScreen).onTab(AppRoute.archive);
+  await _wait(() => _route() == 'archive', 'Archive missing');
+  (f.noticeFind<ArchiveScreen>(_root)!.widget as ArchiveScreen)
+      .onOpenCategoryManagement!();
   await _wait(
     () => _route() == 'categoryManagement',
     'Category management missing',
   );
   _record('existing_category_management');
   await _tap(f.noticeKey(_root, 'management-back')!);
-  await _wait(() => _route() == 'my', 'Category return missing');
+  await _wait(() => _route() == 'archive', 'Category return missing');
+  (f.noticeFind<ArchiveScreen>(_root)!.widget as ArchiveScreen).onTab(
+    AppRoute.my,
+  );
+  await _wait(() => _route() == 'my', 'My return missing');
   await _settle(5);
   _require(
     f.noticeMyPosition(_root)!.pixels.abs() < .2,

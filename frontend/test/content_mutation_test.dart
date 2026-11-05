@@ -424,7 +424,7 @@ void main() {
       expect(find.byType(ReminderSheet), findsNothing);
       expect(find.text('320'), findsOneWidget);
       expect(find.text('89'), findsOneWidget);
-      await tester.tap(find.text('리마인드 설정'));
+      await tester.tap(find.text('알림 설정'));
       await tester.pumpAndSettle();
       expect(find.byType(ReminderSheet), findsOneWidget);
     }, textScale: 2);
