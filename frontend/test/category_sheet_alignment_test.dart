@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -97,6 +98,27 @@ void main() {
     }
     await font.load();
   });
+  for (final origin in ['archive', 'management']) {
+    for (final kind in ['create-empty', 'edit']) {
+      testWidgets('$origin $kind has only eight solid color targets', (
+        tester,
+      ) async {
+        await _pump(tester);
+        await _open(tester, kind, origin: origin);
+        expect(find.byType(CategoryFormSheet), findsOneWidget);
+        expect(find.byKey(const ValueKey('palette-custom')), findsNothing);
+        final palette = find.byType(FolderColorPicker);
+        expect(
+          find.descendant(of: palette, matching: find.byType(Image)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: palette, matching: find.byType(InkWell)),
+          findsNWidgets(8),
+        );
+      });
+    }
+  }
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
       for (final kind in sheetKinds) {
@@ -430,37 +452,143 @@ void main() {
     ]);
     expect(FolderColorPicker.colors.contains(sheetPrimary.color), isFalse);
   });
-  testWidgets(
-    'outside-palette initial color and fixed custom coral remain selectable',
-    (tester) async {
-      await _pump(tester);
-      await _open(tester, 'edit');
-      expect(
-        tester
-            .widget<FolderColorPicker>(find.byType(FolderColorPicker))
-            .selectedColor,
-        sheetPrimary.color,
-      );
-      final custom = find.byKey(const ValueKey('palette-custom'));
-      final fallback = find
-          .descendant(
-            of: find.byType(FolderColorPicker),
-            matching: find.byType(InkWell),
-          )
-          .last;
-      await tester.tap(custom.evaluate().isNotEmpty ? custom : fallback);
-      await tester.pump();
-      expect(
-        tester
-            .widget<FolderColorPicker>(find.byType(FolderColorPicker))
-            .selectedColor,
-        const Color(0xFFFF6F61),
-      );
-    },
-  );
+  for (final origin in ['archive', 'management']) {
+    for (final color in [const Color(0xFFFF6F61), const Color(0xFF123456)]) {
+      for (final action in ['rename', 'select', 'cancel']) {
+        testWidgets(
+          '$origin outside $color $action preserves until solid selection',
+          (tester) async {
+            final key = await _pump(tester);
+            key.currentState!.categories[0] = sheetPrimary.copyWith(
+              color: color,
+            );
+            await tester.tap(find.text('전체보기'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('카테고리'));
+            await tester.pumpAndSettle();
+            await _open(tester, 'edit', origin: origin);
+            final palette = find.byType(FolderColorPicker);
+            expect(
+              tester.widget<FolderColorPicker>(palette).selectedColor,
+              color,
+            );
+            expect(
+              find.descendant(of: palette, matching: find.byType(SvgPicture)),
+              findsNothing,
+            );
+            expect(
+              tester
+                  .widget<SvgPicture>(
+                    find.byKey(const ValueKey('category-form-folder')),
+                  )
+                  .colorFilter,
+              ColorFilter.mode(color, BlendMode.srcIn),
+            );
+            await tester.enterText(find.byType(TextField), '이름 변경');
+            if (action != 'rename') {
+              await tester.tap(
+                find.byKey(const ValueKey('palette-color-ffffa24b')),
+              );
+              await tester.pump();
+              expect(
+                tester.widget<FolderColorPicker>(palette).selectedColor,
+                const Color(0xFFFFA24B),
+              );
+              expect(
+                tester
+                    .widget<SvgPicture>(
+                      find.byKey(const ValueKey('category-form-folder')),
+                    )
+                    .colorFilter,
+                const ColorFilter.mode(Color(0xFFFFA24B), BlendMode.srcIn),
+              );
+            }
+            if (action == 'cancel') {
+              key.currentState!.navigatorKey.currentState!.pop();
+            } else {
+              await tester.tap(find.widgetWithText(FilledButton, '수정하기'));
+            }
+            await tester.pumpAndSettle();
+            expect(
+              key.currentState!.categories.first.color,
+              action == 'select' ? const Color(0xFFFFA24B) : color,
+            );
+            expect(
+              key.currentState!.calls
+                  .where((v) => v['action'] == 'edit')
+                  .length,
+              action == 'cancel' ? 0 : 1,
+            );
+          },
+        );
+      }
+    }
+  }
+  for (final color in FolderColorPicker.colors) {
+    testWidgets(
+      'solid $color preserves 375px left alignment and submits selected color',
+      (tester) async {
+        final key = await _pump(tester);
+        await _open(tester, 'create-filled');
+        final palette = find.byType(FolderColorPicker);
+        final choices = find.descendant(
+          of: palette,
+          matching: find.byType(InkWell),
+        );
+        expect(choices, findsNWidgets(8));
+        expect(
+          tester.getRect(choices.first).left,
+          tester.getRect(palette).left,
+        );
+        expect(tester.getSize(palette).width, 327);
+        for (var i = 0; i < 8; i++) {
+          final box = tester.getRect(choices.at(i));
+          expect(box.height, 36);
+          expect(box.width, i == 0 ? 36 : 30);
+          expect(box.top, tester.getRect(choices.first).top);
+          if (i > 0) {
+            expect(box.left - tester.getRect(choices.at(i - 1)).right, 8);
+          }
+        }
+        await tester.tap(
+          find.byKey(
+            ValueKey('palette-color-${color.toARGB32().toRadixString(16)}'),
+          ),
+        );
+        await tester.pump();
+        expect(tester.widget<FolderColorPicker>(palette).selectedColor, color);
+        expect(
+          find.descendant(of: palette, matching: find.byType(SvgPicture)),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<SvgPicture>(
+                find.byKey(const ValueKey('category-form-folder')),
+              )
+              .colorFilter,
+          ColorFilter.mode(color, BlendMode.srcIn),
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+        await tester.pumpAndSettle();
+        expect(key.currentState!.categories.last.color, color);
+        expect(
+          key.currentState!.calls.where((v) => v['action'] == 'create'),
+          hasLength(1),
+        );
+      },
+    );
+  }
   testWidgets('palette responds to actual horizontal drag', (tester) async {
-    await _pump(tester, width: 320);
+    final key = await _pump(tester, width: 320);
     await _open(tester, 'create-empty');
+    expect(
+      tester
+          .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+          .selectedColor,
+      const Color(0xFFFF6277),
+    );
+    await tester.enterText(find.byType(TextField), '끝 색 저장');
     final scroll = find.descendant(
       of: find.byType(FolderColorPicker),
       matching: find.byType(SingleChildScrollView),
@@ -472,6 +600,19 @@ void main() {
     await tester.drag(scroll, const Offset(-100, 0));
     await tester.pumpAndSettle();
     expect(state.position.pixels, greaterThan(before));
+    await tester.tap(find.byKey(const ValueKey('palette-color-ff1f5e24')));
+    await tester.pump();
+    expect(
+      tester
+          .widget<SvgPicture>(
+            find.byKey(const ValueKey('category-form-folder')),
+          )
+          .colorFilter,
+      const ColorFilter.mode(Color(0xFF1F5E24), BlendMode.srcIn),
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '생성하기'));
+    await tester.pumpAndSettle();
+    expect(key.currentState!.categories.last.color, const Color(0xFF1F5E24));
   });
   testWidgets(
     'actual archive settings opens management and existing back returns',

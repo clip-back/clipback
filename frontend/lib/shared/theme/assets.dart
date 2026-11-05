@@ -112,5 +112,4 @@ class Assets {
       'assets/icons/category-sheet-selected-swatch.svg';
   static const categorySheetUnderline =
       'assets/icons/category-sheet-underline.svg';
-  static const categorySheetCustom = 'assets/icons/category-sheet-custom.png';
 }

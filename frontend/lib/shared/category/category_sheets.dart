@@ -1235,7 +1235,6 @@ class FolderColorPicker extends StatelessWidget {
           ),
         ),
       ),
-      _CustomFolderColorSwatch(onTap: () => onChanged(const Color(0xFFFF6F61))),
     ],
   );
 }
@@ -1258,23 +1257,4 @@ class _CategorySwatchColorMapper extends ColorMapper {
       other.selectedColor == selectedColor;
   @override
   int get hashCode => selectedColor.hashCode;
-}
-
-class _CustomFolderColorSwatch extends StatelessWidget {
-  const _CustomFolderColorSwatch({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    key: const ValueKey('palette-custom'),
-    customBorder: const CircleBorder(),
-    onTap: onTap,
-    child: Image.asset(
-      Assets.categorySheetCustom,
-      scale: 3,
-      width: 38,
-      height: 32,
-    ),
-  );
 }
