@@ -1164,8 +1164,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
-        bottomSheetTheme: const BottomSheetThemeData(
-          constraints: BoxConstraints(maxWidth: phoneWidth),
+        bottomSheetTheme: BottomSheetThemeData(
+          constraints: BoxConstraints.tightFor(
+            width: appContentWidth(MediaQuery.sizeOf(context).width),
+          ),
         ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.main,

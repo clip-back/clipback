@@ -22,7 +22,7 @@ class EntrySurface extends StatelessWidget {
           child: FittedBox(
             fit: BoxFit.scaleDown,
             child: SizedBox(
-              width: phoneWidth,
+              width: appContentWidth(MediaQuery.sizeOf(context).width),
               height: phoneHeight,
               child: Stack(
                 children: [

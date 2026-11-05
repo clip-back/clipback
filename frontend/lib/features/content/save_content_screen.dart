@@ -278,7 +278,9 @@ class _AddContentSheetState extends State<AddContentSheet> {
       color: AppColors.bg,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: phoneWidth),
+          constraints: BoxConstraints(
+            maxWidth: appContentWidth(MediaQuery.sizeOf(context).width),
+          ),
           child: SizedBox.expand(
             child: Material(
               color: AppColors.bg,

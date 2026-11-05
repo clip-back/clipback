@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_navigation.dart';
+import 'fixtures/home_base_alignment_fixture.dart' show homeBaseLoadFonts;
 import 'support/app_startup.dart';
 import 'support/login_alignment_preview.dart' as fixture;
 
@@ -51,10 +52,23 @@ class _Social extends fixture.LoginControlledSocial {
 Future<void> _pumpRoot(
   WidgetTester tester,
   fixture.LoginMemoryStorage storage,
-  _Social social,
-) async {
+  _Social social, {
+  double scale = 1,
+}) async {
+  final app = ClipbackApp(
+    key: UniqueKey(),
+    sessionStorage: storage,
+    socialAuth: social,
+  );
   await tester.pumpWidget(
-    ClipbackApp(key: UniqueKey(), sessionStorage: storage, socialAuth: social),
+    Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: app,
+      ),
+    ),
   );
   await completeAppStartup(tester);
 }
@@ -67,14 +81,23 @@ Future<void> _withRoot(
     _Social social,
   )
   body, {
+  double width = 393,
+  double scale = 1,
+  TargetPlatform platform = TargetPlatform.iOS,
   bool stored = false,
   bool noProviders = false,
 }) async {
-  tester.view.physicalSize = const Size(393, 852);
+  tester.view.physicalSize = Size(width, 852);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final previous = debugDefaultTargetPlatformOverride;
-  debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+  debugDefaultTargetPlatformOverride = platform;
+  final padding = FakeViewPadding(
+    top: platform == TargetPlatform.iOS ? 59 : 24,
+    bottom: platform == TargetPlatform.iOS ? 34 : 24,
+  );
+  tester.view.padding = padding;
+  tester.view.viewPadding = padding;
   final server = fixture.LoginServer();
   final storage = fixture.LoginMemoryStorage();
   if (stored) {
@@ -88,7 +111,7 @@ Future<void> _withRoot(
   final social = _Social(noProviders: noProviders);
   await http.runWithClient(() async {
     try {
-      await _pumpRoot(tester, storage, social);
+      await _pumpRoot(tester, storage, social, scale: scale);
       await body(server, storage, social);
       expect(server.unexpected, isEmpty);
       expect(server.contentWrites, 0);
@@ -154,6 +177,7 @@ Future<void> _cancel(WidgetTester tester, String method) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() => homeBaseLoadFonts(loadForTest: true));
   setUp(() {
     var revision = 0;
     // Installed before ClipbackApp's very first frame. No native queue or
@@ -188,6 +212,125 @@ void main() {
           const MethodChannel('com.huturu.app/share'),
           null,
         );
+  });
+
+  testWidgets(
+    'open permission route follows live window width without restarting login',
+    (tester) async {
+      await _withRoot(tester, (server, storage, social) async {
+        final completion = await _openGuide(tester);
+        final route = ModalRoute.of(tester.element(_guide));
+        final appState = tester.state(find.byType(ClipbackApp));
+        for (final window in <double, (double, double)>{
+          430: (0, 430),
+          600: (112.5, 487.5),
+          599: (0, 599),
+          768: (196.5, 571.5),
+          393: (0, 393),
+        }.entries) {
+          tester.view.physicalSize = Size(window.key, 852);
+          await tester.pumpAndSettle();
+          expect(ModalRoute.of(tester.element(_guide)), same(route));
+          expect(tester.state(find.byType(ClipbackApp)), same(appState));
+          expect(tester.getRect(_guide).left, window.value.$1);
+          expect(tester.getRect(_guide).right, window.value.$2);
+        }
+        await _cancel(tester, 'drag');
+        await completion();
+        expect(server.requests, isEmpty);
+      });
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final window in <double, (double, double)>{
+      375: (0, 375),
+      393: (0, 393),
+      430: (0, 430),
+      599: (0, 599),
+      600: (112.5, 487.5),
+      768: (196.5, 571.5),
+    }.entries) {
+      for (final scale in [1.0, 1.3]) {
+        testWidgets(
+          '${platform.name} ${window.key} permission route scale=$scale edges padding scroll and drag',
+          (tester) async {
+            await _withRoot(
+              tester,
+              (server, storage, social) async {
+                final login = find.descendant(
+                  of: find.byType(LoginScreen),
+                  matching: find.byType(Scaffold),
+                );
+                expect(tester.getRect(login).left, window.value.$1);
+                expect(tester.getRect(login).right, window.value.$2);
+                final completion = await _openGuide(tester);
+                final panel = tester.getRect(
+                  find.byKey(const ValueKey('permission-guide-panel')),
+                );
+                expect(panel.left, window.value.$1);
+                expect(panel.right, window.value.$2);
+                expect(panel.bottom, 852);
+                expect(
+                  tester
+                          .getRect(
+                            find.byKey(
+                              const ValueKey('permission-guide-title'),
+                            ),
+                          )
+                          .left -
+                      panel.left,
+                  24,
+                );
+                expect(
+                  tester.getSize(
+                    find.byKey(const ValueKey('permission-guide-icon-0')),
+                  ),
+                  const Size(42, 42),
+                );
+                final scroll = tester.state<ScrollableState>(
+                  find.descendant(
+                    of: find.byKey(const ValueKey('permission-guide-scroll')),
+                    matching: find.byType(Scrollable),
+                  ),
+                );
+                scroll.position.jumpTo(scroll.position.maxScrollExtent);
+                await tester.pump();
+                final button = tester.getRect(_continue);
+                expect(
+                  button.bottom,
+                  lessThanOrEqualTo(
+                    852 - (platform == TargetPlatform.iOS ? 34 : 24),
+                  ),
+                );
+                await _cancel(tester, 'drag');
+                await completion();
+                expect(find.byType(LoginScreen), findsOneWidget);
+                expect(server.requests, isEmpty);
+              },
+              width: window.key,
+              scale: scale,
+              platform: platform,
+            );
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('393 mobile ordinary login guide route fills window', (
+    tester,
+  ) async {
+    await _withRoot(tester, (server, storage, social) async {
+      final completion = await _openGuide(tester);
+      final route = ModalRoute.of(tester.element(_guide))!;
+      expect(route.runtimeType.toString(), 'PermissionGuideRoute');
+      expect(tester.getRect(_guide).left, 0);
+      expect(tester.getRect(_guide).right, 393);
+      await _cancel(tester, 'drag');
+      await completion();
+      expect(server.requests, isEmpty);
+    });
   });
 
   testWidgets(

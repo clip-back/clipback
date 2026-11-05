@@ -153,22 +153,30 @@ void main() {
       });
     },
   );
-  testWidgets('393 window keeps375 frame background and safe group center', (
-    tester,
-  ) async {
-    await _withLoading(
-      tester,
-      () async {
-        final m = _measure(tester), j = geometry.loadingJudgment(m);
-        expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
-        expect((m['frame'] as Map)['width'], 375);
-        expect(m['scaffoldColor'], '0xFFF5F5F5');
-        expect(tester.takeException(), isNull);
+  for (final (width, frameWidth, left, right) in [
+    (393.0, 393.0, 0.0, 393.0),
+    (600.0, 375.0, 112.5, 487.5),
+  ]) {
+    testWidgets(
+      '$width px window follows mobile/tablet edges and preserves loading background and safe group center',
+      (tester) async {
+        await _withLoading(
+          tester,
+          () async {
+            final m = _measure(tester), j = geometry.loadingJudgment(m);
+            expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
+            expect((m['frame'] as Map)['width'], frameWidth);
+            expect((m['frame'] as Map)['left'], left);
+            expect((m['frame'] as Map)['right'], right);
+            expect(m['scaffoldColor'], '0xFFF5F5F5');
+            expect(tester.takeException(), isNull);
+          },
+          width: width,
+          height: 852,
+        );
       },
-      width: 393,
-      height: 852,
     );
-  });
+  }
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     testWidgets(
       '${platform.name} low viewport natural type scroll reaches dots with bottom24',

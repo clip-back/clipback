@@ -19,6 +19,7 @@ Future<void> _pump(
   WidgetTester tester, {
   TargetPlatform platform = TargetPlatform.iOS,
   double width = 375,
+  double scale = 1,
   FeedPage? feed,
   List<ContentItem>? contents,
   int? categoryId,
@@ -43,6 +44,12 @@ Future<void> _pump(
           seedColor: AppColors.main,
           surface: AppColors.bg,
         ),
+      ),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
       ),
       home: HomeScreen(
         contents: items,
@@ -90,6 +97,59 @@ void main() {
   setUpAll(() async {
     await fixture.homeBaseLoadFonts(loadForTest: true);
   });
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final window in <double, (double, double)>{
+      375: (0, 375),
+      393: (0, 393),
+      430: (0, 430),
+      599: (0, 599),
+      600: (112.5, 487.5),
+      768: (196.5, 571.5),
+    }.entries) {
+      for (final scale in [1.0, 1.3]) {
+        for (final empty in [false, true]) {
+          testWidgets(
+            '${platform.name} ${window.key} home scale=$scale empty=$empty outer edges',
+            (tester) async {
+              await _pump(
+                tester,
+                platform: platform,
+                width: window.key,
+                scale: scale,
+                contents: empty ? const [] : null,
+              );
+              final scaffold = find.descendant(
+                of: find.byType(HomeScreen),
+                matching: find.byType(Scaffold),
+              );
+              expect(tester.getRect(scaffold).left, window.value.$1);
+              expect(tester.getRect(scaffold).right, window.value.$2);
+              expect(
+                tester.widget<HomeHero>(find.byType(HomeHero)).empty,
+                empty,
+              );
+              expect(tester.takeException(), isNull);
+            },
+          );
+        }
+      }
+    }
+  }
+  for (final empty in [false, true]) {
+    testWidgets('393 mobile home fills window with empty=$empty', (
+      tester,
+    ) async {
+      await _pump(tester, width: 393, contents: empty ? const [] : null);
+      final scaffold = find.descendant(
+        of: find.byType(HomeScreen),
+        matching: find.byType(Scaffold),
+      );
+      expect(tester.getRect(scaffold).left, 0);
+      expect(tester.getRect(scaffold).right, 393);
+      expect(tester.widget<HomeHero>(find.byType(HomeHero)).empty, empty);
+      expect(tester.takeException(), isNull);
+    });
+  }
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
       testWidgets(
