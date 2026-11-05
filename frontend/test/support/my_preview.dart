@@ -435,7 +435,7 @@ Map<String, Object?> myJudgment(Map<String, Object?> m) {
       }
     }
   }
-  if (names.join('|') != '리마인드 설정|카테고리 관리|앱 권한|공지사항|문의하기|앱 버전') {
+  if (names.join('|') != '알림 설정|앱 권한|공지사항|문의하기|앱 버전') {
     style.add('approved menu order: $names');
   }
   final header = b['header'] as Map,
@@ -1031,19 +1031,12 @@ Future<void> _run() async {
   );
   _record('profile_account_open');
   await _back('account');
-  await _tap(_text(_my, '카테고리 관리')!);
-  await _wait(
-    () => _route() == 'management',
-    'Category management did not open',
-  );
-  _record('category_management_open');
-  await _back('management');
+  _require(_text(_my, '카테고리 관리') == null, 'Removed My category entry remains');
   for (final item in const {
-    '리마인드 설정': 'ReminderSheet',
+    '알림 설정': 'ReminderSheet',
     '앱 권한': 'PermissionSheet',
     '공지사항': 'NoticeSheet',
     '문의하기': 'ContactSheet',
-    '앱 버전': 'AppVersionSheet',
   }.entries) {
     await _showTile(item.key, item.value);
   }

@@ -164,7 +164,10 @@ Future<void> scene(String kind) async {
     await settle();
     final my = find<MyScreen>()!.widget as MyScreen;
     if (kind == 'management') {
-      my.onOpenCategoryManagement();
+      my.onTab(AppRoute.archive);
+      await settle();
+      (find<ArchiveScreen>()!.widget as ArchiveScreen)
+          .onOpenCategoryManagement!();
       await settle();
     } else if (kind != 'my') {
       my.onOpenAccount();

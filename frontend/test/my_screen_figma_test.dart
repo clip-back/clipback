@@ -16,7 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/my_preview.dart' as fixture;
 
 class _Calls {
-  int account = 0, categories = 0, links = 0, photos = 0;
+  int account = 0, links = 0, photos = 0;
   final tabs = <AppRoute>[];
 }
 
@@ -64,7 +64,6 @@ Future<_Calls> _pump(
               throw StateError('Unrequested save');
             },
         onOpenAccount: () => calls.account++,
-        onOpenCategoryManagement: () => calls.categories++,
         onTab: calls.tabs.add,
       ),
     ),
@@ -163,7 +162,7 @@ void main() {
   }
 
   testWidgets(
-    'Existing account/category callbacks, five sheets, tabs and save',
+    'Account callbacks, four sheets, display-only version, tabs and save',
     (tester) async {
       final calls = await _pump(tester);
       final settings = find.byKey(const ValueKey('my-header-settings'));
@@ -177,14 +176,12 @@ void main() {
       );
       await tester.tap(find.byType(MyProfileRow));
       expect(calls.account, 2);
-      await tester.tap(find.text('카테고리 관리'));
-      expect(calls.categories, 1);
+      expect(find.text('카테고리 관리'), findsNothing);
       for (final entry in <String, Type>{
-        '리마인드 설정': ReminderSheet,
+        '알림 설정': ReminderSheet,
         '앱 권한': PermissionSheet,
         '공지사항': NoticeSheet,
         '문의하기': ContactSheet,
-        '앱 버전': AppVersionSheet,
       }.entries) {
         final target = find.text(entry.key);
         await tester.ensureVisible(target);

@@ -71,7 +71,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
   bool _persistenceBannerVisible = false;
-  bool _notificationSettingsOpen = false;
   bool _loginFailureContactOpen = false;
   bool _permissionGuideAcknowledged = false;
   bool _permissionGuideVisitActive = false;
@@ -359,37 +358,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     final generation = _d.app.accountGeneration;
     final epoch = _d.app.authEpoch;
     return () {
-      if (!_notificationSettingsOpen &&
-          _canUseNotifications(from, generation, epoch)) {
+      if (_canUseNotifications(from, generation, epoch)) {
         _go(to);
       }
     };
-  }
-
-  VoidCallback _notificationSettings() {
-    final generation = _d.app.accountGeneration;
-    final epoch = _d.app.authEpoch;
-    return () => unawaited(_showNotificationSettings(generation, epoch));
-  }
-
-  Future<void> _showNotificationSettings(int generation, int epoch) async {
-    if (_notificationSettingsOpen ||
-        !_canUseNotifications(AppRoute.notificationList, generation, epoch)) {
-      return;
-    }
-    final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    _notificationSettingsOpen = true;
-    try {
-      await showModalBottomSheet<void>(
-        context: context,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => const ReminderSheet(),
-      );
-    } finally {
-      _notificationSettingsOpen = false;
-    }
   }
 
   // An acknowledgement belongs to this ordinary-login visit, not to an auth
@@ -1253,7 +1225,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
                     AppRoute.notificationList,
                     AppRoute.home,
                   ),
-                  onOpenSettings: _notificationSettings(),
                 )
               : const SizedBox.shrink(),
         ),
@@ -1352,8 +1323,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),
-            onOpenCategoryManagement: () =>
-                _openCategoryManagement(AppRoute.my),
             onOpenNotices: _noticeNavigation(AppRoute.my, AppRoute.noticeList),
             onTab: _selectRootTab,
           ),

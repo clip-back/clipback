@@ -2623,7 +2623,7 @@ void main() {
   );
 
   testWidgets(
-    'My management entry returns to My after an earlier archive entry',
+    'My has no management entry and Bookmark management returns to Bookmark after archive',
     (tester) async {
       final server = _Server();
       await _withApp(tester, server, () async {
@@ -2635,11 +2635,17 @@ void main() {
             .widget<ArchiveScreen>(find.byType(ArchiveScreen))
             .onTab(AppRoute.my);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('카테고리 관리'));
+        expect(find.text('카테고리 관리'), findsNothing);
+        tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.bookmark);
+        await tester.pumpAndSettle();
+        tester
+            .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+            .onOpenCategoryManagement!();
         await tester.pumpAndSettle();
         expect(find.byType(CategoryManagementScreen), findsOneWidget);
         await _backFromCategoryManagement(tester);
-        expect(find.byType(MyScreen), findsOneWidget);
+        expect(find.byType(BookmarkScreen), findsOneWidget);
+        expect(find.byType(MyScreen), findsNothing);
         expect(find.byType(ArchiveScreen), findsNothing);
         expect(tester.takeException(), isNull);
       });

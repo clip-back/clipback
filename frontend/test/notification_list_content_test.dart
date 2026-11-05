@@ -13,7 +13,6 @@ Future<void> _show(
   required List<({String title, String time})> items,
   double height = 480,
   VoidCallback? onBack,
-  VoidCallback? onOpenSettings,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
@@ -31,11 +30,7 @@ Future<void> _show(
         fontFamily: 'Pretendard',
         scaffoldBackgroundColor: AppColors.bg,
       ),
-      home: NotificationListScreen(
-        items: items,
-        onBack: onBack ?? () {},
-        onOpenSettings: onOpenSettings ?? () {},
-      ),
+      home: NotificationListScreen(items: items, onBack: onBack ?? () {}),
     ),
   );
   await tester.pumpAndSettle();
@@ -148,9 +143,9 @@ void main() {
     }
   }
   testWidgets(
-    'explicit [] header settings and OS back only invoke supplied callbacks',
+    'explicit [] has no settings entry and header and OS back invoke supplied callback',
     (tester) async {
-      var backs = 0, settings = 0;
+      var backs = 0;
       await _show(
         tester,
         platform: TargetPlatform.iOS,
@@ -158,11 +153,20 @@ void main() {
         items: const [],
         height: 812,
         onBack: () => backs++,
-        onOpenSettings: () => settings++,
       );
-      await tester.tap(find.byKey(const ValueKey('notification-settings-hit')));
+      expect(
+        find.byKey(const ValueKey('notification-settings-hit')),
+        findsNothing,
+      );
+      final rect = tester.getRect(
+        find.byKey(const ValueKey('notification-header')),
+      );
+      await tester.tapAt(Offset(rect.right - 28, rect.center.dy));
       await tester.pumpAndSettle();
-      expect(settings, 1);
+      expect(
+        find.byKey(const ValueKey('notification-settings-image')),
+        findsNothing,
+      );
       expect(backs, 0);
       await tester.tap(find.byKey(const ValueKey('notification-back-hit')));
       await tester.pumpAndSettle();
@@ -170,7 +174,10 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(backs, 2);
-      expect(settings, 1);
+      expect(
+        find.byKey(const ValueKey('notification-settings-image')),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
     },
   );

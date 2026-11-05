@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -226,13 +227,21 @@ void main() {
                     )
                     .onBack();
               case 'category':
-                my.onOpenCategoryManagement();
+                my.onTab(AppRoute.archive);
+                await tester.pumpAndSettle();
+                tester
+                    .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+                    .onOpenCategoryManagement!();
                 await tester.pumpAndSettle();
                 tester
                     .widget<CategoryManagementScreen>(
                       find.byType(CategoryManagementScreen),
                     )
                     .onBack();
+                await tester.pumpAndSettle();
+                tester
+                    .widget<ArchiveScreen>(find.byType(ArchiveScreen))
+                    .onTab(AppRoute.my);
               case 'root tab':
                 my.onTab(AppRoute.home);
                 await tester.pumpAndSettle();

@@ -1369,11 +1369,7 @@ void main() {
         during.onTap!();
         await tester.pumpAndSettle();
         expect(_archive(tester).contents, hasLength(3));
-        _archive(tester).onTab(AppRoute.my);
-        await tester.pumpAndSettle();
-        tester
-            .widget<MyScreen>(find.byType(MyScreen))
-            .onOpenCategoryManagement();
+        _archive(tester).onOpenCategoryManagement!();
         await tester.pumpAndSettle();
         expect(find.text('삭제 중…'), findsOneWidget);
         expect(_moreTap(tester, 101), isNull);

@@ -241,7 +241,6 @@ Widget _screen(
         onAddLink: _saveLink,
         onAddScreenshot: _saveScreenshot,
         onOpenAccount: () {},
-        onOpenCategoryManagement: () {},
         onTab: onTab,
       );
     case 'detail':
