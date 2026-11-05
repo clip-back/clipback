@@ -194,7 +194,12 @@ void main() {
                 return returned;
               },
               onAddScreenshot:
-                  ({required bytes, required filename, category}) async {
+                  ({
+                    required bytes,
+                    required filename,
+                    String? submissionKey,
+                    category,
+                  }) async {
                     calls++;
                     return returned;
                   },
@@ -248,10 +253,16 @@ void main() {
             calls++;
             return pending.future;
           },
-          onAddScreenshot: ({required bytes, required filename, category}) {
-            calls++;
-            return pending.future;
-          },
+          onAddScreenshot:
+              ({
+                required bytes,
+                required filename,
+                String? submissionKey,
+                category,
+              }) {
+                calls++;
+                return pending.future;
+              },
         );
         expect(find.text('저장 완료'), findsNothing);
         if (photo) {

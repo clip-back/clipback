@@ -65,8 +65,12 @@ void main() {
               onAddLink: ({required url, category}) async =>
                   throw StateError('unused'),
               onAddScreenshot:
-                  ({required bytes, required filename, category}) async =>
-                      throw StateError('unused'),
+                  ({
+                    required bytes,
+                    required filename,
+                    String? submissionKey,
+                    category,
+                  }) async => throw StateError('unused'),
               onOpenCategory: (_) {},
               onTab: routes.add,
             ),
