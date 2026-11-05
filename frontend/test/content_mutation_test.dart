@@ -14,6 +14,7 @@ import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
+import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -904,6 +905,268 @@ void main() {
       });
     },
   );
+
+  testWidgets('케밥 삭제는 확인 전 요청과 목록 변경을 시작하지 않는다', (tester) async {
+    final server = _Server();
+    await _withApp(tester, server, () async {
+      await _detail(tester);
+      final before = _currentDetail(tester);
+      await tester.tap(find.byKey(const ValueKey('detail-more')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('삭제'));
+      await tester.pumpAndSettle();
+      expect(_mutations(server), isEmpty);
+      expect(find.text('콘텐츠를 삭제할까요?'), findsOneWidget);
+      expect(_currentDetail(tester).content.id, before.content.id);
+      expect(_currentDetail(tester).contents.length, before.contents.length);
+    });
+  });
+
+  for (final scale in [1.0, 1.1, 1.2, 1.3]) {
+    testWidgets('콘텐츠 확인 창 Pretendard 배율 $scale', (tester) async {
+      await _withApp(tester, _Server(), () async {
+        tester.view.physicalSize = const Size(320, 568);
+        await _detail(tester);
+        await tester.tap(find.byKey(const ValueKey('detail-more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('삭제'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('아카이브와 즐겨찾기에서도 삭제돼요. 삭제 후 복구할 수 없어요.'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byKey(const ValueKey('content-delete-cancel')));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsNothing);
+      }, textScale: scale);
+    });
+  }
+
+  for (final entry in ['전체보기', '카테고리', '미분류', '즐겨찾기', '검색', '상세', '오늘 상세']) {
+    for (final screenshot in [false, true]) {
+      testWidgets('콘텐츠 확인 취소 $entry screenshot=$screenshot', (tester) async {
+        final server = _Server(
+          respond: (request, server) {
+            if (request.url.path == '/api/v1/recommendations/today') {
+              return _json({
+                'stage': 1,
+                'recommendation_date': '2026-11-06',
+                'batch_id': 71,
+                'generated_at': '2026-11-06T10:00:00Z',
+                'items': [
+                  for (var i = 0; i < server.records.length; i++)
+                    {
+                      'recommendation_item_id': 700 + i,
+                      'rank': i + 1,
+                      'content': server.records[i],
+                    },
+                ],
+              });
+            }
+            if (request.url.path == '/api/v1/recommendations/exposures') {
+              return http.Response('', 204);
+            }
+            return null;
+          },
+        );
+        for (final record in server.records) {
+          record['is_favorite'] = true;
+          if (screenshot) record['content_type'] = 'screenshot';
+          if (entry == '미분류') record['categories'] = [_uncategorized];
+        }
+        await _withApp(tester, server, () async {
+          if (entry == '오늘 상세') {
+            tester.widget<HomeScreen>(find.byType(HomeScreen)).onOpenToday();
+            await tester.pumpAndSettle();
+          } else if (entry == '상세') {
+            await _detail(tester);
+          } else if (entry == '검색') {
+            await _search(tester, '피드');
+          } else if (entry == '즐겨찾기') {
+            tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .onTab(AppRoute.bookmark);
+            await tester.pumpAndSettle();
+          } else {
+            await _archive(tester);
+            if (entry != '전체보기') {
+              _currentArchive(tester).onOpenCategory(
+                _currentArchive(tester).categories.singleWhere(
+                  (c) => c.id == (entry == '미분류' ? 303 : 101),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+          }
+          for (final dismissal in ['취소', '바깥', '뒤로']) {
+            if (entry == '상세' || entry == '오늘 상세') {
+              await tester.tap(find.byKey(const ValueKey('detail-more')));
+            } else {
+              final card = find.byType(ContentListCard).first;
+              final aligned = find.descendant(
+                of: card,
+                matching: find.byKey(
+                  ValueKey(
+                    'archive-all-more-${tester.widget<ContentListCard>(card).content.id}',
+                  ),
+                ),
+              );
+              final more = aligned.evaluate().isNotEmpty
+                  ? aligned
+                  : find.descendant(
+                      of: card,
+                      matching: find.byWidgetPredicate(
+                        (w) => w is SvgIconButton && w.asset == Assets.more,
+                      ),
+                    );
+              await tester.tap(more);
+            }
+            await tester.pumpAndSettle();
+            final reads = server.requests.length;
+            await tester.tap(find.text('삭제'));
+            await tester.pumpAndSettle();
+            expect(find.text('콘텐츠를 삭제할까요?'), findsOneWidget);
+            expect(_mutations(server), isEmpty);
+            expect(server.records, hasLength(3));
+            if (dismissal == '취소') {
+              await tester.tap(
+                find.byKey(const ValueKey('content-delete-cancel')),
+              );
+            } else if (dismissal == '바깥') {
+              await tester.tapAt(const Offset(5, 5));
+            } else {
+              await tester.binding.handlePopRoute();
+            }
+            await tester.pumpAndSettle();
+            expect(server.requests.length, reads);
+            expect(_mutations(server), isEmpty);
+            expect(
+              server.records.every((r) => r['is_favorite'] == true),
+              isTrue,
+            );
+            expect(find.text('삭제 중…'), findsNothing);
+            expect(find.byType(Dialog), findsNothing);
+            if (entry == '상세' || entry == '오늘 상세') {
+              expect(find.byType(DetailScreen), findsOneWidget);
+            }
+          }
+          if (entry == '상세' || entry == '오늘 상세') {
+            await tester.tap(find.byKey(const ValueKey('detail-more')));
+          } else {
+            final card = find.byType(ContentListCard).first;
+            final aligned = find.descendant(
+              of: card,
+              matching: find.byKey(
+                ValueKey(
+                  'archive-all-more-${tester.widget<ContentListCard>(card).content.id}',
+                ),
+              ),
+            );
+            final more = aligned.evaluate().isNotEmpty
+                ? aligned
+                : find.descendant(
+                    of: card,
+                    matching: find.byWidgetPredicate(
+                      (w) => w is SvgIconButton && w.asset == Assets.more,
+                    ),
+                  );
+            await tester.tap(more);
+          }
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('삭제'));
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('content-delete-confirm')),
+          );
+          await tester.pumpAndSettle();
+          expect(_mutations(server), hasLength(1));
+          expect(_mutations(server).single.url.path, '/api/v1/contents/3');
+          expect(server.records, hasLength(2));
+          expect(find.text('피드 항목 1'), findsNothing);
+          if (entry == '상세' || entry == '오늘 상세') {
+            expect(find.byType(DetailScreen), findsNothing);
+          }
+        });
+      });
+    }
+  }
+
+  for (final success in [true, false]) {
+    testWidgets('확인 연타와 보류된 DELETE 완료 success=$success', (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        respond: (r, _) => r.method == 'DELETE' ? pending.future : null,
+      );
+      await _withApp(tester, server, () async {
+        await _detail(tester);
+        await tester.tap(find.byKey(const ValueKey('detail-more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('삭제'));
+        await tester.tap(find.text('삭제'), warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget);
+        final confirm = find.byKey(const ValueKey('content-delete-confirm'));
+        await tester.tap(confirm);
+        await tester.tap(confirm, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(_mutations(server), hasLength(1));
+        expect(_mutations(server).single.url.path, '/api/v1/contents/3');
+        expect(_currentDetail(tester).content.mutationLabel, '삭제 중…');
+        expect(_currentDetail(tester).contents, hasLength(3));
+        expect(
+          tester
+              .widget<SvgIconButton>(find.byKey(const ValueKey('detail-more')))
+              .enabled,
+          isFalse,
+        );
+        pending.complete(success ? null : _json({'detail': '삭제 거절'}, 503));
+        await tester.pumpAndSettle();
+        if (success) {
+          expect(find.byType(DetailScreen), findsNothing);
+          expect(server.records, hasLength(2));
+        } else {
+          expect(_currentDetail(tester).content.apiId, 3);
+          expect(_currentDetail(tester).content.mutationLabel, isNull);
+          expect(find.text('삭제 거절'), findsOneWidget);
+        }
+      });
+    });
+  }
+
+  for (final transition in ['대상 전환', '화면 종료', '계정 전환']) {
+    testWidgets('확인 대기 중 $transition 후 늦은 확인은 삭제하지 않는다', (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _detail(tester);
+        final detail = _currentDetail(tester);
+        await tester.tap(find.byKey(const ValueKey('detail-more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('삭제'));
+        await tester.pumpAndSettle();
+        if (transition == '대상 전환') {
+          detail.onOpenContent(detail.contents[1]);
+        } else {
+          detail.onTab(transition == '계정 전환' ? AppRoute.my : AppRoute.home);
+        }
+        await tester.pumpAndSettle();
+        if (transition == '계정 전환') {
+          tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+          await tester.pumpAndSettle();
+          await startLogoutFromAccount(tester);
+          await tester.pumpAndSettle();
+          await startGuestAndFinishOnboarding(tester);
+          expect(server.userId, 2);
+        }
+        final confirm = find.byKey(const ValueKey('content-delete-confirm'));
+        if (confirm.evaluate().isNotEmpty) await tester.tap(confirm);
+        await tester.pumpAndSettle();
+        expect(_mutations(server), isEmpty);
+        expect(server.records, hasLength(3));
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
 
   testWidgets('delete keeps the open detail and list until failure is known', (
     tester,
