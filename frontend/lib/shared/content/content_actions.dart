@@ -1,4 +1,5 @@
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/content/content_delete_dialog.dart';
 import 'package:clipback_frontend/shared/content/mutation_status.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -6,12 +7,14 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 
-class ContentActionSheet extends StatelessWidget {
+class ContentActionSheet extends StatefulWidget {
   const ContentActionSheet({
     required this.content,
     required this.categories,
     required this.onChangeCategory,
     required this.onDelete,
+    required this.ownerContext,
+    required this.isCurrent,
     super.key,
   });
 
@@ -19,6 +22,33 @@ class ContentActionSheet extends StatelessWidget {
   final List<CategoryItem> categories;
   final ValueChanged<CategoryItem> onChangeCategory;
   final VoidCallback onDelete;
+  final BuildContext ownerContext;
+  final bool Function() isCurrent;
+
+  @override
+  State<ContentActionSheet> createState() => _ContentActionSheetState();
+}
+
+class _ContentActionSheetState extends State<ContentActionSheet> {
+  bool _confirming = false;
+  ContentItem get content => widget.content;
+  List<CategoryItem> get categories => widget.categories;
+  ValueChanged<CategoryItem> get onChangeCategory => widget.onChangeCategory;
+
+  Future<void> _delete() async {
+    if (_confirming || !widget.isCurrent()) return;
+    _confirming = true;
+    final owner = widget.ownerContext;
+    final isCurrent = widget.isCurrent;
+    final onDelete = widget.onDelete;
+    Navigator.pop(context);
+    final confirmed = await showDialog<bool>(
+      context: owner,
+      builder: (_) => const ContentDeleteDialog(),
+    );
+    // The sheet has closed; only its originating screen can authorize the write.
+    if (confirmed == true && owner.mounted && isCurrent()) onDelete();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,10 +83,7 @@ class ContentActionSheet extends StatelessWidget {
           title: '삭제',
           description: '저장한 콘텐츠 목록에서 제거해요.',
           enabled: content.mutationLabel == null,
-          onTap: () {
-            onDelete();
-            Navigator.pop(context);
-          },
+          onTap: _delete,
         ),
       ],
     );

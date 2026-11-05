@@ -76,11 +76,20 @@ class ContentListCard extends StatelessWidget {
                         context: context,
                         useSafeArea: true,
                         backgroundColor: Colors.transparent,
-                        builder: (context) => ContentActionSheet(
+                        builder: (_) => ContentActionSheet(
+                          ownerContext: context,
                           content: content,
                           categories: categories,
                           onChangeCategory: onChangeCategory,
                           onDelete: onDelete,
+                          isCurrent: () =>
+                              context.mounted &&
+                              (context.widget as ContentListCard).content.id ==
+                                  content.id &&
+                              (context.widget as ContentListCard)
+                                      .content
+                                      .mutationLabel ==
+                                  null,
                         ),
                       ),
                       size: 24,
@@ -375,11 +384,24 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                       context: context,
                       useSafeArea: true,
                       backgroundColor: Colors.transparent,
-                      builder: (context) => ContentActionSheet(
+                      builder: (_) => ContentActionSheet(
+                        ownerContext: context,
                         content: content,
                         categories: card.categories,
                         onChangeCategory: card.onChangeCategory,
                         onDelete: card.onDelete,
+                        isCurrent: () =>
+                            context.mounted &&
+                            (context.widget as _ArchiveAllContentListCard)
+                                    .card
+                                    .content
+                                    .id ==
+                                content.id &&
+                            (context.widget as _ArchiveAllContentListCard)
+                                    .card
+                                    .content
+                                    .mutationLabel ==
+                                null,
                       ),
                     ),
                   ),
