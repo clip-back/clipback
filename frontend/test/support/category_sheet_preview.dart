@@ -109,8 +109,10 @@ class CategorySheetPreviewHost extends StatefulWidget {
     super.key,
     this.platform,
     this.isolatedFormCapProbe = false,
+    this.textScale = 1,
   });
   final TargetPlatform? platform;
+  final double textScale;
   // Only the short-height unit probe isolates the modal from the unrelated
   // archive background's own keyboard-resize overflow. Native scenes keep
   // the actual ArchiveScreen/CategoryManagementScreen origins below.
@@ -270,8 +272,13 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
       useMaterial3: true,
       platform: widget.platform,
       scaffoldBackgroundColor: AppColors.bg,
-      bottomSheetTheme: const BottomSheetThemeData(
-        constraints: BoxConstraints(maxWidth: phoneWidth),
+      bottomSheetTheme: BottomSheetThemeData(
+        constraints: BoxConstraints(
+          maxWidth: appContentWidth(
+            View.of(context).physicalSize.width /
+                View.of(context).devicePixelRatio,
+          ),
+        ),
       ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.main,
@@ -284,7 +291,9 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
       ),
     ),
     builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(widget.textScale)),
       child: child!,
     ),
     home: _home(),
@@ -1130,6 +1139,16 @@ Map<String, Object?> sheetJudgment(Map<String, Object?> m) {
     if (options.length != 8) {
       layout.add('Exact existing eight palette choices required');
     }
+    final paletteBounds = b['palette'] as Map;
+    final swatchWidth = options.fold<double>(
+      0,
+      (total, entry) =>
+          total + (entry['color'] == g['paletteSelectedColor'] ? 36 : 30),
+    );
+    final gap = math.max(
+      8.0,
+      ((paletteBounds['width'] as num) - swatchWidth) / 7,
+    );
     Map? previous;
     for (final entry in options) {
       final v = entry['visual'] as Map?,
@@ -1163,12 +1182,24 @@ Map<String, Object?> sheetJudgment(Map<String, Object?> m) {
       if (previous != null) {
         near(
           (spacingBox['left'] as num) - (previous['right'] as num),
-          8,
-          'Visible swatch gap',
+          gap,
+          'Visible swatch distributed gap',
         );
       }
       previous = spacingBox;
     }
+    final scrollOffset = g['paletteScrollOffset'] as num;
+    near(
+      ((options.first['hit'] as Map)['left'] as num) + scrollOffset,
+      paletteBounds['left'] as num,
+      'Palette first edge',
+    );
+    near(
+      ((options.last['hit'] as Map)['right'] as num) + scrollOffset,
+      (paletteBounds['left'] as num) +
+          math.max(paletteBounds['width'] as num, swatchWidth + 56),
+      'Palette last edge',
+    );
     if (a['custom'] != null || b['custom'] != null) {
       styles.add('Rainbow image and tap target must be absent');
     }

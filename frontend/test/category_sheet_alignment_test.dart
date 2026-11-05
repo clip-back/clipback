@@ -13,6 +13,7 @@ Future<GlobalKey<CategorySheetPreviewState>> _pump(
   TargetPlatform platform = TargetPlatform.iOS,
   double width = 375,
   double height = 812,
+  double textScale = 1,
   double? bottom,
   bool isolatedFormCapProbe = false,
 }) async {
@@ -28,6 +29,7 @@ Future<GlobalKey<CategorySheetPreviewState>> _pump(
     CategorySheetPreviewHost(
       key: key,
       platform: platform,
+      textScale: textScale,
       isolatedFormCapProbe: isolatedFormCapProbe,
     ),
   );
@@ -98,6 +100,146 @@ void main() {
     }
     await font.load();
   });
+  for (final width in [320.0, 375.0, 393.0, 411.43]) {
+    for (final scale in [1.0, 1.3]) {
+      for (final origin in ['archive', 'management']) {
+        for (final kind in ['create', 'edit', 'outside']) {
+          testWidgets('distributed palette $width scale$scale $origin $kind', (
+            tester,
+          ) async {
+            final key = await _pump(tester, width: width, textScale: scale);
+            final selectedIndex = kind == 'create'
+                ? 0
+                : kind == 'edit'
+                ? 4
+                : -1;
+            final initial = kind == 'outside'
+                ? const Color(0xFFFF6F61)
+                : const Color(0xFF64B5F6);
+            if (kind != 'create') {
+              key.currentState!.categories[0] = sheetPrimary.copyWith(
+                color: initial,
+              );
+              await tester.tap(find.text('전체보기'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('카테고리'));
+              await tester.pumpAndSettle();
+            }
+            await _open(
+              tester,
+              kind == 'create' ? 'create-filled' : 'edit',
+              origin: origin,
+            );
+            final palette = find.byType(FolderColorPicker);
+            final choices = find.descendant(
+              of: palette,
+              matching: find.byType(InkWell),
+            );
+            expect(choices, findsNWidgets(8));
+            expect(
+              MediaQuery.textScalerOf(
+                tester.element(find.byType(TextField)),
+              ).scale(10),
+              scale * 10,
+            );
+            final available = width - 48;
+            final contentWidth = width == 320
+                ? (kind == 'outside' ? 296.0 : 302.0)
+                : available;
+            final gap = width == 320
+                ? 8.0
+                : (available - (kind == 'outside' ? 240 : 246)) / 7;
+            expect(tester.getSize(palette).width, closeTo(available, .001));
+            var expectedLeft = 24.0;
+            final top = tester.getRect(choices.first).top;
+            const rgb = [
+              0xFFFF6277,
+              0xFFFFA24B,
+              0xFFFFD75C,
+              0xFF5BD89D,
+              0xFF64B5F6,
+              0xFFB9AAFF,
+              0xFFFFB3C1,
+              0xFF1F5E24,
+            ];
+            for (var i = 0; i < 8; i++) {
+              final choice = choices.at(i);
+              expect(
+                tester.widget<InkWell>(choice).key,
+                ValueKey('palette-color-${rgb[i].toRadixString(16)}'),
+              );
+              final box = tester.getRect(choice);
+              final size = selectedIndex == i ? 36.0 : 30.0;
+              expect(box.left, closeTo(expectedLeft, .001));
+              expect(box.width, closeTo(size, .001));
+              expect(box.height, 36);
+              expect(box.top, top);
+              expectedLeft += size + gap;
+            }
+            expect(
+              tester.getRect(choices.last).right,
+              closeTo(24 + contentWidth, .001),
+            );
+            expect(
+              find.descendant(of: palette, matching: find.byType(SvgPicture)),
+              kind == 'outside' ? findsNothing : findsOneWidget,
+            );
+            if (width == 320) {
+              final scroll = find.descendant(
+                of: palette,
+                matching: find.byType(Scrollable),
+              );
+              final state = tester.state<ScrollableState>(scroll);
+              expect(state.position.pixels, 0);
+              await tester.drag(palette, const Offset(-120, 0));
+              await tester.pumpAndSettle();
+              expect(state.position.pixels, greaterThan(0));
+              expect(
+                tester.getRect(choices.last).right,
+                closeTo(width - 24, .001),
+              );
+            }
+            if (kind == 'outside') {
+              await tester.enterText(find.byType(TextField), '이름만 수정');
+              await tester.pump();
+            } else {
+              await tester.tap(
+                find.byKey(const ValueKey('palette-color-ff1f5e24')),
+              );
+              await tester.pump();
+            }
+            final expectedColor = kind == 'outside'
+                ? initial
+                : const Color(0xFF1F5E24);
+            expect(
+              tester.widget<FolderColorPicker>(palette).selectedColor,
+              expectedColor,
+            );
+            expect(
+              tester
+                  .widget<SvgPicture>(
+                    find.byKey(const ValueKey('category-form-folder')),
+                  )
+                  .colorFilter,
+              ColorFilter.mode(expectedColor, BlendMode.srcIn),
+            );
+            await tester.tap(
+              find.widgetWithText(
+                FilledButton,
+                kind == 'create' ? '생성하기' : '수정하기',
+              ),
+            );
+            await tester.pumpAndSettle();
+            final saved = key.currentState!.categories.firstWhere(
+              (v) => v.id == (kind == 'create' ? 900 : 101),
+            );
+            expect(saved.color, expectedColor);
+            expect(tester.takeException(), isNull);
+          });
+        }
+      }
+    }
+  }
   for (final origin in ['archive', 'management']) {
     for (final kind in ['create-empty', 'edit']) {
       testWidgets('$origin $kind has only eight solid color targets', (
@@ -526,7 +668,7 @@ void main() {
   }
   for (final color in FolderColorPicker.colors) {
     testWidgets(
-      'solid $color preserves 375px left alignment and submits selected color',
+      'solid $color distributes across 375px and submits selected color',
       (tester) async {
         final key = await _pump(tester);
         await _open(tester, 'create-filled');
@@ -547,7 +689,10 @@ void main() {
           expect(box.width, i == 0 ? 36 : 30);
           expect(box.top, tester.getRect(choices.first).top);
           if (i > 0) {
-            expect(box.left - tester.getRect(choices.at(i - 1)).right, 8);
+            expect(
+              box.left - tester.getRect(choices.at(i - 1)).right,
+              closeTo(81 / 7, .001),
+            );
           }
         }
         await tester.tap(
