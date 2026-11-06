@@ -34,7 +34,12 @@ async def run(args) -> dict:
         if args.command == "delete-account":
             async with MaintenanceGate(AsyncSessionLocal).operation("account_deletion"), \
                     AsyncSessionLocal() as session:
-                return await delete_account(session, args.user_id)
+                try:
+                    return await delete_account(session, args.user_id)
+                except AccountNotFoundError as exc:
+                    # A settled no-op: end the admission normally, unlike uncertain failures.
+                    missing = exc
+            raise missing
         async with MaintenanceGate(AsyncSessionLocal).operation("deletion_retry"), \
                 AsyncSessionLocal() as session:
             return await retry_image_deletions(session, limit=args.limit)

@@ -266,6 +266,25 @@ async def test_missing_or_already_deleted_account_is_1_and_changes_nothing(opera
     assert ledger_events() == events
 
 
+@pytest.mark.parametrize("form", FORMS)
+@pytest.mark.parametrize("case", ["missing", "already-deleted"])
+async def test_missing_account_leaves_no_maintenance_admission(operator, png_bytes, case, form):
+    """A settled no-op ends its admission; a left one would block a later maintenance drain."""
+    _, engine, _ = operator
+    _, user, _ = await account(operator, png_bytes)
+    target = user["id"]
+    if case == "missing":
+        target = await scalar(engine, select(func.max(User.id))) + 1000
+    else:
+        assert (await command(*deleted(target)))[0] == 0
+    async with engine.connect() as connection:
+        before = await database_rows(connection)
+
+    assert await command(*deleted(target), form=form) == (1, "", NOT_FOUND)
+    async with engine.connect() as connection:
+        assert await database_rows(connection) == before
+
+
 async def test_ledger_failure_is_1_and_keeps_the_account(operator, png_bytes, tmp_path):
     _, engine, _ = operator
     _, user, _ = await account(operator, png_bytes)
@@ -302,6 +321,10 @@ async def test_database_failure_after_the_record_is_1_and_a_rerun_reuses_the_rec
     assert (code, output, error) == (1, "", FAILED)
     assert await account_data(engine) == before
     assert len(list(tmp_path.rglob("*.png"))) == 1
+    # An uncertain failure keeps its admission as evidence (the gate's rule).
+    assert await scalar(engine, select(func.count()).select_from(MaintenanceOperation).where(
+        MaintenanceOperation.kind == "account_deletion"
+    )) == 1
     # The record stays as a confirmed deletion request (U2).
     [record] = ledger_events()
     assert record["user_id"] == user["id"]

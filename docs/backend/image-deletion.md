@@ -125,7 +125,7 @@ python scripts/image_deletions.py delete-account --user-id <계정 번호> --con
 | 결과 | 종료 코드 | 출력 |
 | --- | --- | --- |
 | 삭제 성공 | 0 | 표준 출력 JSON 한 줄 `{"deleted": true, "pending_original_cleanup": <수>}` |
-| 계정 없음(이미 지워짐 포함) | 1 | 표준 오류 `Account not found; nothing was deleted`, DB 변화 없음 |
+| 계정 없음(이미 지워짐 포함) | 1 | 표준 오류 `Account not found; nothing was deleted`, DB 변화 없음(점검 admission도 정상 종료) |
 | 장부·DB 실패, 점검 중, 설정 오류, 그 밖의 오류 | 1 | 표준 오류 `Account deletion failed; no successful completion is confirmed` |
 | 계정 번호 없음·숫자 아님·0 이하, 확인 옵션 없음 | 2 | 표준 오류 사용법 안내, DB 변화 없음 |
 
