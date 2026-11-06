@@ -45,6 +45,10 @@ ssh -N \
 `secret_key`, `access_token` 두 개다. 값은 명령 인자에 직접 넣지 않는다. 복원 인증에 필요한 이 자격만
 격리 API에 사용하며 운영 DB·Bucket·점검 제어·SSH 접속 자격을 격리 대상에 전달하지 않는다.
 
+토큰 계정이 백업 뒤 탈퇴했다면 복원은 그 계정을 다시 지우고, 토큰으로 `users/me`와 삭제 경로가 401인지 확인해
+통과한다. 이때 원본 열람 확인은 건너뛴다(`image_get_skipped: true`). 원본 열람까지 확인하려면 탈퇴하지 않은
+계정의 토큰을 준비한다. 판정은 [백업 복원의 탈퇴 기록 판정](backup-recovery.md)을 따른다.
+
 필요한 백업 커밋의 revision 라벨이 있는 API 이미지, 같은 주 버전 `postgres:18` 및 Bucket 자산이
 있다면 `motoserver/moto:5.2.4` 이미지를 미리 준비한다. 이미지를 자동 다운로드하지 않는다.
 저장소 밖의 `0700` 실행 루트를 만든 뒤 backend 개발 환경에서 실행한다.
@@ -106,6 +110,8 @@ python -m scripts.restore_execution run --workspace /absolute/private/restore-ru
 - `restore_receipt_finished`: 서버의 복원 작업 종료가 확인됐는지. 거짓이면 재개 전에 추가 확인이 필요하다.
 - `maintenance_resumed`: 항상 거짓이다. 재개는 운영자가 별도 수행한다.
 - `cleanup_passed`, `child_stopped`, `executors_stopped`, `source_lock_released`: 정리와 안전한 종료 확인.
+- `deleted_account_count`, `token_account_deleted`: 탈퇴 기록으로 다시 지운 계정 수와, 토큰 계정이 그중 하나라
+  401과 DB 0개로 인증 확인을 대신했는지. 지운 계정의 행이 DB에 남거나 그 토큰이 200을 받으면 `passed`는 거짓이다.
 
 정상 종료와 확인된 실패는 해당 실행이 만든 임시 DB·이미지 사본·자격 사본·컨테이너·볼륨·네트워크를 정리한다.
 자식의 임시 `runtime.env`도 실행 소유 임시 폴더 안에 만들어 강제 종료 뒤에 정리한다.

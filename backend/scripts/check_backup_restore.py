@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from jose import JWTError, jwt
+
 from scripts import recovery_point
 
 # Old API images run the probe, which imports CheckError from this module (ADR 0004).
@@ -26,6 +28,7 @@ DELETE_PROBE = Path(__file__).with_name("recovery_deletions.py").read_text()
 OWNER_LABEL = "clipback.recovery.owner"
 REVISION_LABEL = "org.opencontainers.image.revision"
 SNAPSHOT_KEYS = ("migration_revisions", "tables", "category_links_sha256", "assets", "sample")
+ACCOUNT_DELETION = "account_deletion"
 
 
 def private_json(path):
@@ -42,6 +45,17 @@ def private_json(path):
         "invalid_credentials",
     )
     return value
+
+
+def token_account(credentials):
+    """The access token's account if the restored API would accept the token, else None."""
+    try:
+        claims = jwt.decode(
+            credentials["access_token"], credentials["secret_key"], algorithms=["HS256"]
+        )
+        return int(claims["sub"]) if claims.get("type") == "access" else None
+    except (JWTError, KeyError, TypeError, ValueError):
+        return None
 
 
 class Docker:
@@ -294,7 +308,7 @@ class RestoreDrill:
                 "access_token": credentials["access_token"],
                 "format_version": manifest["format_version"],
             }
-            deleted = []
+            deleted, deleted_accounts = [], []
             if self.deletion_events is not None:
                 probe = self.owner + "-before-deletions"
                 self.container(
@@ -302,8 +316,15 @@ class RestoreDrill:
                     "-v", f"{files}:/data", "--entrypoint", "python", app_image,
                     "-c", PROBE,
                 )
+                # Accounts the restored DB holds for account deletion records (ADR 0008).
+                accounts = [
+                    {"user_id": event["user_id"], "user_created_at": event["user_created_at"]}
+                    for event in self.deletion_events if event.get("kind") == ACCOUNT_DELETION
+                ]
                 with tempfile.TemporaryFile() as stream:
-                    stream.write(json.dumps({**payload, "verify_api": False}).encode())
+                    stream.write(json.dumps(
+                        {**payload, "verify_api": False, "account_deletions": accounts}
+                    ).encode())
                     stream.seek(0)
                     before = json.loads(self.docker("start", "-a", "-i", probe, stdin=stream))
                 require(all(before[k] == manifest[k] for k in SNAPSHOT_KEYS),
@@ -320,11 +341,18 @@ class RestoreDrill:
                     result = self.docker("start", "-a", "-i", apply, stdin=stream)
                     deleted = json.loads(result)["deleted"]
                 payload["deleted"] = deleted
+                deleted_accounts = before["matching_accounts"]
+                if deleted_accounts:
+                    # The probe expects 401 for a deleted token account and no rows for any.
+                    payload["deleted_accounts"] = deleted_accounts
+                    payload["token_account_deleted"] = (
+                        token_account(credentials) in deleted_accounts
+                    )
                 # Preserve a living sample and its owner. Only a deleted sample
                 # needs a replacement from the authenticated account.
-                if payload["sample"] and any(
+                if payload.get("token_account_deleted") or (payload["sample"] and any(
                     item["content_id"] == payload["sample"]["content_id"] for item in deleted
-                ):
+                )):
                     payload["sample"] = None
             self.container(
                 api, "--network", network, "--env-file", str(env), "-v", f"{files}:/data", app_image
@@ -356,6 +384,8 @@ class RestoreDrill:
                 "image_get_skipped": actual["sample"] is None,
                 "deletions_applied": self.deletion_events is not None,
                 "deleted_content_count": len(deleted),
+                "deleted_account_count": len(deleted_accounts),
+                "token_account_deleted": payload.get("token_account_deleted", False),
             }
 
 
