@@ -47,6 +47,13 @@ abstract class SocialAuth {
     String? nonce,
   });
   Future<void> signOut([SocialLoginProvider? provider]);
+
+  /// [signOut] without clearing the stored Apple user ID: after a withdrawal
+  /// only the stored-login cleanup clears it, once it has identified the
+  /// stored login (#257). Defaults to [signOut] for an implementation that
+  /// stores no Apple user ID.
+  Future<void> signOutSdks([SocialLoginProvider? provider]) =>
+      signOut(provider);
   Future<void> rememberAppleUserId(String? userId);
   Future<AppleCredentialStatus> appleCredentialState();
   Stream<void> get appleCredentialRevocations => const Stream<void>.empty();
@@ -231,6 +238,24 @@ class PlatformSocialAuth extends SocialAuth {
   @override
   Future<void> signOut([SocialLoginProvider? provider]) async {
     var failed = false;
+    try {
+      await signOutSdks(provider);
+    } catch (_) {
+      failed = true;
+    }
+    try {
+      await rememberAppleUserId(null);
+    } catch (_) {
+      failed = true;
+    }
+    if (failed) {
+      throw const SocialAuthException('기기의 소셜 로그인 정보를 정리하지 못했어요.');
+    }
+  }
+
+  @override
+  Future<void> signOutSdks([SocialLoginProvider? provider]) async {
+    var failed = false;
     if (supportedProviders.contains(SocialLoginProvider.google) &&
         (provider == null || provider == SocialLoginProvider.google) &&
         _config.googleServerClientId.isNotEmpty) {
@@ -250,11 +275,6 @@ class PlatformSocialAuth extends SocialAuth {
       } catch (_) {
         failed = true;
       }
-    }
-    try {
-      await rememberAppleUserId(null);
-    } catch (_) {
-      failed = true;
     }
     if (failed) {
       throw const SocialAuthException('기기의 소셜 로그인 정보를 정리하지 못했어요.');

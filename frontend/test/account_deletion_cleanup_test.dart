@@ -158,10 +158,59 @@ class _Social extends isolated.ArchiveAllSocialAuth {
   }
 }
 
+/// Session storage whose reads can be made to fail after launch.
+class _Storage extends fixture.LogoutMemoryStorage {
+  bool failRead = false;
+  @override
+  Future<ApiSession?> read() async {
+    if (failRead) throw StateError('Fixture session read failure');
+    return super.read();
+  }
+}
+
+/// SDK side of the real [PlatformSocialAuth]: only local cleanup is used.
+class _Sdk implements SocialAuthSdk {
+  int googleSignOuts = 0, googleDisconnects = 0, kakaoClears = 0;
+  @override
+  Future<void> initializeGoogle({
+    required String serverClientId,
+    String? iosClientId,
+  }) async {}
+  @override
+  Future<SocialCredential> authenticateGoogle() => throw UnimplementedError();
+  @override
+  Future<void> signOutGoogle() async => googleSignOuts++;
+  @override
+  Future<void> disconnectGoogle() async => googleDisconnects++;
+  @override
+  Future<void> initializeKakao(String nativeAppKey) async {}
+  @override
+  Future<bool> isKakaoTalkInstalled() async => false;
+  @override
+  Future<SocialCredential> authenticateKakaoTalk({String? nonce}) =>
+      throw UnimplementedError();
+  @override
+  Future<SocialCredential> authenticateKakaoAccount({String? nonce}) =>
+      throw UnimplementedError();
+  @override
+  Future<void> clearKakaoTokens() async => kakaoClears++;
+  @override
+  Future<SocialCredential> authenticateApple({required String nonce}) =>
+      throw UnimplementedError();
+  @override
+  Future<AppleCredentialStatus> appleCredentialState(String userId) async =>
+      AppleCredentialStatus.authorized;
+  @override
+  Future<bool> hasIosUrlScheme(String scheme) async => true;
+  @override
+  Stream<void> get appleCredentialRevocations => const Stream.empty();
+}
+
 class _Device {
   final server = _Server();
-  final storage = fixture.LogoutMemoryStorage();
+  final storage = _Storage();
   final social = _Social();
+  SocialAuth? socialAuth;
   final history = _History();
   final shares = _Shares();
 }
@@ -185,7 +234,7 @@ Future<void> _launch(WidgetTester tester, _Device device) async {
     ClipbackApp(
       key: UniqueKey(),
       sessionStorage: device.storage,
-      socialAuth: device.social,
+      socialAuth: device.socialAuth ?? device.social,
       searchHistoryStorage: device.history,
       nativeShare: NativeShareService(enabled: true),
     ),
@@ -198,6 +247,7 @@ Future<void> _withdraw(
   WidgetTester tester,
   _Device device, {
   bool settle = true,
+  void Function()? beforeSubmit,
 }) async {
   await _launch(tester, device);
   await tester.tap(
@@ -222,6 +272,7 @@ Future<void> _withdraw(
   await tester.pump();
   final submit = find.byKey(const ValueKey('account-deletion-submit'));
   await tester.ensureVisible(submit);
+  beforeSubmit?.call();
   await tester.tap(submit);
   if (settle) await tester.pumpAndSettle();
 }
@@ -443,4 +494,57 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  // Ownership design review: an unread stored session holds the whole stored
+  // login. The real social sign-out after 204 must not clear the stored Apple
+  // user ID either; only the stored-login cleanup does, once it can read.
+  testWidgets(
+    'iOS an unread stored session at 204 keeps the session and Apple user ID '
+    'through the social SDK cleanup, and the next launch clears them',
+    (tester) async {
+      await _run(tester, (device) async {
+        final sdk = _Sdk();
+        device.socialAuth = PlatformSocialAuth(
+          sdk: sdk,
+          config: const SocialAuthConfig(kakaoNativeAppKey: 'test-kakao'),
+          platform: TargetPlatform.iOS,
+          isWeb: false,
+        );
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString('clipback.apple_user_id', 'apple-user');
+        await _withdraw(
+          tester,
+          device,
+          beforeSubmit: () => device.storage.failRead = true,
+        );
+        _expectJ06WithoutRetry(tester, device);
+        expect(device.storage.clears, 0);
+        expect(device.storage.value, isNotNull);
+        expect(preferences.getString('clipback.apple_user_id'), 'apple-user');
+        // The Kakao member's SDK cleanup still runs once.
+        expect(sdk.kakaoClears, 1);
+        expect(sdk.googleDisconnects, 0);
+        expect(await _record(), [
+          {
+            'environment': _environment,
+            'user_id': _deletedUser,
+            'remaining': ['storedLogin'],
+            'logins': [_deletedLogin],
+            'logins_complete': true,
+          },
+        ]);
+
+        // The app is closed on J06 and opened again with a readable store.
+        device.storage.failRead = false;
+        final requests = device.server.requests;
+        await _launch(tester, device);
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(device.server.requests, requests);
+        expect(await _record(), isNull);
+        expect(device.storage.value, isNull);
+        expect(preferences.getString('clipback.apple_user_id'), isNull);
+        expect(sdk.kakaoClears, 1);
+      });
+    },
+  );
 }

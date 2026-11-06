@@ -348,7 +348,8 @@ class RemoteSessionRepository extends SessionRepository {
       }
     }
     try {
-      await _socialAuth.signOut(provider);
+      // The stored Apple user ID is left to the stored-login cleanup above.
+      await _socialAuth.signOutSdks(provider);
     } catch (_) {
       // SDK sign-out is best effort, as after logout.
     }

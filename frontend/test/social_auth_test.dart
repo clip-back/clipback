@@ -388,6 +388,31 @@ void main() {
     },
   );
 
+  // #257: after a withdrawal the stored Apple user ID is cleared only by the
+  // stored-login cleanup, so the SDK cleanup leaves it.
+  test(
+    'SDK cleanup clears every local provider but keeps the Apple user ID',
+    () async {
+      await auth.rememberAppleUserId('test-apple-user');
+      await auth.signOutSdks();
+      expect(sdk.googleSignOuts, 1);
+      expect(sdk.kakaoClears, 1);
+      sdk.signOutError = StateError('cleanup failed');
+      await expectLater(
+        auth.signOutSdks(),
+        throwsA(isA<SocialAuthException>()),
+      );
+      expect(sdk.googleSignOuts, 2);
+      expect(sdk.kakaoClears, 2);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          'clipback.apple_user_id',
+        ),
+        'test-apple-user',
+      );
+    },
+  );
+
   test('another provider cannot start while a login is in flight', () async {
     sdk.googlePending = Completer<SocialCredential>();
     final first = auth.authenticate(SocialLoginProvider.google);
