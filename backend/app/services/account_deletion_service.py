@@ -52,6 +52,8 @@ from app.services.image_deletion_service import (
 
 logger = logging.getLogger(__name__)
 SEOUL = ZoneInfo("Asia/Seoul")
+# With the user id: queues one account's deletion requests (two-key advisory lock).
+ACCOUNT_DELETION_LOCK = 74264006
 
 
 def account_content_operation_id(operation_id: str, content_id: int, saved_at: str) -> str:
@@ -232,11 +234,17 @@ async def delete_account(
     """The app's deletion: provider unlinking → ledger record → DB deletion with the reason
     record → originals.
 
-    The ledger lock orders overlapping requests of one account. A later request rechecks the
-    account after the earlier one finishes: deleted → 401, otherwise it runs again and reuses
-    any ledger record the earlier one left (U2).
+    An account lock taken first queues overlapping requests of one account, before any
+    provider call. A later request rechecks the account after the earlier one finishes:
+    deleted → 401, otherwise it runs again and reuses any ledger record the earlier one left
+    (U2). Only this function takes the account lock and always before the ledger → account
+    row locks, so it adds no lock cycle; other accounts are not blocked during provider calls.
     """
     try:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :user_id)"),
+            {"namespace": ACCOUNT_DELETION_LOCK, "user_id": user_id},
+        )
         if not await revoke_provider_links(session, social_auth_client, user_id):
             raise AuthenticationError()
         intent = await record_account_deletion(session, user_id)

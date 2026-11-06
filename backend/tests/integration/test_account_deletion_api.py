@@ -343,12 +343,13 @@ async def until_lock(sessions, *, holders, waiters):
 
 
 async def overlap(client, headers, sessions, release):
-    """Start the first request, then a second one that waits for its ledger lock."""
+    """Start the first request, then a second one that waits for its account lock."""
     first = asyncio.create_task(delete_me(client, headers, json=REASONS))
     try:
-        await until_lock(sessions, holders=1, waiters=0)
+        # The first request holds the account lock and the ledger lock.
+        await until_lock(sessions, holders=2, waiters=0)
         second = asyncio.create_task(delete_me(client, headers, json={"reasons": ["rejoin"]}))
-        await until_lock(sessions, holders=1, waiters=1)
+        await until_lock(sessions, holders=2, waiters=1)
     except BaseException:
         release.set()  # A paused first request would block the fixture cleanup.
         raise

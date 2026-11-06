@@ -3,29 +3,49 @@
 Apple and Kakao run through the real social auth client over a fake HTTP transport.
 """
 
+import asyncio
 import logging
+import threading
 from types import SimpleNamespace
 from urllib.parse import parse_qs
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
+import pytest_asyncio
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from jose import jwt
 from pydantic import SecretStr
-from sqlalchemy import text
+from sqlalchemy import delete, text
 
 from app.core.config import settings
 from app.integrations import social_auth_client as social_auth_module
+from app.integrations.deletion_ledger import LedgerUnavailableError, get_deletion_ledger
 from app.integrations.social_auth_client import APPLE_ISSUER, SocialAuthClient
+from app.models.apple_auth import AppleAuthChallenge
+from app.models.category import Category
+from app.models.content import Content
+from app.models.content_event import ContentEvent
+from app.models.image_deletion import ImageDeletion
+from app.models.user import User
 from app.services import account_deletion_service
+from app.services.image_deletion_service import retry_image_deletions
 from tests.integration.helpers import guest, request
 from tests.integration.test_account_deletion import user_exists
-from tests.integration.test_account_deletion_api import REASONS, delete_me, ledger_events
+from tests.integration.test_account_deletion_api import (
+    REASONS,
+    delete_me,
+    ledger_events,
+    overlapping as overlapping,  # noqa: F401
+    pause_first_db_deletion,
+    until_lock,
+)
 from tests.integration.test_apple_auth import (
     apple_login,
     apple_provider as apple_provider,  # noqa: F401
 )
+from tests.integration.test_image_deletion import committed_api as committed_api  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
 APPLE_REVOKE = "https://appleid.apple.com/auth/revoke"
@@ -46,11 +66,15 @@ def providers(apple_provider, monkeypatch):  # noqa: F811
     ).decode()
     monkeypatch.setattr(settings, "apple_private_key", SecretStr(pem))
     monkeypatch.setattr(settings, "kakao_admin_key", SecretStr(ADMIN_KEY))
-    state = SimpleNamespace(requests=[], responses={}, cipher=apple_provider.cipher)
+    state = SimpleNamespace(
+        requests=[], responses={}, cipher=apple_provider.cipher, gate=None,
+    )
 
-    def handler(http_request):
+    async def handler(http_request):
         url = str(http_request.url)
         state.requests.append(http_request)
+        if state.gate is not None:
+            await state.gate.wait()
         response = state.responses.get(url, httpx.Response(200, json={}))
         if isinstance(response, Exception):
             raise response
@@ -243,3 +267,196 @@ async def test_revocation_is_not_undone_when_the_database_deletion_fails(
     assert await user_exists(database_connection, user["id"])
     # Sent once and never followed by a reconnecting request.
     assert [str(r.url) for r in providers.requests] == [KAKAO_UNLINK]
+
+
+# Same-account requests queue on an account lock before any provider call (S1, user decision A:
+# "계정 단위 잠금(PostgreSQL advisory lock)으로 같은 계정의 탈퇴만 줄 세운다"). These run on
+# committed sessions so the lock waits are real.
+
+
+@pytest_asyncio.fixture
+async def committed(overlapping, providers):  # noqa: F811
+    client, guest_headers, sessions, _ = overlapping
+    created, challenges = [], []
+
+    async def account(provider):
+        subject = f"overlap-{uuid4().hex}"
+        if provider == "apple":
+            _, headers, payload = await apple_login(client, subject=subject)
+            challenges.append(UUID(payload["challenge_id"]))
+        else:
+            tokens = await request(client, "POST", "auth/social/kakao", json={"token": subject})
+            headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        created.append((await request(client, "GET", "users/me", headers=headers))["id"])
+        return headers
+
+    state = SimpleNamespace(
+        client=client, sessions=sessions, account=account, guest_headers=guest_headers,
+        releases=[], tasks=[],
+    )
+
+    def run(coroutine):
+        task = asyncio.create_task(coroutine)
+        state.tasks.append(task)
+        return task
+
+    state.run = run
+    try:
+        yield state
+    finally:
+        # A paused request holds its locks and would block the cleanup below.
+        for release in [providers.gate, *state.releases]:
+            if release is not None:
+                release.set()
+        await asyncio.wait_for(
+            asyncio.gather(*state.tasks, return_exceptions=True), timeout=30
+        )
+        async with sessions() as session:
+            for model in (ImageDeletion, ContentEvent, Content, Category, User):
+                column = User.id if model is User else model.user_id
+                await session.execute(delete(model).where(column.in_(created)))
+            # Login challenges have no user, so they outlive the account.
+            await session.execute(
+                delete(AppleAuthChallenge).where(AppleAuthChallenge.id.in_(challenges))
+            )
+            await session.commit()
+
+
+async def started(task):
+    """Fail at once if a request that should be waiting has already finished."""
+    await asyncio.sleep(0.2)
+    assert not task.done(), task.result().status_code
+
+
+@pytest.mark.parametrize("provider", ["apple", "kakao"])
+async def test_overlapping_request_waits_before_reading_or_revoking_provider_links(
+    committed, providers, provider,
+):
+    """Front request revoking → the later one waits, then finds the account gone (401)."""
+    headers = await committed.account(provider)
+    providers.gate = asyncio.Event()
+    first = committed.run(delete_me(committed.client, headers, json=REASONS))
+    await until_lock(committed.sessions, holders=1, waiters=0)
+    while not providers.requests:
+        await asyncio.sleep(0.01)
+    second = committed.run(delete_me(committed.client, headers, json={"reasons": ["rejoin"]}))
+    await until_lock(committed.sessions, holders=1, waiters=1)
+    await started(second)
+    assert len(providers.requests) == 1  # The later request has not started its revocation.
+    providers.gate.set()
+
+    assert (await first).status_code == 204
+    assert (await second).status_code == 401
+    assert len(providers.requests) == 1
+    assert len(ledger_events()) == 1
+
+
+@pytest.mark.parametrize("failure", ["ledger", "database"])
+async def test_overlap_after_a_failed_first_request_revokes_again_only_after_it_ends(
+    committed, providers, monkeypatch, failure,
+):
+    """Ledger failure → processed anew; DB failure → the same ledger record is reused (U2)."""
+    headers = await committed.account("kakao")
+    if failure == "ledger":
+        release = threading.Event()
+        real_append = type(get_deletion_ledger()).append
+        calls = 0
+
+        def append(ledger, intent):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                release.wait(10)
+                raise LedgerUnavailableError("injected ledger outage")
+            return real_append(ledger, intent)
+
+        monkeypatch.setattr(type(get_deletion_ledger()), "append", append)
+    else:
+        release = pause_first_db_deletion(monkeypatch, then=ConnectionError("injected DB failure"))
+    committed.releases.append(release)
+    first = committed.run(delete_me(committed.client, headers, json=REASONS))
+    await until_lock(committed.sessions, holders=2, waiters=0)
+    second = committed.run(delete_me(committed.client, headers, json={"reasons": ["rejoin"]}))
+    await until_lock(committed.sessions, holders=2, waiters=1)
+    await started(second)
+    assert len(providers.requests) == 1
+    records = ledger_events()
+    release.set()
+
+    assert (await first).status_code == (503 if failure == "ledger" else 500)
+    assert (await second).status_code == 204
+    # The later request starts over, so its provider call comes after the first one ended.
+    assert [str(r.url) for r in providers.requests] == [KAKAO_UNLINK, KAKAO_UNLINK]
+    if failure == "database":
+        assert ledger_events() == records  # Reused, not rewritten.
+    assert len(ledger_events()) == 1
+    await request(committed.client, "GET", "users/me", headers=headers, status=401)
+
+
+async def test_provider_call_of_one_account_does_not_block_another_accounts_deletion(
+    committed, providers,
+):
+    headers = await committed.account("kakao")
+    providers.gate = asyncio.Event()
+    first = committed.run(delete_me(committed.client, headers, json=REASONS))
+    while not providers.requests:
+        await asyncio.sleep(0.01)
+
+    other = await asyncio.wait_for(
+        delete_me(committed.client, committed.guest_headers, json=REASONS), timeout=10
+    )
+
+    assert other.status_code == 204
+    assert not first.done()
+    providers.gate.set()
+    assert (await first).status_code == 204
+
+
+@pytest.mark.parametrize("paused", ["provider", "database"])
+async def test_retry_and_a_deletion_of_the_same_account_do_not_deadlock(
+    committed, providers, monkeypatch, paused,
+):
+    """The operator retry keeps its ledger → account row order and finishes either way."""
+    headers = await committed.account("kakao")
+    original = account_deletion_service.apply_account_deletion
+
+    async def broken(session, intent):
+        raise RuntimeError("injected database failure")
+
+    monkeypatch.setattr(account_deletion_service, "apply_account_deletion", broken)
+    assert (await delete_me(committed.client, headers, json=REASONS)).status_code == 500
+    monkeypatch.setattr(account_deletion_service, "apply_account_deletion", original)
+    providers.requests.clear()
+    if paused == "provider":
+        providers.gate = asyncio.Event()
+        release = providers.gate
+    else:
+        release = pause_first_db_deletion(monkeypatch)
+        committed.releases.append(release)
+    deletion = committed.run(
+        delete_me(committed.client, headers, json={"reasons": ["rejoin"]})
+    )
+    if paused == "provider":
+        while not providers.requests:
+            await asyncio.sleep(0.01)
+    else:
+        await until_lock(committed.sessions, holders=2, waiters=0)
+
+    async def operator_retry():
+        async with committed.sessions() as session:
+            return await retry_image_deletions(session, limit=10)
+
+    retry = committed.run(operator_retry())
+    if paused == "provider":
+        # The account lock is not in the retry's way: it removes the account meanwhile.
+        result = await asyncio.wait_for(retry, timeout=10)
+        assert result["deleted_accounts"] == 1
+        release.set()
+        assert (await asyncio.wait_for(deletion, timeout=10)).status_code == 401
+    else:
+        await until_lock(committed.sessions, holders=2, waiters=1)  # The retry waits.
+        release.set()
+        assert (await asyncio.wait_for(deletion, timeout=10)).status_code == 204
+        assert (await asyncio.wait_for(retry, timeout=10))["deleted_accounts"] == 0
+    assert len(ledger_events()) == 1
+    await request(committed.client, "GET", "users/me", headers=headers, status=401)
