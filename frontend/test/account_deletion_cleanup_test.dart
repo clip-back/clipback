@@ -37,7 +37,7 @@ final _environment = ClipbackApi().baseUrl;
 final _deletedLogin = sha256.convert(utf8.encode('fixture-refresh')).toString();
 
 class _Server {
-  _Server() : base = account.AccountServer('member');
+  _Server(String kind) : base = account.AccountServer(kind);
   final account.AccountServer base;
   List<String>? providers;
   int deleteStatus = 204, deleteCalls = 0, requests = 0;
@@ -45,6 +45,17 @@ class _Server {
 
   late final client = MockClient((r) async {
     requests++;
+    // A social login after the withdrawal is a new account (D13).
+    if (r.method == 'POST' && r.url.path.startsWith('/api/v1/auth/social/')) {
+      deleted = false;
+      return base.json({
+        'access_token': 'new-access',
+        'refresh_token': 'new-refresh',
+        'expires_in': 3600,
+        'refresh_expires_in': 86400,
+        'is_new_user': true,
+      }, 201);
+    }
     if (deleted) return base.json({'detail': 'Not authenticated'}, 401);
     if (r.method == 'DELETE' && r.url.path == '/api/v1/users/me') {
       deleteCalls++;
@@ -174,7 +185,12 @@ class _Sdk implements SocialAuthSdk {
   int kakaoClears = 0;
   // Holds the SDK call until completed; counts are taken when it starts.
   Completer<void>? googleInitGate, googleSignOutGate, kakaoClearGate;
+  Completer<void>? kakaoInitGate;
   Object? googleSignOutError;
+  // SDK sign-ins and the local cleanup calls in the order they started. Like
+  // the real SDKs, a cleanup drops the local sign-in when it starts.
+  final events = <String>[];
+  bool googleSignedIn = false, kakaoToken = false;
   @override
   Future<void> initializeGoogle({
     required String serverClientId,
@@ -185,29 +201,50 @@ class _Sdk implements SocialAuthSdk {
   }
 
   @override
-  Future<SocialCredential> authenticateGoogle() => throw UnimplementedError();
+  Future<SocialCredential> authenticateGoogle() async {
+    events.add('google login');
+    googleSignedIn = true;
+    return const SocialCredential(token: 'new-google');
+  }
+
   @override
   Future<void> signOutGoogle() async {
     googleSignOuts++;
+    events.add('google sign-out');
+    googleSignedIn = false;
     await googleSignOutGate?.future;
     if (googleSignOutError != null) throw googleSignOutError!;
   }
 
   @override
-  Future<void> disconnectGoogle() async => googleDisconnects++;
+  Future<void> disconnectGoogle() async {
+    googleDisconnects++;
+    events.add('google disconnect');
+    googleSignedIn = false;
+  }
+
   @override
-  Future<void> initializeKakao(String nativeAppKey) async {}
+  Future<void> initializeKakao(String nativeAppKey) async {
+    await kakaoInitGate?.future;
+  }
+
   @override
   Future<bool> isKakaoTalkInstalled() async => false;
   @override
   Future<SocialCredential> authenticateKakaoTalk({String? nonce}) =>
       throw UnimplementedError();
   @override
-  Future<SocialCredential> authenticateKakaoAccount({String? nonce}) =>
-      throw UnimplementedError();
+  Future<SocialCredential> authenticateKakaoAccount({String? nonce}) async {
+    events.add('kakao login');
+    kakaoToken = true;
+    return const SocialCredential(token: 'new-kakao');
+  }
+
   @override
   Future<void> clearKakaoTokens() async {
     kakaoClears++;
+    events.add('kakao clear');
+    kakaoToken = false;
     await kakaoClearGate?.future;
   }
 
@@ -224,7 +261,8 @@ class _Sdk implements SocialAuthSdk {
 }
 
 class _Device {
-  final server = _Server();
+  _Device(String kind) : server = _Server(kind);
+  final _Server server;
   final storage = _Storage();
   final social = _Social();
   SocialAuth? socialAuth;
@@ -298,8 +336,9 @@ Future<void> _run(
   WidgetTester tester,
   Future<void> Function(_Device device) body, {
   TargetPlatform platform = TargetPlatform.iOS,
+  String kind = 'member',
 }) async {
-  final device = _Device();
+  final device = _Device(kind);
   debugDefaultTargetPlatformOverride = platform;
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(375, 812);
@@ -664,6 +703,136 @@ void main() {
           await tester.pumpAndSettle();
           expect(sdk.kakaoClears, 1);
           expect(device.server.deleteCalls, 1);
+        }, platform: platform);
+      },
+    );
+
+    // #250 follow-up review F1: a new sign-in after J06 must keep its SDK
+    // state. Cleanup that has not reached its SDK call when a sign-in starts
+    // is dropped, and providers no longer wait for each other.
+    Future<void> openLogin(
+      WidgetTester tester,
+      SocialLoginProvider provider,
+    ) async {
+      await tester.tap(find.byKey(const ValueKey('account-deleted-login')));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      await tester.tap(find.byKey(ValueKey('login-provider-${provider.name}')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('permission-guide-continue-hit')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    testWidgets(
+      '${platform.name} a guest whose Google SDK is still initializing keeps '
+      'a new Kakao sign-in after J06',
+      (tester) async {
+        await _run(
+          tester,
+          (device) async {
+            final sdk = platformAuth(device, platform)
+              ..googleInitGate = Completer();
+            await _withdraw(tester, device);
+            _expectJ06WithoutRetry(tester, device);
+            expect(sdk.googleInits, 1);
+            await openLogin(tester, SocialLoginProvider.kakao);
+            await tester.pumpAndSettle();
+            expect(sdk.kakaoToken, isTrue);
+            expect(device.storage.value?.refreshToken, 'new-refresh');
+
+            sdk.googleInitGate!.complete();
+            await tester.pumpAndSettle();
+            expect(sdk.kakaoToken, isTrue);
+            expect(device.storage.value?.refreshToken, 'new-refresh');
+            // The deleted login's Kakao cleanup ran before, nothing after.
+            expect(sdk.events, ['kakao clear', 'kakao login']);
+            expect(device.server.deleteCalls, 1);
+          },
+          platform: platform,
+          kind: 'guest',
+        );
+      },
+    );
+
+    testWidgets(
+      '${platform.name} cleanup still waiting for the same SDK is dropped '
+      'once a new Kakao sign-in starts',
+      (tester) async {
+        await _run(
+          tester,
+          (device) async {
+            final sdk = platformAuth(device, platform)
+              ..googleInitGate = Completer()
+              ..kakaoInitGate = Completer();
+            await _withdraw(tester, device);
+            _expectJ06WithoutRetry(tester, device);
+            expect(sdk.kakaoClears, 0);
+            await openLogin(tester, SocialLoginProvider.kakao);
+            expect(sdk.events, isEmpty);
+            sdk.kakaoInitGate!.complete();
+            await tester.pumpAndSettle();
+            expect(sdk.kakaoToken, isTrue);
+            expect(device.storage.value?.refreshToken, 'new-refresh');
+            expect(sdk.kakaoClears, 0);
+
+            sdk.googleInitGate!.complete();
+            await tester.pumpAndSettle();
+            expect(sdk.kakaoToken, isTrue);
+            expect(sdk.events, ['kakao login']);
+          },
+          platform: platform,
+          kind: 'guest',
+        );
+      },
+    );
+
+    testWidgets(
+      '${platform.name} a Google account signing in with Google again keeps '
+      'the new sign-in when the old SDK cleanup had not started',
+      (tester) async {
+        await _run(tester, (device) async {
+          device.server.providers = ['google'];
+          final sdk = platformAuth(device, platform)
+            ..googleInitGate = Completer();
+          await _withdraw(tester, device, settle: false);
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+          _expectJ06WithoutRetry(tester, device);
+          await openLogin(tester, SocialLoginProvider.google);
+          expect(sdk.events, isEmpty);
+
+          sdk.googleInitGate!.complete();
+          await tester.pumpAndSettle();
+          expect(sdk.events, ['google login']);
+          expect(sdk.googleSignedIn, isTrue);
+          expect(device.storage.value?.refreshToken, 'new-refresh');
+        }, platform: platform);
+      },
+    );
+
+    testWidgets(
+      '${platform.name} a Kakao token clear already running keeps a new Kakao '
+      'sign-in made after J06',
+      (tester) async {
+        await _run(tester, (device) async {
+          device.server.providers = ['kakao'];
+          final sdk = platformAuth(device, platform)
+            ..kakaoClearGate = Completer();
+          await _withdraw(tester, device);
+          _expectJ06WithoutRetry(tester, device);
+          expect(sdk.kakaoClears, 1);
+          await openLogin(tester, SocialLoginProvider.kakao);
+          await tester.pumpAndSettle();
+          expect(sdk.kakaoToken, isTrue);
+
+          sdk.kakaoClearGate!.complete();
+          await tester.pumpAndSettle();
+          expect(sdk.kakaoToken, isTrue);
+          expect(sdk.events, ['kakao clear', 'kakao login']);
+          expect(device.storage.value?.refreshToken, 'new-refresh');
         }, platform: platform);
       },
     );
