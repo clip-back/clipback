@@ -1,5 +1,7 @@
 // #257: the "cleanup pending" record after a withdrawal (R2 details 1–5).
 
+import 'dart:async';
+
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/repositories/account_deletion_cleanup.dart';
 import 'package:clipback_frontend/data/repositories/session_repository.dart';
@@ -21,10 +23,14 @@ class _Records implements AccountDeletionCleanupStorage {
   }
 
   @override
-  Future<void> write(List<AccountDeletionCleanupRecord> records) async {
+  Future<void> write(AccountDeletionCleanupRecord record) async {
     writes++;
     if (failWrite) throw StateError('write');
-    saved = List.of(records);
+    saved = [
+      for (final r in saved)
+        if (r.environment != record.environment || r.userId != record.userId) r,
+      if (record.remaining.isNotEmpty) record,
+    ];
   }
 }
 
@@ -66,10 +72,16 @@ class _SessionStorage extends ApiSessionStorage {
   ApiSession? stored = _session;
   bool failClear = false;
   int clears = 0;
+  Completer<void>? writeStarted, writeGate;
   @override
   Future<ApiSession?> read() async => stored;
   @override
-  Future<void> write(ApiSession session) async => stored = session;
+  Future<void> write(ApiSession session) async {
+    writeStarted?.complete();
+    await writeGate?.future;
+    stored = session;
+  }
+
   @override
   Future<void> clear() async {
     clears++;
@@ -166,10 +178,10 @@ void main() {
       steps.failing.add('shares 7');
       await steps.cleanup(records).start(7);
       expect(steps.calls, [
-        'search old 3',
         'login',
         'search env 7',
         'shares 7',
+        'search old 3',
       ]);
       expect(_remaining(records), {AccountDeletionCleanupStep.pendingShares});
       expect(records.saved.single.userId, 7);
@@ -202,21 +214,60 @@ void main() {
         userId: 7,
         remaining: {AccountDeletionCleanupStep.storedLogin},
       );
-      await storage.write([record]);
-      final read = await PreferencesAccountDeletionCleanupStorage().read();
-      expect(read.single.toJson(), record.toJson());
-      await storage.write(const []);
-      expect(
-        (await SharedPreferences.getInstance()).getKeys(),
-        isNot(contains('clipback.account_deletion_cleanup.v1')),
+      final other = AccountDeletionCleanupRecord(
+        environment: 'env',
+        userId: 8,
+        remaining: {AccountDeletionCleanupStep.searchHistory},
       );
+      await storage.write(record);
+      await storage.write(other);
+      final read = await PreferencesAccountDeletionCleanupStorage().read();
+      expect([
+        for (final r in read) r.toJson(),
+      ], unorderedEquals([record.toJson(), other.toJson()]));
+      await storage.write(record.without(record.remaining));
+      expect((await SharedPreferences.getInstance()).getKeys(), {
+        'clipback.account_deletion_cleanup.v1.env.8',
+      });
+      // Malformed values are ignored, as before, and never throw.
       SharedPreferences.setMockInitialValues({
-        'clipback.account_deletion_cleanup.v1':
-            '[{"environment":"env","user_id":"7","remaining":[]},5,null]',
+        'clipback.account_deletion_cleanup.v1.env.7':
+            '{"environment":"env","user_id":"7","remaining":[]}',
+        'clipback.account_deletion_cleanup.v1.env.9': '{not json',
+        'clipback.account_deletion_cleanup.v1.env.10': 5,
+        'clipback.account_deletion_cleanup.v1.env.11': '[1]',
       });
       expect(await PreferencesAccountDeletionCleanupStorage().read(), isEmpty);
     },
   );
+
+  test('a deletion whose record read fails keeps the earlier record', () async {
+    records.saved = [
+      AccountDeletionCleanupRecord(
+        environment: 'old',
+        userId: 3,
+        remaining: {AccountDeletionCleanupStep.searchHistory},
+      ),
+    ];
+    records.failRead = true;
+    steps.failing.add('shares 7');
+    await steps.cleanup(records).start(7);
+    expect(steps.calls, ['login', 'search env 7', 'shares 7']);
+    records.failRead = false;
+    expect(
+      {for (final r in records.saved) r.userId: r.remaining},
+      {
+        3: {AccountDeletionCleanupStep.searchHistory},
+        7: {AccountDeletionCleanupStep.pendingShares},
+      },
+    );
+    steps
+      ..calls.clear()
+      ..failing.clear();
+    await steps.cleanup(records).resume();
+    expect(steps.calls, unorderedEquals(['search old 3', 'shares 7']));
+    expect(records.saved, isEmpty);
+  });
 
   group('session repository', () {
     late _SessionStorage storage;
@@ -311,6 +362,106 @@ void main() {
         await next.resumeAccountDeletionCleanup();
         expect(await next.restoreStoredSession(), isTrue);
         expect(storage.stored, same(_newLogin));
+      },
+    );
+
+    // Review P1: the deleted account's own write, started before the 204,
+    // finishes after the record is saved and before the stored clear fails.
+    test(
+      'an old session write finishing after 204 keeps the stored login cleanup',
+      () async {
+        storage
+          ..failClear = true
+          ..writeStarted = Completer()
+          ..writeGate = Completer();
+        final write = repository.persistCurrentSession();
+        await storage.writeStarted!.future;
+        final deletion = repository.clearAfterAccountDeletion(userId: 7);
+        for (var i = 0; i < 20 && records.saved.isEmpty; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(records.saved, isNotEmpty);
+        storage.writeGate!.complete();
+        await write;
+        await deletion;
+        expect(storage.stored, same(_session));
+        expect(_remaining(records), {AccountDeletionCleanupStep.storedLogin});
+
+        storage
+          ..failClear = false
+          ..writeStarted = null
+          ..writeGate = null;
+        final next = RemoteSessionRepository(
+          api: ClipbackApi(
+            client: MockClient((_) async => http.Response('', 500)),
+          ),
+          storage: storage,
+          socialAuth: social,
+          deletionCleanupStorage: records,
+        );
+        addTearDown(next.dispose);
+        await next.resumeAccountDeletionCleanup();
+        expect(await next.restoreStoredSession(), isFalse);
+        expect(records.saved, isEmpty);
+      },
+    );
+
+    // Review P1: only a write of the session that is still current counts as
+    // a newer login; a write that finishes after memory moved on does not.
+    test(
+      'a session write that is no longer current keeps the record',
+      () async {
+        records.saved = [
+          AccountDeletionCleanupRecord(
+            environment: api.baseUrl,
+            userId: 7,
+            remaining: {AccountDeletionCleanupStep.storedLogin},
+          ),
+        ];
+        storage
+          ..writeStarted = Completer()
+          ..writeGate = Completer();
+        final write = repository.persistCurrentSession();
+        await storage.writeStarted!.future;
+        api.clearSession();
+        storage.writeGate!.complete();
+        await write;
+        expect(_remaining(records), {AccountDeletionCleanupStep.storedLogin});
+      },
+    );
+
+    // Review P2: a launch whose record read fails, then a newer login.
+    test(
+      'a transient record read failure does not let an old cleanup remove a newer login',
+      () async {
+        records.saved = [
+          AccountDeletionCleanupRecord(
+            environment: api.baseUrl,
+            userId: 7,
+            remaining: {AccountDeletionCleanupStep.storedLogin},
+          ),
+        ];
+        api.clearSession();
+        records.failRead = true;
+        await repository.resumeAccountDeletionCleanup();
+        records.failRead = false;
+        api.restoreSession(_newLogin);
+        await repository.persistCurrentSession();
+        expect(storage.stored, same(_newLogin));
+        expect(records.saved, isEmpty);
+        final next = RemoteSessionRepository(
+          api: ClipbackApi(
+            client: MockClient((_) async => http.Response('', 500)),
+          ),
+          storage: storage,
+          socialAuth: social,
+          deletionCleanupStorage: records,
+        );
+        addTearDown(next.dispose);
+        await next.resumeAccountDeletionCleanup();
+        expect(await next.restoreStoredSession(), isTrue);
+        expect(storage.stored, same(_newLogin));
+        expect(social.appleIds, isEmpty);
       },
     );
   });

@@ -82,6 +82,21 @@ public final class ShareStoreTest extends InstrumentationTestCase {
         assertEquals("8",store.draft(otherLink).getString("userId"));
         assertFalse(store.draft(unassigned).has("userId"));
     }
+    /** #257 review S1: an image that cannot be deleted fails the call and keeps its draft for the next launch. */
+    public void testDiscardAccountDraftsImageDeleteFailureKeepsDraftForRetry() throws Exception {
+        long first=revision(); assertTrue(store.publishCredential(credential(first,"7","2035-01-01T00:00:00Z")));
+        String ownImage=store.create(null,null,new byte[]{1,2,3},"image/png");
+        store.begin(ownImage,first,"7");
+        // A non-empty directory in the image's place makes File.delete() fail without blocking state writes.
+        File image=store.imageFile(ownImage);
+        assertTrue(image.delete()); assertTrue(image.mkdir());
+        File blocker=new File(image,"blocker"); Files.write(blocker.toPath(),new byte[]{1});
+        try { store.discardAccountDrafts(7); fail("an undeletable image must fail the call"); } catch(java.io.IOException expected) { }
+        assertNotNull(store.draft(ownImage)); assertTrue(image.exists());
+        assertTrue(blocker.delete());
+        store.discardAccountDrafts(7);
+        assertNull(store.draft(ownImage)); assertFalse(image.exists());
+    }
     public void testRetryKeepsOperationAndReceiptsAreDurable() throws Exception {
         long current=revision(); store.publishCredential(credential(current,"7","2035-01-01T00:00:00Z"));
         String id=store.create("https://youtu.be/dQw4w9WgXcQ","fixture",null,null);

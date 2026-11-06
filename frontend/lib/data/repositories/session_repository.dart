@@ -140,8 +140,13 @@ class RemoteSessionRepository extends SessionRepository {
     if (session == null) return;
     try {
       await _storage.write(session);
-      if (identical(_api.session, session)) _sessionNeedingPersistence = null;
-      await _deletionCleanup.storedLoginReplaced();
+      if (identical(_api.session, session)) {
+        _sessionNeedingPersistence = null;
+        // Only the current login replaces a deleted account's stored one; a
+        // write that started before the withdrawal finishes after it is
+        // cleared from memory and is not a newer login (review P1).
+        await _deletionCleanup.storedLoginReplaced();
+      }
     } catch (_) {
       if (identical(_api.session, session)) {
         _sessionNeedingPersistence = session;

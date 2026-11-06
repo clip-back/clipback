@@ -268,6 +268,29 @@ final class ShareStoreTests: XCTestCase {
     XCTAssertNotNil(try store.draft(unassigned.id))
     XCTAssertNil(try store.draft(unassigned.id)?.userId)
   }
+  /// #257 review S1: an image that cannot be deleted fails the call and keeps its draft for the next launch.
+  func testDiscardDraftsImageDeleteFailureKeepsDraftForRetry() throws {
+    let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { context in
+      UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+    }
+    let revision = try store.blockCredential()
+    let deleted = credential(revision)
+    XCTAssertTrue(try store.publish(deleted))
+    let ownImage = try store.createImage(image)
+    _ = try store.begin(ownImage.id, expected: deleted)
+    let url = try XCTUnwrap(store.imageURL(ownImage))
+    XCTAssertEqual(chflags(url.path, UInt32(UF_IMMUTABLE)), 0)
+    defer { _ = chflags(url.path, 0) }
+
+    XCTAssertThrowsError(try store.discardDrafts(userId: "7"))
+    XCTAssertNotNil(try store.draft(ownImage.id))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+
+    XCTAssertEqual(chflags(url.path, 0), 0)
+    try store.discardDrafts(userId: "7")
+    XCTAssertNil(try store.draft(ownImage.id))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+  }
   func testSafariDuplicateURLProvidersNormalizeToOneLink() throws {
     let url = URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!
     let providers = [NSItemProvider(object: url as NSURL), NSItemProvider(object: url as NSURL)]

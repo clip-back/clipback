@@ -50,9 +50,13 @@ class AccountDeletionCleanupRecord {
   }
 }
 
+/// One stored record per deleted account, so writing one never replaces
+/// another that could not be read (review P2).
 abstract interface class AccountDeletionCleanupStorage {
   Future<List<AccountDeletionCleanupRecord>> read();
-  Future<void> write(List<AccountDeletionCleanupRecord> records);
+
+  /// Saves [record]; a record with nothing remaining is removed.
+  Future<void> write(AccountDeletionCleanupRecord record);
 }
 
 class PreferencesAccountDeletionCleanupStorage
@@ -61,29 +65,39 @@ class PreferencesAccountDeletionCleanupStorage
     Future<SharedPreferences> Function()? preferences,
   }) : _preferences = preferences ?? SharedPreferences.getInstance;
 
-  static const _key = 'clipback.account_deletion_cleanup.v1';
+  static const _prefix = 'clipback.account_deletion_cleanup.v1.';
   final Future<SharedPreferences> Function() _preferences;
+  String _key(AccountDeletionCleanupRecord r) =>
+      '$_prefix${Uri.encodeComponent(r.environment)}.${r.userId}';
 
   @override
   Future<List<AccountDeletionCleanupRecord>> read() async {
-    final value = (await _preferences()).getString(_key);
-    if (value == null) return const [];
-    final decoded = jsonDecode(value);
-    if (decoded is! List) return const [];
-    return decoded
-        .map(AccountDeletionCleanupRecord.fromJson)
-        .whereType<AccountDeletionCleanupRecord>()
-        .toList();
+    final preferences = await _preferences();
+    final records = <AccountDeletionCleanupRecord>[];
+    for (final key in preferences.getKeys()) {
+      if (!key.startsWith(_prefix)) continue;
+      final value = preferences.get(key);
+      Object? json;
+      try {
+        json = value is String ? jsonDecode(value) : null;
+      } on FormatException {
+        json = null;
+      }
+      // A malformed value is ignored as before; it never blocks login.
+      final record = AccountDeletionCleanupRecord.fromJson(json);
+      if (record != null) records.add(record);
+    }
+    return records;
   }
 
   @override
-  Future<void> write(List<AccountDeletionCleanupRecord> records) async {
+  Future<void> write(AccountDeletionCleanupRecord record) async {
     final preferences = await _preferences();
-    final saved = records.isEmpty
-        ? await preferences.remove(_key)
+    final saved = record.remaining.isEmpty
+        ? await preferences.remove(_key(record))
         : await preferences.setString(
-            _key,
-            jsonEncode([for (final record in records) record.toJson()]),
+            _key(record),
+            jsonEncode(record.toJson()),
           );
     if (!saved) throw StateError('Could not persist deletion cleanup');
   }
@@ -106,93 +120,90 @@ class AccountDeletionCleanup {
   clearSearchHistory;
   final Future<void> Function(int userId) discardPendingShares;
   final AccountDeletionCleanupStorage _storage;
-  List<AccountDeletionCleanupRecord>? _records;
+  // Only a successful read that found nothing lets later checks skip storage.
+  bool _knownEmpty = false;
 
-  /// After a 204: record first (R2 detail 1), then try every step once.
+  /// After a 204: record first (R2 detail 1), then try every step once. Other
+  /// accounts' records left from earlier runs are retried too when readable.
   Future<void> start(int userId) async {
-    final records = await _load();
-    records.add(
-      AccountDeletionCleanupRecord(
-        environment: environment,
-        userId: userId,
-        remaining: AccountDeletionCleanupStep.values.toSet(),
-      ),
+    final record = AccountDeletionCleanupRecord(
+      environment: environment,
+      userId: userId,
+      remaining: AccountDeletionCleanupStep.values.toSet(),
     );
-    await _save();
-    await _runAll();
+    await _save(record);
+    final others = await _read() ?? const <AccountDeletionCleanupRecord>[];
+    await _run(record);
+    for (final other in others) {
+      if (other.environment != environment || other.userId != userId) {
+        await _run(other);
+      }
+    }
   }
 
   /// Next launch, before the stored session is restored: silently retry.
   Future<void> resume() async {
-    final records = await _load();
-    if (records.isNotEmpty) await _runAll();
+    for (final record in await _read() ?? const []) {
+      await _run(record);
+    }
   }
 
   /// A newer login's session was written over the deleted account's one, so
-  /// a later retry must not remove it.
+  /// a later retry must not remove it. Records are read again each time: an
+  /// earlier failed read is not taken as "no record".
   Future<void> storedLoginReplaced() async {
-    final records = _records;
-    if (records == null ||
-        !records.any(
-          (r) => r.remaining.contains(AccountDeletionCleanupStep.storedLogin),
-        )) {
-      return;
-    }
-    _replace((r) => r.without(const [AccountDeletionCleanupStep.storedLogin]));
-    await _save();
-  }
-
-  Future<List<AccountDeletionCleanupRecord>> _load() async {
-    if (_records == null) {
-      try {
-        _records = [...await _storage.read()];
-      } catch (_) {
-        // An unreadable record cannot block login; this run starts empty.
-        _records = [];
+    if (_knownEmpty) return;
+    for (final record in await _read() ?? const []) {
+      if (record.remaining.contains(AccountDeletionCleanupStep.storedLogin)) {
+        await _save(
+          record.without(const [AccountDeletionCleanupStep.storedLogin]),
+        );
       }
     }
-    return _records!;
   }
 
-  Future<void> _runAll() async {
-    for (final record in List.of(_records!)) {
-      final done = <AccountDeletionCleanupStep>[];
-      for (final step in record.remaining) {
-        try {
-          await switch (step) {
-            AccountDeletionCleanupStep.storedLogin => clearStoredLogin(),
-            AccountDeletionCleanupStep.searchHistory => clearSearchHistory(
-              record.environment,
-              record.userId,
-            ),
-            AccountDeletionCleanupStep.pendingShares => discardPendingShares(
-              record.userId,
-            ),
-          };
-          done.add(step);
-        } catch (_) {
-          // Kept for the next launch.
-        }
-      }
-      _replace((r) => identical(r, record) ? r.without(done) : r);
-    }
-    await _save();
-  }
-
-  void _replace(
-    AccountDeletionCleanupRecord Function(AccountDeletionCleanupRecord) update,
-  ) {
-    _records = [
-      for (final record in _records!)
-        if (update(record) case final next when next.remaining.isNotEmpty) next,
-    ];
-  }
-
-  Future<void> _save() async {
+  Future<List<AccountDeletionCleanupRecord>?> _read() async {
     try {
-      await _storage.write(List.of(_records!));
+      final records = await _storage.read();
+      _knownEmpty = records.isEmpty;
+      return records;
     } catch (_) {
-      // R2 detail 5: the remaining risk is accepted; this run keeps trying.
+      // Unknown, not empty: nothing is retried or overwritten from it.
+      _knownEmpty = false;
+      return null;
+    }
+  }
+
+  // Each step is tried once; only failed steps stay in this record.
+  Future<void> _run(AccountDeletionCleanupRecord record) async {
+    final done = <AccountDeletionCleanupStep>[];
+    for (final step in record.remaining) {
+      try {
+        await switch (step) {
+          AccountDeletionCleanupStep.storedLogin => clearStoredLogin(),
+          AccountDeletionCleanupStep.searchHistory => clearSearchHistory(
+            record.environment,
+            record.userId,
+          ),
+          AccountDeletionCleanupStep.pendingShares => discardPendingShares(
+            record.userId,
+          ),
+        };
+        done.add(step);
+      } catch (_) {
+        // Kept for the next launch.
+      }
+    }
+    await _save(record.without(done));
+  }
+
+  Future<void> _save(AccountDeletionCleanupRecord record) async {
+    try {
+      await _storage.write(record);
+      if (record.remaining.isNotEmpty) _knownEmpty = false;
+    } catch (_) {
+      // R2 detail 5: the remaining risk is accepted.
+      _knownEmpty = false;
     }
   }
 }

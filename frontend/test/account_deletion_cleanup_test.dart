@@ -27,7 +27,7 @@ import 'support/account_preview.dart' as account;
 import 'support/app_startup.dart';
 import 'support/archive_all_preview.dart' as isolated;
 
-const _cleanupKey = 'clipback.account_deletion_cleanup.v1';
+const _cleanupPrefix = 'clipback.account_deletion_cleanup.v1.';
 const _shareChannel = MethodChannel('com.huturu.app/share');
 // The fixture account is user 1; user 2 is another account on this device.
 const _deletedUser = 1, _otherUser = 2;
@@ -166,8 +166,13 @@ Finder get _j06 => find.byType(AccountDeletedScreen);
 Finder get _failure => find.text(accountDeletionFailureMessage);
 
 Future<List<Object?>?> _record() async {
-  final value = (await SharedPreferences.getInstance()).getString(_cleanupKey);
-  return value == null ? null : jsonDecode(value) as List<Object?>;
+  final preferences = await SharedPreferences.getInstance();
+  final records = [
+    for (final key in preferences.getKeys())
+      if (key.startsWith(_cleanupPrefix))
+        jsonDecode(preferences.getString(key)!),
+  ];
+  return records.isEmpty ? null : records;
 }
 
 Future<void> _launch(WidgetTester tester, _Device device) async {
