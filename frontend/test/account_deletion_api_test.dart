@@ -232,6 +232,55 @@ void main() {
     await tester.pump();
   });
 
+  // Both 401 paths wait for the session invalidation callback; that wait is
+  // part of the 60s submission, and its late end does not change the result.
+  for (final (name, replies) in <(String, List<http.Response>)>[
+    (
+      'a refresh 401',
+      [
+        _json({'detail': 'Invalid'}, 401),
+        _json({'detail': 'Invalid'}, 401),
+      ],
+    ),
+    (
+      'a resend 401 after a refresh',
+      [
+        _json({'detail': 'Invalid'}, 401),
+        _rotated,
+        _json({'detail': 'Invalid'}, 401),
+      ],
+    ),
+  ]) {
+    testWidgets('60s also covers the invalidation after $name', (tester) async {
+      final invalidation = Completer<void>();
+      var entered = 0;
+      final server = _Server([for (final reply in replies) _now(reply)]);
+      addTearDown(server.client.close);
+      final api = ClipbackApi(
+        client: server.client,
+        onSessionInvalidated: () {
+          entered++;
+          return invalidation.future;
+        },
+      )..restoreSession(_old);
+      final submission = _Submission(api);
+
+      await tester.pump();
+      expect(entered, 1);
+      await tester.pump(const Duration(seconds: 59, milliseconds: 999));
+      expect(submission.result, isNull);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(submission.result, AccountDeletionResult.failed);
+
+      // The session cleanup still finishes on its own; the result stays.
+      invalidation.complete();
+      await tester.pump();
+      expect(submission.result, AccountDeletionResult.failed);
+      expect(entered, 1);
+      expect(server.requests, hasLength(replies.length));
+    });
+  }
+
   testWidgets('other requests keep waiting past 60s', (tester) async {
     final hung = Completer<http.Response>();
     final server = _Server([() => hung.future]);

@@ -731,11 +731,14 @@ class ClipbackApi {
   ) async {
     final scope = ApiRequestScope(timeout: const Duration(seconds: 60));
     try {
+      // wait also bounds the session invalidation awaited after a 401.
       final response = await scope.run(
-        () => _request(
-          'DELETE',
-          '/users/me',
-          body: {'reasons': reasons.map((reason) => reason.value).toList()},
+        () => scope.wait(
+          _request(
+            'DELETE',
+            '/users/me',
+            body: {'reasons': reasons.map((reason) => reason.value).toList()},
+          ),
         ),
       );
       return switch (response.statusCode) {
