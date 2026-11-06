@@ -184,11 +184,13 @@ class _CategoryArchiveText {
 class _CategoryArchiveAssetButton extends StatelessWidget {
   const _CategoryArchiveAssetButton({
     required this.asset,
+    required this.semanticLabel,
     required this.onPressed,
     super.key,
   });
 
   final String asset;
+  final String semanticLabel;
   final VoidCallback onPressed;
 
   @override
@@ -200,7 +202,10 @@ class _CategoryArchiveAssetButton extends StatelessWidget {
       constraints: const BoxConstraints.tightFor(width: 24, height: 24),
       onPressed: onPressed,
       // Keep the original strokes and white gear interior unchanged.
-      icon: SvgPicture.asset(asset, width: 24, height: 24),
+      icon: Semantics(
+        label: semanticLabel,
+        child: SvgPicture.asset(asset, width: 24, height: 24),
+      ),
     ),
   );
 }
@@ -228,6 +233,7 @@ class CategoryArchiveTopBar extends StatelessWidget {
           _CategoryArchiveAssetButton(
             key: const ValueKey('archive-category-search'),
             asset: Assets.archiveSearch,
+            semanticLabel: '검색',
             onPressed: onSearch,
           ),
           if (onOpenCategoryManagement != null) ...[
@@ -235,6 +241,7 @@ class CategoryArchiveTopBar extends StatelessWidget {
             _CategoryArchiveAssetButton(
               key: const ValueKey('archive-manage-categories'),
               asset: Assets.archiveSettings,
+              semanticLabel: '카테고리 관리',
               onPressed: onOpenCategoryManagement!,
             ),
           ],
@@ -273,6 +280,7 @@ class CategoryArchiveToolbar extends StatelessWidget {
           _CategoryArchiveAssetButton(
             key: const ValueKey('archive-category-add'),
             asset: Assets.archiveFolderPlus,
+            semanticLabel: '카테고리 추가',
             onPressed: onAddCategory,
           ),
         ],

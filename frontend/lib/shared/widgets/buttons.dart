@@ -122,6 +122,7 @@ class SvgIconButton extends StatelessWidget {
     this.size = 24,
     this.hitSize = 44,
     this.color = AppColors.text,
+    this.semanticLabel,
     super.key,
   });
 
@@ -131,6 +132,7 @@ class SvgIconButton extends StatelessWidget {
   final double size;
   final double hitSize;
   final Color color;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +143,10 @@ class SvgIconButton extends StatelessWidget {
         padding: EdgeInsets.zero,
         constraints: BoxConstraints.tight(Size(hitSize, hitSize)),
         onPressed: enabled ? onPressed : null,
-        icon: SvgIcon(asset: asset, size: size, color: color),
+        icon: Semantics(
+          label: semanticLabel,
+          child: SvgIcon(asset: asset, size: size, color: color),
+        ),
       ),
     );
   }
