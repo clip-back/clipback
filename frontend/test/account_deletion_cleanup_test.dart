@@ -14,6 +14,7 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/social_auth.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,6 +33,8 @@ const _shareChannel = MethodChannel('com.huturu.app/share');
 // The fixture account is user 1; user 2 is another account on this device.
 const _deletedUser = 1, _otherUser = 2;
 final _environment = ClipbackApi().baseUrl;
+// The fixture session's refresh token identifies the deleted login (#257).
+final _deletedLogin = sha256.convert(utf8.encode('fixture-refresh')).toString();
 
 class _Server {
   _Server() : base = account.AccountServer('member');
@@ -71,6 +74,7 @@ class _History implements SearchHistoryStorage {
   };
   final clears = <(String, int)>[];
   bool failClear = false;
+  Completer<void>? clearGate;
 
   @override
   Future<List<String>> read(String environment, int userId) async =>
@@ -84,6 +88,7 @@ class _History implements SearchHistoryStorage {
   @override
   Future<void> clear(String environment, int userId) async {
     clears.add((environment, userId));
+    await clearGate?.future;
     if (failClear) throw StateError('Fixture history clear failure');
     values.remove((environment, userId));
   }
@@ -359,6 +364,7 @@ void main() {
                 'environment': _environment,
                 'user_id': _deletedUser,
                 'remaining': [step],
+                'logins': [_deletedLogin],
               },
             ]);
 
@@ -385,6 +391,32 @@ void main() {
       );
     }
   }
+
+  // Re-review C1 boundary: no login can start while the 204 cleanup runs; the
+  // deletion stays an auth operation (busy J04) until the cleanup finishes.
+  testWidgets('while 204 cleanup runs the app stays on a busy J04', (
+    tester,
+  ) async {
+    await _run(tester, (device) async {
+      device.history.clearGate = Completer();
+      await _withdraw(tester, device, settle: false);
+      await tester.pump(const Duration(seconds: 1));
+      expect(device.history.clears, [(_environment, _deletedUser)]);
+      expect(_j04, findsOneWidget);
+      expect(
+        tester.widget<AccountDeletionScreen>(_j04).busy,
+        isTrue,
+        reason: 'login stays blocked by the auth operation',
+      );
+      expect(find.byType(LoginScreen), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(_j04, findsOneWidget);
+      device.history.clearGate!.complete();
+      await tester.pumpAndSettle();
+      _expectJ06WithoutRetry(tester, device);
+    });
+  });
 
   testWidgets('a 503 withdrawal keeps the session, search history and shares', (
     tester,

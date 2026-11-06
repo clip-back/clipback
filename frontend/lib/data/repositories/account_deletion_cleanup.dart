@@ -12,11 +12,16 @@ class AccountDeletionCleanupRecord {
     required this.environment,
     required this.userId,
     required this.remaining,
+    this.logins = const {},
   });
 
   final String environment;
   final int userId;
   final Set<AccountDeletionCleanupStep> remaining;
+
+  /// Fingerprints of the deleted account's sessions. The stored login is
+  /// cleared only while it is one of these, so a newer login is never removed.
+  final Set<String> logins;
 
   AccountDeletionCleanupRecord without(
     Iterable<AccountDeletionCleanupStep> done,
@@ -24,18 +29,20 @@ class AccountDeletionCleanupRecord {
     environment: environment,
     userId: userId,
     remaining: remaining.difference(done.toSet()),
+    logins: logins,
   );
 
   Map<String, Object> toJson() => {
     'environment': environment,
     'user_id': userId,
     'remaining': [for (final step in remaining) step.name],
+    'logins': [...logins],
   };
 
   static AccountDeletionCleanupRecord? fromJson(Object? json) {
     if (json is! Map) return null;
     final environment = json['environment'], userId = json['user_id'];
-    final remaining = json['remaining'];
+    final remaining = json['remaining'], logins = json['logins'];
     if (environment is! String || userId is! int || remaining is! List) {
       return null;
     }
@@ -46,6 +53,7 @@ class AccountDeletionCleanupRecord {
         for (final step in AccountDeletionCleanupStep.values)
           if (remaining.contains(step.name)) step,
       },
+      logins: {if (logins is List) ...logins.whereType<String>()},
     );
   }
 }
@@ -115,21 +123,20 @@ class AccountDeletionCleanup {
   }) : _storage = storage ?? PreferencesAccountDeletionCleanupStorage();
 
   final String environment;
-  final Future<void> Function() clearStoredLogin;
+  final Future<void> Function(Set<String> deletedLogins) clearStoredLogin;
   final Future<void> Function(String environment, int userId)
   clearSearchHistory;
   final Future<void> Function(int userId) discardPendingShares;
   final AccountDeletionCleanupStorage _storage;
-  // Only a successful read that found nothing lets later checks skip storage.
-  bool _knownEmpty = false;
 
   /// After a 204: record first (R2 detail 1), then try every step once. Other
   /// accounts' records left from earlier runs are retried too when readable.
-  Future<void> start(int userId) async {
+  Future<void> start(int userId, {required Set<String> logins}) async {
     final record = AccountDeletionCleanupRecord(
       environment: environment,
       userId: userId,
       remaining: AccountDeletionCleanupStep.values.toSet(),
+      logins: logins,
     );
     await _save(record);
     final others = await _read() ?? const <AccountDeletionCleanupRecord>[];
@@ -148,28 +155,11 @@ class AccountDeletionCleanup {
     }
   }
 
-  /// A newer login's session was written over the deleted account's one, so
-  /// a later retry must not remove it. Records are read again each time: an
-  /// earlier failed read is not taken as "no record".
-  Future<void> storedLoginReplaced() async {
-    if (_knownEmpty) return;
-    for (final record in await _read() ?? const []) {
-      if (record.remaining.contains(AccountDeletionCleanupStep.storedLogin)) {
-        await _save(
-          record.without(const [AccountDeletionCleanupStep.storedLogin]),
-        );
-      }
-    }
-  }
-
   Future<List<AccountDeletionCleanupRecord>?> _read() async {
     try {
-      final records = await _storage.read();
-      _knownEmpty = records.isEmpty;
-      return records;
+      return await _storage.read();
     } catch (_) {
       // Unknown, not empty: nothing is retried or overwritten from it.
-      _knownEmpty = false;
       return null;
     }
   }
@@ -180,7 +170,9 @@ class AccountDeletionCleanup {
     for (final step in record.remaining) {
       try {
         await switch (step) {
-          AccountDeletionCleanupStep.storedLogin => clearStoredLogin(),
+          AccountDeletionCleanupStep.storedLogin => clearStoredLogin(
+            record.logins,
+          ),
           AccountDeletionCleanupStep.searchHistory => clearSearchHistory(
             record.environment,
             record.userId,
@@ -200,10 +192,8 @@ class AccountDeletionCleanup {
   Future<void> _save(AccountDeletionCleanupRecord record) async {
     try {
       await _storage.write(record);
-      if (record.remaining.isNotEmpty) _knownEmpty = false;
     } catch (_) {
       // R2 detail 5: the remaining risk is accepted.
-      _knownEmpty = false;
     }
   }
 }

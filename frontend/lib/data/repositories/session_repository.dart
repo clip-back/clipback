@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../clipback_api.dart';
@@ -82,6 +84,7 @@ class RemoteSessionRepository extends SessionRepository {
   Future<void>? _invalidationFuture;
   int _pendingStorageOperations = 0;
   ApiSession? _sessionNeedingPersistence;
+  ApiSession? _writingSession;
   bool _pendingSessionClear = false;
   bool _authenticationBusy = false;
   bool _disposed = false;
@@ -138,20 +141,17 @@ class RemoteSessionRepository extends SessionRepository {
     // A queued retry must write the latest tokens, not its enqueue-time snapshot.
     final session = _api.session;
     if (session == null) return;
+    _writingSession = session;
     try {
       await _storage.write(session);
-      if (identical(_api.session, session)) {
-        _sessionNeedingPersistence = null;
-        // Only the current login replaces a deleted account's stored one; a
-        // write that started before the withdrawal finishes after it is
-        // cleared from memory and is not a newer login (review P1).
-        await _deletionCleanup.storedLoginReplaced();
-      }
+      if (identical(_api.session, session)) _sessionNeedingPersistence = null;
     } catch (_) {
       if (identical(_api.session, session)) {
         _sessionNeedingPersistence = session;
       }
       // Issued tokens remain usable even if device persistence failed.
+    } finally {
+      _writingSession = null;
     }
     _notify();
   });
@@ -304,11 +304,23 @@ class RemoteSessionRepository extends SessionRepository {
     required int userId,
     SocialLoginProvider? provider,
   }) async {
+    final deleted = _api.session;
     _api.clearSession();
     _pendingSessionClear = true;
     _notify();
     try {
-      await _deletionCleanup.start(userId);
+      // The deleted account's logins: in memory, being written and on disk.
+      final logins = {
+        for (final session in [deleted, _writingSession])
+          if (session != null) _loginId(session),
+      };
+      try {
+        final stored = await _storage.read();
+        if (stored != null) logins.add(_loginId(stored));
+      } catch (_) {
+        // An unreadable stored session is cleared by the step below anyway.
+      }
+      await _deletionCleanup.start(userId, logins: logins);
     } finally {
       _pendingSessionClear = false;
       _notify();
@@ -332,14 +344,37 @@ class RemoteSessionRepository extends SessionRepository {
   @override
   Future<void> resumeAccountDeletionCleanup() => _deletionCleanup.resume();
 
-  // The stored session and the Apple user ID are each tried every time.
-  Future<void> _clearDeletedLogin() async {
+  static String _loginId(ApiSession session) =>
+      sha256.convert(utf8.encode(session.refreshToken)).toString();
+
+  // Clears the stored login only while it is the deleted account's; another
+  // stored session is a newer login and stays with its Apple user ID. The
+  // decision is made from the disk each time, so no record update is needed
+  // when a newer login is saved. The session and Apple user ID are each tried.
+  Future<void> _clearDeletedLogin(Set<String> deletedLogins) async {
+    var newer = false;
     Object? failure;
     try {
-      await _clearStoredSession(afterLogout: true);
+      await _enqueueStorage(() async {
+        ApiSession? stored;
+        var readable = true;
+        try {
+          stored = await _storage.read();
+        } catch (_) {
+          readable = false;
+        }
+        if (readable && stored == null) return;
+        if (stored != null && !deletedLogins.contains(_loginId(stored))) {
+          newer = true;
+          return;
+        }
+        await _storage.clear();
+        _sessionNeedingPersistence = null;
+      });
     } catch (error) {
       failure = error;
     }
+    if (newer) return;
     try {
       await _socialAuth.rememberAppleUserId(null);
     } catch (error) {
