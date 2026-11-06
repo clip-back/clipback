@@ -13,6 +13,8 @@ import 'actions/account_initialization_action.dart';
 
 enum OrdinaryLoginPhase { authenticating, cancelled }
 
+const accountDeletionFailureMessage = '탈퇴하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+
 /// Contains request ownership only; no credentials or raw provider errors.
 class OrdinaryLoginStatus {
   const OrdinaryLoginStatus._({
@@ -773,6 +775,51 @@ class AppViewModel extends ChangeNotifier {
     } finally {
       if (!_disposed) _setAuthBusy(false);
     }
+  }
+
+  /// Submits like logout: the auth epoch moves and the busy flag and share
+  /// barrier come first, so Apple checks skip or drop their result meanwhile.
+  Future<void> deleteAccount(List<AccountDeletionReason> reasons) async {
+    if (_disposed || _authBusy || reasons.isEmpty) return;
+    final epoch = ++_authEpoch;
+    _ordinaryLoginFailure = null;
+    _ordinaryLoginStatus = null;
+    _accountLinkConflict = null;
+    final providers = _authenticatedUser?.linkedProviders ?? const <String>[];
+    final provider = SocialLoginProvider.values
+        .where((value) => providers.contains(value.name))
+        .firstOrNull;
+    bool current() => !_disposed && epoch == _authEpoch;
+    _setAuthBusy(true);
+    try {
+      await _beforeSessionChange?.call();
+      if (!current()) return;
+      final result = await _users.deleteAccount(reasons);
+      // A 401 already went through the usual invalidation to login (D29).
+      if (!current() || result == AccountDeletionResult.unauthorized) return;
+      if (result == AccountDeletionResult.failed) {
+        _showError(accountDeletionFailureMessage);
+        return;
+      }
+      await _session.clearAfterAccountDeletion(provider: provider);
+      if (!current()) return;
+      _authEpoch++;
+      _resetAccount();
+      _linkingGuest = false;
+      _postAuthRoute = null;
+      _apiConnectionError = null;
+      _previousRoute = AppRoute.login;
+      _route = AppRoute.accountDeleted;
+    } catch (_) {
+      if (current()) _showError(accountDeletionFailureMessage);
+    } finally {
+      if (!_disposed) _setAuthBusy(false);
+    }
+  }
+
+  /// J06 is already logged out; its button and system back open login.
+  void finishAccountDeletion() {
+    if (_route == AppRoute.accountDeleted) _showLoginChoice();
   }
 
   Future<void> checkAppleCredential() async {

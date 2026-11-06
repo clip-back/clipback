@@ -67,6 +67,16 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 약관 줄은 운영 주소 확정 전 보류하고 메뉴 14px를 유지하므로 J01의 약관 줄·15px와 차이가 남습니다.
 기준은 [Figma 현재 결정](../docs/figma-ui-alignment-plan.md#figma-current-16)을 따릅니다.
 
+## 회원 탈퇴
+
+계정 관리의 "회원 탈퇴"는 탈퇴 화면(`features/account/account_deletion_screen.dart`, Figma J04·J05)을 엽니다.
+삭제 대상 개수는 기존 목록 요청의 전체 개수와 카테고리 목록에서 공용 "미분류"를 뺀 수이며, 불러오는 중·실패면 숫자 자리를 비웁니다.
+사유를 하나 이상 고르면 "탈퇴하기"가 켜지고, 제출은 `AppViewModel.deleteAccount`가 로그아웃과 같은 인증 작업으로 처리합니다.
+204면 로그아웃 때 지우는 것을 지우고 완료 화면(`account_deleted_screen.dart`, J06)으로, 401이면 기존 처리로 로그인 화면으로 갑니다.
+그 밖의 결과와 60초 초과는 J04에 머물며 실패 스낵바를 띄우고 고른 사유를 유지합니다. 디자인이 없는 실패·대기·개수 상태는
+[디자인 확인 필요](../docs/figma-ui-alignment-plan.md#figma-pending-15)에 있습니다. 동작 회귀는
+`flutter test --no-pub test/account_deletion_flow_test.dart test/account_deletion_overflow_test.dart`로 확인합니다.
+
 ## 화면 폭 정책
 
 논리 폭 600 미만은 화면 전체 폭을 사용하고, 600 이상은 기존 375px 화면을 가운데 둡니다.
@@ -76,7 +86,7 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 `phoneWidth` 상수는 375로 유지하며 카테고리·종료 확인 다이얼로그의 기존 크기도 유지합니다.
 
 영향 범위는 홈·최초 로딩·알림 목록, 상세·검색, 아카이브·즐겨찾기·카테고리 관리,
-마이·계정·공지·로그아웃, 인증·온보딩·관심사·세션 복원 및 공용 시트입니다.
+마이·계정·공지·로그아웃·회원 탈퇴, 인증·온보딩·관심사·세션 복원 및 공용 시트입니다.
 저장 대기 공유의 본앱 선택 시트에는 테마를 적용하며, 네이티브 공유 저장 UI는 별도입니다.
 폭 375·393·430·599·600·768과 플랫폼·글자 배율 회귀 범위 및 실제 화면 판정은
 [#233 검증 이력](../docs/history/2026-11-05-mobile-full-width.md)을 따릅니다.

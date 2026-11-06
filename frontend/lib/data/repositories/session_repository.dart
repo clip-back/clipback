@@ -42,6 +42,7 @@ abstract class SessionRepository extends ChangeNotifier {
     SocialLoginProvider? provider,
     required bool Function() isCurrent,
   });
+  Future<void> clearAfterAccountDeletion({SocialLoginProvider? provider});
   void retryPersistence();
 }
 
@@ -271,6 +272,30 @@ class RemoteSessionRepository extends SessionRepository {
       // Server logout is already complete; SDK sign-out is best effort.
     }
     return !_disposed && isCurrent();
+  }
+
+  // The server already deleted the account, so no server logout is sent. This
+  // clears what logout clears; retrying failed cleanup later is #257 (R2).
+  @override
+  Future<void> clearAfterAccountDeletion({
+    SocialLoginProvider? provider,
+  }) async {
+    _api.clearSession();
+    _pendingSessionClear = true;
+    _notify();
+    try {
+      await _clearStoredSession(afterLogout: true);
+    } catch (_) {
+      // A 204 is never reported as a failed withdrawal (R2).
+    } finally {
+      _pendingSessionClear = false;
+      _notify();
+    }
+    try {
+      await _socialAuth.signOut(provider);
+    } catch (_) {
+      // SDK sign-out is best effort, as after logout.
+    }
   }
 
   @override

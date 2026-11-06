@@ -21,6 +21,37 @@ class AccountViewModel extends ViewModel {
 
   bool get canRetryStats => repository.statsStatus == UserStatsStatus.failure;
 
+  int? _deletionContentCount;
+  int? _deletionCategoryCount;
+  int _deletionCountsVersion = 0;
+
+  /// Null while loading or after a failure; the screen leaves that slot empty.
+  int? get deletionContentCount => _deletionContentCount;
+  int? get deletionCategoryCount => _deletionCategoryCount;
+
+  /// Reads both counts for J04 independently; one failure keeps the other.
+  void loadDeletionCounts() {
+    final version = ++_deletionCountsVersion;
+    final account = repository.accountVersion;
+    _deletionContentCount = null;
+    _deletionCategoryCount = null;
+    notifyListeners();
+    bool current() =>
+        !isDisposed &&
+        version == _deletionCountsVersion &&
+        account == repository.accountVersion;
+    repository.readDeletionContentCount().then((count) {
+      if (!current()) return;
+      _deletionContentCount = count;
+      notifyListeners();
+    }, onError: (Object _) {});
+    repository.readDeletionCategoryCount().then((count) {
+      if (!current()) return;
+      _deletionCategoryCount = count;
+      notifyListeners();
+    }, onError: (Object _) {});
+  }
+
   Future<void> retryStats() async {
     try {
       await repository.loadStats();
