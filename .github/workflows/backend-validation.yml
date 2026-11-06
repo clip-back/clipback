@@ -274,6 +274,8 @@ jobs:
           CLIPBACK_RECOVERY_POSTGRES_MAJOR: "18"
           CLIPBACK_RECOVERY_OPERATOR_IMAGE: clipback-operator-pg18:check
           CLIPBACK_LEGACY_API_IMAGE: clipback-operator-api:legacy
+          # 실패한 복원 테스트가 허용 필드만 담은 정리 결과를 여기에 쓴다(tests/deployment/restore_evidence.py).
+          RESTORE_EVIDENCE_DIR: ${{ runner.temp }}/restore-evidence
         run: |
           pytest -q \
             tests/deployment/test_manual_backup_docker.py \
@@ -286,3 +288,11 @@ jobs:
             tests/deployment/test_legacy_account_deletion_restore_docker.py \
             tests/deployment/test_backup_restore_docker.py \
             tests/deployment/test_postgres_restore_ready_docker.py
+      - name: Upload sanitized restore failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: restore-failure-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/restore-evidence
+          if-no-files-found: ignore
+          retention-days: 14
