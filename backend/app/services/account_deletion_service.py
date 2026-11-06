@@ -229,10 +229,11 @@ async def delete_account(
     social_auth_client: SocialAuthClient,
     *,
     user_id: int,
-    reasons: list[str],
-) -> None:
+    reasons: list[str] | None,
+) -> list[str]:
     """The app's deletion: provider unlinking → ledger record → DB deletion with the reason
-    record → originals.
+    record → originals. The operator command passes no reasons and writes no reason record
+    (D19). Returns the original cleanup operations of this deletion.
 
     An account lock taken first queues overlapping requests of one account, before any
     provider call. A later request rechecks the account after the earlier one finishes:
@@ -251,9 +252,10 @@ async def delete_account(
         if intent is None:
             raise AuthenticationError()
         operation_ids = await apply_account_deletion(session, intent)
-        session.add(
-            AccountDeletionReason(reasons=reasons, deleted_on=datetime.now(SEOUL).date())
-        )
+        if reasons is not None:
+            session.add(
+                AccountDeletionReason(reasons=reasons, deleted_on=datetime.now(SEOUL).date())
+            )
         await session.commit()
     except LedgerUnavailableError as exc:
         await session.rollback()
@@ -270,3 +272,4 @@ async def delete_account(
         except Exception:
             await session.rollback()
             logger.warning("Image cleanup deferred: operation_id=%s", operation_id)
+    return operation_ids

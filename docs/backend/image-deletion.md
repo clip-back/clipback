@@ -111,6 +111,29 @@ python scripts/image_deletions.py retry --limit 100
 백업의 shared session lock이 유지되는 동안에는 정리를 연기하여 스냅샷 원본을 보존한다.
 정리 직전에 같은 backend/key를 참조하는 현재 원본이 있으면 삭제하지 않는다.
 
+## 운영자 계정 삭제
+
+```bash
+python scripts/image_deletions.py delete-account --user-id <계정 번호> --confirm-irreversible
+```
+
+`python -m scripts.image_deletions delete-account ...` 형태도 같다. 계정 하나를 앱의 회원 탈퇴와 같은
+처리(`delete_account`: 공급자 연결 정리 → 삭제 장부 기록 → DB 삭제 → 원본 삭제)로 지운다. 탈퇴 사유
+기록은 남기지 않는다. 재처리처럼 전체 API 설정(DB·장부·저장소·Apple·카카오 어드민 키)이 필요하고,
+서비스 점검 중이면 실행되지 않는다. 되돌릴 수 없으므로 `--confirm-irreversible`이 필수다.
+
+| 결과 | 종료 코드 | 출력 |
+| --- | --- | --- |
+| 삭제 성공 | 0 | 표준 출력 JSON 한 줄 `{"deleted": true, "pending_original_cleanup": <수>}` |
+| 계정 없음(이미 지워짐 포함) | 1 | 표준 오류 `Account not found; nothing was deleted`, DB 변화 없음 |
+| 장부·DB 실패, 점검 중, 설정 오류, 그 밖의 오류 | 1 | 표준 오류 `Account deletion failed; no successful completion is confirmed` |
+| 계정 번호 없음·숫자 아님·0 이하, 확인 옵션 없음 | 2 | 표준 오류 사용법 안내, DB 변화 없음 |
+
+`pending_original_cleanup`은 이번 삭제에서 아직 지우지 못한 원본 정리 작업 수다. 0이 아니어도 계정
+삭제는 끝났고, 남은 정리는 `retry`가 맡는다. 실패 문구에는 비밀값·연결 문자열을 넣지 않는다. 장부 기록 뒤
+DB 삭제가 실패하면 기록은 확정된 탈퇴 요청으로 남으므로, 같은 명령을 다시 실행하면 같은 기록을 재사용해
+지운다(`retry`도 남은 계정을 마저 지운다).
+
 ## 백업·복원에서 사용하는 계약
 
 `DeletionLedger`의 동기 공개 경계는 `initialize`, `append`, `read_operation`,
