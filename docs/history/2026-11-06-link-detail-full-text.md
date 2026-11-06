@@ -119,7 +119,24 @@ VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/wor
 - 콘솔: `.utmp/ticket-201/final-verify/full-verify-console.log`. `verify-progress.json` 진행 이벤트 24개는 모두 병합 커밋 SHA, dirty=false다.
 - 46 skip은 통과가 아니다. Docker deployment 45건과 전용 S3 endpoint가 필요한 CLI 통합 1건은 미실행이다.
 - 네이티브 공유 UI 테스트(XCUITest·Android instrumentation)는 전체 검증 범위 밖이며 이번 단계에서 실행하지 않았다.
-- 위 화면·외부 전환 확인은 병합 전 `6f02a80` 기준이며 그대로 보존한다. 병합 뒤 최종 화면 촬영은 아직 하지 않았다(감독 후속).
+- 위 첫 화면·외부 전환 확인은 병합 전 `6f02a80` 기준이며 그대로 보존한다. 병합 후 최종 결과는 아래에 구분한다.
+
+## 병합 뒤 최종 화면 확인
+
+2026-11-06 15:52–15:57 다른 워크트리의 전체 검증 종료를 기다린 뒤, 15:57–16:03에
+최종 트리(`23d7e94`, 제품 코드는 최종 VERIFY SHA `3186804`와 동일)에서 두 플랫폼을 다시 빌드·촬영했다.
+기기·데이터·배율·현재 스크롤·안전 영역은 첫 비교와 같다. 변경 전 증거는 원본과 SHA-256이 일치하는 사본을 사용했다.
+
+- 최종 증거 폴더: `.utmp/ticket-201/capture-final/`. `baseline-sha256.json`에 변경 전 파일 해시, `compare-results.log`에 엄격 비교 결과를 남겼다.
+- iOS 빌드 kernel prefix `f667408f4b41`, Android APK SHA-256 prefix `bac880cfc8f9`. 설치본 해시 일치 확인 후 실행했다.
+- 양쪽 모두 링크 상세·사진 접힘·사진 펼침·원본 이미지 시트 4행 비교 조건 통과. 감독이 비교 PNG에서 링크 전문 제거와 사진 동작·배치 유지, 실제 이미지 표시를 확인했다.
+- 최종 Android 사진 펼침은 레이아웃 완료를 기다린 뒤 probe를 저장했다. 이전 probe의 최대 범위 0과 최종 1271.0682 차이는 첫 촬영의 계측 시점 차이이며 현재 스크롤은 동일한 0이다. 허용치를 바꾸거나 원본을 보정하지 않았다.
+- 두 플랫폼의 8개 최종 상태 probe에서 예상 밖 요청·Flutter 오류·비동기 오류 없음. 사진 시트 표시 단언도 통과했다.
+- 최종 빌드에서도 상단 링크 버튼 → Safari·Chrome 실제 전환, 원본 URL과 페이지 표시를 PNG·AX·영상으로 확인했다. 최종 영상의 마지막 프레임까지 브라우저가 보인다. 길이 iOS 10.553333초, Android 12.369244초는 성능 측정값이 아니다.
+- 최종 Android 부팅에서도 System UI 응답 없음 창이 나와 Wait 처리 후 앱 전면 검사로 촬영했다. 앱의 오류로 추정하지 않았다.
+- 최종 비교 이미지: `compare-ios.png`, `compare-android.png`와 각각의 `-preview.png`.
+- 최종 외부 전환: `screens/ios-external.{png,mp4}`, `screens/android-external.{png,mp4}`. 기기를 끄고 busy가 빈 것을 확인한 뒤 잠금을 해제했다.
+- Figma 기준 없는 두 장 비교이며 사용자 시각 판정은 아직 받지 않았다. 촬영 후 변경은 이력 문서뿐이므로 제품 코드의 전체 검증을 재실행하지 않았다.
 
 ## 남은 승인·범위
 
