@@ -540,7 +540,11 @@ Map<String, Object?> searchMeasure(Element root) {
     if (group != null) bounds['emptyGroup'] = _rect(_box(group));
     if (image != null) {
       bounds['emptyImageSlot'] = _rect(_box(image));
-      assets['emptyImage'] = _asset(image);
+      final stack = _key(image, 'search-empty-image-stack')?.widget;
+      assets['emptyImage'] = {
+        ..._asset(image),
+        'slotClip': stack is Stack ? stack.clipBehavior.name : null,
+      };
     }
   }
   for (final card in _elements(
@@ -929,12 +933,26 @@ Map<String, Object?> searchJudgment(Map<String, Object?> m) {
           image?['fit'] != 'cover') {
         styles.add('Empty original PNG/cover differs');
       }
-      near((image?['bounds'] as Map?)?['width'], 81, 'Empty source width81');
+      // #241 approved A: uniform source scale restores body top/height/centre;
+      // only the external slot stays 81x123. Preserve the faint overflow.
+      final source = image?['bounds'] as Map?;
+      near(source?['width'], 83.08779, 'Empty source width83.088');
+      near(source?['height'], 126.10082, 'Empty source height126.101');
       near(
-        (image?['bounds'] as Map?)?['height'],
-        123,
-        'Empty source height123',
+        (source?['left'] as num? ?? 0) - (img['left'] as num),
+        .75171,
+        'Empty source offsetX',
       );
+      near(
+        (source?['top'] as num? ?? 0) - (img['top'] as num),
+        -.28532,
+        'Empty source offsetY',
+      );
+      if (image?['slotClip'] != 'none') {
+        styles.add(
+          'Empty original faint outline must overflow without clipping',
+        );
+      }
       asset(
         a['emptyCtaIcon'],
         'assets/icons/bookmark-book-open.svg',

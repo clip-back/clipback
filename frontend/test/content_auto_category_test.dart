@@ -185,6 +185,26 @@ class _Server {
       calls.where((call) => call.request.url.path == path).toList();
 }
 
+Future<void> _expectDoneAndClose(WidgetTester tester, _Server server) async {
+  expect(find.byType(SavedContentConfirmation), findsOneWidget);
+  final button = tester.widget<SaveFlowButton>(find.byType(SaveFlowButton));
+  expect(button.label, '저장 완료');
+  expect(button.enabled, isTrue);
+  expect(button.loading, isFalse);
+  final semantics = tester.ensureSemantics();
+  expect(
+    tester.getSemantics(find.byType(SaveFlowButton)).label,
+    contains('저장 완료'),
+  );
+  final saves = server.at(_contents).length + server.at(_upload).length;
+  expect(saves, 1);
+  await tester.tap(find.text('저장 완료'));
+  await tester.pumpAndSettle();
+  expect(find.byType(AddContentSheet), findsNothing);
+  expect(server.at(_contents).length + server.at(_upload).length, saves);
+  semantics.dispose();
+}
+
 class _Picker extends FilePicker {
   @override
   Future<FilePickerResult?> pickFiles({
@@ -473,8 +493,7 @@ void main() {
           expect(find.text(_changeHint), findsOneWidget);
           expect(find.text('변경'), findsNothing);
           _expectNoClassificationWrites(server);
-          await tester.tap(find.text('닫기'));
-          await tester.pumpAndSettle();
+          await _expectDoneAndClose(tester, server);
           final detail = tester
               .widget<DetailScreen>(find.byType(DetailScreen))
               .content;
@@ -607,6 +626,7 @@ void main() {
               expect(find.text('허투루가 자동으로 분류했어요!'), findsNothing);
               expect(find.text(_changeHint), findsOneWidget);
               _expectNoClassificationWrites(server);
+              await _expectDoneAndClose(tester, server);
             });
           },
         );
@@ -646,6 +666,7 @@ void main() {
           expect(find.text(_unclassifiedMessage), findsOneWidget);
           expect(find.text(_pendingMessage), findsNothing);
           expect(find.text('허투루가 자동으로 분류했어요!'), findsNothing);
+          await _expectDoneAndClose(tester, server);
         });
       },
     );
@@ -671,7 +692,7 @@ void main() {
           'summary_status': 'completed',
           'categories': [_recommended],
         };
-        await tester.tap(find.text('닫기'));
+        await tester.tap(find.text('저장 완료'));
         await tester.pumpAndSettle();
         expect(
           tester

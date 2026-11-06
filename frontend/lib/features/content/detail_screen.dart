@@ -58,15 +58,6 @@ class _DetailText {
     height: 1.6,
     letterSpacing: -0.375,
   );
-  static const original = TextStyle(
-    inherit: false,
-    fontFamily: 'Pretendard',
-    color: AppColors.text,
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    height: 1.6,
-    letterSpacing: -0.4,
-  );
   static const badge = TextStyle(
     inherit: false,
     fontFamily: 'Pretendard',
@@ -389,50 +380,52 @@ class _DetailScreenState extends State<DetailScreen> {
                         color: AppColors.faint,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    InkWell(
-                      onTap: _showOriginal,
-                      child: SizedBox(
-                        height: 24,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Row(
-                            children: [
-                              Text(
-                                content.isScreenshot ? '원본 이미지 보기' : '전문 보기',
-                                style: _DetailText.heading,
-                              ),
-                              const Spacer(),
-                              Transform.rotate(
-                                angle: _showFullText ? 3.14159 : 0,
-                                child: const SvgIcon(
-                                  asset: Assets.chevronDown,
-                                  size: 24,
+                    if (content.isScreenshot) ...[
+                      const SizedBox(height: 16),
+                      InkWell(
+                        onTap: _showOriginal,
+                        child: SizedBox(
+                          height: 24,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Row(
+                              children: [
+                                const Text(
+                                  '원본 이미지 보기',
+                                  style: _DetailText.heading,
                                 ),
-                              ),
-                            ],
+                                const Spacer(),
+                                Transform.rotate(
+                                  angle: _showFullText ? 3.14159 : 0,
+                                  child: const SvgIcon(
+                                    asset: Assets.chevronDown,
+                                    size: 24,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    if (_showFullText) ...[
+                      if (_showFullText) ...[
+                        const SizedBox(height: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: _ScreenshotAssetView(
+                            controller: _originalImage,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: content.isScreenshot
-                            ? _ScreenshotAssetView(controller: _originalImage)
-                            : FullContentPreview(content: content),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: AppColors.faint,
+                        ),
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Divider(
-                        height: 1,
-                        thickness: 1,
-                        color: AppColors.faint,
-                      ),
-                    ),
                     const SizedBox(height: 16),
                     Padding(
                       key: const ValueKey('detail-tags'),
@@ -659,30 +652,6 @@ class _ScreenshotAssetView extends StatelessWidget {
       );
     },
   );
-}
-
-class FullContentPreview extends StatelessWidget {
-  const FullContentPreview({required this.content, super.key});
-
-  final ContentItem content;
-
-  @override
-  Widget build(BuildContext context) {
-    final originalText = content.originalText.isEmpty
-        ? content.summary
-        : content.originalText;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          originalText,
-          key: const ValueKey('detail-original-text'),
-          style: _DetailText.original,
-        ),
-      ],
-    );
-  }
 }
 
 class DetailTopBar extends StatelessWidget {

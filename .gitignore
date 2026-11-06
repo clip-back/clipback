@@ -5,9 +5,6 @@
 .idea/
 .vscode/
 
-# Local agent instructions
-/AGENTS.md
-
 # Environment files
 .env
 .env.*

@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class ShareUITests: XCTestCase {
   override func setUp() { continueAfterFailure = false }
@@ -117,6 +118,10 @@ final class ShareUITests: XCTestCase {
   private func assertReturned(_ sender: XCUIApplication, timeout: TimeInterval = 5) {
     let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sender.otherElements["share.sheet"])
     XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: timeout), .completed, sender.debugDescription)
+    // The sheet can disappear before the system share window releases input to the sender.
+    let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"),
+                                         object: sender.staticTexts["sender.title"])
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: timeout), .completed, sender.debugDescription)
     XCTAssertTrue(sender.staticTexts["sender.title"].isHittable, sender.debugDescription)
   }
   /// Kept pending shares continue in the main app's existing recovery modal.
@@ -462,6 +467,172 @@ final class ShareUITests: XCTestCase {
     XCTAssertFalse(main.buttons["share.save"].waitForExistence(timeout: 2))
     XCTAssertEqual(main.state, .runningForeground)
     capture("ios-share-recovery-main-return")
+  }
+  private func captureWithFixtureState(_ name: String) {
+    capture(name)
+    let metadata: [String: Any] = [
+      "state": name, "capturedAt": ISO8601DateFormatter().string(from: Date()),
+      "inputProvenance": "native sender / OS share menu / real extension process",
+      "simulatorModel": ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "unknown",
+      "os": ProcessInfo.processInfo.operatingSystemVersionString,
+      "save_requests": saveRequests(), "saved": savedCount(),
+    ]
+    let attachment = XCTAttachment(data: try! JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys]),
+                                   uniformTypeIdentifier: "public.json")
+    attachment.name = name + "-metadata"; attachment.lifetime = .keepAlways; add(attachment)
+  }
+  /// Baseline and reviewed-build captures use the real extension and identical sender inputs.
+  func testCaptureShareLoadingStates() {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    for (name, input) in [("youtube", "YouTube 링크 공유"), ("instagram", "Instagram 텍스트 공유"), ("image", "스크린샷 공유")] {
+      openShare(sender, button: input)
+      assertSaveSheet(sender)
+      let save = sender.buttons["share.save"]
+      waitReady(save)
+      XCTAssertTrue(eventually { save.isEnabled })
+      captureWithFixtureState("SL-01-" + name)
+      let requests = saveRequests(), saved = savedCount()
+      control(["hold_save": true])
+      defer { control(["release_save": true]) }
+      save.tap()
+      XCTAssertTrue(eventually { self.saveRequests() == requests + 1 })
+      captureWithFixtureState("SL-02-" + name)
+      for _ in 0..<3 { save.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+      XCTAssertEqual(saveRequests(), requests + 1)
+      control(["release_save": true])
+      assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+      captureWithFixtureState("SL-03-" + name + "-returned")
+      XCTAssertEqual(savedCount(), saved + 1)
+    }
+  }
+  func testCaptureRetryStates() {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    let cases: [(String, [String: Any], String, TimeInterval)] = [
+      ("500", ["next_save_status": 500], unconfirmedMessage, 10),
+      ("response-lost", ["lose_response": true], unconfirmedMessage, 10),
+      ("timeout", ["save_delay_seconds": 35], unconfirmedMessage, 40),
+      ("422", ["next_save_status": 422], "지금 링크 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요. "
+        + "계속 실패하면 Instagram·YouTube 링크나 PNG·JPEG·WebP 이미지인지 확인해 주세요.", 10),
+    ]
+    for (name, settings, message, timeout) in cases {
+      let requests = saveRequests(), saved = savedCount()
+      failSave(sender, settings, message: message, retry: true, timeout: timeout)
+      captureWithFixtureState("SL-04-failure-" + name)
+      control(["hold_save": true])
+      defer { control(["release_save": true]) }
+      tapReady(sender.alerts.buttons["share.retry"])
+      XCTAssertTrue(eventually { self.saveRequests() == requests + 2 })
+      XCTAssertFalse(sender.buttons["share.save"].isEnabled)
+      captureWithFixtureState("SL-04-retry-" + name)
+      control(["release_save": true])
+      assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+      XCTAssertEqual(savedCount(), saved + 1)
+      XCTAssertEqual(saveRequests(), requests + 2)
+    }
+  }
+  func testRetryShowsProgressUntilHeldResponseCompletes() {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    let requests = saveRequests(), saved = savedCount()
+    failSave(sender, ["next_save_status": 500], message: unconfirmedMessage, retry: true)
+    captureWithFixtureState("SL-04-held-retry-alert")
+    control(["hold_save": true])
+    defer { control(["release_save": true]) }
+    tapReady(sender.alerts.buttons["share.retry"])
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(eventually { save.exists && save.label == "전송 중 ..." })
+    XCTAssertFalse(save.isEnabled)
+    XCTAssertTrue(sender.staticTexts["저장하고 있어요... 잠시만 기다려주세요 !"].exists)
+    XCTAssertTrue(eventually { self.saveRequests() == requests + 2 })
+    captureWithFixtureState("SL-04-held-retry-progress")
+    control(["release_save": true])
+    assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+    XCTAssertEqual(savedCount(), saved + 1)
+    XCTAssertEqual(saveRequests(), requests + 2)
+  }
+  func testHeldSaveShowsProgressAndRejectsRepeatedTaps() { assertHeldProgress(input: "YouTube 링크 공유") }
+  func testHeldImageShowsProgressAndRejectsRepeatedTaps() { assertHeldProgress(input: "스크린샷 공유") }
+  private func assertHeldProgress(input: String) {
+    let sender = XCUIApplication(bundleIdentifier: "com.huturu.sharetestsender")
+    sender.launch()
+    openShare(sender, button: input)
+    assertSaveSheet(sender)
+    let requests = saveRequests(), saved = savedCount()
+    control(["hold_save": true])
+    defer { control(["release_save": true]) }
+    let save = sender.buttons["share.save"]
+    XCTAssertTrue(eventually { save.isEnabled })
+    XCTAssertFalse(showsSendIcon(save), "The idle button must not match the progress icon golden")
+    tapReady(save)
+    XCTAssertTrue(eventually { save.label == "전송 중 ..." })
+    XCTAssertFalse(save.isEnabled)
+    XCTAssertTrue(showsSendIcon(save), "The held save button must visibly contain the original grey 20pt send icon")
+    XCTAssertTrue(sender.staticTexts["저장하고 있어요... 잠시만 기다려주세요 !"].exists)
+    XCTAssertFalse(sender.otherElements["share.toast"].exists)
+    for _ in 0..<3 { save.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+    XCTAssertTrue(eventually { self.saveRequests() == requests + 1 })
+    XCTAssertEqual(saveRequests(), requests + 1)
+    control(["release_save": true])
+    assertSavedToastThenReturn(sender, returned: sender.staticTexts["sender.title"])
+    XCTAssertEqual(savedCount(), saved + 1)
+    XCTAssertEqual(saveRequests(), requests + 1)
+  }
+  /// A decorative UIButton image is not an accessibility element. Inspect its actual rendered pixels.
+  /// The independent golden is the 20pt Figma 348:3404 SVG rendered at 3x, not a product asset lookup.
+  private func showsSendIcon(_ button: XCUIElement) -> Bool {
+    let screenshot = button.screenshot()
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = "send-icon-check-\(button.label)"; attachment.lifetime = .keepAlways; add(attachment)
+    guard let actual = screenshot.image.cgImage,
+          let path = Bundle(for: ShareUITests.self).path(forResource: "figma-share-send", ofType: "png"),
+          let golden = UIImage(contentsOfFile: path)?.cgImage else { XCTFail("Missing rendered button or icon golden"); return false }
+    let scale = CGFloat(actual.width) / button.frame.width
+    let side = Int((20 * scale).rounded())
+    func pixels(_ image: CGImage, width: Int, height: Int) -> [UInt8] {
+      var bytes = [UInt8](repeating: 0, count: width * height * 4)
+      bytes.withUnsafeMutableBytes { buffer in
+        let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+          bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+      }
+      return bytes
+    }
+    let rendered = pixels(actual, width: actual.width, height: actual.height)
+    let reference = pixels(golden, width: side, height: side)
+    var stroke: [(Int, Int)] = [], background: [(Int, Int)] = []
+    for y in stride(from: 0, to: side, by: max(1, Int(scale))) {
+      for x in stride(from: 0, to: side, by: max(1, Int(scale))) {
+        let alpha = reference[(y * side + x) * 4 + 3]
+        if alpha > 220 { stroke.append((x, y)) }
+        else if alpha < 10 { background.append((x, y)) }
+      }
+    }
+    XCTAssertGreaterThan(stroke.count, 20)
+    guard actual.width > side * 2, actual.height >= side else { XCTFail("Clipped icon area"); return false }
+    func matches(_ samples: [(Int, Int)], x: Int, y: Int, lower: Int, upper: Int) -> Double {
+      Double(samples.filter { dx, dy in
+        let offset = ((y + dy) * actual.width + x + dx) * 4
+        let r = Int(rendered[offset]), g = Int(rendered[offset + 1]), b = Int(rendered[offset + 2])
+        return r >= lower && r <= upper && abs(r - g) < 15 && abs(g - b) < 15
+      }.count) / Double(samples.count)
+    }
+    // The 10pt layout gap must also leave visible space; tolerate glyph bearings and raster alignment.
+    let gap = stride(from: -Int(8 * scale), to: 0, by: max(1, Int(scale))).flatMap { x in
+      stride(from: 0, to: side, by: max(1, Int(scale))).map { y in (x, y) }
+    }
+    // Search the trailing half around the button's vertical centre; allow raster antialiasing differences.
+    let centre = (actual.height - side) / 2, tolerance = Int(3 * scale)
+    for y in max(0, centre - tolerance)...min(actual.height - side, centre + tolerance) {
+      for x in (actual.width / 2)...(actual.width - side) {
+        if matches(stroke, x: x, y: y, lower: 80, upper: 165) > 0.8 &&
+           matches(background, x: x, y: y, lower: 180, upper: 235) > 0.9 &&
+           matches(gap, x: x, y: y, lower: 180, upper: 235) > 0.98 { return true }
+      }
+    }
+    return false
   }
   func testExternalLinkSaveReturnsToSenderWithoutMainApp() {
     let main = XCUIApplication(bundleIdentifier: "com.huturu.app")

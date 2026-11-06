@@ -423,7 +423,7 @@ void main() {
       await tester.tap(find.text('허투루에 저장하기'));
       await tester.pumpAndSettle();
       expect(find.byType(SavedContentConfirmation), findsOneWidget);
-      await tester.tap(find.text('닫기'));
+      await tester.tap(find.text('저장 완료'));
       await tester.pumpAndSettle();
       tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
       await tester.pumpAndSettle();
@@ -788,7 +788,7 @@ void main() {
       await _withApp(tester, server, () async {
         await _openFirst(tester);
         expect(find.text('원본 이미지 보기'), findsNothing);
-        expect(find.text('전문 보기'), findsOneWidget);
+        expect(find.text('전문 보기'), findsNothing);
         await _openOriginalSheet(tester);
         expect(find.byType(OriginalContentSheet), findsNothing);
         expect(launcher.calls.single.url, 'https://example.com/original');

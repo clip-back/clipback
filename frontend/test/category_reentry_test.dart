@@ -216,6 +216,92 @@ Future<void> _to(WidgetTester tester, DateTime start, Duration elapsed) async {
 }
 
 void main() {
+  for (final management in [false, true]) {
+    for (final edit in [false, true]) {
+      testWidgets(
+        'palette locks during held save and unconfirmed recheck management=$management edit=$edit',
+        (tester) async {
+          final response = Completer<http.Response?>();
+          final writes = <http.Request>[];
+          final server = _Server(
+            respond: (request, _) {
+              if (request.method == 'POST' && request.url.path == _categories ||
+                  request.method == 'PATCH') {
+                writes.add(request);
+                return writes.length == 1
+                    ? response.future
+                    : _json({'detail': 'Lost response'}, 503);
+              }
+              return null;
+            },
+          );
+          await _withApp(tester, server, (_) async {
+            await _navigate(tester, management);
+            await _open(tester, edit);
+            await tester.enterText(find.byType(TextField), '색 잠금');
+            await tester.pump();
+            final original = tester
+                .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+                .selectedColor;
+            await tester.tap(
+              find.widgetWithText(FilledButton, edit ? '수정하기' : '생성하기'),
+            );
+            await tester.pump();
+            expect(writes, hasLength(1));
+            expect(response.isCompleted, isFalse);
+            expect(find.widgetWithText(FilledButton, '저장 중…'), findsOneWidget);
+            final blocker = find
+                .ancestor(
+                  of: find.byType(FolderColorPicker),
+                  matching: find.byType(AbsorbPointer),
+                )
+                .first;
+            expect(tester.widget<AbsorbPointer>(blocker).absorbing, isTrue);
+            await tester.tap(
+              find.byKey(const ValueKey('palette-color-ffffa24b')),
+              warnIfMissed:
+                  false, // The asserted AbsorbPointer intentionally blocks this tap.
+            );
+            await tester.pump();
+            expect(
+              tester
+                  .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+                  .selectedColor,
+              original,
+            );
+            response.complete(_json({'detail': 'Lost response'}, 503));
+            await tester.pumpAndSettle();
+            expect(
+              find.widgetWithText(FilledButton, '결과 다시 확인'),
+              findsOneWidget,
+            );
+            expect(tester.widget<AbsorbPointer>(blocker).absorbing, isTrue);
+            await tester.tap(
+              find.byKey(const ValueKey('palette-color-ffffa24b')),
+              warnIfMissed:
+                  false, // The asserted AbsorbPointer intentionally blocks this tap.
+            );
+            await tester.pump();
+            expect(
+              tester
+                  .widget<FolderColorPicker>(find.byType(FolderColorPicker))
+                  .selectedColor,
+              original,
+            );
+            await tester.tap(find.widgetWithText(FilledButton, '결과 다시 확인'));
+            await tester.pumpAndSettle();
+            expect(writes, hasLength(2));
+            expect(writes[1].body, writes[0].body);
+            expect(
+              writes[1].headers['Idempotency-Key'],
+              writes[0].headers['Idempotency-Key'],
+            );
+          });
+        },
+      );
+    }
+  }
+
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('수정 재진입은 서버의 현재 이름과 색상을 확인한 뒤 새 시트를 연다', (tester) async {
     final server = _Server();

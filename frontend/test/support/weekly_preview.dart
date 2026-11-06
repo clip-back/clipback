@@ -221,7 +221,6 @@ Map<String, Object?> _state() {
     },
     'detailPresent': detail != null,
     'sheetPresent': _find<OriginalContentSheet>() != null,
-    'expanded': _key('detail-original-text') != null,
     'scroll': _position?.pixels,
     'maxScroll': _position?.maxScrollExtent,
     'button': button == null ? null : _bounds(_rect(button)),
@@ -334,7 +333,7 @@ Future<void> main() => http.runWithClient(() async {
         case '/original':
           await _tap(_key('detail-original-button')!, settle: false);
         case '/toggle':
-          await _tap(_text(_kind == 'photo' ? '원본 이미지 보기' : '전문 보기')!);
+          await _tap(_text('원본 이미지 보기')!);
         case '/scroll':
           final pos = _position!;
           pos.jumpTo(

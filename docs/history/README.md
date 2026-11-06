@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [빈 화면 그림 고해상도 원본과 검색 배치 보존 (#241)](2026-11-06-empty-state-assets.md)
+
 - [Weekly 카드 문구·이름 색 결정](2026-11-04-weekly-pick-wording.md)
 
 - [운영 원본 접근·백업·격리 복원 통합 검증](2026-10-26-image-operator-readiness.md)
@@ -34,6 +36,13 @@
 | 2026-11-06 | [`DELETE /users/me`와 앱의 탈퇴 요청 (#253)](2026-11-06-account-deletion-request.md) | 서버·앱 |
 | 2026-11-06 | [격리 복원 검증의 계정 탈퇴 판정 (#252)](2026-11-06-account-deletion-restore-probe.md) | 백엔드 |
 | 2026-11-06 | [계정 탈퇴 장부 기록과 계정 재삭제 (#251)](2026-11-06-account-deletion-ledger.md) | 백엔드 |
+| 2026-11-06 | [링크 상세의 전문 보기 제거 (#201)](2026-11-06-link-detail-full-text.md) | 앱 |
+| 2026-11-06 | [공유 저장 처리 중 표시 (#245)](2026-11-06-share-save-progress.md) | iOS·Android |
+| 2026-11-06 | [카테고리 8색 간격 재배치·최종 재검증 (#242)](2026-11-06-category-palette-spacing.md) | 앱 |
+| 2026-11-06 | [작은 UI 묶음 최종 검증·양 플랫폼 비교 (#237·#242·#241·#240)](2026-11-06-small-ui-batch-1.md) | 앱 |
+| 2026-11-06 | [하단 탭 별 위치 고정 자동 검증 (#240)](2026-11-06-navigation-star-position.md) | 앱 |
+| 2026-11-05 | [카테고리 무지개 색상 버튼 숨김 자동 검증 (#242)](2026-11-05-category-rainbow-hidden.md) | 앱 |
+| 2026-11-05 | [아카이브 빈 화면 안내·저장 완료 버튼 자동 검증 (#237)](2026-11-05-archive-empty-save-done-copy.md) | 앱 |
 | 2026-11-06 | [콘텐츠 삭제 전 확인 창 (#238)](2026-11-06-content-delete-confirm.md) | 앱 |
 | 2026-11-05 | [마이 메뉴 Figma 목록·버전 팝업 제거 (#239)](2026-11-05-my-page-figma-list.md) | 앱 |
 | 2026-11-05 | [사진 저장 응답 지연 뒤 수동 재시도 (#235)](2026-11-05-photo-save-retry.md) | 앱 |
