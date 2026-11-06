@@ -1,5 +1,6 @@
 import 'package:clipback_frontend/features/archive/bookmark_widgets.dart';
 import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
+import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -165,4 +166,84 @@ void main() {
       semantics.dispose();
     });
   }
+
+  void expectCategoryMore(WidgetTester tester, {required bool enabled}) {
+    final finder = find.bySemanticsLabel('더보기');
+    expect(finder, findsOneWidget);
+    expect(
+      tester.getSemantics(finder),
+      isSemantics(label: '더보기', isButton: true, hasTapAction: enabled),
+    );
+  }
+
+  for (final archiveStyle in [false, true]) {
+    for (final mutating in [false, true]) {
+      testWidgets(
+        '카테고리 행 더보기 버튼에 이름이 있다 archiveStyle=$archiveStyle mutating=$mutating',
+        (tester) async {
+          final semantics = tester.ensureSemantics();
+          await _pump(
+            tester,
+            CategoryRow(
+              category: CategoryItem(
+                id: _category.id,
+                name: _category.name,
+                color: _category.color,
+                tint: _category.tint,
+                deep: _category.deep,
+                mutationLabel: mutating ? '삭제 중…' : null,
+              ),
+              archiveStyle: archiveStyle,
+              onTap: () {},
+              onMore: () {},
+            ),
+          );
+          expectCategoryMore(tester, enabled: !mutating);
+          semantics.dispose();
+        },
+      );
+    }
+  }
+
+  testWidgets('아카이브 카테고리 목록의 행 더보기 버튼에 이름이 있다', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _pump(
+      tester,
+      CategoryArchiveView(
+        categories: const [_category],
+        contents: const [],
+        bookmarkedIds: const {},
+        bookmarkedFirst: false,
+        onSortChanged: (_) {},
+        onAddCategory: (_) {},
+        onUpdateCategory: (_, _) {},
+        onDeleteCategory: (_) {},
+        onOpenCategory: (_) {},
+      ),
+    );
+    expectCategoryMore(tester, enabled: true);
+    expect(
+      tester.getRect(find.bySemanticsLabel('더보기')),
+      tester.getRect(find.byKey(const ValueKey('archive-category-more-301'))),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('카테고리 관리 화면의 행 더보기 버튼에 이름이 있다', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CategoryManagementScreen(
+          categories: const [_category],
+          contents: const [],
+          onBack: () {},
+          onAddCategory: (_) {},
+          onUpdateCategory: (_, _) {},
+          onDeleteCategory: (_) {},
+        ),
+      ),
+    );
+    expectCategoryMore(tester, enabled: true);
+    semantics.dispose();
+  });
 }

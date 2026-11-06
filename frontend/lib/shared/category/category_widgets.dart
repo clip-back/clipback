@@ -533,25 +533,30 @@ class CategoryRow extends StatelessWidget {
                   style: const TextStyle(color: AppColors.subtle, fontSize: 14),
                 ),
                 const SizedBox(width: 8),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
-                  child: SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Center(
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: const BoxDecoration(
-                          color: AppColors.faint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: SvgIcon(
-                            asset: Assets.moreHorizontal,
-                            size: 19.2,
-                            color: AppColors.middle,
+                Semantics(
+                  container: true,
+                  button: true,
+                  label: '더보기',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: category.mutationLabel == null ? onMore : null,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: AppColors.faint,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: SvgIcon(
+                              asset: Assets.moreHorizontal,
+                              size: 19.2,
+                              color: AppColors.middle,
+                            ),
                           ),
                         ),
                       ),
@@ -629,32 +634,37 @@ class _ArchiveCategoryRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                GestureDetector(
-                  key: ValueKey('archive-category-more-$id'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
-                  child: SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Center(
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: const BoxDecoration(
-                          color: AppColors.faint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            2.4,
-                            2.4,
-                            2.4,
-                            3.2,
+                Semantics(
+                  container: true,
+                  button: true,
+                  label: '더보기',
+                  child: GestureDetector(
+                    key: ValueKey('archive-category-more-$id'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: category.mutationLabel == null ? onMore : null,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: AppColors.faint,
+                            shape: BoxShape.circle,
                           ),
-                          child: SvgPicture.asset(
-                            Assets.archiveCategoryMore,
-                            width: 19.2,
-                            height: 18.4,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              2.4,
+                              2.4,
+                              2.4,
+                              3.2,
+                            ),
+                            child: SvgPicture.asset(
+                              Assets.archiveCategoryMore,
+                              width: 19.2,
+                              height: 18.4,
+                            ),
                           ),
                         ),
                       ),
