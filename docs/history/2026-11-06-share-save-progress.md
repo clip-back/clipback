@@ -2,8 +2,9 @@
 
 ## 범위와 기준
 
-2026-11-06 기록. 첫 구현 커밋은 `bcf9bf2`, main의 콘텐츠 삭제 확인 창을 합친 전체 검증 기준은
-`e847f27d6855a30692fef6599ecc3703891dcb43`이다. 이후 이력·CHANGELOG·README만 변경했으며 제품 코드는 이 검증 기준과 같다.
+2026-11-06 기록. 첫 구현 커밋은 `bcf9bf2`, 첫 main 반영은 `e847f27`이다. 게시 직전 main의
+#248·#249를 `1f6b7b3`으로 추가 병합하고 전체 검증을 다시 통과했다. 추가 병합은 네이티브 공유 코드·
+공유 대역·촬영 진입 파일을 바꾸지 않았으며, 아래 촬영 빌드와 해당 코드는 같다.
 
 Figma `348:3390`(2026-11-06 조회)을 iOS Share Extension·Android ShareActivity의 저장 버튼 탭 이후에 적용했다.
 처리 중에는 회색 버튼, `전송 중 ...`, 원본 20pt/dp 종이비행기와 10pt/dp 간격,
@@ -41,26 +42,28 @@ before 경로·커밋 고정 및 기존 산출물 덮어쓰기 가능성이었�
 
 ## 검증 결과
 
-### 이번 전체 검증
+### 게시 직전 전체 검증 (최종)
 
-저장소 루트에서 공용 점유 해소 후 실행했다. 셸 실행 제한은 600초였다.
+clean `1f6b7b3`에서 공용 점유 해소 후 실행했다. 셸 실행 제한은 600초였다.
+병합한 Flutter 상태 문구와 소비 테스트를 먼저 대조하고 `flutter analyze --no-pub`가 통과한 뒤 실행했다.
 
 ```bash
 ~/.heoturu-agents/busy.sh --wait
-~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-245/final
+~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-245/prepublish
 ```
 
 ```text
 VERIFY result=PASS scope=all checks=11 failed=0
 backend pytest: 2048 passed, 46 skipped, 3 warnings
-Flutter: 2931 passed
+Flutter: 3058 passed
 pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
 pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 ```
 
 결과 파일과 실제 pytest/Flutter 로그를 대조했다. skip 46건은 통과에 포함하지 않았다.
-로그 디렉터리: `.utmp/ticket-245/final/20261106T135720-7ab8685a1fc6`.
-명령·셸 결과: `.utmp/ticket-245/review-fix/verify-console.log`.
+로그 디렉터리: `.utmp/ticket-245/prepublish/20261106T151042-5c4899f5df7a`.
+명령·셸 결과: `.utmp/ticket-245/prepublish/console.log`. 앞 전체 검증 `e847f27`의 로그는
+`.utmp/ticket-245/final/20261106T135720-7ab8685a1fc6`에 별도로 보존했다. 최종 결과와 합산하지 않는다.
 
 ### 앞 단계 네이티브 검증
 
@@ -77,7 +80,7 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 모두 로컬 HTTP 대역 검증이다. 초기 red와 실패한 실험·회귀 로그도 보존했다.
 진단은 `.utmp/ticket-245/diagnosis.md`, S1 수정 전·후 mock은 `.utmp/ticket-245/review-fix/`에 있다.
 
-## 전체 검증 뒤 최종 촬영
+## 첫 전체 검증 뒤 최종 촬영
 
 2026-11-06 감독이 `7f980ec` 빌드를 촬영했다. 제품 코드는 전체 VERIFY 기준 `e847f27`과 같다.
 설치된 iOS 확장 binary와 Android APK를 빌드 산출물 해시로 대조했다. 각 플랫폼 블록에서
@@ -98,7 +101,7 @@ fixture 코드와 원본 수치로 확인해 바로잡았으며 제품·네이�
 감독은 원본 기반 화면에서 회색 버튼·문구·20pt/dp 아이콘·안내 표시와 실패/재시도 복귀를 확인했다.
 Android 일반 1.0/1.1/1.2/1.3 및 짧은 1080×1600의 1.0/1.3에서 세 입력의 문구·아이콘·안내 잘림이
 보이지 않았다. iOS는 `large`, `extra-extra-large`, `extra-extra-extra-large` 단계에서 세 입력을 확인했다.
-이 iOS OS 단계는 정확한 수치 배율 1.1/1.2/1.3 검증을 대신하지 않는다.
+이 iOS OS 단계는 정확한 수치 배율 1.1/1.2/1.3 측정값이 아니다. 뒤 사용자 결정에 따라 이 한계를 기록하고 OS 단계 결과로 대신한다.
 
 변경 전/후/Figma 3열과 영상은 `.utmp/ticket-245-screens/`에 있다.
 
@@ -118,18 +121,33 @@ Android 일반 1.0/1.1/1.2/1.3 및 짧은 1080×1600의 1.0/1.3에서 세 입력
 Android 첫 기본 촬영은 `System UI isn't responding` 창이 입력을 가로막았다. 원본/AX로 확인 후
 `Wait`로 닫고 새 경로에서 통과했다. 이 과정에서 제품 코드나 테스트 단언을 수정하지 않았다.
 
-## 남은 확인과 중단 경계
+## 사용자 결정에 따른 한 번 재시도와 남은 확인
 
-- iOS 짧은 화면의 최종 after는 미검증이다. SE3 전환 명령의 `Invalid argument` 뒤 별도 boot는
-  성공했지만 `bootstatus`·스크린샷이 2분 넘게 응답하지 않았고 SpringBoard가 없었다.
-  shutdown은 `CoreSimulatorService connection interrupted`로 끝났으나 이후 `Shutdown`과
-  자체 프로세스 종료를 확인했다. `after/ios/short-unverified.json`에 남겼으며 원본이 없어 비교를 만들지 않았다.
-- 정확한 iOS 수치 글자 배율 1.1/1.2/1.3, 실제 VoiceOver·TalkBack의 제스처·음성 안내 검증은 미완료다.
-  TalkBack은 서비스 연결/활성 상태까지 확인했지만 도구의 단일 탭이 앱 동작으로 전달되어 표준
-  screen reader 입력을 증명하지 못했다. 일반 AX의 처리 중 이름·비활성 확인을 이를 대신하는 PASS로 세지 않는다.
-  임시 접근성 설정과 알림 권한은 정리했다. 상세는 `after/android/talkback/README.md`다.
-- iOS 계정 변경 실화면은 기존 fixture 제약으로 미검증이며 RunnerTests 경계 검사와 구분한다.
-- Docker deployment/operator-recovery와 로컬 S3는 위 skip 사유에 해당한다. 원격 CI·실제 Instagram 앱·운영·실기기는 이번 로컬 검증 범위 밖이다.
-- 준비 단계·실패 전용 디자인·애니메이션·최소 표시 시간 등 미확정 디자인은 그대로 남는다.
-- 범위 안의 남은 검증과 사용자 화면 판정이 완료될 때까지 이슈 전체 완료로 처리하지 않는다.
-  PR 초안만 작성하며 GitHub 게시·push·PR 생성·이슈 종료는 수행하지 않았다.
+사용자 원문 **“알겠어 추천대로 해줘”**에 따라 짧은 화면·계정 변경은 각각 한 번만 재시도하고,
+실패는 미검증으로 기록한 뒤 PR을 진행한다. 수치 배율은 OS 단계로 대신하고 실제 접근성은 다음 실기기 빌드에서 확인한다.
+
+1. **iOS 짧은 화면 — 재시도 통과.** 2026-11-06 15:03–15:09, 감독 잠금 아래 iPhone SE 3 / iOS 18.6을
+   한 번 부팅하여 bootstatus·SpringBoard·스크린샷 준비를 확인했다. `large`와 `extra-extra-extra-large`에서
+   `testCaptureShareLoadingStates`가 각각 1개 통과했다. 세 입력의 저장 전·중·성공, 추가 탭, 송신 앱 복귀를
+   촬영했고 문구·아이콘·안내 잘림이 없음을 원본 기반 화면에서 확인했다. 변경 전과 같은 기기·OS 단계·입력 경로이며
+   원본은 750×1334다. 첫 SE3 부팅/연결 실패 로그는 보존했다.
+   근거: `after/ios/retry-se3-boot/commands.json`, `retry-short-large/`, `retry-short-xxxl/`,
+   `retry-short-environment-comparison.json`. 비교는 `ticket-245-screens/compare-ios-short-large-retry.png`와
+   `compare-ios-short-xxxl-retry.png`다.
+2. **iOS 계정 변경 실화면 — 재시도 뒤에도 미검증.** 같은 기기에서 본앱의 마이 → 계정 관리 → 계정 연결하기를
+   한 번 시도했다. 실제 화면·AX에는 로그인 제공자 없이 ‘게스트로 계속 사용’만 보였고, 대역은 user 7/session 11로
+   고정돼 있어 저장 중 다른 계정으로 바꾸는 상황을 만들지 못했다. 제품·대역·테스트 기대값을 수정하거나
+   RunnerTests 경계 검사를 화면 확인으로 대신하지 않았다. `after/ios/retry-account/result.json`, `link.png`,
+   `link.ax.json`에 원인과 화면을 보존했다.
+3. **iOS 확장에서 수치 배율을 지정할 방법이 없어 OS 글자 단계로 대신함(한계).** 정확한 1.1·1.2·1.3배를
+   강제하거나 측정한 결과가 아니다. native 안전영역 수치 미계측 한계도 유지한다.
+4. **실제 VoiceOver·TalkBack — 다음 앱 빌드 실기기에서 사용자 확인 예정.** 일반 AX와 서비스 활성화를
+   실제 제스처·음성 안내의 PASS로 세지 않는다. 앞 TalkBack 시도의 임시 설정/권한은 정리했다.
+
+재시도 뒤 OS 글자 단계를 large로 복원하고 자체 helper·fixture를 종료했으며, Simulator Shutdown·부팅 기기 없음과
+잠금 반납을 확인했다. 새 제품 변경 없이 `1f6b7b3`의 전체 검증을 마친 뒤 이력과 PR 본문만 갱신한다.
+비교 이미지는 사용자가 PR 화면에서 첨부한다. PR의 **병합 전 남은 확인**에 위 결과를 명시하고 `Closes #245`를 유지하며,
+병합과 이슈 종료 여부는 사용자가 판단한다. 미검증 항목을 완료로 바꾸지 않았다.
+
+Docker deployment/operator-recovery와 로컬 S3는 위 skip 사유에 해당한다. 원격 CI·실제 Instagram 앱·운영·실기기 결과는
+이번 로컬 검증에 포함하지 않는다. 준비 단계·실패 전용 디자인·애니메이션·최소 표시 시간은 기존 결정대로 유지한다.
