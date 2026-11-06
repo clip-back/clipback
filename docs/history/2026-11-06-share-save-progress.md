@@ -77,13 +77,59 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 모두 로컬 HTTP 대역 검증이다. 초기 red와 실패한 실험·회귀 로그도 보존했다.
 진단은 `.utmp/ticket-245/diagnosis.md`, S1 수정 전·후 mock은 `.utmp/ticket-245/review-fix/`에 있다.
 
-## 남은 확인
+## 전체 검증 뒤 최종 촬영
 
-- 최종 변경 후 기기 촬영과 변경 전/후/Figma 3열 비교·전환 영상은 감독 후속이다.
-- 정확한 iOS 수치 글자 배율 1.1/1.2/1.3과 실제 VoiceOver·TalkBack은 미완료다.
-  OS content_size 단계의 과거 촬영을 수치 배율 완료로 간주하지 않는다.
-- 기존 iOS before 전용 캡처 도구도 metadata/log 전체 충돌 보호가 없어 after에 재사용하지 않는다.
-  새 xcresult 경로를 쓰는 UI 캡처와 별도 안전한 영상 경로를 사용해야 한다.
-- Docker deployment/operator-recovery와 로컬 S3 시험은 skip 사유에 해당하며 CI·운영·실기기 성공을 의미하지 않는다.
+2026-11-06 감독이 `7f980ec` 빌드를 촬영했다. 제품 코드는 전체 VERIFY 기준 `e847f27`과 같다.
+설치된 iOS 확장 binary와 Android APK를 빌드 산출물 해시로 대조했다. 각 플랫폼 블록에서
+`device-lock.sh acquire 감독-245 --wait`로 잠금을 잡고, 자체 자원 종료 뒤 해제했다.
+
+| 환경 | 이번 결과 | 원본·실행 근거 (`.utmp/ticket-245/` 아래) |
+| --- | --- | --- |
+| iPhone16/iOS18.6, 실제 송신 앱·OS 공유 메뉴·Share Extension | 기본 3입력, 재시도 4분류, 빠른 로컬 성공, 닫기/준비/보관복구와 큰 글자 선택검사 총 10개 통과 | `after/ios/README.md`, 각 `attachments/manifest.json`·`flow.mp4`, `partial-ios-final-*.log` |
+| Medium_Phone/Android16 API36, native instrumentation | 기본 3입력·재생성·실패/재시도·닫기·계정 변경, 배율/크기 선택검사 총 10개 통과 | `after/android/test-condition-proof.json`, 각 `test.log`·`captures/` |
+| 같은 Emulator, 실제 송신 앱·OS 공유 메뉴 | YouTube·Instagram·이미지 추가 탭 뒤 각각 요청 1회/최종 저장 1건, 응답 해제 뒤 복귀 | `after/android/os/request-count-proof.json`, `OS-*-held.mp4`, AX JSON |
+| 같은 Emulator, 실제 OS 메뉴 추가 흐름 | 지연 제어 없는 빠른 성공 후 복귀, 뒤로가기 후 늦은 응답에도 시트 재표시 없음 | `after/android/os/OS-fast-return-proof.json`, `OS-close-late-proof.json`·영상 |
+
+이는 main을 합친 빌드의 추가 촬영 검사이며 앞 단계 전체 네이티브 회귀를 모두 다시 실행했다는 뜻은 아니다.
+`save_requests`와 `saved`는 로컬 HTTP 대역 수치다. 대역은 저장 건을 등록한 뒤 **응답만 보류**하므로
+처리 중에도 서버의 `saved`는 증가할 수 있다. 감독의 임시 보고 검사에서 이를 불변으로 가정한 오류를
+fixture 코드와 원본 수치로 확인해 바로잡았으며 제품·네이티브 테스트 기대값을 바꾸지 않았다.
+
+감독은 원본 기반 화면에서 회색 버튼·문구·20pt/dp 아이콘·안내 표시와 실패/재시도 복귀를 확인했다.
+Android 일반 1.0/1.1/1.2/1.3 및 짧은 1080×1600의 1.0/1.3에서 세 입력의 문구·아이콘·안내 잘림이
+보이지 않았다. iOS는 `large`, `extra-extra-large`, `extra-extra-extra-large` 단계에서 세 입력을 확인했다.
+이 iOS OS 단계는 정확한 수치 배율 1.1/1.2/1.3 검증을 대신하지 않는다.
+
+변경 전/후/Figma 3열과 영상은 `.utmp/ticket-245-screens/`에 있다.
+
+- `compare-ios.png`, `compare-android-final.png`, `compare-android-short13.png`와 각 `-preview.png`·JSON.
+- `compare-ios-flow.mp4`, `compare-android-os-flow.mp4`: 원본 끝 프레임 검사 통과, 감독이 전환·끝 장면 확인.
+  탭 시각을 맞춘 속도 비교가 아니며, 보류 응답 영상과 빠른 로컬 응답 영상은 별도로 보존했다.
+- Figma `348:3390`, file `svNWsTFh8Ws1Mpt8XQIcrN`, 조회 시각 `2026-11-06T02:14:52+09:00`.
+  Figma 원본은 375×813, iOS 원본은 1178×2556, Android 기본은 1080×2400/density 2.625다.
+  Android 실제 systemInsetsPx는 `[0,63,0,63]`이며 전후 동일하다. OS 공유 목록/배경·안전영역 차이를
+  화면 보정으로 숨기지 않았다. iOS 안전영역 수치와 정확 글자 배율은 미계측이라 모든 비교 조건의
+  엄격한 일치를 주장하지 않는다. 기기·OS category·입력 경로 일치는 별도 metadata로 확인했다.
+- 실패·준비·재생성의 별도 원본이 없는 상태는 기존 정책의 회귀로 확인했으며 대체 Figma 디자인을 만들지 않았다.
+  사용자의 최종 시각 판정은 남아 있다.
+
+촬영 실패도 보존했다. iOS 첫 기본 촬영은 공유 메뉴가 화면에 보이지만 XCTest AX 선택이 실패했고
+새 경로의 재실행은 통과했다. Orca helper 종료와 성공의 인과관계는 확정하지 않는다.
+Android 첫 기본 촬영은 `System UI isn't responding` 창이 입력을 가로막았다. 원본/AX로 확인 후
+`Wait`로 닫고 새 경로에서 통과했다. 이 과정에서 제품 코드나 테스트 단언을 수정하지 않았다.
+
+## 남은 확인과 중단 경계
+
+- iOS 짧은 화면의 최종 after는 미검증이다. SE3 전환 명령의 `Invalid argument` 뒤 별도 boot는
+  성공했지만 `bootstatus`·스크린샷이 2분 넘게 응답하지 않았고 SpringBoard가 없었다.
+  shutdown은 `CoreSimulatorService connection interrupted`로 끝났으나 이후 `Shutdown`과
+  자체 프로세스 종료를 확인했다. `after/ios/short-unverified.json`에 남겼으며 원본이 없어 비교를 만들지 않았다.
+- 정확한 iOS 수치 글자 배율 1.1/1.2/1.3, 실제 VoiceOver·TalkBack의 제스처·음성 안내 검증은 미완료다.
+  TalkBack은 서비스 연결/활성 상태까지 확인했지만 도구의 단일 탭이 앱 동작으로 전달되어 표준
+  screen reader 입력을 증명하지 못했다. 일반 AX의 처리 중 이름·비활성 확인을 이를 대신하는 PASS로 세지 않는다.
+  임시 접근성 설정과 알림 권한은 정리했다. 상세는 `after/android/talkback/README.md`다.
+- iOS 계정 변경 실화면은 기존 fixture 제약으로 미검증이며 RunnerTests 경계 검사와 구분한다.
+- Docker deployment/operator-recovery와 로컬 S3는 위 skip 사유에 해당한다. 원격 CI·실제 Instagram 앱·운영·실기기는 이번 로컬 검증 범위 밖이다.
 - 준비 단계·실패 전용 디자인·애니메이션·최소 표시 시간 등 미확정 디자인은 그대로 남는다.
-- GitHub 게시·push·PR·이슈 종료는 이번 단계에서 수행하지 않았다.
+- 범위 안의 남은 검증과 사용자 화면 판정이 완료될 때까지 이슈 전체 완료로 처리하지 않는다.
+  PR 초안만 작성하며 GitHub 게시·push·PR 생성·이슈 종료는 수행하지 않았다.
