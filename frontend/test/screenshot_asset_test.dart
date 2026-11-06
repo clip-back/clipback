@@ -788,7 +788,7 @@ void main() {
       await _withApp(tester, server, () async {
         await _openFirst(tester);
         expect(find.text('원본 이미지 보기'), findsNothing);
-        expect(find.text('전문 보기'), findsOneWidget);
+        expect(find.text('전문 보기'), findsNothing);
         await _openOriginalSheet(tester);
         expect(find.byType(OriginalContentSheet), findsNothing);
         expect(launcher.calls.single.url, 'https://example.com/original');
