@@ -2,6 +2,7 @@ from fastapi import APIRouter, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession
+from app.integrations.social_auth_client import get_social_auth_client
 from app.integrations.storage_client import get_storage_client
 from app.repositories.event_repository import EventRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
@@ -23,7 +24,11 @@ async def delete_me(
     payload: AccountDeletionRequest, db: DatabaseSession, current_user_id: CurrentUserId
 ) -> Response:
     await delete_account(
-        db, get_storage_client(), user_id=current_user_id, reasons=payload.reasons
+        db,
+        get_storage_client(),
+        get_social_auth_client(),
+        user_id=current_user_id,
+        reasons=payload.reasons,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

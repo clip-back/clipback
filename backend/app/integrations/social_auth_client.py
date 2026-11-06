@@ -23,6 +23,8 @@ KAKAO_ISSUERS = {"https://kauth.kakao.com"}
 NAVER_PROFILE_URL = "https://openapi.naver.com/v1/nid/me"
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token"
+APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke"
+KAKAO_UNLINK_URL = "https://kapi.kakao.com/v1/user/unlink"
 APPLE_ISSUER = "https://appleid.apple.com"
 DEFAULT_JWKS_TTL_SECONDS = 3600
 MAX_JWKS_TTL_SECONDS = 86400
@@ -185,6 +187,33 @@ class SocialAuthClient:
         return await self._request_apple_token(
             {"grant_type": "refresh_token", "refresh_token": refresh_token}
         )
+
+    async def revoke_apple_token(self, refresh_token: str) -> None:
+        await self._post_revocation(APPLE_REVOKE_URL, data={
+            "client_id": self.apple_client_id(), "client_secret": self._apple_client_secret(),
+            "token": refresh_token, "token_type_hint": "refresh_token",
+        })
+
+    async def unlink_kakao(self, member_id: str) -> None:
+        """Unlink a Kakao member number from the app with the admin key."""
+        key = self.config.kakao_admin_key
+        if key is None or not key.get_secret_value().strip():
+            raise SocialAuthNotConfiguredError
+        await self._post_revocation(
+            KAKAO_UNLINK_URL,
+            data={"target_id_type": "user_id", "target_id": member_id},
+            headers={"Authorization": f"KakaoAK {key.get_secret_value().strip()}"},
+        )
+
+    async def _post_revocation(self, url: str, **kwargs: Any) -> None:
+        try:
+            response = await self._client.post(url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise SocialAuthTimeoutError from exc
+        except httpx.HTTPError as exc:
+            raise SocialAuthUpstreamError from exc
+        if response.status_code != 200:
+            raise SocialAuthUpstreamError
 
     def _apple_client_secret(self) -> str:
         client_id = self.apple_client_id()

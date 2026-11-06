@@ -1,4 +1,4 @@
-"""Account deletion: one ledger record first, then one DB transaction (ADR 0007, 0008).
+"""Account deletion: provider unlinking, one ledger record, one DB transaction (ADR 0007, 0008).
 
 scripts/recovery_deletions.py repeats the DB part for historical API images. Keep the
 deletion order and the cleanup operation ID formula identical in both places.
@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +24,15 @@ from app.integrations.deletion_ledger import (
     canonical_json,
     get_deletion_ledger,
 )
+from app.integrations.social_auth_client import (
+    SocialAuthClient,
+    SocialAuthClientError,
+    SocialAuthNotConfiguredError,
+    SocialAuthTimeoutError,
+)
 from app.integrations.storage_client import StorageRouter
 from app.models.account_deletion_reason import AccountDeletionReason
+from app.models.apple_auth import AppleCredential
 from app.models.category import Category
 from app.models.content import Content
 from app.models.content_event import ContentEvent
@@ -34,6 +42,7 @@ from app.models.recommendation import (
     RecommendationBatchItem,
     RecommendationExposure,
 )
+from app.models.social_identity import SocialIdentity, SocialProvider
 from app.models.user import User
 from app.services.image_deletion_service import (
     cleanup_image_deletion,
@@ -49,6 +58,14 @@ def account_content_operation_id(operation_id: str, content_id: int, saved_at: s
     """Retries and restore replays of one account deletion converge on one cleanup row."""
     saved_at = datetime.fromisoformat(saved_at).astimezone(UTC).isoformat()
     return str(uuid5(NAMESPACE_URL, f"account-deletion:{operation_id}:{content_id}:{saved_at}"))
+
+
+def _account_identity(user_id: int, created_at: datetime) -> dict:
+    return {"kind": ACCOUNT_DELETION, "user_id": user_id, "user_created_at": created_at.isoformat()}
+
+
+def _account_operation_id(identity: dict) -> str:
+    return str(uuid5(NAMESPACE_URL, canonical_json(identity).decode()))
 
 
 async def _locked_created_at(session: AsyncSession, user_id: int) -> datetime | None:
@@ -78,18 +95,14 @@ async def record_account_deletion(session: AsyncSession, user_id: int) -> dict |
     created_at = await _locked_created_at(session, user_id)
     if created_at is None:
         return None
-    identity = {
-        "kind": ACCOUNT_DELETION,
-        "user_id": user_id,
-        "user_created_at": created_at.isoformat(),
-    }
+    identity = _account_identity(user_id, created_at)
     contents = [
         {key: value for key, value in deletion_identity(content).items() if key != "user_id"}
         for content in await _image_contents(session, user_id)
     ]
     intent = {
         **identity,
-        "operation_id": str(uuid5(NAMESPACE_URL, canonical_json(identity).decode())),
+        "operation_id": _account_operation_id(identity),
         "deleted_at": datetime.now(UTC).isoformat(),
         "contents": contents,
     }
@@ -138,16 +151,94 @@ async def apply_account_deletion(session: AsyncSession, intent: dict) -> list[st
     return operation_ids
 
 
+class _UnreadableToken(Exception):
+    pass
+
+
+def _apple_refresh_token(client: SocialAuthClient, encrypted: str) -> str:
+    key = client.config.apple_token_encryption_key
+    try:
+        if key is None:
+            raise SocialAuthNotConfiguredError
+        cipher = Fernet(key.get_secret_value().encode())
+    except (ValueError, TypeError) as exc:
+        raise SocialAuthNotConfiguredError from exc
+    try:
+        return cipher.decrypt(encrypted.encode()).decode()
+    except (InvalidToken, ValueError, UnicodeError) as exc:
+        raise _UnreadableToken from exc
+
+
+def _kakao_unlink_configured(client: SocialAuthClient) -> bool:
+    # Required in production; development and test skip the unlink without it (D23).
+    key = client.config.kakao_admin_key
+    return key is not None and bool(key.get_secret_value().strip())
+
+
+async def revoke_provider_links(
+    session: AsyncSession, client: SocialAuthClient, user_id: int
+) -> bool:
+    """Unlink Apple and Kakao while their tokens and member numbers still exist (D5, D7).
+
+    Failures only go to the log, keyed by the ledger operation ID the deletion will use;
+    the deletion continues and nothing is reconnected if it later fails (D30). Google is
+    disconnected by the app (D6) and Naver has no revocation integration. False when the
+    account does not exist.
+    """
+    created_at = await session.scalar(select(User.created_at).where(User.id == user_id))
+    if created_at is None:
+        return False
+    operation_id = _account_operation_id(_account_identity(user_id, created_at))
+    links = await session.execute(
+        select(
+            SocialIdentity.provider,
+            SocialIdentity.provider_subject,
+            AppleCredential.refresh_token_encrypted,
+        )
+        .outerjoin(AppleCredential, AppleCredential.social_identity_id == SocialIdentity.id)
+        .where(SocialIdentity.user_id == user_id)
+        .order_by(SocialIdentity.id)
+    )
+    for provider, subject, encrypted in links:
+        try:
+            if provider == SocialProvider.APPLE and encrypted:
+                await client.revoke_apple_token(_apple_refresh_token(client, encrypted))
+            elif provider == SocialProvider.KAKAO and _kakao_unlink_configured(client):
+                await client.unlink_kakao(subject)
+            continue
+        except _UnreadableToken:
+            reason = "token_unreadable"
+        except SocialAuthTimeoutError:
+            reason = "timeout"
+        except SocialAuthNotConfiguredError:
+            reason = "not_configured"
+        except SocialAuthClientError:
+            reason = "provider_error"
+        logger.warning(
+            "Provider revocation failed: provider=%s reason=%s operation_id=%s",
+            provider.value, reason, operation_id,
+        )
+    return True
+
+
 async def delete_account(
-    session: AsyncSession, storage: StorageRouter, *, user_id: int, reasons: list[str]
+    session: AsyncSession,
+    storage: StorageRouter,
+    social_auth_client: SocialAuthClient,
+    *,
+    user_id: int,
+    reasons: list[str],
 ) -> None:
-    """The app's deletion: ledger record → DB deletion with the reason record → originals.
+    """The app's deletion: provider unlinking → ledger record → DB deletion with the reason
+    record → originals.
 
     The ledger lock orders overlapping requests of one account. A later request rechecks the
     account after the earlier one finishes: deleted → 401, otherwise it runs again and reuses
     any ledger record the earlier one left (U2).
     """
     try:
+        if not await revoke_provider_links(session, social_auth_client, user_id):
+            raise AuthenticationError()
         intent = await record_account_deletion(session, user_id)
         if intent is None:
             raise AuthenticationError()

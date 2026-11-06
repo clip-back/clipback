@@ -179,6 +179,7 @@ class RestoreDrill:
                         "OPENAI_API_KEY=offline-restore-placeholder",
                         'GOOGLE_CLIENT_IDS=["offline-restore-placeholder"]',
                         "KAKAO_REST_API_KEY=offline-restore-placeholder",
+                        "KAKAO_ADMIN_KEY=offline-restore-placeholder",
                         "BACKEND_CORS_ORIGINS=[]",
                         *(
                             [

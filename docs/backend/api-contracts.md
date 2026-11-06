@@ -170,6 +170,9 @@ allowlist of registered Native/REST app keys used by the clients. An SDK-issued
 Kakao ID token uses that SDK's initialization key as its audience. A nonempty
 `KAKAO_CLIENT_IDS` list is authoritative; when empty, `KAKAO_REST_API_KEY` remains
 the legacy single-audience fallback. Neither provider's ID/access tokens are stored.
+`KAKAO_ADMIN_KEY` is the server-only Kakao admin key used to unlink an account on
+[회원 탈퇴](#회원-탈퇴). Production startup requires it; development and test start
+without it and skip the unlink.
 
 ### Apple iOS authentication
 
@@ -362,7 +365,15 @@ migration.
   `other`(기타)다. 1개 이상, 같은 값은 한 번만 보낸다. 값은 정확히 같을 때만 받으며 공백 정리·대소문자 변환을 하지 않는다.
 - 성공은 `204`, 본문 없음이다. 계정·콘텐츠·이벤트·추천 기록·계정 소유 카테고리·태그·세션·소셜 연결을 그 자리에서 지운다.
   공용 카테고리("미분류"·템플릿)는 남는다. 다른 기기의 세션은 기존처럼 다음 요청에서 `401`이다.
-- 처리 순서는 삭제 장부에 계정 탈퇴 기록 하나 → DB 삭제와 탈퇴 사유 기록을 한 트랜잭션 → 커밋 뒤 Bucket 원본 삭제다.
+- 처리 순서는 공급자 연결 정리 → 삭제 장부에 계정 탈퇴 기록 하나 → DB 삭제와 탈퇴 사유 기록을 한 트랜잭션 → 커밋 뒤 Bucket 원본 삭제다.
+- 공급자 연결 정리: Apple 계정은 저장된 refresh token으로 Apple 토큰 철회(`POST https://appleid.apple.com/auth/revoke`,
+  `token_type_hint=refresh_token`)를, 카카오 계정은 `KAKAO_ADMIN_KEY`와 카카오 회원번호로 연결 끊기(`POST https://kapi.kakao.com/v1/user/unlink`,
+  `target_id_type=user_id`)를 시도한다. Google은 앱이 기기에서 연결 해제하고, 네이버 연결은 철회 없이 지운다.
+  Apple 토큰이 이미 비어 있으면 철회하지 않고, 개발·테스트에서 어드민 키가 없으면 연결 끊기를 건너뛴다.
+  시간 초과·공급자 오류·설정 없음·토큰 복호화 실패가 나도 삭제는 끝까지 하고(ADR 0007), 실패는 서버 경고 로그
+  `Provider revocation failed: provider=… reason=timeout|provider_error|not_configured|token_unreadable operation_id=…`로 남는다.
+  로그에는 토큰 값·어드민 키·계정 번호·이메일이 없다. 운영자는 작업 ID로 장부의 계정 탈퇴 기록을 찾는다.
+  공급자 연결을 끊은 뒤 DB 삭제가 실패해도 연결을 되돌리지 않는다(D30).
   장부·기록 형식과 운영자 재시도는 [이미지 삭제 운영](image-deletion.md)을 따른다(ADR 0007·0008).
 - 탈퇴 사유 기록(`account_deletion_reasons`)에는 고른 사유 목록과 한국 표준시(Asia/Seoul) 탈퇴 날짜만 있다.
   계정 번호·이메일·이름은 없고 보관 기한이 없다. 탈퇴가 실패하면 사유 기록도 남지 않는다.
@@ -370,6 +381,7 @@ migration.
 | 상황 | 응답 | 계정·데이터 |
 | --- | --- | --- |
 | 삭제 성공 | `204` | 모두 삭제 |
+| Apple 철회·카카오 연결 끊기 실패(시간 초과·공급자 오류·설정 없음·토큰 복호화 실패) | `204` | 모두 삭제, 실패는 서버 로그 |
 | DB 삭제 뒤 Bucket 원본 삭제 실패 | `204` | DB는 삭제, 원본은 삭제 작업 목록에 미완료로 남아 운영자 재시도가 지움 |
 | 본문 없음·JSON 아님·목록 없음·빈 목록·허용 밖 값·타입 오류·중복 | `422` | 변화 없음 |
 | 세션 없음·만료·이미 삭제된 계정 | `401` | 변화 없음 |
