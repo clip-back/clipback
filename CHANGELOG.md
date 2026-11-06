@@ -26,7 +26,7 @@
 
 ## 앱 0.4.1
 
-[iOS 0.4.1(10)·Android 0.4.1(6) 후보 기록](docs/releases/app-v0.4.1-ios-b10-android-b6.md): 양 플랫폼 산출물을 만들었고 업로드·테스트 배포·정식 공개는 미실행입니다. 함께 운영 중인 서버 변경은 [backend-2026-11-06-1](docs/releases/backend-2026-11-06-1.md)을 따릅니다.
+[iOS 0.4.1(10)·Android 0.4.1(6) 후보 기록](docs/releases/app-v0.4.1-ios-b10-android-b6.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. 업로드·테스트 배포·정식 공개는 미실행입니다. 함께 운영 중인 서버 변경은 [backend-2026-11-06-1](docs/releases/backend-2026-11-06-1.md)을 따릅니다.
 
 ### 개선
 
