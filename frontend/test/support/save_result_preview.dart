@@ -1547,7 +1547,7 @@ Future<void> _pasteRun() async {
         MediaQuery.of(_first<AddContentSheet>()).viewInsets.bottom == 0,
         'Paste flow keyboard did not hide',
       );
-      await _tapText('닫기');
+      await _tapText('저장 완료');
       _require(!_has<AddContentSheet>(), 'Paste flow close failed');
       _checks.add({
         'scenario':
@@ -2955,7 +2955,7 @@ Future<void> _resultScreenRun() async {
           : 'No scroll extent; last item and footer visibility checked without claiming a successful drag',
       ..._snapshot(),
     });
-    await _tapText('닫기');
+    await _tapText('저장 완료');
     _require(
       !_has<AddContentSheet>() &&
           state.calls == 1 &&
@@ -3038,7 +3038,7 @@ Future<void> _baseStyleRun({
       ..._snapshot(),
     });
     if (resultsOnly) {
-      await _tapText('닫기');
+      await _tapText('저장 완료');
       _require(
         !_has<AddContentSheet>() && _appKey.currentState!.calls == 1,
         'Result-only close did not dismiss without another save',
@@ -3137,7 +3137,7 @@ Future<void> _baseStyleRun({
     'passed': true,
     ..._snapshot(),
   });
-  await _tapText('닫기');
+  await _tapText('저장 완료');
   _require(!_has<AddContentSheet>(), 'Base result close did not dismiss');
   _checks.add({'scenario': 'base_result_close', 'passed': true});
 
@@ -3164,7 +3164,7 @@ Future<void> _baseStyleRun({
     'passed': true,
     ..._snapshot(),
   });
-  await _tapText('닫기');
+  await _tapText('저장 완료');
   _require(!_has<AddContentSheet>(), 'Base photo close did not dismiss');
 
   await _open('link', scale: 1, mode: 'pending');
@@ -3347,7 +3347,7 @@ Future<void> _photoFrameRun() async {
     'passed': true,
     ..._snapshot(),
   });
-  await _tapText('닫기');
+  await _tapText('저장 완료');
   _require(
     !_has<AddContentSheet>() && state.calls == 2,
     'Photo-frame close failed or submitted again',
@@ -3537,7 +3537,7 @@ Future<void> _run() async {
         final button = _first<SaveFlowButton>().widget as SaveFlowButton;
         _require(!button.enabled, 'Empty photo unexpectedly enables saving');
       } else if (_isResult(kind)) {
-        await _tapText('닫기');
+        await _tapText('저장 완료');
         _require(!_has<AddContentSheet>(), 'Close did not dismiss dialog');
       }
     }
@@ -3701,7 +3701,7 @@ Future<void> _run() async {
     await _scrollToMax();
     _checkFooter(atMaximum: true);
     await _capture(_sceneName('keyboard_hidden_result', scale));
-    await _tapText('닫기');
+    await _tapText('저장 완료');
     _require(!_has<AddContentSheet>(), 'Keyboard flow close failed');
     _checks.add({
       'scenario': 'keyboard_fail_retry_close_scale_$scale',

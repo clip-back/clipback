@@ -1,3 +1,5 @@
+import 'support/search_preview.dart' as preview;
+import 'support/empty_asset_probe.dart';
 import 'fixtures/search_history_examples.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -87,6 +89,8 @@ Future<_Calls> _pump(
   TargetPlatform platform = TargetPlatform.iOS,
   double width = 375,
   double height = 812,
+  double textScale = 1,
+  double keyboardInset = 0,
   String query = '검증',
   List<String> historyTerms = recentSearches,
   FeedPage? page,
@@ -96,6 +100,7 @@ Future<_Calls> _pump(
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
+  tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
   final top = platform == TargetPlatform.iOS ? 59.0 : 24.0;
   final bottom = platform == TargetPlatform.iOS ? 34.0 : 0.0;
   tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
@@ -107,6 +112,12 @@ Future<_Calls> _pump(
   await tester.pumpWidget(
     MaterialApp(
       key: UniqueKey(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       theme: ThemeData(
         useMaterial3: true,
         platform: platform,
@@ -464,6 +475,16 @@ void main() {
             width: width,
             page: _page(items: []),
           );
+          await expectEmptyAssetResolution(
+            tester,
+            _key('search-empty-image-source'),
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
           final viewport = _key('search-empty-viewport'),
               group = _key('search-empty-group');
           expect(group, findsOneWidget);
@@ -610,6 +631,160 @@ void main() {
     });
   }
 
+  testWidgets('H03 capture fixture distinguishes source from external slot', (
+    tester,
+  ) async {
+    await _pump(tester, page: _page(items: []));
+    final measured = preview.searchMeasure(
+      tester.element(find.byType(MaterialApp)),
+    );
+    final assets = measured['assetGeometry'] as Map;
+    final source = assets['emptyImage'] as Map;
+    final bounds = measured['bounds'] as Map;
+    final slot = bounds['emptyImageSlot'] as Map;
+    expect(slot['width'], 81);
+    expect(slot['height'], 123);
+    expect((source['bounds'] as Map)['width'], closeTo(83.08779, .01));
+    expect((source['bounds'] as Map)['height'], closeTo(126.10082, .01));
+    expect(source['slotClip'], 'none');
+    expect(source['asset'], Assets.searchEmptyIllustration);
+    expect(source['fit'], 'cover');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final width in [320.0, 375.0]) {
+      for (final height in [300.0, 812.0]) {
+        testWidgets('H03 approved body and unclipped slot outline $platform '
+            'width$width height$height scale1.3', (tester) async {
+          final page = _page(items: []);
+          await _pump(
+            tester,
+            platform: platform,
+            width: width,
+            height: height,
+            textScale: 1.3,
+            page: page,
+          );
+          expect(page.initialized, isTrue);
+          expect(page.loading, isFalse);
+          expect(page.error, isNull);
+          expect(page.items, isEmpty);
+          expect(_key('search-empty-group'), findsOneWidget);
+          await expectEmptyAssetResolution(
+            tester,
+            _key('search-empty-image-source'),
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
+          final title = _paragraph(tester, _key('search-empty-title'));
+          expect(title.textScaler.scale(16), 20.8);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final callback in [false, true]) {
+      for (final (height, scale, keyboard) in [
+        (300.0, 1.0, 0.0),
+        (300.0, 1.3, 0.0),
+        (812.0, 1.3, 512.0),
+      ]) {
+        testWidgets('H03 initial render clip and bounded scrolling $platform '
+            'callback$callback height$height scale$scale keyboard$keyboard', (
+          tester,
+        ) async {
+          final gate = Completer<List<ContentItem>>();
+          final calls = await _pump(
+            tester,
+            platform: platform,
+            width: 320,
+            height: height,
+            textScale: scale,
+            keyboardInset: keyboard,
+            page: _page(items: []),
+            attachFeed: !callback,
+            search: (_) => gate.future,
+          );
+          if (callback) {
+            expect(_key('search-empty-group'), findsNothing);
+            tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
+            await tester.pump();
+            expect(_key('search-empty-group'), findsNothing);
+            gate.complete(const []);
+            await tester.pump();
+            expect(calls.searches, ['검증']);
+          }
+          expect(_key('search-empty-group'), findsOneWidget);
+          final source = _key('search-empty-image-source');
+          final viewport = tester.getRect(_key('search-empty-viewport'));
+          final slot = tester.getRect(_key('search-empty-image'));
+          final scrollable = find.descendant(
+            of: _key('search-empty-viewport'),
+            matching: find.byType(Scrollable),
+          );
+          final position = tester.state<ScrollableState>(scrollable).position;
+          expect(position.pixels, 0);
+          expect(slot.top, closeTo(viewport.top, 1e-7));
+          expect(position.maxScrollExtent, greaterThan(0));
+          expect(
+            position.maxScrollExtent,
+            closeTo(
+              tester.getSize(_key('search-empty-group')).height -
+                  viewport.height,
+              1e-7,
+            ),
+          );
+          if (keyboard > 0) {
+            expect(tester.view.viewInsets.bottom, keyboard);
+            expect(viewport.bottom, lessThanOrEqualTo(height - keyboard));
+          }
+          await expectEmptyAssetResolution(
+            tester,
+            source,
+            minimumWidth: 243,
+            minimumHeight: 369,
+            transparent: true,
+            searchLayout: true,
+            digest:
+                '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
+          );
+          // Exercise a real drag before reaching the end of the scroll.
+          await tester.drag(scrollable, const Offset(0, -40));
+          await tester.pumpAndSettle();
+          expect(position.pixels, greaterThan(0));
+          // At the end of a real scroll, the illustration has moved outside
+          // the viewport. A bounded render clip must still hide that content.
+          position.jumpTo(position.maxScrollExtent);
+          await tester.pump();
+          final clips = emptyImagePaintClips(tester, source);
+          final viewportClip = clips.firstWhere(
+            (clip) =>
+                (clip.bottom - viewport.bottom).abs() < 1e-7 &&
+                (clip.height - viewport.height).abs() < .1,
+          );
+          expect(viewportClip.top, closeTo(viewport.top - 59 / 1458, 1e-7));
+          expect(viewportClip.bottom, closeTo(viewport.bottom, 1e-7));
+          expect(
+            viewportClip.top,
+            greaterThan(tester.getRect(_key('search-empty-image')).top),
+          );
+          expect(
+            _inside(tester.getRect(_key('search-empty-cta')), viewport),
+            isTrue,
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
   for (final state in [
     'missing-query',
     'other-query',
@@ -703,35 +878,47 @@ void main() {
     },
   );
   for (final outcome in ['success', 'failure']) {
-    testWidgets(
-      'H03 callback-only $outcome requires completed current request',
-      (tester) async {
-        final gate = Completer<List<ContentItem>>();
-        await _pump(
+    testWidgets('H03 callback-only $outcome requires completed current request', (
+      tester,
+    ) async {
+      final gate = Completer<List<ContentItem>>();
+      final calls = await _pump(
+        tester,
+        query: '검증',
+        attachFeed: false,
+        contents: const [],
+        search: (_) => gate.future,
+      );
+      expect(_key('search-empty-group'), findsNothing);
+      tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
+      await tester.pump();
+      expect(_key('search-empty-group'), findsNothing);
+      if (outcome == 'success') {
+        gate.complete(const []);
+      } else {
+        gate.completeError(StateError('검색 실패'));
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        _key('search-empty-group'),
+        outcome == 'success' ? findsOneWidget : findsNothing,
+      );
+      if (outcome == 'success') {
+        expect(calls.searches, ['검증']);
+        await expectEmptyAssetResolution(
           tester,
-          query: '검증',
-          attachFeed: false,
-          contents: const [],
-          search: (_) => gate.future,
+          _key('search-empty-image-source'),
+          minimumWidth: 243,
+          minimumHeight: 369,
+          transparent: true,
+          searchLayout: true,
+          digest:
+              '1485e2db480560b2cdcbf2529896e8b9a42300e769c16963c152782b91eca542',
         );
-        expect(_key('search-empty-group'), findsNothing);
-        tester.widget<TextField>(find.byType(TextField)).onSubmitted!('검증');
-        await tester.pump();
-        expect(_key('search-empty-group'), findsNothing);
-        if (outcome == 'success') {
-          gate.complete(const []);
-        } else {
-          gate.completeError(StateError('검색 실패'));
-        }
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(
-          _key('search-empty-group'),
-          outcome == 'success' ? findsOneWidget : findsNothing,
-        );
-        expect(tester.takeException(), isNull);
-      },
-    );
+      }
+      expect(tester.takeException(), isNull);
+    });
   }
   testWidgets('H03 late callback cannot make another edited query empty', (
     tester,

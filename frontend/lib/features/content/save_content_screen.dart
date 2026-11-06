@@ -376,7 +376,9 @@ class _AddContentSheetState extends State<AddContentSheet> {
                             child: SizedBox(
                               height: 56,
                               child: SaveFlowButton(
-                                label: savedResult != null || processing
+                                label: savedResult != null
+                                    ? '저장 완료'
+                                    : processing
                                     ? '닫기'
                                     : '허투루에 저장하기',
                                 enabled: enabled,

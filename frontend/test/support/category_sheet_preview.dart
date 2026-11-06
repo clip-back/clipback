@@ -109,8 +109,10 @@ class CategorySheetPreviewHost extends StatefulWidget {
     super.key,
     this.platform,
     this.isolatedFormCapProbe = false,
+    this.textScale = 1,
   });
   final TargetPlatform? platform;
+  final double textScale;
   // Only the short-height unit probe isolates the modal from the unrelated
   // archive background's own keyboard-resize overflow. Native scenes keep
   // the actual ArchiveScreen/CategoryManagementScreen origins below.
@@ -270,8 +272,13 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
       useMaterial3: true,
       platform: widget.platform,
       scaffoldBackgroundColor: AppColors.bg,
-      bottomSheetTheme: const BottomSheetThemeData(
-        constraints: BoxConstraints(maxWidth: phoneWidth),
+      bottomSheetTheme: BottomSheetThemeData(
+        constraints: BoxConstraints(
+          maxWidth: appContentWidth(
+            View.of(context).physicalSize.width /
+                View.of(context).devicePixelRatio,
+          ),
+        ),
       ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.main,
@@ -284,7 +291,9 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
       ),
     ),
     builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(widget.textScale)),
       child: child!,
     ),
     home: _home(),
@@ -812,15 +821,9 @@ Map<String, Object?> sheetMeasurements(
     geometry['paletteSelectedColor'] = _hex(
       (palette.widget as FolderColorPicker).selectedColor,
     );
-    final custom =
-        _key(palette, 'palette-custom') ??
-        _all(palette)
-            .where(
-              (e) => e.widget is InkWell && (e.widget as InkWell).onTap != null,
-            )
-            .last;
-    assets['custom'] = _asset(custom);
-    bounds['custom'] = _r(_rect(custom));
+    final custom = _key(palette, 'palette-custom');
+    assets['custom'] = custom == null ? null : _asset(custom);
+    bounds['custom'] = custom == null ? null : _r(_rect(custom));
     geometry['paletteScrollOffset'] =
         ((_find<Scrollable>(palette)! as StatefulElement).state
                 as ScrollableState)
@@ -1136,6 +1139,16 @@ Map<String, Object?> sheetJudgment(Map<String, Object?> m) {
     if (options.length != 8) {
       layout.add('Exact existing eight palette choices required');
     }
+    final paletteBounds = b['palette'] as Map;
+    final swatchWidth = options.fold<double>(
+      0,
+      (total, entry) =>
+          total + (entry['color'] == g['paletteSelectedColor'] ? 36 : 30),
+    );
+    final gap = math.max(
+      8.0,
+      ((paletteBounds['width'] as num) - swatchWidth) / 7,
+    );
     Map? previous;
     for (final entry in options) {
       final v = entry['visual'] as Map?,
@@ -1169,20 +1182,26 @@ Map<String, Object?> sheetJudgment(Map<String, Object?> m) {
       if (previous != null) {
         near(
           (spacingBox['left'] as num) - (previous['right'] as num),
-          8,
-          'Visible swatch gap',
+          gap,
+          'Visible swatch distributed gap',
         );
       }
       previous = spacingBox;
     }
-    final custom = a['custom'] as Map?;
-    if (custom == null ||
-        custom['asset'] != 'assets/icons/category-sheet-custom.png' ||
-        custom['isImage'] != true) {
-      styles.add('Custom control must use original image');
-    } else {
-      near((custom['bounds'] as Map)['width'], 38, 'Custom width');
-      near((custom['bounds'] as Map)['height'], 32, 'Custom height');
+    final scrollOffset = g['paletteScrollOffset'] as num;
+    near(
+      ((options.first['hit'] as Map)['left'] as num) + scrollOffset,
+      paletteBounds['left'] as num,
+      'Palette first edge',
+    );
+    near(
+      ((options.last['hit'] as Map)['right'] as num) + scrollOffset,
+      (paletteBounds['left'] as num) +
+          math.max(paletteBounds['width'] as num, swatchWidth + 56),
+      'Palette last edge',
+    );
+    if (a['custom'] != null || b['custom'] != null) {
+      styles.add('Rainbow image and tap target must be absent');
     }
   } else if (kind == 'delete') {
     style('deleteTitle', [18, 600, -.45, '0xFF000000', null]);
@@ -1542,13 +1561,6 @@ Element _choice(int index) =>
           (e) => e.widget is InkWell && (e.widget as InkWell).onTap != null,
         )
         .elementAt(index);
-Element _custom() =>
-    _key(_palette(), 'palette-custom') ??
-    _all(_palette())
-        .where(
-          (e) => e.widget is InkWell && (e.widget as InkWell).onTap != null,
-        )
-        .last;
 Future<void> _paletteDrag() async {
   final scroll =
           (_find<Scrollable>(_palette())! as StatefulElement).state
@@ -1712,12 +1724,18 @@ Future<void> _run() async {
       'keyboardInsetPositive': true,
     });
     await _paletteDrag();
-    await _tap(_custom());
-    final coral =
+    await _tap(_choice(7));
+    final lastColor =
         ((sheetMeasurements(_root, h)['assetGeometry'] as Map)['formFolder']
             as Map)['selectedColor'];
-    _require(coral == '0xFFFF6F61', 'Existing custom control coral changed');
-    _record('${origin}_custom_coral_preserved', {'selectedColor': coral});
+    _require(lastColor == '0xFF1F5E24', 'Last solid color not selected');
+    _require(
+      _key(_palette(), 'palette-custom') == null,
+      'Rainbow target remains',
+    );
+    _record('${origin}_last_solid_selected_without_rainbow', {
+      'selectedColor': lastColor,
+    });
     await _dismiss();
     _require(
       jsonEncode(h.categories.map(sheetCategoryData).toList()) ==

@@ -27,10 +27,10 @@ class Assets {
   static const homeInitialLoadingDots =
       'assets/figma/home-initial-loading-dots.svg';
   static const notificationMarker = 'assets/figma/notification-marker.svg';
-  static const notificationEmptyIllustration =
-      'assets/figma/notification-empty-original.png';
-  static const unclassifiedEmptyIllustration =
-      'assets/figma/unclassified-empty.png';
+  static const contentEmptyIllustration =
+      'assets/figma/content-empty-original.png';
+  static const notificationEmptyIllustration = contentEmptyIllustration;
+  static const unclassifiedEmptyIllustration = contentEmptyIllustration;
 
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';
@@ -42,8 +42,6 @@ class Assets {
   static const navArchiveOutline = 'assets/icons/nav-archive-outline.svg';
   static const navArchiveFilled = 'assets/icons/nav-archive-filled.svg';
   static const navBookmarkOutline = 'assets/icons/nav-bookmark-outline.svg';
-  static const navBookmarkOutlineArchive =
-      'assets/icons/nav-bookmark-outline-archive.svg';
   static const navBookmarkFilled = 'assets/icons/nav-bookmark-filled.svg';
   static const navAccountOutline = 'assets/icons/nav-account-outline.svg';
   static const navAccountFilled = 'assets/icons/nav-account-filled.svg';
@@ -111,5 +109,4 @@ class Assets {
       'assets/icons/category-sheet-selected-swatch.svg';
   static const categorySheetUnderline =
       'assets/icons/category-sheet-underline.svg';
-  static const categorySheetCustom = 'assets/icons/category-sheet-custom.png';
 }

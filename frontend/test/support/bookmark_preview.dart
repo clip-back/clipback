@@ -769,7 +769,7 @@ Map<String, Object?> bookmarkJudgment(Map<String, Object?> m) {
         layout.add('Natural empty group exceeds body viewport');
       }
       final raw = a['emptyImage'] as Map?, ir = raw?['bounds'] as Map?;
-      if (raw?['asset'] != 'assets/figma/unclassified-empty.png') {
+      if (raw?['asset'] != 'assets/figma/content-empty-original.png') {
         styles.add('Empty exact source PNG differs');
       }
       if (ir != null) {
