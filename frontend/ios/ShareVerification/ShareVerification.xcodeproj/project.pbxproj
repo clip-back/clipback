@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		245B00000000000000000001 /* figma-share-send.png in Resources */ = {isa = PBXBuildFile; fileRef = 245B00000000000000000002 /* figma-share-send.png */; };
 		15257E20924E81A836E19C5E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDEAE8C81F26EBC39EA4EEA4 /* Foundation.framework */; };
 		DCAA2ED354E07DEF811581E2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7507443506D85471C7CAD2 /* AppDelegate.swift */; };
 		E0CC6F9EF0373FA12FEC55C9 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDEAE8C81F26EBC39EA4EEA4 /* Foundation.framework */; };
@@ -24,6 +25,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		245B00000000000000000002 /* figma-share-send.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "figma-share-send.png"; sourceTree = "<group>"; };
 		3C7507443506D85471C7CAD2 /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		49B0F16207FB335988B2C557 /* ShareUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShareUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C03AD62D9867C5DABB4D947 /* ShareUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareUITests.swift; sourceTree = "<group>"; };
@@ -63,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				5C03AD62D9867C5DABB4D947 /* ShareUITests.swift */,
+				245B00000000000000000002 /* figma-share-send.png */,
 			);
 			name = ShareUITests;
 			path = ShareUITests;
@@ -175,6 +178,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				245B00000000000000000001 /* figma-share-send.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

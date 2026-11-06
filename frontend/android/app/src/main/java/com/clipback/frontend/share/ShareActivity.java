@@ -31,6 +31,8 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     private String displayedUser;
     private View background, sheet, toast;
     private Button save;
+    private TextView guide;
+    private boolean submitting;
     private AlertDialog alert;
     private float dragStart;
     private boolean successful, destroyed, loading, cancelledIntake, closing;
@@ -93,9 +95,10 @@ public class ShareActivity extends Activity implements ShareService.Listener {
         save.setTypeface(semiBold); save.setLetterSpacing(-0.025f);
         save.setAllCaps(false); save.setStateListAnimator(null); save.setBackground(shape(MAIN, 8));
         save.setMinHeight(dp(56)); save.setMinimumHeight(dp(56)); save.setPadding(dp(16), dp(8), dp(16), dp(8)); save.setEnabled(false);
-        save.setOnClickListener(v -> { save.setEnabled(false); ShareService.execute(store, draftId, displayedRevision, displayedUser, this); });
+        save.setOnClickListener(v -> submit());
+        save.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> centerSaveContent());
         panel.addView(save, new LinearLayout.LayoutParams(-1, -2));
-        TextView guide = text("전송한 정보는 AI가 직접 분류해서 저장할게요!", medium, 14, SUBTLE);
+        guide = text("전송한 정보는 AI가 직접 분류해서 저장할게요!", medium, 14, SUBTLE);
         LinearLayout.LayoutParams guideLayout = new LinearLayout.LayoutParams(-1, -2); guideLayout.topMargin = dp(16);
         panel.addView(guide, guideLayout);
         FrameLayout.LayoutParams sheetLayout = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
@@ -124,6 +127,35 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             sheet.setTranslationY(getResources().getDisplayMetrics().heightPixels); sheet.animate().translationY(0).setDuration(250);
         }
     }
+    /** This state starts at the user's save tap, never during input preparation. */
+    private void showProgress(boolean active) {
+        submitting = active;
+        save.setEnabled(false);
+        save.setText(active ? "전송 중 ..." : "저장하기");
+        save.setContentDescription(active ? "전송 중 ..." : "저장하기");
+        save.setTextSize(active ? 17 : 16);
+        save.setTextColor(active ? SUBTLE : TEXT);
+        save.setBackground(shape(active ? SUBTLER : MAIN, 8));
+        android.graphics.drawable.Drawable send = active ? getDrawable(R.drawable.share_send) : null;
+        if (send != null) send.setBounds(0, 0, dp(20), dp(20));
+        save.setCompoundDrawables(null, null, send, null);
+        save.setCompoundDrawablePadding(active ? dp(10) : 0);
+        guide.setText(active ? "저장하고 있어요... 잠시만 기다려주세요 !" : "전송한 정보는 AI가 직접 분류해서 저장할게요!");
+        guide.setTextSize(active ? 15 : 14);
+        centerSaveContent();
+    }
+    /** TextView's end drawable normally hugs the edge; center the label and 20dp icon as one row. */
+    private void centerSaveContent() {
+        int padding = dp(16);
+        if (submitting && save.getWidth() > 0)
+            padding = Math.max(padding, (int)((save.getWidth() - save.getPaint().measureText(save.getText().toString()) - dp(30)) / 2));
+        if (save.getPaddingLeft() != padding) save.setPadding(padding, dp(8), padding, dp(8));
+    }
+    private void submit() {
+        if (submitting || closing || destroyed || successful) return;
+        showProgress(true);
+        ShareService.execute(store, draftId, displayedRevision, displayedUser, this);
+    }
     /** Dragging the sheet down past a quarter of its height closes it. */
     private boolean drag(View view, MotionEvent event) {
         if (closing) return true;
@@ -148,7 +180,7 @@ public class ShareActivity extends Activity implements ShareService.Listener {
             boolean active = ShareService.isActive(draftId);
             boolean unconfirmed = "unknown".equals(draft.optString("state")) && !active;
             if ("sending".equals(draft.optString("state")) && !active) { store.setState(draftId, "unknown"); unconfirmed = true; }
-            if (active) ShareService.observe(draftId, this);
+            if (active) { showProgress(true); ShareService.observe(draftId, this); }
             JSONObject state = store.snapshot(), auth = state.optJSONObject("credential"); displayedRevision = state.getLong("revision");
             boolean valid = auth != null && ShareStore.expiry(auth.getString("expiresAt")) > System.currentTimeMillis();
             displayedUser = valid ? auth.getString("userId") : null;
@@ -199,6 +231,7 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     private void showAlert(ShareFailure.Kind kind) { showAlert(new ShareFailure(kind, null)); }
     /** The #122 failure classes in an OS alert; cancelling it (back, outside tap) is the same as [닫기]. */
     private void showAlert(ShareFailure failure) {
+        showProgress(false);
         shown = failure;
         // Login required, while preparing or saving, lowers the sheet before the alert.
         if (failure.kind == ShareFailure.Kind.LOGIN) hideSheet();
@@ -214,8 +247,8 @@ public class ShareActivity extends Activity implements ShareService.Listener {
     }
     /** Same share, same Idempotency-Key: the server confirms instead of saving twice. */
     private void retry() {
-        shown = null; alert = null; save.setEnabled(false);
-        ShareService.execute(store, draftId, displayedRevision, displayedUser, this);
+        shown = null; alert = null;
+        submit();
     }
     /** Starts the main app, then closes the share window with the [닫기] result. */
     private void openApp() {

@@ -291,6 +291,9 @@ Xcode Organizer에서 새 아카이브를 검증하고 `Distribute App → App S
 
 ## 모바일 공유 개발과 검증
 
+공유 저장 처리 중 UI(`348:3390`)는 iOS Share Extension·Android ShareActivity 네이티브 시험으로 확인한다.
+응답 보류·해제와 재생성·오류 회귀 명령은 각 플랫폼의 공유 검증 README를 따른다. Flutter 위젯 시험으로 대체하지 않는다.
+
 공유 초안·자격·재시도 동작은 [모바일 공유 저장](behavior.md#모바일-공유-저장)을 따릅니다. 아래 플랫폼 설정 후 로컬 검증을 진행합니다.
 
 ### 플랫폼 설정

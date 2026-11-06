@@ -2,6 +2,7 @@
 
 No external requests, tokens or provider credentials. Run with Python 3.11+.
 POST /__test/control sets next_save_status/save_delay_seconds/lose_response.
+Use hold_save=true before a save and release_save=true after inspecting the native UI.
 GET /__test/state exposes fixture counts for repeatable UI assertions.
 """
 from __future__ import annotations
@@ -22,6 +23,8 @@ LOCK = threading.Lock()
 RECEIPTS: dict[str, tuple[str, dict]] = {}
 CONTROL: dict = {}
 SAVE_REQUESTS = 0
+RELEASE_SAVE = threading.Event()
+RELEASE_SAVE.set()
 
 
 def content(ident: int, url: str | None = None) -> dict:
@@ -68,7 +71,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/users/me/stats":
             return self.reply({"saved_count": len(RECORDS), "reopened_count": 0})
         if path == "/categories":
-            return self.reply([{**CATEGORY, "content_count": len(RECORDS)}])
+            return self.reply([{**CATEGORY, "content_count": len(RECORDS),
+                                "last_saved_at": RECORDS[0]["saved_at"] if RECORDS else None}])
         if path == "/feed":
             records = list(RECORDS)
             term = query.get("q", [""])[0]
@@ -91,7 +95,13 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         if path == "/__test/control":
             with LOCK:
-                CONTROL.update(json.loads(body))
+                values = json.loads(body)
+                if values.pop("release_save", False):
+                    RELEASE_SAVE.set()
+                    CONTROL.pop("hold_save", None)
+                if values.get("hold_save", False):
+                    RELEASE_SAVE.clear()
+                CONTROL.update(values)
             return self.reply({"ok": True})
         if path in ("/auth/guest", "/auth/refresh") or path.startswith("/auth/social/"):
             return self.reply({"access_token": "local-share-fixture-access",
@@ -127,24 +137,30 @@ class Handler(BaseHTTPRequestHandler):
             detail = CONTROL.pop("next_save_detail", None)
             delay = CONTROL.pop("save_delay_seconds", 0)
             lose = CONTROL.pop("lose_response", False)
+            hold = CONTROL.pop("hold_save", False)
             if key in RECEIPTS:
                 old_hash, row = RECEIPTS[key]
-                return self.reply(row if old_hash == fingerprint else {"detail": "공유 입력이 달라졌어요."},
-                                  201 if old_hash == fingerprint else 409)
-            if status != 201:
-                return self.reply({"detail": detail if detail is not None else (
+                response = row if old_hash == fingerprint else {"detail": "공유 입력이 달라졌어요."}
+                status = 201 if old_hash == fingerprint else 409
+                delay, lose = 0, False
+            elif status != 201:
+                response = {"detail": detail if detail is not None else (
                     "본앱에서 로그인 상태를 확인해 주세요." if status == 401
-                    else "테스트 저장 실패. 다시 시도해 주세요.")}, status)
-            row = content(1000 + len(RECEIPTS), value.get("url") or value.get("raw_text"))
-            RECORDS.insert(0, row)
-            if key:
-                RECEIPTS[key] = (fingerprint, row)
+                    else "테스트 저장 실패. 다시 시도해 주세요.")}
+                delay, lose = 0, False
+            else:
+                response = content(1000 + len(RECEIPTS), value.get("url") or value.get("raw_text"))
+                RECORDS.insert(0, response)
+                if key:
+                    RECEIPTS[key] = (fingerprint, response)
+        if hold:
+            RELEASE_SAVE.wait(timeout=60)
         if delay:
             time.sleep(delay)
         if lose:
             self.close_connection = True
             return
-        return self.reply(row, 201)
+        return self.reply(response, status)
 
 
 if __name__ == "__main__":

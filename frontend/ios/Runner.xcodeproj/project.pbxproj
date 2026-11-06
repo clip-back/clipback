@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		245A00000000000000000001 /* Share Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 245A00000000000000000002 /* Share Assets.xcassets */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		18F1B5C7E777865EEFF4BA49 /* ShareSaveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D38231365536F1BBFDAB4B /* ShareSaveService.swift */; };
 		23F8EBC24F47CA6292F8DA95 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F8350210D9B29AB444C8F5C4 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -76,6 +77,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		245A00000000000000000002 /* Share Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = "Share Assets.xcassets"; path = ShareExtension/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		0289D731B18BE015978ECAC1 /* ShareComposerViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareComposerViewController.swift; sourceTree = "<group>"; };
 		08895AD6967E94598D95C9CE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
@@ -222,6 +224,7 @@
 		FDF113EA564ACA0333D59D3F /* ShareExtension */ = {
 			isa = PBXGroup;
 			children = (
+				245A00000000000000000002 /* Share Assets.xcassets */,
 				505B4C91F8DD57446F3318F8 /* ShareViewController.swift */,
 				1E43C531A263C3FB3D737DC8 /* Pretendard-Medium.otf */,
 				874A16B090399E76D32BEB2E /* Pretendard-SemiBold.otf */,
@@ -383,6 +386,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				245A00000000000000000001 /* Share Assets.xcassets in Resources */,
 				B62DC4B8895A8E90F63A59A8 /* Pretendard-Medium.otf in Resources */,
 				50A32759DE134D72DAD62110 /* Pretendard-SemiBold.otf in Resources */,
 				9810AFA284695D1B415C99EB /* Pretendard-LICENSE.txt in Resources */,

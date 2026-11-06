@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 public final class ShareServiceFixtureTest extends InstrumentationTestCase {
     private ShareStore store;
     private Activity activity;
+    private String captureInput;
     @Override protected void setUp() throws Exception {
         super.setUp();
         assertEquals("http://10.0.2.2:18765/api/v1",ShareStore.baseUrl());
@@ -174,9 +175,202 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
         }
         assertEquals(Collections.singletonList("저장 완료!"),texts[0]);
         long shown=System.currentTimeMillis();assertFalse(activity.isFinishing());
+        if(captureInput!=null)captureState("SL-03-"+captureInput);
         ShareActivityTest.awaitFinishing(activity);long elapsed=System.currentTimeMillis()-shown;
         assertTrue("The completion toast stays for about 1.5 seconds: "+elapsed,elapsed>=1000 && elapsed<4000);
         assertEquals(requests+1,saveRequests());assertEquals(before+1,saved());assertEquals(0,store.snapshot().getJSONArray("drafts").length());
+    }
+    /** Native capture entry point; also reusable after review with the same fixture and device settings. */
+    private void captureState(String name) throws Exception {
+        File directory=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),"share-loading");
+        assertTrue(directory.isDirectory() || directory.mkdirs());
+        android.graphics.Bitmap screenshot=getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(screenshot);
+        try(FileOutputStream output=new FileOutputStream(new File(directory,name+".png"))) {
+            assertTrue(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,output));
+        }
+        android.view.WindowInsets[] insets=new android.view.WindowInsets[1];
+        int[] rootSize=new int[2], sheetPadding=new int[4];
+        getInstrumentation().runOnMainSync(() -> {
+            View root=activity.getWindow().getDecorView();insets[0]=root.getRootWindowInsets();
+            rootSize[0]=root.getWidth();rootSize[1]=root.getHeight();
+            View sheet=ShareActivityTest.tagged(activity,"share.sheet");
+            if(sheet!=null) {
+                sheetPadding[0]=sheet.getPaddingLeft();sheetPadding[1]=sheet.getPaddingTop();
+                sheetPadding[2]=sheet.getPaddingRight();sheetPadding[3]=sheet.getPaddingBottom();
+            }
+        });
+        JSONObject evidence=new JSONObject().put("state",name).put("capturedAt",System.currentTimeMillis())
+            .put("rootSizePx",new org.json.JSONArray(rootSize)).put("sheetPaddingPx",new org.json.JSONArray(sheetPadding))
+            .put("systemInsetsPx",insets[0]==null ? JSONObject.NULL : new org.json.JSONArray(new int[]{
+                insets[0].getSystemWindowInsetLeft(),insets[0].getSystemWindowInsetTop(),
+                insets[0].getSystemWindowInsetRight(),insets[0].getSystemWindowInsetBottom()}))
+            .put("inputProvenance","native instrumentation/explicit share intent")
+            .put("fontScale",getInstrumentation().getTargetContext().getResources().getConfiguration().fontScale)
+            .put("density",getInstrumentation().getTargetContext().getResources().getDisplayMetrics().density)
+            .put("width",screenshot.getWidth()).put("height",screenshot.getHeight())
+            .put("os",android.os.Build.VERSION.RELEASE).put("sdk",android.os.Build.VERSION.SDK_INT)
+            .put("fixture",http("/__test/state",null));
+        try(FileOutputStream output=new FileOutputStream(new File(directory,name+".json"))) {
+            output.write(evidence.toString(2).getBytes(StandardCharsets.UTF_8));
+        }
+        screenshot.recycle();
+    }
+    public void testCaptureShareLoadingStates() throws Exception {
+        for(String input:new String[]{"youtube","instagram","image"}) {
+            captureInput=input;
+            if("image".equals(input)) {
+                Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+                ShareTestSenderActivity.shareDirectly(getInstrumentation(),"image");
+                activity=monitor.waitForActivityWithTimeout(10000);getInstrumentation().removeMonitor(monitor);assertNotNull(activity);
+            } else {
+                Intent intent=sharedLink();
+                if("instagram".equals(input))intent.putExtra(Intent.EXTRA_TEXT,"https://www.instagram.com/p/fixture/");
+                activity=getInstrumentation().startActivitySync(intent);
+            }
+            ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+            ShareActivityTest.settledLocation(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            captureState("SL-01-"+input);
+            int before=saved(),requests=saveRequests();
+            control(new JSONObject().put("hold_save",true));
+            try {
+                ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+                long until=System.currentTimeMillis()+5000;
+                while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
+                assertEquals(requests+1,saveRequests());
+                captureState("SL-02-"+input);
+                tapSaveRepeatedly();assertEquals(requests+1,saveRequests());
+                if("youtube".equals(input)) {
+                    Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+                    getInstrumentation().runOnMainSync(() -> activity.recreate());
+                    activity=monitor.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(monitor);assertNotNull(activity);
+                    getInstrumentation().waitForIdleSync();captureState("SL-07-youtube");
+                }
+            } finally { control(new JSONObject().put("release_save",true)); }
+            assertCompletedOnce(before,requests);
+        }
+    }
+    public void testCapturePreparationAndDismissStates() throws Exception {
+        synchronized(ShareStore.LOCK) {
+            activity=getInstrumentation().startActivitySync(sharedLink());
+            ShareActivityTest.settledLocation(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            assertFalse(ShareActivityTest.tagged(activity,"share.save").isEnabled());
+            captureState("SL-08-preparing");
+        }
+        ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        String id=onlyDraft();int requests=saveRequests();
+        control(new JSONObject().put("hold_save",true));
+        try {
+            ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            long until=System.currentTimeMillis()+5000;
+            while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
+            assertEquals(requests+1,saveRequests());
+            captureState("SL-06-before-back");
+            getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            ShareActivityTest.awaitFinishing(activity);captureState("SL-06-after-back");
+        } finally { control(new JSONObject().put("release_save",true)); }
+        long until=System.currentTimeMillis()+5000;
+        while(ShareService.isActive(id) && System.currentTimeMillis()<until)Thread.sleep(20);
+        assertFalse(ShareService.isActive(id));captureState("SL-06-after-late-response");
+    }
+    public void testCaptureRetryStates() throws Exception {
+        JSONObject[] failures={new JSONObject().put("next_save_status",500),new JSONObject().put("lose_response",true),
+            new JSONObject().put("save_delay_seconds",31),new JSONObject().put("next_save_status",422)};
+        for(int index=0;index<failures.length;index++) {
+            int before=saved(),requests=saveRequests();
+            android.view.accessibility.AccessibilityNodeInfo alert=failSave(failures[index],RETRY_TITLE,index==3?CHECK_INPUT:UNCONFIRMED,"다시 시도","닫기");
+            captureState("SL-04-failure-"+index);
+            control(new JSONObject().put("hold_save",true));
+            try {
+                ShareActivityTest.pressAlertButton(getInstrumentation(),alert,"다시 시도");
+                long until=System.currentTimeMillis()+5000;
+                while(saveRequests()<requests+2 && System.currentTimeMillis()<until)Thread.sleep(20);
+                assertEquals(requests+2,saveRequests());captureState("SL-04-retry-"+index);
+            } finally { control(new JSONObject().put("release_save",true)); }
+            assertCompletedOnce(before,requests+1);
+        }
+    }
+    public void testCaptureNonRetryableStates() throws Exception {
+        int[] statuses={401,410,409,413,409};
+        String[] titles={"로그인이 필요해요","다시 저장할 수 없어요","다시 저장할 수 없어요","다시 저장할 수 없어요","지금은 저장할 수 없어요"};
+        String[] names={"401","410","409","413","quota"};
+        for(int index=0;index<statuses.length;index++) {
+            cleanup();store.blockCredential();prepare();
+            activity=getInstrumentation().startActivitySync(sharedLink());
+            ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+            JSONObject failure=new JSONObject().put("next_save_status",statuses[index]);
+            if(index==4)failure.put("next_save_detail",new JSONObject().put("code","image_quota_exceeded"));
+            control(failure);
+            ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            android.view.accessibility.AccessibilityNodeInfo alert=ShareActivityTest.awaitAlert(getInstrumentation(),titles[index]);
+            if(index==0)ShareActivityTest.awaitSheetHidden(getInstrumentation(),activity);
+            captureState("SL-05-"+names[index]);
+            closeAlert(alert);
+            assertEquals(index==0 || index==4 ? 1 : 0,store.snapshot().getJSONArray("drafts").length());
+        }
+    }
+    public void testProgressEndsOnFailureAndStartsAgainOnRetry() throws Exception {
+        int before=saved(),requests=saveRequests();
+        activity=getInstrumentation().startActivitySync(sharedLink());
+        ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+        control(new JSONObject().put("hold_save",true).put("next_save_status",500));
+        try {
+            ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            getInstrumentation().waitForIdleSync();
+            assertEquals("전송 중 ...",((Button)ShareActivityTest.tagged(activity,"share.save")).getText().toString());
+            awaitSaveRequests(requests+1);
+        } finally { control(new JSONObject().put("release_save",true)); }
+        android.view.accessibility.AccessibilityNodeInfo alert=ShareActivityTest.awaitAlert(getInstrumentation(),RETRY_TITLE,UNCONFIRMED,"다시 시도","닫기");
+        Button save=(Button)ShareActivityTest.tagged(activity,"share.save");
+        assertEquals("저장하기",save.getText().toString());assertFalse(save.isEnabled());
+        assertNull(save.getCompoundDrawables()[2]);
+        control(new JSONObject().put("hold_save",true));
+        try {
+            ShareActivityTest.pressAlertButton(getInstrumentation(),alert,"다시 시도");
+            assertEquals("전송 중 ...",save.getText().toString());assertFalse(save.isEnabled());
+            assertNotNull(save.getCompoundDrawables()[2]);
+            awaitSaveRequests(requests+2);
+        } finally { control(new JSONObject().put("release_save",true)); }
+        assertCompletedOnce(before,requests+1);
+    }
+    private void awaitSaveRequests(int expected) throws Exception {
+        long until=System.currentTimeMillis()+5000;
+        while(saveRequests()<expected && System.currentTimeMillis()<until)Thread.sleep(20);
+        assertEquals(expected,saveRequests());
+    }
+    public void testHeldSaveShowsProgressAndRejectsRepeatedTaps() throws Exception { assertHeldProgress(false,false); }
+    public void testHeldImageShowsProgressAndRejectsRepeatedTaps() throws Exception { assertHeldProgress(true,false); }
+    public void testHeldSaveRestoresProgressAfterRecreation() throws Exception { assertHeldProgress(false,true); }
+    private void assertHeldProgress(boolean image,boolean recreate) throws Exception {
+        int before=saved(), requests=saveRequests();
+        control(new JSONObject().put("hold_save",true));
+        try {
+            if(image) {
+                Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+                ShareTestSenderActivity.shareDirectly(getInstrumentation(),"image");
+                activity=monitor.waitForActivityWithTimeout(10000);getInstrumentation().removeMonitor(monitor);assertNotNull(activity);
+            } else activity=getInstrumentation().startActivitySync(sharedLink());
+            ShareActivityTest.awaitSaveEnabled(getInstrumentation(),activity);
+            ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
+            if(recreate) {
+                Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(ShareActivity.class.getName(),null,false);
+                getInstrumentation().runOnMainSync(() -> activity.recreate());
+                activity=monitor.waitForActivityWithTimeout(5000);getInstrumentation().removeMonitor(monitor);assertNotNull(activity);
+            }
+            Button button=(Button)ShareActivityTest.tagged(activity,"share.save");
+            getInstrumentation().waitForIdleSync();
+            assertEquals("전송 중 ...",button.getText().toString());
+            assertFalse(button.isEnabled());
+            assertNotNull(button.getCompoundDrawables()[2]);
+            assertTrue(ShareActivityTest.visibleTexts(activity.getWindow().getDecorView())
+                .contains("저장하고 있어요... 잠시만 기다려주세요 !"));
+            assertEquals(View.GONE,ShareActivityTest.tagged(activity,"share.toast").getVisibility());
+            tapSaveRepeatedly();
+            long until=System.currentTimeMillis()+5000;
+            while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
+            assertEquals(requests+1,saveRequests());
+        } finally { control(new JSONObject().put("release_save",true)); }
+        assertCompletedOnce(before,requests);
     }
     public void testLinkShareSavesOnceDespiteTapsWhilePreparingAndSaving() throws Exception {
         int before=saved(),requests=saveRequests();control(new JSONObject().put("save_delay_seconds",1));
@@ -278,7 +472,8 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
         ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
         long until=System.currentTimeMillis()+5000;while(saveRequests()==requests && System.currentTimeMillis()<until)Thread.sleep(20);
         store.blockCredential();
-        closeAlert(ShareActivityTest.awaitAlert(getInstrumentation(),"저장 환경이 바뀌었어요","저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.","닫기"));
+        android.view.accessibility.AccessibilityNodeInfo alert=ShareActivityTest.awaitAlert(getInstrumentation(),"저장 환경이 바뀌었어요","저장 계정이 변경되었습니다. 이 창을 닫고 저장할 계정을 확인해 주세요.","닫기");
+        captureState("SL-05-account-change");closeAlert(alert);
         assertEquals("unknown",store.draft(id).getString("state"));assertEquals("7",store.draft(id).getString("userId"));
         assertEquals(requests+1,saveRequests());
     }
