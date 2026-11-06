@@ -3,6 +3,7 @@
 2026-11-06, 시작 커밋 `fab5b84647fa9a72525b94274d12c77303a99fc4` 기준으로 구현하고 티켓 리뷰 반영과 전체 검증까지 마쳤다.
 회원 탈퇴 스펙 #250의 여섯 번째 티켓이다. 204 뒤 검색 기록·저장 대기 공유·Google 연결 해제와 기기 정리 실패의 다음 실행 재시도(R2)는
 #257 범위라 이 기록에 없다. 이 기록은 변경 후 화면 촬영·배포·운영 확인 완료를 뜻하지 않는다.
+#257 뒤 빌드 전 확인 테스트에 저장소 대역을 더한 것과 최종 전체 검증은 [회원 탈퇴 최종 통합](2026-11-06-account-deletion-final.md)에 있다.
 결정 근거는 [ADR 0007](../adr/0007-account-deletion-immediate-and-replayed.md)·[ADR 0008](../adr/0008-account-deletion-ledger-record.md)이고,
 앱이 쓰는 데이터 층은 [#253 기록](2026-11-06-account-deletion-request.md)이다.
 
