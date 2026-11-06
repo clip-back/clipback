@@ -258,9 +258,11 @@ jobs:
           # main 리비전(#247). 계정 탈퇴 기록이 생기기 전에 만든 복구 지점을 이 이미지로 복원한다(ADR 0008).
           LEGACY_REVISION: bf654132676aa76a8b8152c6d85bb883ea15cfc9
         run: |
+          set -o pipefail
           git fetch --no-tags --depth=1 origin "$LEGACY_REVISION"
           mkdir "$RUNNER_TEMP/legacy-backend"
-          git archive "$LEGACY_REVISION:backend" | tar -x -C "$RUNNER_TEMP/legacy-backend"
+          # backend/ 안에서 하위 트리를 archive하면 git이 현재 폴더 범위로 좁혀 실패한다. 저장소 루트에서 꺼낸다.
+          git -C .. archive "$LEGACY_REVISION:backend" | tar -x -C "$RUNNER_TEMP/legacy-backend"
           docker build --label org.opencontainers.image.revision="$LEGACY_REVISION" -t clipback-operator-api:legacy "$RUNNER_TEMP/legacy-backend"
       - name: Check private source backup, maintenance and isolated recovery
         env:
