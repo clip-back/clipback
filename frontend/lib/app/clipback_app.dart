@@ -827,6 +827,15 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     };
   }
 
+  ValueChanged<ContentItem> _deleteAction(ValueChanged<ContentItem> action) {
+    final generation = _d.app.accountGeneration;
+    return (item) {
+      if (_canUseAccountActions && generation == _d.app.accountGeneration) {
+        action(item);
+      }
+    };
+  }
+
   Widget _searchScreen() {
     final generation = _d.app.accountGeneration;
     final owner = _d.search.historyOwner;
@@ -859,7 +868,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       onOpenContent: _openDetail,
       onToggleBookmark: _d.search.toggleBookmark,
       onChangeContentCategory: _d.search.changeCategory,
-      onDeleteContent: _d.search.deleteContent,
+      onDeleteContent: _deleteAction(_d.search.deleteContent),
       onOpenArchive: () => _openArchive(),
     );
   }
@@ -1253,7 +1262,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onOpenContent: _openDetail,
             onToggleBookmark: _d.archive.toggleBookmark,
             onChangeContentCategory: _d.archive.changeCategory,
-            onDeleteContent: _d.archive.deleteContent,
+            onDeleteContent: _deleteAction(_d.archive.deleteContent),
             onAddCategory: _d.categories.add,
             onSubmitCategory: _d.categories.submitCreate,
             onSubmitCategoryUpdate: _d.categories.submitUpdate,
@@ -1272,6 +1281,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           ),
         ),
         AppRoute.bookmark => BookmarkScreen(
+          key: ValueKey(_d.app.accountGeneration),
           contents: _d.bookmark.page.items,
           feed: _d.bookmark.page,
           onLoadMore: _d.bookmark.loadMore,
@@ -1285,7 +1295,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onOpenContent: _openDetail,
           onToggleBookmark: _d.bookmark.toggleBookmark,
           onChangeContentCategory: _d.bookmark.changeCategory,
-          onDeleteContent: _d.bookmark.deleteContent,
+          onDeleteContent: _deleteAction(_d.bookmark.deleteContent),
           onAddLink: _d.save.addLink,
           onAddScreenshot: _d.save.addScreenshot,
           onTab: _selectRootTab,
@@ -1304,7 +1314,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onBack: _backFromDetail,
           onToggleBookmark: _d.detail.toggleBookmark,
           onChangeCategory: _d.detail.changeCategory,
-          onDeleteContent: _d.detail.deleteContent,
+          onDeleteContent: _deleteAction(_d.detail.deleteContent),
           onOpenOriginalLink: _d.detail.originalLinkAction(),
           onOpenAdjacent: _d.detail.adjacentAction(),
           onOpenContent: _openDetail,

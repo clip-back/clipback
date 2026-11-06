@@ -740,11 +740,17 @@ class DetailTopBar extends StatelessWidget {
               context: context,
               useSafeArea: true,
               backgroundColor: Colors.transparent,
-              builder: (context) => ContentActionSheet(
+              builder: (_) => ContentActionSheet(
+                ownerContext: context,
                 content: content,
                 categories: categories,
                 onChangeCategory: onChangeCategory,
                 onDelete: onDeleteContent,
+                isCurrent: () =>
+                    context.mounted &&
+                    (context.widget as DetailTopBar).content.id == content.id &&
+                    (context.widget as DetailTopBar).content.mutationLabel ==
+                        null,
               ),
             ),
             size: 24,
