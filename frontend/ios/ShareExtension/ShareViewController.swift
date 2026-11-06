@@ -23,7 +23,9 @@ final class ShareViewController: UIViewController {
   private var loading: Progress?
   private let dimView = UIView()
   private let sheet = UIView()
-  private let saveButton = UIButton(type: .custom)
+  private let saveButton = ShareSaveButton(type: .custom)
+  private let guide = UILabel()
+  private var titleHeightConstraint: NSLayoutConstraint!
 
   override init(nibName: String?, bundle: Bundle?) {
     super.init(nibName: nibName, bundle: bundle)
@@ -52,6 +54,7 @@ final class ShareViewController: UIViewController {
     handle.layer.cornerRadius = 2.5
     saveButton.backgroundColor = Self.main
     saveButton.layer.cornerRadius = 8
+    saveButton.adjustsImageWhenDisabled = false
     saveButton.setAttributedTitle(Self.text("저장하기", font: "Pretendard-SemiBold", size: 16, color: Self.ink), for: .normal)
     saveButton.titleLabel?.numberOfLines = 0
     saveButton.titleLabel?.textAlignment = .center
@@ -59,7 +62,6 @@ final class ShareViewController: UIViewController {
     saveButton.isEnabled = false
     saveButton.accessibilityIdentifier = "share.save"
     saveButton.addTarget(self, action: #selector(save), for: .touchUpInside)
-    let guide = UILabel()
     guide.attributedText = Self.text("전송한 정보는 AI가 직접 분류해서 저장할게요!", font: "Pretendard-Medium", size: 14, color: Self.subtle)
     guide.numberOfLines = 0
     guide.textAlignment = .center
@@ -68,6 +70,7 @@ final class ShareViewController: UIViewController {
     stack.spacing = 16
     [dimView, sheet].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; view.addSubview($0) }
     [handle, stack].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; sheet.addSubview($0) }
+    titleHeightConstraint = saveButton.heightAnchor.constraint(greaterThanOrEqualTo: saveButton.titleLabel!.heightAnchor, constant: 36)
     NSLayoutConstraint.activate([
       dimView.topAnchor.constraint(equalTo: view.topAnchor),
       dimView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -84,7 +87,7 @@ final class ShareViewController: UIViewController {
       stack.leadingAnchor.constraint(equalTo: sheet.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(equalTo: sheet.trailingAnchor, constant: -16),
       saveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-      saveButton.heightAnchor.constraint(greaterThanOrEqualTo: saveButton.titleLabel!.heightAnchor, constant: 36)]
+      titleHeightConstraint]
       // Content grows the sheet upward; the bottom gap is max(Figma 32, home indicator inset).
       + Self.bottomGap(stack, container: sheet, view: view))
   }
@@ -205,10 +208,27 @@ final class ShareViewController: UIViewController {
     }
   }
 
+  /// Rendering is separate from isEnabled: preparation and failures retain the existing sheet.
+  private func showProgress(_ active: Bool) {
+    saveButton.isEnabled = false
+    titleHeightConstraint.constant = active ? 16 : 36
+    saveButton.backgroundColor = active ? Self.subtler : Self.main
+    saveButton.accessibilityLabel = active ? "전송 중 ..." : "저장하기"
+    saveButton.setAttributedTitle(Self.text(active ? "전송 중 ..." : "저장하기",
+                                            font: "Pretendard-SemiBold", size: active ? 17 : 16,
+                                            color: active ? Self.subtle : Self.ink), for: .normal)
+    saveButton.setImage(active ? UIImage(named: "share_send")?.withRenderingMode(.alwaysOriginal) : nil, for: .normal)
+    saveButton.showsProgress = active
+    guide.attributedText = Self.text(active ? "저장하고 있어요... 잠시만 기다려주세요 !" : "전송한 정보는 AI가 직접 분류해서 저장할게요!",
+                                     font: "Pretendard-Medium", size: active ? 15 : 14, color: Self.subtle)
+    // Closing and login transitions read sheet.bounds immediately, after either text size changes.
+    view.layoutIfNeeded()
+  }
+
   @objc private func save() {
     guard let draftId, let credential, let service, !submitting, !finished, !closing else { return }
     submitting = true
-    saveButton.isEnabled = false
+    showProgress(true)
     service.save(draftId, expected: credential) { [weak self] result in
       guard let self, !self.closing else { return }
       self.submitting = false
@@ -217,6 +237,7 @@ final class ShareViewController: UIViewController {
         self.finished = true
         self.showSavedToast()
       case .failure(let error):
+        self.showProgress(false)
         // Other failures keep the sheet behind the alert with "저장하기" disabled.
         var kind = (error as? ShareFailure)?.kind
         if Self.saveAlert(kind).retry, self.accountChangedSinceSave() { kind = .accountChanged }
@@ -456,5 +477,39 @@ final class ShareViewController: UIViewController {
     let base = UIFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: name.hasSuffix("SemiBold") ? .semibold : .medium)
     let font = UIFontMetrics.default.scaledFont(for: base)
     return NSAttributedString(string: value, attributes: [.font: font, .foregroundColor: color, .kern: -0.025 * font.pointSize])
+  }
+}
+
+/// UIKit's default UIButton title/image insets can overlap a trailing image. Keep the original row explicit.
+private final class ShareSaveButton: UIButton {
+  var showsProgress = false { didSet { setNeedsLayout() } }
+
+  private func progressTitleRect(in content: CGRect) -> CGRect {
+    let available = max(0, content.width - 30) // 20pt icon + 10pt gap
+    let size = currentAttributedTitle?.boundingRect(
+      with: CGSize(width: available, height: .greatestFiniteMagnitude),
+      options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size ?? .zero
+    let width = min(available, ceil(size.width)), height = ceil(size.height)
+    return CGRect(x: content.midX - (width + 30) / 2, y: content.midY - height / 2,
+                  width: width, height: height)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard showsProgress else { return }
+    // UIButton can centre its title after titleRect; apply the progress row after that layout.
+    let content = contentRect(forBounds: bounds)
+    titleLabel?.frame = progressTitleRect(in: content)
+    imageView?.frame = imageRect(forContentRect: content)
+  }
+
+  override func titleRect(forContentRect contentRect: CGRect) -> CGRect {
+    showsProgress ? progressTitleRect(in: contentRect) : super.titleRect(forContentRect: contentRect)
+  }
+
+  override func imageRect(forContentRect contentRect: CGRect) -> CGRect {
+    guard showsProgress else { return super.imageRect(forContentRect: contentRect) }
+    return CGRect(x: progressTitleRect(in: contentRect).maxX + 10,
+                  y: contentRect.midY - 10, width: 20, height: 20)
   }
 }

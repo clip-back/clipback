@@ -30,6 +30,8 @@ public final class ShareTestSenderActivity extends Activity {
         TextView title=new TextView(this);title.setText("Share fixture sender\nReturn here after closing 허투루");title.setTextSize(24);root.addView(title);
         Button link=new Button(this);link.setText("Share YouTube link");link.setOnClickListener(v ->
             startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"https://youtu.be/dQw4w9WgXcQ"),"Share with")));root.addView(link);
+        Button instagram=new Button(this);instagram.setText("Share Instagram link");instagram.setOnClickListener(v ->
+            startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,"https://www.instagram.com/p/fixture/"),"Share with")));root.addView(instagram);
         Button image=new Button(this);image.setText("Share screenshot URI");image.setOnClickListener(v -> startActivity(Intent.createChooser(image(),"Share with")));root.addView(image);
         setContentView(root);
     }
