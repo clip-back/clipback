@@ -259,3 +259,69 @@ def test_lookalike_manifest_point_is_cleaned_up_as_incomplete_after_a_day(stores
     assert maintain_backups(store, ledger, now=later)["passed"] is True
     assert store.list_objects("points/stray/") == []
     assert completed_points(store) == ["current", "fresh"]
+
+
+def account_deleted(ledger, assets, when):
+    """One account deletion record listing the image contents of the account (ADR 0008)."""
+    return ledger.append({
+        "kind": "account_deletion", "operation_id": str(uuid4()), "user_id": 1,
+        "user_created_at": "2026-09-01T00:00:00+00:00", "deleted_at": when.isoformat(),
+        "contents": [{
+            "content_id": asset["content_id"], "saved_at": "2026-10-01T00:00:00+00:00",
+            "assets": [{k: asset[k] for k in (
+                "storage_backend", "storage_key", "sha256", "size_bytes",
+            )}],
+        } for asset in assets],
+    })
+
+
+def test_account_deletion_originals_expire_six_days_after_deletion(stores):
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime(2026, 10, 23, tzinfo=UTC)
+    asset = original(store)
+    point(store, "before-delete", now - timedelta(days=6, hours=1), [asset])
+    account_deleted(ledger, [asset], now - timedelta(days=6))
+    point(store, "current", now, [])
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is True and report["retention_overdue"] == 0
+    assert completed_points(store) == ["current"]
+    assert store.list_objects("originals/") == []
+
+
+def test_account_deletion_original_past_seven_days_is_reported_overdue(stores):
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime.now(UTC)
+    asset = original(store)
+    point(store, "before", now - timedelta(days=8), [asset])
+    point(store, "current", now, [])
+    account_deleted(ledger, [asset], now - timedelta(days=7))
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is False
+    assert report["retention_overdue"] == 1
+
+
+def test_original_missing_from_account_record_leaves_with_seven_day_retention(stores):
+    """An image saved between the record and a retried DB deletion is not in the record."""
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime(2026, 10, 23, tzinfo=UTC)
+    listed = original(store, "listed.png", 1, b"listed")
+    added = original(store, "added.png", 2, b"added")
+    captured = now - timedelta(days=6, hours=23)
+    point(store, "with-added", captured, [added])
+    point(store, "current", now, [])
+    account_deleted(ledger, [listed], now - timedelta(days=6, hours=12))
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is True
+    assert completed_points(store) == ["current", "with-added"]
+    later = captured + timedelta(days=7)
+    point(store, "fresh", later, [])
+    report = maintain_backups(store, ledger, now=later)
+    assert report["passed"] is True and report["retention_overdue"] == 0
+    assert completed_points(store) == ["current", "fresh"]
+    assert store.list_objects("originals/") == []

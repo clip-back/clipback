@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: E402
 from app.integrations.deletion_ledger import (  # noqa: E402
     IMAGE_CLEANUP_LOCK,
     LEDGER_WRITE_LOCK,
+    deleted_contents,
     get_deletion_ledger,
 )
 from app.models.content import Content  # noqa: E402
@@ -273,7 +274,11 @@ async def migrate_original(sessions, locks, storage, ledger, asset_id, manifest)
             return "content_deleted"
         if not matches_deletion_identity(content, identity):
             return "migration_identity_changed"
-        if any(matches_deletion_identity(content, event) for event in events):
+        if any(
+            matches_deletion_identity(content, deleted)
+            for event in events
+            for deleted in deleted_contents(event)
+        ):
             return "deletion_pending"
         # Cleanup may have run in the intentional gap between copy and the final
         # ordered lock acquisition; re-read the target before publishing its location.

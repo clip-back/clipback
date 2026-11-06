@@ -60,6 +60,8 @@ def asset_matches(asset, deleted):
 
 def maintain_backups(store, ledger, *, now=None):
     """Caller serializes backup/GC operators. No ledger records are ever pruned."""
+    from app.integrations.deletion_ledger import deleted_contents
+
     now = now or datetime.now(UTC)
     events = ledger.read_verified_events()
     points = []
@@ -87,7 +89,8 @@ def maintain_backups(store, ledger, *, now=None):
             if now - aware(event["deleted_at"]) >= DELETED_COPY_RETENTION and any(
                 asset_matches(asset, deleted)
                 for asset in manifest["assets"]
-                for deleted in event["assets"]
+                for content in deleted_contents(event)
+                for deleted in content["assets"]
             ):
                 expire = True
                 if now - aware(event["deleted_at"]) >= POINT_RETENTION:

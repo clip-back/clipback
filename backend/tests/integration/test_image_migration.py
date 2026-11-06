@@ -499,3 +499,39 @@ async def test_durable_delete_with_failed_database_commit_is_not_reconnected_by_
     assert not s3_storage.list_objects_v2(Bucket="original-images").get("Contents")
     downloaded = await client.get(content["assets"][0]["download_url"], headers=headers)
     assert downloaded.status_code == 404
+
+
+async def test_confirmed_account_deletion_is_not_reconnected_by_migration(
+    committed_api,
+    s3_storage,
+    png_bytes,
+    monkeypatch,
+    tmp_path,
+):
+    from app.services.account_deletion_service import record_account_deletion
+    from app.services.image_deletion_service import retry_image_deletions
+    from scripts.image_migration import migrate_originals
+
+    client, headers, sessions = committed_api
+    monkeypatch.setattr(settings, "storage_backend", "local")
+    me = await client.get("/api/v1/users/me", headers=headers)
+    content = await upload(client, headers, png_bytes)
+    directory = tmp_path / "verified-backup"
+    report = await prepared_backup(sessions, [content], s3_storage, directory)
+    async with sessions() as session:
+        # The account deletion's DB transaction failed after its ledger record (U2).
+        assert await record_account_deletion(session, me.json()["id"]) is not None
+        await session.rollback()
+    result = await migrate_originals(
+        sessions.kw["bind"],
+        StorageRouter(settings),
+        backup_directory=directory,
+        restore_report_file=report,
+    )
+    assert not result["passed"] and result["migrated"] == 0
+    assert result["results"][0]["status"] == "deletion_pending"
+    async with sessions() as restarted_worker:
+        retried = await retry_image_deletions(restarted_worker)
+    assert retried["deleted_accounts"] == 1 and retried["pending"] == 0
+    assert not list(tmp_path.glob("screenshots/**/*.png"))
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 401
