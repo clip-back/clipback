@@ -36,6 +36,8 @@ class BackMemoryHistory implements SearchHistoryStorage {
     int userId,
     List<String> terms,
   ) async {}
+  @override
+  Future<void> clear(String environment, int userId) async {}
 }
 
 const phase = String.fromEnvironment('BACK_PHASE', defaultValue: 'before');

@@ -45,6 +45,7 @@ class Settings(DeletionLedgerSettings):
     google_client_ids: list[str] = Field(default_factory=list)
     kakao_client_ids: list[str] = Field(default_factory=list)
     kakao_rest_api_key: SecretStr | None = None
+    kakao_admin_key: SecretStr | None = None
     apple_client_id: str | None = None
     apple_team_id: str | None = None
     apple_key_id: str | None = None
@@ -124,6 +125,11 @@ class Settings(DeletionLedgerSettings):
             self.openai_api_key is None or not self.openai_api_key.get_secret_value().strip()
         ):
             raise ValueError("OPENAI_API_KEY is required when Instagram summaries are enabled")
+        # Account deletion unlinks Kakao with it; development and test skip the unlink.
+        if self.app_environment == "production" and (
+            self.kakao_admin_key is None or not self.kakao_admin_key.get_secret_value().strip()
+        ):
+            raise ValueError("KAKAO_ADMIN_KEY is required in production")
         return self
 
 

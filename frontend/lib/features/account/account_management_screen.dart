@@ -58,6 +58,7 @@ class AccountManagementScreen extends StatelessWidget {
     required this.onBack,
     required this.onLogout,
     required this.onConnect,
+    required this.onWithdraw,
     required this.isGuest,
     this.busy = false,
     super.key,
@@ -67,6 +68,7 @@ class AccountManagementScreen extends StatelessWidget {
   final VoidCallback onBack;
   final Future<void> Function() onLogout;
   final Future<void> Function() onConnect;
+  final VoidCallback onWithdraw;
   final bool? isGuest;
   final bool busy;
 
@@ -139,13 +141,7 @@ class AccountManagementScreen extends StatelessWidget {
                           const SizedBox(height: 10),
                           AccountManagementTile(
                             leading: '회원 탈퇴',
-                            onTap: () => ScaffoldMessenger.of(context)
-                              ..removeCurrentSnackBar()
-                              ..showSnackBar(
-                                const SnackBar(
-                                  content: Text('회원 탈퇴 API는 아직 제공되지 않습니다.'),
-                                ),
-                              ),
+                            onTap: busy ? null : onWithdraw,
                           ),
                         ],
                       ),

@@ -29,6 +29,15 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-06 | [회원 탈퇴 최종 통합 (#250)](2026-11-06-account-deletion-final.md) | 서버·앱 |
+| 2026-11-06 | [탈퇴 뒤 기기 정리와 다음 실행 재정리 (#257)](2026-11-06-account-deletion-device-cleanup.md) | 앱 |
+| 2026-11-06 | [탈퇴 화면 J04·J05·J06과 탈퇴 흐름 (#256)](2026-11-06-account-deletion-screens.md) | 앱 |
+| 2026-11-06 | [운영자 계정 삭제 명령 (#255)](2026-11-06-account-deletion-operator-command.md) | 백엔드 |
+| 2026-11-06 | [탈퇴 때 Apple 토큰 철회·카카오 연결 끊기 (#254)](2026-11-06-account-deletion-provider-revocation.md) | 백엔드 |
+| 2026-11-06 | [`DELETE /users/me`와 앱의 탈퇴 요청 (#253)](2026-11-06-account-deletion-request.md) | 서버·앱 |
+| 2026-11-06 | [격리 복원 검증의 계정 탈퇴 판정 (#252)](2026-11-06-account-deletion-restore-probe.md) | 백엔드 |
+| 2026-11-06 | [계정 탈퇴 장부 기록과 계정 재삭제 (#251)](2026-11-06-account-deletion-ledger.md) | 백엔드 |
+| 2026-11-06 | [링크 상세의 전문 보기 제거 (#201)](2026-11-06-link-detail-full-text.md) | 앱 |
 | 2026-11-06 | [공유 저장 처리 중 표시 (#245)](2026-11-06-share-save-progress.md) | iOS·Android |
 | 2026-11-06 | [카테고리 8색 간격 재배치·최종 재검증 (#242)](2026-11-06-category-palette-spacing.md) | 앱 |
 | 2026-11-06 | [작은 UI 묶음 최종 검증·양 플랫폼 비교 (#237·#242·#241·#240)](2026-11-06-small-ui-batch-1.md) | 앱 |

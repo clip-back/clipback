@@ -17,6 +17,11 @@ abstract class UserRepository extends ChangeNotifier {
   Future<void> verifySession();
   Future<ApiUserStats> loadStats();
   Future<void> refresh({required bool Function() isCurrent});
+  Future<int?> readDeletionContentCount();
+  Future<int> readDeletionCategoryCount();
+  Future<AccountDeletionResult> deleteAccount(
+    List<AccountDeletionReason> reasons,
+  );
 }
 
 class RemoteUserRepository extends UserRepository {
@@ -168,6 +173,39 @@ class RemoteUserRepository extends UserRepository {
       scope.cancel();
     }
   }
+
+  Future<T> _forAccount<T>(Future<T> Function() operation) async {
+    final generation = _accountVersion;
+    final scope = ApiRequestScope(isCurrent: () => _current(generation));
+    try {
+      return await scope.run(operation);
+    } finally {
+      scope.cancel();
+    }
+  }
+
+  // The unconditioned list total (ADR 0006). Without total_count only a
+  // complete first page gives the count, as in the list toolbars.
+  @override
+  Future<int?> readDeletionContentCount() async {
+    final feed = await _forAccount(() => _api.readFeed(limit: 1));
+    return feed.totalCount ??
+        (feed.nextCursor == null ? feed.items.length : null);
+  }
+
+  // Everything but the shared "미분류" is deleted, copied defaults included (U4).
+  @override
+  Future<int> readDeletionCategoryCount() async {
+    final categories = await _forAccount(_api.listCategories);
+    return categories
+        .where((category) => !(category.isDefault && category.name == '미분류'))
+        .length;
+  }
+
+  @override
+  Future<AccountDeletionResult> deleteAccount(
+    List<AccountDeletionReason> reasons,
+  ) => _api.deleteAccount(reasons);
 
   @override
   void dispose() {

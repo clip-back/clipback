@@ -42,6 +42,7 @@ def test_production_accepts_openai_api_key() -> None:
         storage_root="/data/screenshots",
         google_client_ids=["google-client-id"],
         kakao_rest_api_key="kakao-key",
+        kakao_admin_key="kakao-admin-key",
         _env_file=None,
     )
 
@@ -100,6 +101,7 @@ def test_production_accepts_kakao_native_allowlist_without_rest_key_or_apple_set
         storage_root="/data/screenshots", google_client_ids=["google-web-client"],
         kakao_client_ids=["native-key"], kakao_rest_api_key=None,
         apple_client_id=None, apple_private_key=None, youtube_summary_enabled=False,
+        kakao_admin_key="kakao-admin-key",
     )
     assert settings.kakao_client_ids == ["native-key"]
 
@@ -255,3 +257,30 @@ def test_enabled_instagram_summary_starts_with_openai_api_key():
     )
 
     assert settings.instagram_summary_enabled is True
+
+
+def production_values(**overrides):
+    return dict(
+        _env_file=None, app_environment="production", secret_key="production-secret",
+        openai_api_key="test-key", database_url="postgresql+asyncpg://user:pass@db/test",
+        storage_root="/data/screenshots", google_client_ids=["google-web-client"],
+        kakao_client_ids=["native-key"], youtube_summary_enabled=False,
+        **{"kakao_admin_key": "synthetic-admin-key", **overrides},
+    )
+
+
+@pytest.mark.parametrize("key", [None, "", "   "])
+def test_production_requires_kakao_admin_key(key):
+    with pytest.raises(ValidationError, match="KAKAO_ADMIN_KEY"):
+        Settings(**production_values(kakao_admin_key=key))
+
+
+def test_production_starts_with_kakao_admin_key():
+    settings = Settings(**production_values())
+    assert settings.kakao_admin_key.get_secret_value() == "synthetic-admin-key"
+
+
+@pytest.mark.parametrize("environment", ["local", "test"])
+def test_kakao_admin_key_is_optional_outside_production(environment, monkeypatch):
+    monkeypatch.delenv("KAKAO_ADMIN_KEY", raising=False)
+    assert Settings(_env_file=None, app_environment=environment).kakao_admin_key is None

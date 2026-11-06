@@ -1,8 +1,8 @@
 // Deterministic local DetailScreen host; no backend, OAuth, or physical device.
 // flutter run --no-pub -t test/support/detail_preview.dart
 //   --dart-define=DETAIL_PREVIEW_PHASE=before|after
-// Loopback :8767: /ready /state /status /scene?kind=basic|expanded|empty&scroll=0|half|<px>
-// /scroll?offset=<px>|half|max, /run?expandedOffset=<BEFORE concrete half offset>.
+// Loopback :8767: /ready /state /status /scene?kind=basic|empty&scroll=0|half|<px>
+// /scroll?offset=<px>|half|max, /run.
 // Android forwarding: adb forward tcp:8768 tcp:8767. Only actual text scale 1.
 import 'dart:async';
 import 'dart:convert';
@@ -83,8 +83,6 @@ var _busy = false;
 var _complete = false;
 var _coveragePassed = false;
 var _pointer = 9000;
-double? _beforeExpandedHalf;
-double? _beforeExpandedMaximum;
 
 ContentItem _item(
   String id, {
@@ -164,11 +162,7 @@ Future<void> main() async {
           );
           await _capture(_captureName());
         case '/run':
-          await _run(
-            double.tryParse(
-              request.uri.queryParameters['expandedOffset'] ?? '',
-            ),
-          );
+          await _run();
         default:
           request.response.statusCode = HttpStatus.notFound;
       }
@@ -448,16 +442,12 @@ Element? _icon(String asset, [Element? root]) {
 }
 
 bool get _expanded =>
-    _find<FullContentPreview>() != null ||
-    (_hostKey.currentState!.active.isScreenshot &&
-        _elements().any(
-          (e) => e.widget.runtimeType.toString() == '_ScreenshotAssetView',
-        ));
+    _hostKey.currentState!.active.isScreenshot &&
+    _elements().any(
+      (e) => e.widget.runtimeType.toString() == '_ScreenshotAssetView',
+    );
 Future<void> _open(String kind, {bool photo = false}) async {
-  _require(
-    const ['basic', 'expanded', 'empty'].contains(kind),
-    'Unknown detail scene',
-  );
+  _require(const ['basic', 'empty'].contains(kind), 'Unknown detail scene');
   _navKey.currentState!.popUntil((route) => route.isFirst);
   FocusManager.instance.primaryFocus?.unfocus();
   await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
@@ -467,30 +457,16 @@ Future<void> _open(String kind, {bool photo = false}) async {
   await _settle();
   _position.jumpTo(0);
   await _settle();
-  if (kind == 'expanded') await _toggleOriginal();
-  _position.jumpTo(0);
-  await _settle();
-  if (kind == 'expanded') {
-    await _setScroll('max');
-    _beforeExpandedMaximum ??= _position.maxScrollExtent;
-    _beforeExpandedHalf ??= _position.maxScrollExtent / 2;
-    _position.jumpTo(0);
-    await _settle();
-  }
 }
 
 Future<void> _toggleOriginal() async {
-  var target = _text(
-    _hostKey.currentState!.active.isScreenshot ? '원본 이미지 보기' : '전문 보기',
-  );
+  var target = _text('원본 이미지 보기');
   for (var i = 0; target == null && i < 15; i++) {
     _position.jumpTo(
       (_position.pixels + 220).clamp(0, _position.maxScrollExtent),
     );
     await _settle(2);
-    target = _text(
-      _hostKey.currentState!.active.isScreenshot ? '원본 이미지 보기' : '전문 보기',
-    );
+    target = _text('원본 이미지 보기');
   }
   _require(target != null, 'Original toggle missing');
   await Scrollable.ensureVisible(
@@ -543,10 +519,7 @@ Map<String, Element> _roles() {
   add('title', _key('detail-title', detail) ?? _text(item.title, list));
   add('summary', _key('detail-summary', detail) ?? _text(item.summary, list));
   add('summaryHeading', _text('요약', list));
-  add(
-    'originalHeading',
-    _text(item.isScreenshot ? '원본 이미지 보기' : '전문 보기', list),
-  );
+  add('originalHeading', _text('원본 이미지 보기', list));
   add('tagHeading', _text('태그', list));
   add(
     'relatedHeading',
@@ -555,11 +528,6 @@ Map<String, Element> _roles() {
         _text('비슷한 태그를 가진 정보', list),
   );
   add('empty', _key('detail-related-empty', detail) ?? _text(_empty, list));
-  add(
-    'originalText',
-    _key('detail-original-text', detail) ??
-        _text(item.originalText, _find<FullContentPreview>(list)),
-  );
   final date = _elements(list)
       .where(
         (e) =>
@@ -819,7 +787,6 @@ List<String> _styleFindings(Map<String, Object?> metrics) {
     'summaryHeading': [16, 600, -.4, '0xFF1A1A1A', null, 'Pretendard'],
     'originalHeading': [16, 600, -.4, '0xFF1A1A1A', null, 'Pretendard'],
     'relatedHeading': [16, 600, -.4, '0xFF1A1A1A', null, 'Pretendard'],
-    'originalText': [16, 400, -.4, '0xFF1A1A1A', 1.6, 'Pretendard'],
     'tagHeading': [16, 500, -.4, '0xFF767676', 1.6, 'Pretendard'],
     'empty': [15, 600, -.375, '0xFF484848', null, 'Pretendard'],
     'pager': [16, 500, -.4, '0xFF767676', null, 'Pretendard'],
@@ -1081,13 +1048,6 @@ Map<String, Object?> _snapshot() {
     'viewInsetsBottom': media.viewInsets.bottom,
     'scrollOffset': detail == null ? null : _position.pixels,
     'maxScrollExtent': detail == null ? null : _position.maxScrollExtent,
-    'scrollPlan': {
-      'expandedBeforeMaximum': _beforeExpandedMaximum,
-      'expandedBeforeHalf': _beforeExpandedHalf,
-      'measuredInPhase': _phase,
-      'measurementScope':
-          'Legacy before-named fields measure this build phase; external BEFORE concrete offsets must be explicitly supplied to AFTER.',
-    },
     'metrics': metrics,
     'wholeVisibleContent': visible,
     'styleFindings': styles,
@@ -1156,7 +1116,6 @@ Map<String, Object?> _requiredCoverage(List<Map<String, Object?>> records) {
     'summary',
     'date',
     'summaryHeading',
-    'originalHeading',
     'tagHeading',
     'tag0',
     'tag1',
@@ -1167,7 +1126,7 @@ Map<String, Object?> _requiredCoverage(List<Map<String, Object?>> records) {
   const cardOrder = ['related-one', 'related-many'];
   final byKind = <String, Object?>{};
   final failures = <String>[];
-  for (final kind in ['basic', 'expanded', 'empty']) {
+  for (final kind in ['basic', 'empty']) {
     final roles = <String>{};
     final badgeNames = <String>{};
     final cards = <String>{};
@@ -1206,11 +1165,7 @@ Map<String, Object?> _requiredCoverage(List<Map<String, Object?>> records) {
         });
       }
     }
-    final expectedRoles = {
-      ...common,
-      if (kind == 'expanded') 'originalText',
-      if (kind == 'empty') 'empty',
-    };
+    final expectedRoles = {...common, if (kind == 'empty') 'empty'};
     final missingRoles = expectedRoles.difference(roles).toList()..sort();
     final missingBadges = {
       _cat.name,
@@ -1254,18 +1209,13 @@ Map<String, Object?> _requiredCoverage(List<Map<String, Object?>> records) {
   };
 }
 
-Future<void> _run(double? referenceOffset) async {
+Future<void> _run() async {
   _complete = false;
   _coveragePassed = false;
   final coverageStart = _checks.length;
-  for (final kind in ['basic', 'expanded', 'empty']) {
+  for (final kind in ['basic', 'empty']) {
     await _open(kind);
     await _capture(_captureName());
-    if (kind == 'expanded') {
-      final half = referenceOffset ?? _position.maxScrollExtent / 2;
-      await _setScroll('$half');
-      await _capture(_captureName());
-    }
     await _setScroll('max');
     _record('${kind}_maximum_scroll');
   }
@@ -1282,14 +1232,11 @@ Future<void> _run(double? referenceOffset) async {
     'Required detail coverage: ${coverage['findings']}',
   );
   await _open('basic');
-  await _toggleOriginal();
-  _require(_expanded, 'Original did not expand');
-  _record('original_expanded');
-  _position.jumpTo(0);
-  await _settle();
-  await _toggleOriginal();
-  _require(!_expanded, 'Original did not collapse');
-  _record('original_collapsed');
+  _require(
+    _text('전문 보기') == null && _key('detail-original-text') == null,
+    'Link detail must not show a full text toggle',
+  );
+  _record('link_full_text_absent');
   final host = _hostKey.currentState!;
   _position.jumpTo(0);
   await _settle();

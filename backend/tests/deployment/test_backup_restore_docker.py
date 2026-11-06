@@ -46,6 +46,7 @@ def real_backup(tmp_path_factory, request):
         "OPENAI_API_KEY=unused-fixture-key",
         'GOOGLE_CLIENT_IDS=["unused-fixture-id"]',
         "KAKAO_REST_API_KEY=unused-fixture-key",
+        "KAKAO_ADMIN_KEY=unused-fixture-key",
         "STORAGE_ROOT=/data/screenshots",
         "PORT=8123",
         "BACKEND_CORS_ORIGINS=[]",

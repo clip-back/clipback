@@ -223,6 +223,20 @@ public final class ShareStore {
     public void discard(String id) throws Exception { synchronized (LOCK) {
         JSONObject state = read(); removeDraft(state, id); write(state); imageFile(id).delete();
     }}
+    /** A deleted account's pending shares. Drafts without an account number are not its own.
+     *  Images go first; a draft whose image cannot be deleted stays so the next call retries it. */
+    public void discardAccountDrafts(long userId) throws Exception { synchronized (LOCK) {
+        JSONObject state = read(); JSONArray kept = new JSONArray(), drafts = state.getJSONArray("drafts");
+        boolean failed = false;
+        for (int i=0; i<drafts.length(); i++) {
+            JSONObject draft = drafts.getJSONObject(i);
+            if (!String.valueOf(userId).equals(draft.optString("userId", null))) { kept.put(draft); continue; }
+            File image = imageFile(draft.getString("id"));
+            if (image.exists() && !image.delete() && image.exists()) { kept.put(draft); failed = true; }
+        }
+        state.put("drafts", kept); write(state);
+        if (failed) throw new IOException("공유 파일을 지우지 못했습니다. 다시 시도해 주세요.");
+    }}
     private void removeDraft(JSONObject state, String id) throws Exception {
         JSONArray kept = new JSONArray(), drafts = state.getJSONArray("drafts");
         for (int i=0; i<drafts.length(); i++) if (!id.equals(drafts.getJSONObject(i).getString("id"))) kept.put(drafts.get(i));

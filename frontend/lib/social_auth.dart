@@ -47,9 +47,19 @@ abstract class SocialAuth {
     String? nonce,
   });
   Future<void> signOut([SocialLoginProvider? provider]);
+
+  /// [signOut] without clearing the stored Apple user ID: after a withdrawal
+  /// only the stored-login cleanup clears it, once it has identified the
+  /// stored login (#257). Defaults to [signOut] for an implementation that
+  /// stores no Apple user ID.
+  Future<void> signOutSdks([SocialLoginProvider? provider]) =>
+      signOut(provider);
   Future<void> rememberAppleUserId(String? userId);
   Future<AppleCredentialStatus> appleCredentialState();
   Stream<void> get appleCredentialRevocations => const Stream<void>.empty();
+
+  /// Revokes this app's Google authorization on the device (D6).
+  Future<void> disconnectGoogle() async {}
 }
 
 class SocialAuthConfig {
@@ -78,6 +88,7 @@ abstract interface class SocialAuthSdk {
   });
   Future<SocialCredential> authenticateGoogle();
   Future<void> signOutGoogle();
+  Future<void> disconnectGoogle();
   Future<void> initializeKakao(String nativeAppKey);
   Future<bool> isKakaoTalkInstalled();
   Future<SocialCredential> authenticateKakaoTalk({String? nonce});
@@ -111,6 +122,9 @@ class PlatformSocialAuth extends SocialAuth {
   Future<void>? _googleInitialization;
   Future<void>? _kakaoInitialization;
   bool _authenticating = false;
+  // Sign-ins started so far. Cleanup records it when it starts and skips an
+  // SDK call it has not made yet once a newer sign-in started (#250 F1).
+  int _signIns = 0;
 
   @override
   List<SocialLoginProvider> get supportedProviders {
@@ -141,6 +155,7 @@ class PlatformSocialAuth extends SocialAuth {
       throw const SocialAuthException('로그인이 진행 중이에요. 잠시 기다려 주세요.');
     }
     _authenticating = true;
+    _signIns++;
     try {
       final SocialCredential credential;
       switch (provider) {
@@ -227,25 +242,10 @@ class PlatformSocialAuth extends SocialAuth {
   @override
   Future<void> signOut([SocialLoginProvider? provider]) async {
     var failed = false;
-    if (supportedProviders.contains(SocialLoginProvider.google) &&
-        (provider == null || provider == SocialLoginProvider.google) &&
-        _config.googleServerClientId.isNotEmpty) {
-      try {
-        await _initializeGoogle();
-        await _sdk.signOutGoogle();
-      } catch (_) {
-        failed = true;
-      }
-    }
-    if (supportedProviders.contains(SocialLoginProvider.kakao) &&
-        (provider == null || provider == SocialLoginProvider.kakao) &&
-        _config.kakaoNativeAppKey.isNotEmpty) {
-      try {
-        await _initializeKakao();
-        await _sdk.clearKakaoTokens();
-      } catch (_) {
-        failed = true;
-      }
+    try {
+      await signOutSdks(provider);
+    } catch (_) {
+      failed = true;
     }
     try {
       await rememberAppleUserId(null);
@@ -255,6 +255,53 @@ class PlatformSocialAuth extends SocialAuth {
     if (failed) {
       throw const SocialAuthException('기기의 소셜 로그인 정보를 정리하지 못했어요.');
     }
+  }
+
+  @override
+  Future<void> signOutSdks([SocialLoginProvider? provider]) async {
+    final signIns = _signIns;
+    // Providers run side by side: one SDK still initializing must not hold
+    // another's cleanup until a newer sign-in may have started.
+    final results = await Future.wait([
+      if (supportedProviders.contains(SocialLoginProvider.google) &&
+          (provider == null || provider == SocialLoginProvider.google) &&
+          _config.googleServerClientId.isNotEmpty)
+        _cleanUp(signIns, _initializeGoogle, _sdk.signOutGoogle),
+      if (supportedProviders.contains(SocialLoginProvider.kakao) &&
+          (provider == null || provider == SocialLoginProvider.kakao) &&
+          _config.kakaoNativeAppKey.isNotEmpty)
+        _cleanUp(signIns, _initializeKakao, _sdk.clearKakaoTokens),
+    ]);
+    if (results.contains(false)) {
+      throw const SocialAuthException('기기의 소셜 로그인 정보를 정리하지 못했어요.');
+    }
+  }
+
+  /// Initializes, then runs [clear] unless a sign-in started after [signIns]
+  /// was taken; that sign-in owns the SDK now. False when a step failed.
+  Future<bool> _cleanUp(
+    int signIns,
+    Future<void> Function() initialize,
+    Future<void> Function() clear,
+  ) async {
+    try {
+      await initialize();
+      if (signIns == _signIns) await clear();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> disconnectGoogle() async {
+    if (!supportedProviders.contains(SocialLoginProvider.google) ||
+        _config.googleServerClientId.isEmpty) {
+      return;
+    }
+    final signIns = _signIns;
+    await _initializeGoogle();
+    if (signIns == _signIns) await _sdk.disconnectGoogle();
   }
 
   @override
@@ -339,6 +386,9 @@ class _NativeSocialAuthSdk implements SocialAuthSdk {
 
   @override
   Future<void> signOutGoogle() => google.GoogleSignIn.instance.signOut();
+
+  @override
+  Future<void> disconnectGoogle() => google.GoogleSignIn.instance.disconnect();
 
   @override
   Future<void> initializeKakao(String nativeAppKey) => _kakaoInitialization ??=

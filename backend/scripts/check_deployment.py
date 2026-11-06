@@ -41,6 +41,7 @@ def run(image):
         "OPENAI_API_KEY=unused-test-key",
         'GOOGLE_CLIENT_IDS=["unused-test-id"]',
         "KAKAO_REST_API_KEY=unused-test-key",
+        "KAKAO_ADMIN_KEY=unused-test-key",
         "BACKEND_CORS_ORIGINS=[]",
         f"DATABASE_URL={database_url}",
         "STORAGE_ROOT=/data/screenshots",

@@ -53,12 +53,11 @@ Iterable<Map<String, dynamic>> _events(OriginalLinkPreviewServer s) =>
 
 void main() {
   testWidgets(
-    'actual root opens external URL once, keeps expanded detail and ignores old callbacks',
+    'actual root opens external URL once, keeps detail and ignores old callbacks',
     (tester) async {
       await _withDetail(tester, (server, launcher) async {
         launcher.pending = Completer<bool>();
-        await tester.tap(find.text('전문 보기'));
-        await tester.pumpAndSettle();
+        expect(find.text('전문 보기'), findsNothing);
         final detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
         await tester.tap(_original);
         await tester.pump();
@@ -71,10 +70,6 @@ void main() {
         launcher.pending!.complete(true);
         await tester.pumpAndSettle();
         expect(_events(server).single['content_id'], 601);
-        expect(
-          find.byKey(const ValueKey('detail-original-text')),
-          findsOneWidget,
-        );
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.inactive,
         );
@@ -83,10 +78,6 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byType(DetailScreen), findsOneWidget);
-        expect(
-          find.byKey(const ValueKey('detail-original-text')),
-          findsOneWidget,
-        );
         detail.onBack();
         await tester.pumpAndSettle();
         detail.onOpenOriginalLink();

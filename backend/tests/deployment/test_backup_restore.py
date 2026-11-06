@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 import pytest
 
 from scripts.check_backup_restore import (
+    REVISION_LABEL,
+    SNAPSHOT_KEYS,
     CheckError,
     Docker,
     RestoreDrill,
@@ -282,3 +284,120 @@ def test_invalid_manifest_fields(backup, change):
     (directory / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(CheckError, match="invalid_manifest"):
         load_backup(directory)
+
+
+class ScriptedDocker:
+    """Answers the drill's Docker calls and keeps the JSON each probe received."""
+
+    def __init__(self, manifest, matching_accounts, deleted):
+        self.manifest, self.payloads = manifest, {}
+        self.before = {key: manifest[key] for key in SNAPSHOT_KEYS}
+        self.before["matching_accounts"] = matching_accounts
+        self.deleted = deleted
+
+    def __call__(self, *args, stdin=None, timeout=180):
+        if args[:2] == ("context", "inspect"):
+            return json.dumps([{"Endpoints": {"docker": {"Host": "unix:///fake"}}}]).encode()
+        if args[:2] == ("image", "inspect"):
+            labels = {REVISION_LABEL: self.manifest["app_commit"]}
+            return json.dumps([{"Id": "sha256:fake", "Config": {"Labels": labels}}]).encode()
+        if "SHOW server_version_num" in args:
+            return b"160000"
+        name = args[-1] if args[0] == "start" else args[2] if args[0] == "exec" else ""
+        if stdin is None or not name.endswith(("-before-deletions", "-apply-deletions", "-api")):
+            return b""
+        step = name.split("-")[-2] if name.endswith("-deletions") else "api"
+        self.payloads[step] = json.loads(stdin.read())
+        if step == "before":
+            return json.dumps(self.before).encode()
+        if step == "apply":
+            return json.dumps({"deleted": self.deleted}).encode()
+        return json.dumps({"tables": {}, "assets": [], "sample": None,
+                           "extra_file_count": 0}).encode()
+
+
+def access_token(secret="private-key", drop=(), **claims):
+    from datetime import timedelta
+
+    from jose import jwt
+
+    payload = {"sub": "7", "sid": 1, "type": "access",
+               "exp": datetime.now(UTC) + timedelta(minutes=5), **claims}
+    return jwt.encode({k: v for k, v in payload.items() if k not in drop}, secret,
+                      algorithm="HS256")
+
+
+ACCOUNT_RECORD = {"kind": "account_deletion", "operation_id": "unused", "user_id": 7,
+                  "user_created_at": "2026-11-01T00:00:00+00:00", "deleted_at": "unused",
+                  "contents": []}
+IMAGE_RECORD = {"operation_id": "unused", "user_id": 8, "content_id": 3}
+
+
+@pytest.mark.parametrize(
+    "token,deleted_token_account",
+    [
+        (access_token(), True),
+        (access_token(sub="8"), False),
+        (access_token(secret="another-key"), False),
+        (access_token(exp=datetime(2000, 1, 1, tzinfo=UTC)), False),
+        (access_token(type="refresh"), False),
+        ("not-a-token", False),
+        # Claims the API rejects (app.core.security.decode_access_token) answer 401 for another
+        # reason; they must not count as the deleted account's token.
+        (access_token(drop=("exp",)), False),
+        (access_token(drop=("sid",)), False),
+        (access_token(sid=None), False),
+        (access_token(sid="session"), False),
+        (access_token(sid=[1]), False),
+        (access_token(sid=0), False),
+        (access_token(sub="0"), False),
+        (access_token(sub="seven"), False),
+        (access_token(drop=("sub",)), False),
+        (access_token(drop=("type",)), False),
+    ],
+    ids=["deleted", "living", "other-secret", "expired", "not-access", "malformed",
+         "missing-exp", "missing-sid", "null-sid", "text-sid", "list-sid", "zero-sid",
+         "zero-sub", "text-sub", "missing-sub", "missing-type"],
+)
+def test_token_account_deleted_by_an_applied_record_expects_401_and_no_image(
+    backup, token, deleted_token_account,
+):
+    directory, manifest, _ = backup
+    _, paths = load_backup(directory)
+    deleted = [{"content_id": 9, "asset_ids": []}]
+    docker = ScriptedDocker(manifest, [7], deleted)
+    drill = RestoreDrill(docker, deletion_events=[IMAGE_RECORD, ACCOUNT_RECORD])
+
+    report = drill.run(
+        manifest, paths, {"secret_key": "private-key", "access_token": token}, "app:image"
+    )
+
+    # Before deletions the probe looks up which recorded accounts the restored DB holds.
+    assert docker.payloads["before"]["account_deletions"] == [
+        {"user_id": 7, "user_created_at": "2026-11-01T00:00:00+00:00"}
+    ]
+    after = docker.payloads["api"]
+    assert after["deleted"] == deleted and after["deleted_accounts"] == [7]
+    assert after["token_account_deleted"] is deleted_token_account
+    # A deleted token account cannot open any original, so none is sampled.
+    expected_sample = None if deleted_token_account else {"content_id": 1, "asset_id": 1}
+    assert after["sample"] == expected_sample
+    assert report["token_account_deleted"] is deleted_token_account
+    assert report["deleted_account_count"] == 1
+    assert report["authentication_passed"] is True
+
+
+def test_restore_without_account_records_sends_the_previous_probe_input(backup):
+    directory, manifest, credentials = backup
+    _, paths = load_backup(directory)
+    docker = ScriptedDocker(manifest, [], [])
+    drill = RestoreDrill(docker, deletion_events=[IMAGE_RECORD])
+
+    report = drill.run(manifest, paths, private_json(credentials), "app:image")
+
+    assert docker.payloads["before"]["account_deletions"] == []
+    assert docker.payloads["api"] == {
+        "sample": {"content_id": 1, "asset_id": 1}, "access_token": "private-token",
+        "format_version": 1, "deleted": [],
+    }
+    assert report["deleted_account_count"] == 0 and report["token_account_deleted"] is False

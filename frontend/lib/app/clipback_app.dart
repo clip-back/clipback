@@ -4,6 +4,8 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/account_deleted_screen.dart';
+import 'package:clipback_frontend/features/account/account_deletion_screen.dart';
 import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/notice_list_screen.dart';
@@ -41,12 +43,14 @@ import 'app_view_model.dart';
 import 'exit_confirmation_dialog.dart';
 import '../features/share/pending_share_prompt.dart';
 import '../data/services/search_history_storage.dart';
+import '../data/services/native_share_service.dart';
 
 class ClipbackApp extends StatefulWidget {
   const ClipbackApp({
     this.sessionStorage,
     this.socialAuth,
     this.searchHistoryStorage,
+    this.nativeShare,
     this.appInfo,
     super.key,
   });
@@ -54,6 +58,7 @@ class ClipbackApp extends StatefulWidget {
   final ApiSessionStorage? sessionStorage;
   final SearchHistoryStorage? searchHistoryStorage;
   final SocialAuth? socialAuth;
+  final NativeShareService? nativeShare;
 
   /// 설치된 앱의 앱 정보. 읽지 못했으면 null이다.
   final AppInfo? appInfo;
@@ -209,6 +214,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       storage: widget.sessionStorage,
       searchHistoryStorage: widget.searchHistoryStorage,
       socialAuth: widget.socialAuth,
+      nativeShare: widget.nativeShare,
       canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
     );
     _archiveStorageAccountGeneration = _d.app.accountGeneration;
@@ -799,6 +805,32 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _go(AppRoute.account);
   }
 
+  void _openAccountDeletion() {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.account) return;
+    _d.account.loadDeletionCounts();
+    _go(AppRoute.accountDeletion);
+  }
+
+  void _leaveAccountDeletion() {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.accountDeletion) {
+      return;
+    }
+    _go(AppRoute.account);
+  }
+
+  Future<void> _submitAccountDeletion(
+    List<AccountDeletionReason> reasons,
+  ) async {
+    if (!_canUseAccountActions || _d.app.route != AppRoute.accountDeletion) {
+      return;
+    }
+    await _d.app.deleteAccount(reasons);
+    // An earlier failure notice must not follow a 204 onto J06 (R2).
+    if (mounted && _d.app.route == AppRoute.accountDeleted) {
+      _messengerKey.currentState?.clearSnackBars();
+    }
+  }
+
   void _selectRootTab(AppRoute route) {
     _d.detail.close();
     if (route == AppRoute.archive && _d.app.route != AppRoute.archive) {
@@ -995,6 +1027,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       AppRoute.notificationList ||
       AppRoute.noticeList ||
       AppRoute.logoutConfirmation ||
+      AppRoute.accountDeletion ||
+      AppRoute.accountDeleted ||
       AppRoute.categoryManagement => true,
       AppRoute.login =>
         _d.app.ordinaryLoginStatus != null ||
@@ -1347,7 +1381,20 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onLogout: _openLogoutConfirmation,
           isGuest: _d.app.authenticatedUser?.isGuest,
           onConnect: _d.app.openAccountLogin,
+          onWithdraw: _openAccountDeletion,
           busy: _d.app.authBusy,
+        ),
+        AppRoute.accountDeletion => AccountDeletionScreen(
+          key: ValueKey(_d.app.accountGeneration),
+          name: _d.account.user.name,
+          contentCount: _d.account.deletionContentCount,
+          categoryCount: _d.account.deletionCategoryCount,
+          onBack: _leaveAccountDeletion,
+          onSubmit: _submitAccountDeletion,
+          busy: _d.app.authBusy,
+        ),
+        AppRoute.accountDeleted => AccountDeletedScreen(
+          onDone: _d.app.finishAccountDeletion,
         ),
         AppRoute.logoutConfirmation => LogoutConfirmationScreen(
           onConfirm: _confirmLogout,

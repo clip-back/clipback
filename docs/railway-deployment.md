@@ -35,9 +35,11 @@
 | `OPENAI_API_KEY` | 실제 OpenAI 키 |
 | `GOOGLE_CLIENT_IDS` | JSON 배열, 예: `["your-google-client-id"]` |
 | `KAKAO_REST_API_KEY` | 실제 Kakao REST API 키 |
+| `KAKAO_ADMIN_KEY` | 실제 Kakao 어드민 키. 회원 탈퇴 때 카카오 연결 끊기에 쓴다 |
 | `BACKEND_CORS_ORIGINS` | 모바일 전용이면 `[]`; 웹은 `["https://your-web.example"]`처럼 명시 |
 
-나머지 AI/OCR timeout·모델 설정은 `backend/.env.example`의 기본값을 사용한다. Google·Kakao 설정은 현재 production 검증에서 필수다. `SECRET_KEY`와 공급자 비밀값을 Docker build argument, 코드, PR 또는 로그에 넣지 않는다. 실제 `.env`는 이미지에 포함하지 않는다.
+나머지 AI/OCR timeout·모델 설정은 `backend/.env.example`의 기본값을 사용한다. Google·Kakao 설정은 현재 production 검증에서 필수다.
+`KAKAO_ADMIN_KEY`가 없거나 비면 운영 서버가 시작하지 않는다. 회원 탈퇴가 들어간 서버를 처음 배포하기 전에 사람이 Railway API 서비스 Variables에 등록한다. `SECRET_KEY`와 공급자 비밀값을 Docker build argument, 코드, PR 또는 로그에 넣지 않는다. 실제 `.env`는 이미지에 포함하지 않는다.
 
 `postgres://`와 `postgresql://` URL은 접두사만 `postgresql+asyncpg://`로 변환한다. 비밀번호의 `%25`, `%40` 등 percent encoding과 쿼리 문자열은 그대로 유지된다. 운영에서 기본 개발 DB 주소와 상대 저장 경로는 거부한다.
 
@@ -143,6 +145,8 @@ Railway 기본 백업의 활성화·복원 성공과 구분한다.
 5. 연결을 검증된 복원 대상으로 전환한다. 검증 전 원본을 제거하지 않는다. 이 저장소의 격리 검사 도구는 운영 전환을 직접 수행하지 않는다.
 
 코드 롤백은 이전 이미지를 실행하는 것이며 DB·이미지 복원과 다르다. 개인화 migration `202609070010`은 downgrade를 거부한다. 필요하면 배포 전 DB·이미지 세트와 호환되는 앱을 함께 복원한다. 서로 다른 시점의 DB·이미지를 임의 조합하지 않는다.
+
+탈퇴가 한 번이라도 일어난 뒤에는 이 기능 이전 서버로 되돌리지 않는다. 이전 서버는 삭제 장부의 계정 탈퇴 기록을 읽지 못해 이미지 삭제·백업이 장부 검증에서 멈춘다. 되돌리기가 필요하면 기능을 끈 새 버전을 앞으로 배포한다([ADR 0008](adr/0008-account-deletion-ledger-record.md)). 이 기능 이전에 만든 복구 지점의 복원은 계속 지원한다.
 
 ## 로컬·CI 검증
 

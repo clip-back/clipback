@@ -14,4 +14,9 @@ class SearchHistoryMemoryStorage implements SearchHistoryStorage {
   Future<void> write(String environment, int userId, List<String> terms) async {
     _values[(environment, userId)] = List.of(terms);
   }
+
+  @override
+  Future<void> clear(String environment, int userId) async {
+    _values.remove((environment, userId));
+  }
 }

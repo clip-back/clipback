@@ -6,18 +6,20 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from app.core.deletion_ledger_config import DeletionLedgerSettings
 
 LEDGER_WRITE_LOCK = 74264002
 IMAGE_CLEANUP_LOCK = 74264001
 EMPTY_DIGEST = "0" * 64
+ACCOUNT_DELETION = "account_deletion"
 
 
 class LedgerUnavailableError(Exception):
@@ -47,6 +49,45 @@ class DeletionIntent(BaseModel):
         if datetime.fromisoformat(value).utcoffset() is None:
             raise ValueError("Deletion timestamps require a timezone")
         return value
+
+
+AwareTimestamp = Annotated[str, AfterValidator(DeletionIntent.require_aware_timestamp)]
+
+
+class DeletedContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content_id: int = Field(gt=0)
+    saved_at: AwareTimestamp
+    assets: list[DeletedAsset] = Field(min_length=1)
+
+
+class AccountDeletionIntent(BaseModel):
+    """One record per account deletion (ADR 0008). Only id + creation time identify the account."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["account_deletion"]
+    operation_id: UUID
+    user_id: int = Field(gt=0)
+    user_created_at: AwareTimestamp
+    deleted_at: AwareTimestamp
+    contents: list[DeletedContent]
+
+
+def validate_deletion_event(value: dict) -> dict:
+    """Image records predate the kind field and keep their original form."""
+    is_account = isinstance(value, dict) and value.get("kind") == ACCOUNT_DELETION
+    model = AccountDeletionIntent if is_account else DeletionIntent
+    return model.model_validate(value).model_dump(mode="json")
+
+
+def deleted_contents(event: dict) -> list[dict]:
+    """Image deletion identities in a verified record, in the shape of an image record."""
+    if event.get("kind") != ACCOUNT_DELETION:
+        return [event]
+    return [
+        {"user_id": event["user_id"], "deleted_at": event["deleted_at"], **content}
+        for content in event["contents"]
+    ]
 
 
 def canonical_json(value: dict) -> bytes:
@@ -187,7 +228,7 @@ class DeletionLedger:
                 or len(bytes.fromhex(record["previous_digest"])) != 32
             ):
                 raise ValueError("Invalid deletion event")
-            event = DeletionIntent.model_validate(record["event"]).model_dump(mode="json")
+            event = validate_deletion_event(record["event"])
             if event != record["event"]:
                 raise ValueError("Noncanonical deletion event")
             return event
@@ -288,7 +329,7 @@ class DeletionLedger:
         return event
 
     def append(self, event: dict) -> dict:
-        event = DeletionIntent.model_validate(event).model_dump(mode="json")
+        event = validate_deletion_event(event)
         checkpoint = self._read_tip()
         # Complete one interrupted writer before reusing its sequence for another operation.
         sequence = checkpoint["sequence"] + 1
@@ -300,8 +341,10 @@ class DeletionLedger:
             checkpoint = self._publish_record(pending)
         previous = self._operation(event["operation_id"], checkpoint)
         if previous is not None:
-            if {k: v for k, v in previous.items() if k != "deleted_at"} != {
-                k: v for k, v in event.items() if k != "deleted_at"
+            # A retried account deletion reuses its confirmed record even if images changed.
+            volatile = {"deleted_at", "contents"}
+            if {k: v for k, v in previous.items() if k not in volatile} != {
+                k: v for k, v in event.items() if k not in volatile
             }:
                 raise LedgerUnavailableError("Deletion operation identity conflicts")
             return checkpoint

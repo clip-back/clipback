@@ -61,11 +61,10 @@ ContentItem _content(
 );
 
 class _Scene {
-  const _Scene(this.name, this.current, this.contents, {this.expanded = false});
+  const _Scene(this.name, this.current, this.contents);
   final String name;
   final ContentItem current;
   final List<ContentItem> contents;
-  final bool expanded;
   List<ContentItem> get related => contents
       .where(
         (item) =>
@@ -109,7 +108,7 @@ List<_Scene> _scenes() {
     tags: const [],
   );
   return [
-    _Scene('expanded', current, [current, related], expanded: true),
+    _Scene('link-without-full-text', current, [current, related]),
     _Scene('empty-related-long-content', long, [long]),
     _Scene('multiple-categories', multi, [
       multiRelated,
@@ -462,34 +461,12 @@ Future<void> _checkScreen(
   );
   _fullParagraph(tester, failures, 'summary', summary);
 
-  await _show(tester, find.text('전문 보기'));
-  _style(
-    tester,
-    failures,
-    'original toggle heading',
-    find.text('전문 보기'),
-    size: 16,
-    weight: FontWeight.w600,
-    tracking: -.4,
-    color: AppColors.text,
-  );
-  if (scene.expanded) {
-    await tester.tap(find.text('전문 보기'));
-    await tester.pumpAndSettle();
-    final original = _textRole('detail-original-text', _original);
-    await _show(tester, original);
-    _style(
-      tester,
-      failures,
-      'expanded original',
-      original,
-      size: 16,
-      weight: FontWeight.w400,
-      tracking: -.4,
-      color: AppColors.text,
-      height: 1.6,
-    );
-    _fullParagraph(tester, failures, 'expanded original', original);
+  if (find.text('전문 보기').evaluate().isNotEmpty ||
+      find
+          .byKey(const ValueKey('detail-original-text'))
+          .evaluate()
+          .isNotEmpty) {
+    failures.add('link detail must not show a full text toggle');
   }
   await _show(tester, find.text('태그'));
   _style(
@@ -615,7 +592,7 @@ Future<void> _checkScreen(
     failures,
     'pager/navigation state gap',
     tester.getTopLeft(nav).dy - tester.getBottomLeft(footer).dy,
-    scene.expanded ? 8 : 16,
+    16,
   );
   final actions = find.descendant(
     of: footer,
