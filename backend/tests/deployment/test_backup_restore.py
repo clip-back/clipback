@@ -316,14 +316,15 @@ class ScriptedDocker:
                            "extra_file_count": 0}).encode()
 
 
-def access_token(secret="private-key", **claims):
+def access_token(secret="private-key", drop=(), **claims):
     from datetime import timedelta
 
     from jose import jwt
 
     payload = {"sub": "7", "sid": 1, "type": "access",
                "exp": datetime.now(UTC) + timedelta(minutes=5), **claims}
-    return jwt.encode(payload, secret, algorithm="HS256")
+    return jwt.encode({k: v for k, v in payload.items() if k not in drop}, secret,
+                      algorithm="HS256")
 
 
 ACCOUNT_RECORD = {"kind": "account_deletion", "operation_id": "unused", "user_id": 7,
@@ -341,8 +342,22 @@ IMAGE_RECORD = {"operation_id": "unused", "user_id": 8, "content_id": 3}
         (access_token(exp=datetime(2000, 1, 1, tzinfo=UTC)), False),
         (access_token(type="refresh"), False),
         ("not-a-token", False),
+        # Claims the API rejects (app.core.security.decode_access_token) answer 401 for another
+        # reason; they must not count as the deleted account's token.
+        (access_token(drop=("exp",)), False),
+        (access_token(drop=("sid",)), False),
+        (access_token(sid=None), False),
+        (access_token(sid="session"), False),
+        (access_token(sid=[1]), False),
+        (access_token(sid=0), False),
+        (access_token(sub="0"), False),
+        (access_token(sub="seven"), False),
+        (access_token(drop=("sub",)), False),
+        (access_token(drop=("type",)), False),
     ],
-    ids=["deleted", "living", "other-secret", "expired", "not-access", "malformed"],
+    ids=["deleted", "living", "other-secret", "expired", "not-access", "malformed",
+         "missing-exp", "missing-sid", "null-sid", "text-sid", "list-sid", "zero-sid",
+         "zero-sub", "text-sub", "missing-sub", "missing-type"],
 )
 def test_token_account_deleted_by_an_applied_record_expects_401_and_no_image(
     backup, token, deleted_token_account,

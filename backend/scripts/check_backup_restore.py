@@ -13,6 +13,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -48,14 +49,21 @@ def private_json(path):
 
 
 def token_account(credentials):
-    """The access token's account if the restored API would accept the token, else None."""
+    """The access token's account if the restored API would accept the token, else None.
+
+    Same claim rules as app.core.security.decode_access_token, with the credential's key.
+    """
     try:
         claims = jwt.decode(
             credentials["access_token"], credentials["secret_key"], algorithms=["HS256"]
         )
-        return int(claims["sub"]) if claims.get("type") == "access" else None
-    except (JWTError, KeyError, TypeError, ValueError):
+        user_id, session_id = int(claims["sub"]), int(claims["sid"])
+        datetime.fromtimestamp(float(claims["exp"]), UTC)
+    except (JWTError, KeyError, TypeError, ValueError, OverflowError):
         return None
+    if claims.get("type") != "access" or user_id <= 0 or session_id <= 0:
+        return None
+    return user_id
 
 
 class Docker:
