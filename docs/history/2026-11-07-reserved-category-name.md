@@ -32,3 +32,13 @@
   - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
 - 미검증: 운영 DB 기존 카테고리 조회(사람이 병합 전 수행), iOS Simulator·Android Emulator 실행(화면 모양 변경 없음), 설치된 0.4.x 배포 앱 실행.
+
+## 묶음 최종 검증 (#202·#191)
+
+- #202·#191 묶음의 최종 리뷰 지적 두 건을 반영한 뒤(`f93835b`) 전체 검증을 다시 돌렸다. 이 묶음의 최종 전체 결과는 이 절에만 적는다.
+  - 업데이트 내역: `main` 병합으로 두 줄이 과거 서버 배포 절에 들어가고 앱 항목이 겹친 것을 `main` 기준으로 되돌리고 두 줄만 `미배포 / 수정`에 두었다.
+  - 기기 확인용 프리뷰(저장소 밖 작업 파일)의 경로를 고쳤다. 제품 코드는 바꾸지 않았다.
+- 전체 검증(`f93835b`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트 3198개 통과, pytest 2208 passed, 47 skipped.
+  - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
+  - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
+- 미검증은 위 검증 절과 같다. #202의 기기 확인은 [아이콘 버튼 스크린 리더 이름](2026-11-07-icon-button-semantics.md)에 적은 대로 아직 하지 않았다.

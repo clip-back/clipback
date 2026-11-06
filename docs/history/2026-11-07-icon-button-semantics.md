@@ -43,3 +43,4 @@
   - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
 - 미검증: iOS Simulator·Android Emulator `orca emulator ax`, 실제 VoiceOver·TalkBack, 이미지로 보인 섹션 제목의 원인(범위 밖).
+- #202·#191 묶음의 최종 전체 검증 결과는 [미분류 표시 이름 예약의 묶음 최종 검증](2026-11-07-reserved-category-name.md#묶음-최종-검증-202191)에 있다.
