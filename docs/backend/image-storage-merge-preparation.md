@@ -1,6 +1,6 @@
 # 이미지 보관 PR 병합 준비
 
-상태: 2026-10-25 확정한 계획에 따라 #94–#96 코드 보완과 로컬 통합 검증을 완료했다. 최종 원격 CI 확인, 실제 운영 설정·초기화·PR 병합·배포는 별도 단계다. [구현·검증 이력](../history/2026-10-25-image-compatible-deployment.md)과 [운영 체크리스트](image-storage-compatible-deployment.md)를 따른다.
+상태: 2026-10-25 확정한 계획에 따라 #94–#96 코드 보완과 로컬 통합 검증을 완료했다. PR #75는 2026-10-25 main에 병합됐다. 서버 반영은 [backend-2026-10-31-1 배포 기록](../releases/backend-2026-10-31-1.md)과 [첫 운영 실행 체크리스트](image-operator-first-run.md)를 따른다. [구현·검증 이력](../history/2026-10-25-image-compatible-deployment.md)과 [운영 체크리스트](image-storage-compatible-deployment.md)를 따른다.
 
 ## 확정한 방향
 
