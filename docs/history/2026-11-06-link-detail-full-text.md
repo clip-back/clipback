@@ -51,9 +51,44 @@ VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/wor
 - 46 skip은 통과가 아니다. Docker deployment 45건과 전용 S3 endpoint가 필요한 CLI 통합 1건은 미실행이다.
 - 후속 커밋은 문서뿐이며 제품·테스트 코드는 위 PASS SHA와 같아 전체 검증을 반복하지 않는다.
 
-## 화면 확인과 남은 일
+## 화면·외부 전환 확인
 
-**화면 확인 미완료.** iOS Simulator·Android Emulator에서 링크 콘텐츠 상세의 변경 전(`e4baaa2`)·후 화면,
-날짜 줄 링크 버튼으로 외부 앱·브라우저가 실제로 열리는지, 스크린샷 콘텐츠 상세가 그대로인지는 아직 확인하지 않았다.
-Figma 기준 노드가 없으므로(figma-pending-19) 변경 전·후 2장 비교로 한다.
-이 자동 검증을 기기·CI·실기기·운영 검증으로 보고하지 않는다. 기기 실행·촬영·push·PR·GitHub 댓글/종료·배포는 하지 않았다.
+2026-11-06 15:24–15:38 KST 감독이 기기 잠금을 확보해 iOS 다음 Android 순서로 실행했다.
+API·계정·공유 데이터는 기존 `original_link_preview.dart` 기반 대역이며, 실제 앱 루트와 실제 URL launcher를 사용했다.
+진입 파일은 `.utmp/ticket-201/capture/state_preview.dart`, fixture 사전 테스트는 같은 폴더의
+`state_preview_check_test.dart` 1개 통과다. 변경 전은 시작 SHA의 `detail_screen.dart`로 임시 빌드하고 원래 파일 복원을 확인했다.
+제품 코드·fixture는 전체 PASS SHA와 같으며 촬영 뒤 변경은 기록 문서뿐이다.
+
+| 항목 | iOS | Android |
+|---|---|---|
+| 기기 | iPhone 16 / iOS 18.6 | Medium_Phone / Android 16 API 36 |
+| 논리 크기 | 393×852 | 411.4286×914.2857 |
+| OS 안전 영역 상·하 | 59 / 34 | 24 / 24 |
+| 상태 | 링크 상세, 사진 접힘·펼침·원본 이미지 시트 | 같은 4개 상태 |
+| 조건 | 글자 배율 1.0, 스크롤 0, 입력 없음 | 동일 |
+| 결과 | 전문 보기 제거, 사진 상태 유지, Safari 열기 | 전문 보기 제거, 사진 상태 유지, Chrome 열기 |
+
+- `compare.py --manifest capture-manifest.json`의 4행 조건 검사가 양쪽 모두 통과했다. 플랫폼별 크기·OS/app 안전 영역·키보드 인셋·전체 스크롤·입력 출처를 비교했다.
+- Figma 기준 노드는 없으므로(figma-pending-19) 승인된 배치와 변경 전·후 두 장을 비교했다. 원본 화면 보정은 하지 않았다. iOS 링크 최대 스크롤은 30→0으로 줄었고 비교 조건인 현재 스크롤은 0으로 같았다.
+- 감독이 비교 이미지와 원본 화면을 열어 링크 줄 제거, 사진 펼침의 실제 이미지, 원본 이미지 시트, 외부 브라우저의 원본 URL 표시를 확인했다. 사용자 시각 판정은 별도로 남는다.
+- 전후 JSON의 예상 밖 API 요청·Flutter 오류·비동기 오류는 모두 없었다. 프리뷰의 옛 `passed` 키는 PHASE가 정확히 `after`인 경우만 보는 필드여서 이번 `after-link` 판정에는 쓰지 않았다.
+- 사진 펼침 직후 Android probe의 최대 스크롤은 이미지 레이아웃 전 값 0을 기록했지만, PNG에는 실제 이미지가 표시됐고 시트 단계에서는 1271.0682였다. 최대 범위는 비교 판정이 아닌 보고용 값이며 현재 offset은 두 단계 모두 0이다.
+- 상단 링크 버튼에 앱 내부 포인터를 보내 실제 브라우저로 전환했다. iOS는 복귀 후 상세 유지와 원본 열기 metric 1회를 확인했다. Android는 Chrome 첫 실행 안내에서 계정 없이 진행하고 알림 안내를 거절한 뒤 원본 페이지를 확인했다. 운영 계정 로그인은 하지 않았다.
+- Orca AX로 변경 후 링크 상세와 외부 브라우저 상태를 기록했다. Android 전면 Activity는 `com.android.chrome/...ChromeTabbedActivity`였다.
+- Android 부팅 직후 System UI 응답 없음 창은 촬영 도구의 Wait 처리 뒤 해소됐고, 촬영 시 앱 전면 검사를 통과했다. Android 첫 영상은 종료 완료 전 복사해 `moov atom not found`로 배제했고, 15초 제한 녹화가 정상 종료된 뒤 다시 가져온 영상을 사용했다.
+- iOS 영상 36.660초, Android 최종 영상 16.792644초의 유효 스트림과 브라우저 표시 프레임을 확인했다. 이 길이를 앱 성능 측정값으로 쓰지 않는다.
+- 종료 후 기기·빌드 프로세스가 없는 것을 확인하고 잠금을 해제했다. 촬영 범위 4행×3분 + 전체 검사 약 6분의 18분 예산 안에서 마쳤다.
+
+증거는 `.utmp/ticket-201/capture/`에 보존한다:
+
+- `compare-ios.png`, `compare-android.png` 및 각각의 `-preview.png`.
+- `screens/{ios,android}-{before,after}-{link,photo,photo-expanded,photo-sheet}.{png,json}`.
+- iOS 외부 화면 `screens/ios-external-loaded.png`, 영상 `screens/ios-external.mp4`.
+- Android 외부 화면 `screens/android-browser.png`, 영상 `screens/android-external-final.mp4`.
+- AX·Activity·복귀 probe, 플랫폼별 빌드 로그와 빌드 해시는 같은 폴더에 보존했다.
+
+## 남은 승인·범위
+
+사용자 화면 판정과 PR 초안 승인 전이다. push·PR·GitHub 댓글/종료·배포는 하지 않았다.
+원격 CI·실기기·운영 서버·실제 OAuth는 범위 밖이며 이번 결과로 대신하지 않는다.
+회고 필요: 예 — 이전 아이콘 결정 중단, 작업자의 완료 보고 없는 대기 종료 2회, Android 영상 재촬영이 있었다.
