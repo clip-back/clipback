@@ -27,6 +27,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-06 | [탈퇴 뒤 기기 정리와 다음 실행 재정리 (#257)](2026-11-06-account-deletion-device-cleanup.md) | 앱 |
 | 2026-11-06 | [탈퇴 화면 J04·J05·J06과 탈퇴 흐름 (#256)](2026-11-06-account-deletion-screens.md) | 앱 |
 | 2026-11-06 | [운영자 계정 삭제 명령 (#255)](2026-11-06-account-deletion-operator-command.md) | 백엔드 |
 | 2026-11-06 | [탈퇴 때 Apple 토큰 철회·카카오 연결 끊기 (#254)](2026-11-06-account-deletion-provider-revocation.md) | 백엔드 |
