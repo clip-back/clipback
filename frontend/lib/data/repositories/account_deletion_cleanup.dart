@@ -47,6 +47,9 @@ class AccountDeletionCleanupRecord {
     'logins_complete': loginsComplete,
   };
 
+  // A login fingerprint as recorded: SHA-256 in lowercase hex.
+  static final _login = RegExp(r'^[0-9a-f]{64}$');
+
   static AccountDeletionCleanupRecord? fromJson(Object? json) {
     if (json is! Map) return null;
     final environment = json['environment'], userId = json['user_id'];
@@ -54,6 +57,11 @@ class AccountDeletionCleanupRecord {
     if (environment is! String || userId is! int || remaining is! List) {
       return null;
     }
+    final valid = [
+      if (logins is List)
+        for (final login in logins)
+          if (login is String && _login.hasMatch(login)) login,
+    ];
     return AccountDeletionCleanupRecord(
       environment: environment,
       userId: userId,
@@ -61,8 +69,12 @@ class AccountDeletionCleanupRecord {
         for (final step in AccountDeletionCleanupStep.values)
           if (remaining.contains(step.name)) step,
       },
-      logins: {if (logins is List) ...logins.whereType<String>()},
-      loginsComplete: json['logins_complete'] == true,
+      logins: valid.toSet(),
+      // A damaged list may have lost the deleted login: never complete.
+      loginsComplete:
+          json['logins_complete'] == true &&
+          logins is List &&
+          valid.length == logins.length,
     );
   }
 }

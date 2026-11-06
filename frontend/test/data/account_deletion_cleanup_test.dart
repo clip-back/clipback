@@ -7,6 +7,7 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/repositories/account_deletion_cleanup.dart';
 import 'package:clipback_frontend/data/repositories/session_repository.dart';
 import 'package:clipback_frontend/social_auth.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -59,6 +60,10 @@ class _Steps {
 
 Set<AccountDeletionCleanupStep> _remaining(_Records records) =>
     records.saved.single.remaining;
+
+/// A login fingerprint as the app records it (#257).
+String _loginId(String refreshToken) =>
+    sha256.convert(utf8.encode(refreshToken)).toString();
 
 const _session = ApiSession(
   accessToken: 'deleted',
@@ -239,7 +244,7 @@ void main() {
         environment: 'env',
         userId: 7,
         remaining: {AccountDeletionCleanupStep.storedLogin},
-        logins: {'deleted-login'},
+        logins: {_loginId('deleted-refresh')},
       );
       final other = AccountDeletionCleanupRecord(
         environment: 'env',
@@ -273,7 +278,7 @@ void main() {
       'environment': 'env',
       'user_id': userId,
       'remaining': ['storedLogin'],
-      'logins': ['a'],
+      'logins': [_loginId('deleted-refresh')],
       'logins_complete': complete,
     });
     SharedPreferences.setMockInitialValues({
@@ -295,9 +300,71 @@ void main() {
       'environment': 'env',
       'user_id': 1,
       'remaining': ['storedLogin'],
-      'logins': ['a'],
+      'logins': [_loginId('deleted-refresh')],
       'logins_complete': true,
     });
+  });
+
+  // Review D1: a list that is missing, of the wrong type or holds anything
+  // but recorded fingerprints is damaged and never complete, whatever
+  // logins_complete says; only its valid fingerprints are kept.
+  test('a damaged login list is never complete', () async {
+    final deleted = _loginId('deleted-refresh');
+    final cases = <int, Object?>{
+      1: [deleted],
+      2: <Object?>[],
+      3: #missing,
+      4: null,
+      5: 7,
+      6: deleted,
+      7: {'login': deleted},
+      8: ['other', 7],
+      9: [deleted, 7],
+      10: [deleted, null],
+      11: [deleted, deleted.substring(1)],
+      12: [deleted.toUpperCase()],
+      13: ['$deleted '],
+    };
+    SharedPreferences.setMockInitialValues({
+      for (final MapEntry(key: userId, value: logins) in cases.entries)
+        'clipback.account_deletion_cleanup.v1.env.$userId': jsonEncode({
+          'environment': 'env',
+          'user_id': userId,
+          'remaining': ['storedLogin'],
+          if (logins != #missing) 'logins': logins,
+          'logins_complete': true,
+        }),
+    });
+    final read = {
+      for (final r in await PreferencesAccountDeletionCleanupStorage().read())
+        r.userId: r,
+    };
+    expect(
+      {for (final r in read.values) r.userId: r.loginsComplete},
+      {
+        1: true,
+        2: true,
+        for (var userId = 3; userId <= 13; userId++) userId: false,
+      },
+    );
+    expect(
+      {for (final r in read.values) r.userId: r.logins},
+      {
+        1: {deleted},
+        2: <String>{},
+        3: <String>{},
+        4: <String>{},
+        5: <String>{},
+        6: <String>{},
+        7: <String>{},
+        8: <String>{},
+        9: {deleted},
+        10: {deleted},
+        11: {deleted},
+        12: <String>{},
+        13: <String>{},
+      },
+    );
   });
 
   test('a deletion whose record read fails keeps the earlier record', () async {
@@ -803,6 +870,90 @@ void main() {
         expect(await next.restoreStoredSession(), isTrue);
         expect(storage.stored, same(_newLogin));
         expect(social.appleIds, isEmpty);
+      },
+    );
+
+    RemoteSessionRepository withPreferences([ClipbackApi? withApi]) {
+      final preferences = RemoteSessionRepository(
+        api:
+            withApi ??
+            ClipbackApi(
+              client: MockClient((_) async => http.Response('', 500)),
+            ),
+        storage: storage,
+        socialAuth: social,
+        clearSearchHistory: (environment, userId) async =>
+            cleared.add('search $userId'),
+        deletionCleanupStorage: PreferencesAccountDeletionCleanupStorage(),
+      );
+      addTearDown(preferences.dispose);
+      return preferences;
+    }
+
+    Future<Map<int, AccountDeletionCleanupRecord>> stored() async => {
+      for (final r in await PreferencesAccountDeletionCleanupStorage().read())
+        r.userId: r,
+    };
+
+    String damaged(int userId, Object? logins, {List<String>? remaining}) =>
+        jsonEncode({
+          'environment': 'env',
+          'user_id': userId,
+          'remaining': remaining ?? ['storedLogin'],
+          if (logins != #missing) 'logins': logins,
+          'logins_complete': true,
+        });
+
+    // Review D1 at the next launch: the deleted session is still stored and
+    // the record's damaged list cannot tell it from a newer login.
+    for (final logins in <Object?>[
+      #missing,
+      null,
+      7,
+      ['other', 7],
+      ['short'],
+    ]) {
+      test(
+        'a damaged login list ($logins) keeps the stored login step at the next launch',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            'clipback.account_deletion_cleanup.v1.env.7': damaged(7, logins),
+          });
+          await withPreferences().resumeAccountDeletionCleanup();
+          expect(storage.stored, same(_session));
+          expect(storage.clears, 0);
+          expect(social.appleIds, isEmpty);
+          final records = await stored();
+          expect(records.keys, [7]);
+          final record = records[7]!;
+          expect(record.remaining, {AccountDeletionCleanupStep.storedLogin});
+          expect(record.loginsComplete, isFalse);
+        },
+      );
+    }
+
+    // Review D1 while a withdrawal also retries another account's record.
+    test(
+      "another deletion's damaged login list stays while a withdrawal runs",
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'clipback.account_deletion_cleanup.v1.env.3': damaged(
+            3,
+            [7],
+            remaining: ['storedLogin', 'searchHistory'],
+          ),
+        });
+        storage.failClear = true;
+        await withPreferences(api).clearAfterAccountDeletion(userId: 7);
+        expect(storage.stored, same(_session));
+        expect(social.appleIds, [null]);
+        expect(cleared, containsAll(['search 7', 'search 3']));
+        final records = await stored();
+        expect(records.keys, unorderedEquals([3, 7]));
+        expect(records[3]!.remaining, {AccountDeletionCleanupStep.storedLogin});
+        expect(records[3]!.loginsComplete, isFalse);
+        expect(records[7]!.remaining, {AccountDeletionCleanupStep.storedLogin});
+        expect(records[7]!.loginsComplete, isTrue);
       },
     );
   });
