@@ -276,6 +276,10 @@ final class ShareStore {
     }
     if let removed { removeImage(removed) }
   }
+  /// A deleted account's pending shares. Drafts without an account number are not its own.
+  func discardDrafts(userId: String) throws {
+    try transaction { state in state.drafts.removeAll { $0.userId == userId } }
+  }
   func acknowledge(_ ids: [String]) throws {
     try transaction { state in state.receipts.removeAll { ids.contains($0.id) && $0.apiBaseUrl == expectedBaseURL } }
   }

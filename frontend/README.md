@@ -72,10 +72,13 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 계정 관리의 "회원 탈퇴"는 탈퇴 화면(`features/account/account_deletion_screen.dart`, Figma J04·J05)을 엽니다.
 삭제 대상 개수는 기존 목록 요청의 전체 개수와 카테고리 목록에서 공용 "미분류"를 뺀 수이며, 불러오는 중·실패면 숫자 자리를 비웁니다.
 사유를 하나 이상 고르면 "탈퇴하기"가 켜지고, 제출은 `AppViewModel.deleteAccount`가 로그아웃과 같은 인증 작업으로 처리합니다.
-204면 로그아웃 때 지우는 것을 지우고 완료 화면(`account_deleted_screen.dart`, J06)으로, 401이면 기존 처리로 로그인 화면으로 갑니다.
+204면 로그아웃 때 지우는 것과 이 계정의 검색 기록·저장 대기 공유를 지우고(Google 계정은 기기 연결 해제를 최대 5초 시도)
+완료 화면(`account_deleted_screen.dart`, J06)으로, 401이면 기존 처리로 로그인 화면으로 갑니다.
+204 뒤 정리가 실패해도 J06으로 가며, 남은 정리(저장된 로그인·검색 기록·저장 대기 공유)는 "정리 대기" 기록
+(`data/repositories/account_deletion_cleanup.dart`)으로 다음 실행 때 세션 복원보다 먼저 다시 합니다.
 그 밖의 결과와 60초 초과는 J04에 머물며 실패 스낵바를 띄우고 고른 사유를 유지합니다. 디자인이 없는 실패·대기·개수 상태는
 [디자인 확인 필요](../docs/figma-ui-alignment-plan.md#figma-pending-15)에 있습니다. 동작 회귀는
-`flutter test --no-pub test/account_deletion_flow_test.dart test/account_deletion_overflow_test.dart`로 확인합니다.
+`flutter test --no-pub test/account_deletion_flow_test.dart test/account_deletion_overflow_test.dart test/account_deletion_cleanup_test.dart test/data/account_deletion_cleanup_test.dart`로 확인합니다.
 
 ## 화면 폭 정책
 
@@ -115,6 +118,9 @@ Flutter 3.47.9(stable)로 의존성 설치(`flutter pub get --enforce-lockfile`)
 로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다. 도입 때의 통과·실패 확인 run은 [작업 이력](../docs/history/2026-11-03-app-validation-ci.md)에 있습니다.
 
 테스트 범위·안전 영역 프리뷰·공유 대역과 실제 로컬 백엔드의 차이는 [개발·검증 안내](../docs/frontend/development.md)를 따릅니다. 테스트·빌드 통과와 실제 공급자·운영·실기기 검증은 구분합니다.
+
+앱 시작이 기기 설정 저장소(SharedPreferences)의 정리 대기 기록을 읽으므로, `test/flutter_test_config.dart`가 Flutter 바인딩이 있는
+테스트마다 빈 메모리 SharedPreferences 채널을 둡니다. 테스트가 같은 채널에 자기 대역을 걸거나 `setMockInitialValues`를 쓰면 그쪽이 우선합니다.
 
 MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스트는
 [HTTP 응답 보류 도우미](test/support/README.md)를 사용합니다.

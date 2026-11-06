@@ -32,6 +32,11 @@ class MemoryHistory implements SearchHistoryStorage {
       activeWrites--;
     }
   }
+
+  @override
+  Future<void> clear(String e, int id) async {
+    values.remove(key(e, id));
+  }
 }
 
 void main() {
@@ -210,4 +215,25 @@ void main() {
     expect(r.terms, ['A', 'a', 'b', 'c', 'd']);
     expect(s.writes, isEmpty);
   });
+  test(
+    'clearing a deleted account waits for its accepted write and keeps others',
+    () async {
+      s.values['test/2'] = ['other'];
+      s.values['prod/1'] = ['other environment'];
+      r.open();
+      await r.settle();
+      s.writeGate = Completer();
+      r.record('last search');
+      r.bind(generation: 2, active: false);
+      final cleared = r.clearAccount('test', 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(s.values.containsKey('test/1'), isFalse);
+      s.writeGate!.complete();
+      await cleared;
+      await r.settle();
+      expect(s.values.containsKey('test/1'), isFalse);
+      expect(s.values['test/2'], ['other']);
+      expect(s.values['prod/1'], ['other environment']);
+    },
+  );
 }

@@ -65,6 +65,23 @@ public final class ShareStoreTest extends InstrumentationTestCase {
         assertEquals("7",store.draft(id).getString("userId"));
         assertFalse(store.sameAccount(first,"7"));
     }
+    /** #257: after a withdrawal only that account's pending shares go; unassigned and other accounts' stay. */
+    public void testDiscardAccountDraftsRemovesOnlyThatAccountsDraftsAndImages() throws Exception {
+        long first=revision(); assertTrue(store.publishCredential(credential(first,"7","2035-01-01T00:00:00Z")));
+        String ownLink=store.create("https://youtu.be/dQw4w9WgXcQ","fixture",null,null);
+        String ownImage=store.create(null,null,new byte[]{1,2,3},"image/png");
+        store.begin(ownLink,first,"7"); store.begin(ownImage,first,"7");
+        long second=store.blockCredential(); assertTrue(store.publishCredential(credential(second,"8","2035-01-01T00:00:00Z")));
+        String otherLink=store.create("https://youtu.be/other","fixture",null,null);
+        store.begin(otherLink,second,"8");
+        String unassigned=store.create("https://youtu.be/unassigned","fixture",null,null);
+        assertTrue(store.imageFile(ownImage).exists());
+        store.discardAccountDrafts(7);
+        assertNull(store.draft(ownLink)); assertNull(store.draft(ownImage));
+        assertFalse(store.imageFile(ownImage).exists());
+        assertEquals("8",store.draft(otherLink).getString("userId"));
+        assertFalse(store.draft(unassigned).has("userId"));
+    }
     public void testRetryKeepsOperationAndReceiptsAreDurable() throws Exception {
         long current=revision(); store.publishCredential(credential(current,"7","2035-01-01T00:00:00Z"));
         String id=store.create("https://youtu.be/dQw4w9WgXcQ","fixture",null,null);

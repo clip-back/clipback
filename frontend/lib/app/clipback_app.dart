@@ -43,12 +43,14 @@ import 'app_view_model.dart';
 import 'exit_confirmation_dialog.dart';
 import '../features/share/pending_share_prompt.dart';
 import '../data/services/search_history_storage.dart';
+import '../data/services/native_share_service.dart';
 
 class ClipbackApp extends StatefulWidget {
   const ClipbackApp({
     this.sessionStorage,
     this.socialAuth,
     this.searchHistoryStorage,
+    this.nativeShare,
     this.appInfo,
     super.key,
   });
@@ -56,6 +58,7 @@ class ClipbackApp extends StatefulWidget {
   final ApiSessionStorage? sessionStorage;
   final SearchHistoryStorage? searchHistoryStorage;
   final SocialAuth? socialAuth;
+  final NativeShareService? nativeShare;
 
   /// 설치된 앱의 앱 정보. 읽지 못했으면 null이다.
   final AppInfo? appInfo;
@@ -211,6 +214,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       storage: widget.sessionStorage,
       searchHistoryStorage: widget.searchHistoryStorage,
       socialAuth: widget.socialAuth,
+      nativeShare: widget.nativeShare,
       canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
     );
     _archiveStorageAccountGeneration = _d.app.accountGeneration;

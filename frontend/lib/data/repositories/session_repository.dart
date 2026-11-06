@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../clipback_api.dart';
 import '../../social_auth.dart';
+import 'account_deletion_cleanup.dart';
 
 enum SessionInvalidation { started, completed, failed }
 
@@ -42,7 +43,11 @@ abstract class SessionRepository extends ChangeNotifier {
     SocialLoginProvider? provider,
     required bool Function() isCurrent,
   });
-  Future<void> clearAfterAccountDeletion({SocialLoginProvider? provider});
+  Future<void> clearAfterAccountDeletion({
+    required int userId,
+    SocialLoginProvider? provider,
+  });
+  Future<void> resumeAccountDeletionCleanup();
   void retryPersistence();
 }
 
@@ -51,13 +56,25 @@ class RemoteSessionRepository extends SessionRepository {
     required ClipbackApi api,
     required ApiSessionStorage storage,
     required SocialAuth socialAuth,
+    Future<void> Function(String environment, int userId)? clearSearchHistory,
+    Future<void> Function(int userId)? discardPendingShares,
+    AccountDeletionCleanupStorage? deletionCleanupStorage,
   }) : _api = api,
        _storage = storage,
-       _socialAuth = socialAuth;
+       _socialAuth = socialAuth {
+    _deletionCleanup = AccountDeletionCleanup(
+      environment: api.baseUrl,
+      clearStoredLogin: _clearDeletedLogin,
+      clearSearchHistory: clearSearchHistory ?? (_, _) async {},
+      discardPendingShares: discardPendingShares ?? (_) async {},
+      storage: deletionCleanupStorage,
+    );
+  }
 
   final ClipbackApi _api;
   final ApiSessionStorage _storage;
   final SocialAuth _socialAuth;
+  late final AccountDeletionCleanup _deletionCleanup;
   final _invalidations = StreamController<SessionInvalidation>.broadcast(
     sync: true,
   );
@@ -124,6 +141,7 @@ class RemoteSessionRepository extends SessionRepository {
     try {
       await _storage.write(session);
       if (identical(_api.session, session)) _sessionNeedingPersistence = null;
+      await _deletionCleanup.storedLoginReplaced();
     } catch (_) {
       if (identical(_api.session, session)) {
         _sessionNeedingPersistence = session;
@@ -274,28 +292,55 @@ class RemoteSessionRepository extends SessionRepository {
     return !_disposed && isCurrent();
   }
 
-  // The server already deleted the account, so no server logout is sent. This
-  // clears what logout clears; retrying failed cleanup later is #257 (R2).
+  // The server already deleted the account, so no server logout is sent.
+  // Retried cleanup is recorded first; the rest is tried once (R2).
   @override
   Future<void> clearAfterAccountDeletion({
+    required int userId,
     SocialLoginProvider? provider,
   }) async {
     _api.clearSession();
     _pendingSessionClear = true;
     _notify();
     try {
-      await _clearStoredSession(afterLogout: true);
-    } catch (_) {
-      // A 204 is never reported as a failed withdrawal (R2).
+      await _deletionCleanup.start(userId);
     } finally {
       _pendingSessionClear = false;
       _notify();
+    }
+    if (provider == SocialLoginProvider.google) {
+      try {
+        await _socialAuth.disconnectGoogle().timeout(
+          const Duration(seconds: 5),
+        );
+      } catch (_) {
+        // Disconnect is attempted once and never delays J06 past 5s (D6).
+      }
     }
     try {
       await _socialAuth.signOut(provider);
     } catch (_) {
       // SDK sign-out is best effort, as after logout.
     }
+  }
+
+  @override
+  Future<void> resumeAccountDeletionCleanup() => _deletionCleanup.resume();
+
+  // The stored session and the Apple user ID are each tried every time.
+  Future<void> _clearDeletedLogin() async {
+    Object? failure;
+    try {
+      await _clearStoredSession(afterLogout: true);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await _socialAuth.rememberAppleUserId(null);
+    } catch (error) {
+      failure = error;
+    }
+    if (failure != null) throw failure;
   }
 
   @override

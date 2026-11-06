@@ -124,4 +124,9 @@ class ShareRepository {
 
   Future<void> acknowledge(List<String> ids) =>
       _native.invoke<void>('acknowledgeReceipts', {'ids': ids});
+
+  /// Removes the pending shares saved for a deleted account. Shares without
+  /// an account number are not that account's and stay (D16).
+  Future<void> discardAccountDrafts(int userId) =>
+      _native.invoke<void>('discardAccountDrafts', {'userId': userId});
 }

@@ -52,10 +52,14 @@ class AppDependencies {
         if (!_disposed) await session.invalidate();
       },
     );
+    final shares = ShareRepository(api, nativeShare ?? NativeShareService());
     session = RemoteSessionRepository(
       api: api,
       storage: storage ?? ApiSessionStorage(),
       socialAuth: socialAuth ?? PlatformSocialAuth(),
+      clearSearchHistory: (environment, userId) =>
+          searchHistory.clearAccount(environment, userId),
+      discardPendingShares: shares.discardAccountDrafts,
     );
     content = RemoteContentRepository(api);
     users = RemoteUserRepository(api: api);
@@ -68,7 +72,7 @@ class AppDependencies {
       beforeSessionChange: () => sharing.blockForSessionChange(),
     );
     sharing = ShareCoordinator(
-      shares: ShareRepository(api, nativeShare ?? NativeShareService()),
+      shares: shares,
       session: session,
       users: users,
       contentActions: contentActions,

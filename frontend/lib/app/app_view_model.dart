@@ -327,6 +327,9 @@ class AppViewModel extends ChangeNotifier {
         return;
       }
       if (!_session.hasSession) {
+        // R2: a withdrawal's leftover device cleanup comes before restoring.
+        await _session.resumeAccountDeletionCleanup();
+        if (_disposed) return;
         final restored = await _session.restoreStoredSession();
         if (_disposed) return;
         if (restored) _resetAccount();
@@ -780,7 +783,8 @@ class AppViewModel extends ChangeNotifier {
   /// Submits like logout: the auth epoch moves and the busy flag and share
   /// barrier come first, so Apple checks skip or drop their result meanwhile.
   Future<void> deleteAccount(List<AccountDeletionReason> reasons) async {
-    if (_disposed || _authBusy || reasons.isEmpty) return;
+    final userId = _authenticatedUser?.id;
+    if (_disposed || _authBusy || reasons.isEmpty || userId == null) return;
     final epoch = ++_authEpoch;
     _ordinaryLoginFailure = null;
     _ordinaryLoginStatus = null;
@@ -801,7 +805,10 @@ class AppViewModel extends ChangeNotifier {
         _showError(accountDeletionFailureMessage);
         return;
       }
-      await _session.clearAfterAccountDeletion(provider: provider);
+      await _session.clearAfterAccountDeletion(
+        userId: userId,
+        provider: provider,
+      );
       if (!current()) return;
       _authEpoch++;
       _resetAccount();

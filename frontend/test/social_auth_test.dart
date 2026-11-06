@@ -133,6 +133,31 @@ void main() {
     },
   );
 
+  test('Google disconnect goes through the configured SDK only (D6)', () async {
+    await auth.disconnectGoogle();
+    expect(sdk.googleInitializations, 1);
+    expect(sdk.googleDisconnects, 1);
+    expect(sdk.googleSignOuts + sdk.kakaoClears, 0);
+    final unconfigured = PlatformSocialAuth(
+      sdk: sdk,
+      platform: TargetPlatform.iOS,
+      config: const SocialAuthConfig(
+        googleServerClientId: '',
+        googleIosClientId: '',
+        kakaoNativeAppKey: '',
+      ),
+    );
+    await unconfigured.disconnectGoogle();
+    final desktop = PlatformSocialAuth(
+      sdk: sdk,
+      config: _config,
+      platform: TargetPlatform.macOS,
+    );
+    await desktop.disconnectGoogle();
+    expect(sdk.googleDisconnects, 1);
+    expect(sdk.googleInitializations, 1);
+  });
+
   test(
     'Android Google does not require the iOS client or native URL check',
     () async {
@@ -388,6 +413,7 @@ class _FakeSdk implements SocialAuthSdk {
   int accountLogins = 0;
   int appleLogins = 0;
   int googleSignOuts = 0;
+  int googleDisconnects = 0;
   int kakaoClears = 0;
   int stateChecks = 0;
   String? serverClientId;
@@ -427,6 +453,11 @@ class _FakeSdk implements SocialAuthSdk {
   Future<void> signOutGoogle() async {
     googleSignOuts++;
     if (signOutError != null) throw signOutError!;
+  }
+
+  @override
+  Future<void> disconnectGoogle() async {
+    googleDisconnects++;
   }
 
   @override

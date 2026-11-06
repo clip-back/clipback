@@ -50,6 +50,9 @@ abstract class SocialAuth {
   Future<void> rememberAppleUserId(String? userId);
   Future<AppleCredentialStatus> appleCredentialState();
   Stream<void> get appleCredentialRevocations => const Stream<void>.empty();
+
+  /// Revokes this app's Google authorization on the device (D6).
+  Future<void> disconnectGoogle() async {}
 }
 
 class SocialAuthConfig {
@@ -78,6 +81,7 @@ abstract interface class SocialAuthSdk {
   });
   Future<SocialCredential> authenticateGoogle();
   Future<void> signOutGoogle();
+  Future<void> disconnectGoogle();
   Future<void> initializeKakao(String nativeAppKey);
   Future<bool> isKakaoTalkInstalled();
   Future<SocialCredential> authenticateKakaoTalk({String? nonce});
@@ -258,6 +262,16 @@ class PlatformSocialAuth extends SocialAuth {
   }
 
   @override
+  Future<void> disconnectGoogle() async {
+    if (!supportedProviders.contains(SocialLoginProvider.google) ||
+        _config.googleServerClientId.isEmpty) {
+      return;
+    }
+    await _initializeGoogle();
+    await _sdk.disconnectGoogle();
+  }
+
+  @override
   Future<void> rememberAppleUserId(String? userId) async {
     final preferences = await _preferences();
     final saved = userId == null
@@ -339,6 +353,9 @@ class _NativeSocialAuthSdk implements SocialAuthSdk {
 
   @override
   Future<void> signOutGoogle() => google.GoogleSignIn.instance.signOut();
+
+  @override
+  Future<void> disconnectGoogle() => google.GoogleSignIn.instance.disconnect();
 
   @override
   Future<void> initializeKakao(String nativeAppKey) => _kakaoInitialization ??=

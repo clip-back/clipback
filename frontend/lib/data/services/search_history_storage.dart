@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 abstract interface class SearchHistoryStorage {
   Future<List<String>> read(String environment, int userId);
   Future<void> write(String environment, int userId, List<String> terms);
+  Future<void> clear(String environment, int userId);
 }
 
 class PreferencesSearchHistoryStorage implements SearchHistoryStorage {
@@ -29,6 +30,13 @@ class PreferencesSearchHistoryStorage implements SearchHistoryStorage {
       List.of(terms),
     )) {
       throw StateError('Could not persist search history');
+    }
+  }
+
+  @override
+  Future<void> clear(String environment, int userId) async {
+    if (!await (await _preferences()).remove(_key(environment, userId))) {
+      throw StateError('Could not clear search history');
     }
   }
 }
