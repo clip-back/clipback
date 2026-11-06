@@ -61,7 +61,8 @@ emulator -avd Clipback_Share_API_33 -memory 1536 -cores 2 \
 뒤로 가기·저장 직후 닫기와 HTTP 요청 공유·401·30초 제한·응답 유실 재시도를 확인한다.
 공유 저장 시트는 `ShareActivityTest`와 `ShareServiceFixtureTest`가 실제 터치·뒤로 가기로 확인한다.
 시트에는 **저장하기**와 안내 문구만 보이고, 링크·이미지 저장은 시트가 내려간 뒤 `저장 완료!` 토스트를
-약 1.5초 보여 주고 창을 닫으며 대역 `save_requests`가 1 증가한다. 준비 중·저장 중 연속 탭도 요청은 1회다.
+약 1.5초 보여 주고 창을 닫으며 대역 `save_requests`가 1 증가한다. 준비 중에는 기존 모양으로 버튼만 막고, 저장 탭 직후부터는 `전송 중 ...`·회색 버튼·종이비행기와
+`저장하고 있어요... 잠시만 기다려주세요 !`를 보여 준다. 두 단계 모두 연속 탭 요청은 1회다.
 끌어내림·배경 탭·뒤로 가기는 저장 전이면 저장 대기 공유를 남기지 않고(재생성 후 포함), 저장 중이면
 결과 미확인으로 보관해 같은 키 재시도에서 중복 저장이 없다. 준비 중 닫기는 링크·이미지 모두 받기와 취소 뒤 정리가
 끝난 것을 확인한 뒤 아무것도 남지 않았는지 본다.
@@ -145,3 +146,15 @@ flutter build apk --debug --no-pub -t test/support/share_preview.dart \
 서버의 실제 콘텐츠/asset/receipt 행을 대조하되 provider는 로컬 대역이며 외부 OAuth,
 Instagram·YouTube 앱 자체, 운영 서버, 실제 기기는 검증하지 않는다. 이전 환경에서 이미
 전송한 초안은 다른 서버에 재전송할 수 없으므로 새 공유 작업으로 검증한다.
+
+## 전송 중 상태 (#245)
+
+`ShareServiceFixtureTest#testHeldSaveShowsProgressAndRejectsRepeatedTaps`는 실제 탭 후
+대역 응답을 보류하고 처리 중 문구·아이콘·입력 차단·요청 1회를 단언한다. 해제 후 저장 1건·완료 토스트까지 검사한다.
+`#testCaptureShareLoadingStates`는 YouTube·Instagram·이미지의 저장 전/보류 중/성공과 진행 중 재생성을
+앱 외부 파일 폴더 `share-loading` 아래 PNG·JSON으로 남긴다. 기존 실패·재시도·닫기·계정/환경 회귀도 함께 실행한다.
+
+`POST /__test/control`의 `{"hold_save":true}`로 다음 응답을 보류하고 `{"release_save":true}`로 해제한다.
+최대 보류 60초 동안 제품의 30초 전송 제한은 그대로 적용된다. 보류 영상과 제어 없는 빠른 응답 영상은 구분한다.
+`share_send.png`는 Figma `348:3404` SVG를 3배로 렌더한 60×60 이미지로, xxhdpi 리소스의 표시 크기는 20dp다.
+처리 중 문구·안내만 17/15sp이며 준비·완료의 기존 글자 크기와 OS 배경 제약은 유지한다.

@@ -41,9 +41,10 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 
 ## 실제 공유 UI 테스트
 
-아래 열다섯 테스트가 로컬 fixture 검증 묶음이다. 공유 메뉴 경로는 공유 저장 시트(`share.sheet`)를 띄우고,
+아래 테스트가 로컬 fixture 검증 묶음이다. 공유 메뉴 경로는 공유 저장 시트(`share.sheet`)를 띄우고,
 "저장하기"(`share.save`) 뒤 완료 토스트(`share.toast`, "저장 완료!")를 거쳐 송신 앱으로 돌아오는지와
 `save_requests`가 한 번만 늘었는지 확인한다. 시트에 제목·닫기 버튼·초안 삭제·저장 계정·공유 내용·미리보기가 없는지도 검사한다.
+닫기 뒤에는 시트가 사라지고 OS 공유 창이 송신 앱에 입력을 돌려줄 때까지 기존 5초 제한 안에서 기다린다.
 닫기는 손잡이 끌어내림과 배경(`share.dismiss`) 탭을 쓰며, 저장 전 닫기는 본앱의 저장 대기 공유 수가 늘지 않는지 본다.
 송신 앱의 `느린 스크린샷 공유`는 이미지를 6초 늦게 넘겨 준비 중 닫기(아무것도 보관되지 않음)와 준비·저장 중 연속 탭(요청 1회)을 재현한다.
 실패는 분류별 OS 알림창(제목·문구, [다시 시도](`share.retry`)·[닫기](`share.close`))으로 확인하고,
@@ -52,7 +53,7 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 [닫기] 뒤 보관된 공유를 본앱 복구 화면에서 다시 저장해 저장 1건·요청 2회인지 각각 검사한다.
 로그인 필요는 401로 공유 자격을 막은 뒤 다음 공유가 보관된 다음 알림창이 뜨고 저장 요청이 없는지, [닫기] 뒤 본앱 복구 화면에서
 이어 저장되는지 본다. 저장 응답 401과 이 준비 단계 모두 알림창 전에 시트가 내려갔는지는 알림창이 접근성 모달이라
-화면 캡처에서 원래 "저장하기" 자리에 노란색이 남지 않았는지로 확인한다. 같은 방법으로 기기에 10개를 보관한 뒤 공유하면 보관 실패 알림창에 "보관했습니다"가 없고 보관 수가 늘지 않는지 보며,
+화면 캡처에서 저장 버튼과 안내가 있는 시트가 남지 않았는지로 확인한다. 같은 방법으로 기기에 10개를 보관한 뒤 공유하면 보관 실패 알림창에 "보관했습니다"가 없고 보관 수가 늘지 않는지 보며,
 쌓은 공유는 본앱 복구 화면에서 저장해 정리한다. 지원하지 않는 공유는 받기 거절 알림창 [닫기] 뒤 보관 수가 늘지 않는지 본다.
 저장 중 닫기·송신 앱 강제 종료 테스트는 서버 저장 후 응답을 각각 10초·20초 지연시킨다. 본앱의 수동 저장 창에
 입력만 남겨 두고 외부 공유를 중단한 뒤, 본앱 네이티브 모달에서 같은 초안을 재개한다.
@@ -67,6 +68,9 @@ xcodebuild -project ios/ShareVerification/ShareVerification.xcodeproj \
   -scheme ShareVerification -configuration Debug -sdk iphonesimulator \
   -destination "id=$IOS_DEVICE" -derivedDataPath /tmp/clipback-share-ui-derived \
   -jobs 2 -parallel-testing-enabled NO \
+  -only-testing:ShareUITests/ShareUITests/testHeldImageShowsProgressAndRejectsRepeatedTaps \
+  -only-testing:ShareUITests/ShareUITests/testRetryShowsProgressUntilHeldResponseCompletes \
+  -only-testing:ShareUITests/ShareUITests/testHeldSaveShowsProgressAndRejectsRepeatedTaps \
   -only-testing:ShareUITests/ShareUITests/testExternalLinkSaveReturnsToSenderWithoutMainApp \
   -only-testing:ShareUITests/ShareUITests/testImageSaveAndUnsupportedInput \
   -only-testing:ShareUITests/ShareUITests/testDismissBeforeSaveKeepsNoPendingShare \
@@ -119,3 +123,19 @@ UI 구조가 바뀌면 이 선택자를 실제 접근성 트리와 대조한다.
 Simulator 성공은 실제 Instagram·YouTube 앱, 실기기 프로비저닝, TestFlight, 운영 저장 검증과 별개다.
 실기기 배포 전에 Apple Developer 계정에서 `group.com.huturu.app`과 두 타깃의 App Group/Keychain
 프로비저닝을 확인한다. 제품 확장에는 Flutter 엔진이나 소셜 SDK가 연결되지 않는다.
+
+## 전송 중 상태 (#245)
+
+`testHeldSaveShowsProgressAndRejectsRepeatedTaps`는 실제 저장 버튼 탭 뒤 대역 응답을 보류해
+`전송 중 ...`·종이비행기·비활성 버튼·저장 중 안내를 단언하고, 연속 탭 요청 1회와 해제 후 저장 1건·완료 토스트를 확인한다.
+버튼 내부 장식 이미지는 접근성 요소가 아니므로 실제 버튼 스크린샷을 원본 20pt 아이콘 golden과 비교한다.
+같은 검출이 저장 전 버튼에는 실패하고 처리 중에는 통과하는지도 확인한다.
+처리 중 버튼은 UIKit의 기본 배치가 끝난 뒤 제목과 20pt 아이콘을 10pt 간격으로 배치한다.
+픽셀 검사는 아이콘 앞 빈 공간도 확인하며, 단순 아이콘 존재만으로 간격을 판정하지 않는다.
+`testCaptureShareLoadingStates`는 같은 확장에서 YouTube·Instagram·이미지의 저장 전/보류 중/완료를 XCTest 첨부로 남긴다.
+준비 단계는 기존 모양을 유지하며 오류·로그인·계정·환경 분류와 닫기·본앱 복구는 기존 회귀 묶음을 함께 실행한다.
+
+수동 촬영은 `POST /__test/control`에 `{"hold_save":true}`를 보낸 뒤 저장하고,
+처리 중 캡처 후 `{"release_save":true}`로 해제한다. 보류는 최대 60초이며 제품의 30초 전송 제한은 그대로다.
+보류 대역 영상과 제어 없는 빠른 응답 영상을 구분한다. 원본 아이콘은 Figma `348:3404`의 SVG이며
+ShareExtension/Assets.xcassets에 그대로 포함했다. 처리 중만 17/15pt이고 저장 전·완료의 기존 크기는 유지한다.
