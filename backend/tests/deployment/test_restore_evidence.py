@@ -1,6 +1,9 @@
 """Restore failure evidence keeps only allowlisted fields (no Docker needed)."""
 
+import asyncio
 import json
+import signal
+import sys
 
 import pytest
 
@@ -85,6 +88,8 @@ def test_summary_keeps_only_allowlisted_flags_codes_and_kind_counts(tmp_path):
         "remaining_resource_kinds",
         "cleanup_steps",
         "child_process_running",
+        "child_returncode",
+        "child_returncode_status",
         "command_returncode",
     }
     assert_no_secrets(json.dumps(summary))
@@ -148,7 +153,7 @@ def test_left_workspace_input_is_attributed_by_fixed_name_only(tmp_path):
     summary = restore_summary(result, workspace)
 
     assert summary["cleanup_steps"] == {
-        "docker_resource_removal": "passed",
+        "docker_resource_removal": "unknown",
         "workspace_input_removal": "failed",
         "workspace_inputs_left": ["credentials.json", "events.json"],
         "workspace_removal": "skipped",
@@ -184,8 +189,8 @@ def test_cleanup_failure_without_left_resource_is_unattributed(tmp_path):
 
     steps = restore_summary(result, tmp_path / "removed")["cleanup_steps"]
 
-    assert steps["docker_resource_removal"] == "passed"
-    assert steps["workspace_removal"] == "passed"
+    assert steps["docker_resource_removal"] == "unknown"
+    assert steps["workspace_removal"] == "unknown"
     assert steps["unattributed"] is True
 
 
@@ -274,3 +279,119 @@ def test_check_error_code_is_kept_but_other_messages_are_not(tmp_path):
         )["failure"]
         == "CheckError:unrecognized"
     )
+
+
+@pytest.mark.parametrize("receipt", [True, False])
+def test_docker_remove_error_without_left_resource_is_not_blamed_on_workspace(
+    tmp_path, monkeypatch, receipt
+):
+    from scripts import restore_execution
+
+    def remove_error(*_, **__):
+        raise CheckError("docker_command_failed")
+
+    # `docker rm` fails, yet the resource is gone on the second inspection. No Docker runs.
+    inventory = iter([[("container", "synthetic", {})], []])
+    monkeypatch.setattr(restore_execution, "Docker", lambda: remove_error)
+    monkeypatch.setattr(restore_execution, "owned_resources", lambda *_: next(inventory))
+    resources = restore_execution.cleanup_owned("synthetic")
+    assert resources == {
+        "cleanup_passed": False,
+        "executors_stopped": True,
+        "remaining_resource_kinds": [],
+    }
+    # run_restore then removes the copied inputs but skips the workspace (cleanup failed).
+    result = dict(resources, passed=False, child_stopped=True, restore_receipt_finished=receipt)
+
+    steps = restore_summary(result, workspace_with(tmp_path))["cleanup_steps"]
+
+    assert steps == {
+        "docker_resource_removal": "unknown",
+        "workspace_input_removal": "passed",
+        "workspace_removal": "unknown" if receipt else "skipped",
+        "unattributed": True,
+    }
+
+
+def test_observed_child_returncode_is_recorded_per_restore(tmp_path):
+    evidence = RestoreEvidence("t")
+    create = evidence.observe(asyncio.create_subprocess_exec)
+
+    async def spawn(*args):
+        process = await create(sys.executable, "-c", *args)
+        await process.wait()
+        return process
+
+    async def scenario():
+        other = await spawn("raise SystemExit(5)")
+        exited = await spawn("raise SystemExit(3)", "_child")
+        killed = await create(sys.executable, "-c", "import time; time.sleep(30)", "_child")
+        killed.send_signal(signal.SIGKILL)
+        await killed.wait()
+        return other, exited, killed
+
+    other, exited, killed = asyncio.run(scenario())
+
+    assert other.returncode == 5 and evidence.children == [exited, killed]
+    workspace = workspace_with(tmp_path)
+    evidence.record(clean_result(), workspace)
+    evidence.record(clean_result(), workspace)
+    first, second = evidence.restores
+    assert (first["child_returncode"], first["child_returncode_status"]) == (
+        -signal.SIGKILL,
+        "observed",
+    )
+    assert (second["child_returncode"], second["child_returncode_status"]) == (
+        None,
+        "not_spawned",
+    )
+
+
+def test_unfinished_child_returncode_is_unobserved():
+    class Running:
+        returncode = None
+
+    summary = restore_summary(clean_result(), None, children=[Running()])
+
+    assert (summary["child_returncode"], summary["child_returncode_status"]) == (
+        None,
+        "unobserved",
+    )
+
+
+def test_cli_child_returncode_is_never_guessed_from_the_parent(tmp_path):
+    workspace = workspace_with(tmp_path)
+    evidence = RestoreEvidence("t")
+    (workspace / "journal.json").write_text(json.dumps({"owner": "secret-owner"}))
+    evidence.record(clean_result(), workspace, returncode=1)
+    (workspace / "journal.json").write_text(json.dumps({"child_pid": 2**22 + 7}))
+    evidence.record(clean_result(), workspace, returncode=1)
+    evidence.record(clean_result(), None, returncode=1)
+
+    statuses = [
+        (item["command_returncode"], item["child_returncode"], item["child_returncode_status"])
+        for item in evidence.restores
+    ]
+    assert statuses == [
+        (1, None, "no_child_pid_in_journal"),
+        (1, None, "unobserved"),
+        (1, None, "unobserved"),
+    ]
+
+
+def test_every_live_restore_result_assertion_reports_the_safe_summary():
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).with_name("test_live_restore_docker.py").read_text()
+    asserts = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assert) and "result[" in ast.unparse(node.test)
+    ]
+
+    assert len(asserts) == 20
+    assert {ast.unparse(node.msg) for node in asserts if node.msg is not None} == {
+        "item['evidence'].summary()"
+    }
+    assert all(node.msg is not None for node in asserts)

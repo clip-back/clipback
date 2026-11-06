@@ -26,6 +26,8 @@ FLAGS = (
 )
 # cleanup_owned reports these kinds; "unknown" means Docker inspection itself failed.
 RESOURCE_KINDS = ("container", "network", "volume", "unknown")
+# run_restore starts its isolated child as `python -m scripts.restore_execution _child`.
+CHILD_COMMAND = "_child"
 # The copied inputs run_restore deletes from its workspace before removing the workspace.
 COPIED_INPUTS = ("backup", "credentials.json", "events.json", "child-report.json", "temporary")
 
@@ -70,10 +72,18 @@ def child_running(workspace):
 
 
 def cleanup_steps(result, workspace):
-    """Attribute cleanup_passed=false to the run_restore cleanup step that left something."""
+    """Attribute cleanup_passed=false to a run_restore cleanup step only when it is provable.
+
+    run_restore reports one combined cleanup_passed. A `docker rm` error that leaves nothing
+    behind is indistinguishable from a later step failing, so such steps stay "unknown".
+    """
     flags = {name: result.get(name) is True for name in FLAGS}
-    kinds = result.get("remaining_resource_kinds")
-    docker = "failed" if kinds or not flags["executors_stopped"] else "passed"
+    cleaned = result.get("cleanup_passed") is True
+    if result.get("remaining_resource_kinds") or not flags["executors_stopped"]:
+        docker = "failed"
+    else:
+        docker = "passed" if cleaned else "unknown"
+    left = []
     if not (flags["child_stopped"] and flags["executors_stopped"]):
         inputs = directory = "skipped"
     elif workspace is None:
@@ -81,31 +91,54 @@ def cleanup_steps(result, workspace):
     else:
         left = [name for name in COPIED_INPUTS if (workspace / name).exists()]
         inputs = "failed" if left else "passed"
-        if not (inputs == "passed" and docker == "passed" and flags["restore_receipt_finished"]):
+        if inputs == "failed" or docker == "failed" or not flags["restore_receipt_finished"]:
             directory = "skipped"
+        elif code(result.get("error")) == "workspace_cleanup_failed":
+            directory = "failed"
+        elif cleaned and not workspace.exists():
+            directory = "passed"
         else:
-            directory = "failed" if workspace.exists() else "passed"
+            # Either Docker cleanup failed first (removal skipped) or removal failed later.
+            directory = "unknown"
     steps = {
         "docker_resource_removal": docker,
         "workspace_input_removal": inputs,
         "workspace_removal": directory,
     }
-    if workspace is not None and inputs == "failed":
+    if left:
         steps["workspace_inputs_left"] = left
-    if code(result.get("error")) == "workspace_cleanup_failed":
-        steps["workspace_removal"] = "failed"
-    # cleanup_owned also fails when `docker rm` errors but nothing remains afterwards.
     steps["unattributed"] = result.get("cleanup_passed") is False and "failed" not in (
-        steps["docker_resource_removal"],
-        steps["workspace_input_removal"],
-        steps["workspace_removal"],
+        docker,
+        inputs,
+        directory,
     )
     return steps
 
 
-def restore_summary(result, workspace=None, *, returncode=None):
+def child_exit(processes, workspace, *, in_process):
+    """Return (returncode, status) of the isolated restore child.
+
+    In-process runs observe the Process object run_restore created and awaited. A CLI run
+    spawns its child in another process, so only the journal's child_pid presence is known.
+    """
+    if processes:
+        returncode = processes[-1].returncode
+        return (returncode, "observed") if isinstance(returncode, int) else (None, "unobserved")
+    if in_process:
+        return None, "not_spawned"
+    try:
+        value = json.loads((workspace / "journal.json").read_text()) if workspace else None
+    except (OSError, ValueError):
+        value = None
+    if isinstance(value, dict) and "child_pid" not in value:
+        return None, "no_child_pid_in_journal"
+    return None, "unobserved"
+
+
+def restore_summary(result, workspace=None, *, returncode=None, children=(), in_process=True):
     if not isinstance(result, dict):
         return {"result": None}
+    child_returncode, child_status = child_exit(children, workspace, in_process=in_process)
     kinds = result.get("remaining_resource_kinds")
     kinds = kinds if isinstance(kinds, list) else []
     return {
@@ -121,6 +154,8 @@ def restore_summary(result, workspace=None, *, returncode=None):
         ),
         "cleanup_steps": cleanup_steps(result, workspace),
         "child_process_running": None if workspace is None else child_running(workspace),
+        "child_returncode": child_returncode,
+        "child_returncode_status": child_status,
         "command_returncode": returncode if isinstance(returncode, int) else None,
     }
 
@@ -131,6 +166,19 @@ class RestoreEvidence:
         self.maintenance_at_start = None
         self.restores = []
         self.collection_errors = []
+        self.children = []
+        self.recorded_children = 0
+
+    def observe(self, create_subprocess_exec):
+        """Wrap asyncio.create_subprocess_exec to keep run_restore's own child Process."""
+
+        async def observed(*args, **kwargs):
+            process = await create_subprocess_exec(*args, **kwargs)
+            if CHILD_COMMAND in args:
+                self.children.append(process)
+            return process
+
+        return observed
 
     def start(self, read_state):
         try:
@@ -139,9 +187,22 @@ class RestoreEvidence:
             self.collection_errors.append(error_name(exc))
 
     def record(self, result, workspace=None, *, returncode=None):
-        """Snapshot a run_restore result immediately; return it unchanged for the test."""
+        """Snapshot a run_restore result immediately; return it unchanged for the test.
+
+        A returncode marks a CLI run whose child lives in another process.
+        """
+        children = self.children[self.recorded_children :]
+        self.recorded_children = len(self.children)
         try:
-            self.restores.append(restore_summary(result, workspace, returncode=returncode))
+            self.restores.append(
+                restore_summary(
+                    result,
+                    workspace,
+                    returncode=returncode,
+                    children=children,
+                    in_process=returncode is None,
+                )
+            )
         except Exception as exc:
             self.collection_errors.append(error_name(exc))
         return result

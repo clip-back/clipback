@@ -168,13 +168,24 @@ GitHub Actions의 migration job은 PostgreSQL 18에서 기존 테스트 DB와 �
 읽기·점검·권위 있는 복원 제어·기존 백업/다중 사용자 복원·원본 이관·DB 준비 검사를 실행한다.
 이는 합성 Docker 환경이며 실제 Railway 성공이나 Mac SSH 연결의 증거가 아니다.
 
-`test_live_restore_docker.py`의 테스트가 실패하면 fixture 해제 전에 `RESTORE_EVIDENCE_DIR`에
+`test_live_restore_docker.py`의 테스트 본문이 실패하면 fixture 해제 전에 `RESTORE_EVIDENCE_DIR`에
 테스트별 JSON을 쓰고, `operator-recovery` job이 실패하면 `restore-failure-evidence-<시도 번호>`
-artifact로 14일 보관한다. 내용은 `tests/deployment/restore_evidence.py`의 허용 필드뿐이다: 복원 결과의
-불리언과 오류 코드, 남은 Docker 자원 종류와 개수, 정리 단계별 결과, 테스트 시작·실패 때 maintenance
-phase와 작업 개수, private control 종료 코드, 예외 클래스와 `CheckError` 코드. 토큰·접속 문자열·
-credentials·백업 내용·예외 원문은 넣지 않는다. 같은 요약이 결과 단언의 실패 메시지에도 붙는다.
-변수가 없는 로컬 실행에서는 파일을 쓰지 않는다.
+artifact로 14일 보관한다. fixture 준비·해제 단계의 실패는 수집하지 않는다. 내용은
+`tests/deployment/restore_evidence.py`의 허용 필드뿐이다: 복원 결과의 불리언과 오류 코드, 남은 Docker 자원
+종류와 개수, 정리 단계별 결과, 자식 프로세스 종료 코드, 테스트 시작·실패 때 maintenance phase와 작업 개수,
+private control 종료 코드, 예외 클래스와 `CheckError` 코드. 토큰·접속 문자열·credentials·백업 내용·예외
+원문은 넣지 않는다. 같은 요약이 결과 단언의 실패 메시지에도 붙는다. 변수가 없는 로컬 실행에서는 파일을
+쓰지 않는다.
+
+- 정리 단계(`docker_resource_removal`·`workspace_input_removal`·`workspace_removal`)는 `run_restore`가
+  하나로 합쳐 내는 `cleanup_passed`와 남은 자원·작업 폴더 상태로 추론한다. 증명할 수 없는 단계는
+  `unknown`이고, 실패한 단계를 특정하지 못하면 `unattributed`가 참이다. 예를 들어 `docker rm`이
+  실패했지만 자원이 남지 않으면 Docker와 작업 폴더 삭제 단계가 모두 `unknown`이다.
+- 자식 종료 코드는 fixture가 `asyncio.create_subprocess_exec`를 그대로 통과시키며 `run_restore`가 만든
+  자식의 Process 객체를 보관해 읽는다. `child_returncode_status`는 `observed`(정수 값),
+  `not_spawned`(직접 실행에서 자식을 만들지 않음), `no_child_pid_in_journal`(CLI 실행이며 journal에 자식
+  pid가 없음), `unobserved`(종료 코드를 볼 수 없음. CLI 실행의 자식은 다른 프로세스 안에 있다) 중 하나다.
+  CLI 실행의 부모 종료 코드는 `command_returncode`에 따로 두고 자식 값으로 쓰지 않는다.
 
 `lint`·`test`·`migration`은 모든 실행에서 돈다. `deployment`·`operator-recovery`는 PR과 main push에서
 `changes` job의 경로 판정 결과가 참일 때만 돌고, 매일 04:00 KST(`0 19 * * *` UTC) 예약 실행과

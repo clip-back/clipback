@@ -46,6 +46,10 @@ def live_context(bucket_backup, monkeypatch, tmp_path, request):
         "PYTHONPATH": str(Path(__file__).parents[2]),
     }
     evidence = RestoreEvidence(request.node.name)
+    # Pass-through wrapper: run_restore's child Process is kept to read its returncode.
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", evidence.observe(asyncio.create_subprocess_exec)
+    )
     private = subprocess.Popen(
         [
             sys.executable,
@@ -141,7 +145,7 @@ def test_authoritative_live_restore_finishes_receipt_and_keeps_maintenance(live_
                 await run_restore(Path(prepared["workspace"]), timeout_seconds=120),
                 Path(prepared["workspace"]),
             )
-            assert result["passed"], result
+            assert result["passed"], item["evidence"].summary()
             assert result["live_deletion_ledger_verified"] and result["source_lock_released"], (
                 item["evidence"].summary()
             )
@@ -214,7 +218,9 @@ def test_total_timeout_stops_real_child_and_daemon_container(live_context, monke
             for temporary in Path(tempfile.gettempdir()).glob("clipback-recovery-private-*"):
                 env = temporary / "runtime.env"
                 assert not env.exists() or f"@{owner}-db:5432" not in env.read_text()
-            assert not result["passed"] and result["error"] == "restore_timeout", result
+            assert not result["passed"] and result["error"] == "restore_timeout", (
+                item["evidence"].summary()
+            )
             assert result["child_stopped"] and result["executors_stopped"], (
                 item["evidence"].summary()
             )
@@ -261,7 +267,9 @@ def test_timeout_stops_descendants_even_after_the_restore_leader_exits(
             else:
                 stopped = False
             assert stopped, "A terminated leader does not prove its descendant stopped"
-            assert result["child_stopped"] and result["restore_receipt_finished"], result
+            assert result["child_stopped"] and result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
             state = await gate.status()
             assert state["phase"] == "frozen" and not state["operations"]
             await gate.resume(prepared["run_id"])
@@ -580,7 +588,9 @@ def test_wrong_database_tunnel_cannot_authorize_a_restore(live_context, monkeypa
             result = item["evidence"].record(
                 await run_restore(workspace, timeout_seconds=120), workspace
             )
-            assert not result["passed"] and result["error"] == "source_database_mismatch", result
+            assert not result["passed"] and result["error"] == "source_database_mismatch", (
+                item["evidence"].summary()
+            )
             assert not result["restore_receipt_finished"], item["evidence"].summary()
             state = await gate.status()
             assert state["phase"] == "frozen" and len(state["operations"]) == 1
