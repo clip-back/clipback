@@ -347,12 +347,11 @@ class RemoteSessionRepository extends SessionRepository {
         // Disconnect is attempted once and never delays J06 past 5s (D6).
       }
     }
-    try {
-      // The stored Apple user ID is left to the stored-login cleanup above.
-      await _socialAuth.signOutSdks(provider);
-    } catch (_) {
-      // SDK sign-out is best effort, as after logout.
-    }
+    // The stored Apple user ID is left to the stored-login cleanup above.
+    // SDK sign-out is best effort, as after logout, and like the disconnect it
+    // never holds J06: an SDK still initializing or signing out finishes on
+    // its own after the 204 (#250 final review P1).
+    unawaited(_socialAuth.signOutSdks(provider).catchError((Object _) {}));
   }
 
   @override

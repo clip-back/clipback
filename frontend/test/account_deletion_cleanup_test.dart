@@ -170,16 +170,29 @@ class _Storage extends fixture.LogoutMemoryStorage {
 
 /// SDK side of the real [PlatformSocialAuth]: only local cleanup is used.
 class _Sdk implements SocialAuthSdk {
-  int googleSignOuts = 0, googleDisconnects = 0, kakaoClears = 0;
+  int googleInits = 0, googleSignOuts = 0, googleDisconnects = 0;
+  int kakaoClears = 0;
+  // Holds the SDK call until completed; counts are taken when it starts.
+  Completer<void>? googleInitGate, googleSignOutGate, kakaoClearGate;
+  Object? googleSignOutError;
   @override
   Future<void> initializeGoogle({
     required String serverClientId,
     String? iosClientId,
-  }) async {}
+  }) async {
+    googleInits++;
+    await googleInitGate?.future;
+  }
+
   @override
   Future<SocialCredential> authenticateGoogle() => throw UnimplementedError();
   @override
-  Future<void> signOutGoogle() async => googleSignOuts++;
+  Future<void> signOutGoogle() async {
+    googleSignOuts++;
+    await googleSignOutGate?.future;
+    if (googleSignOutError != null) throw googleSignOutError!;
+  }
+
   @override
   Future<void> disconnectGoogle() async => googleDisconnects++;
   @override
@@ -193,7 +206,11 @@ class _Sdk implements SocialAuthSdk {
   Future<SocialCredential> authenticateKakaoAccount({String? nonce}) =>
       throw UnimplementedError();
   @override
-  Future<void> clearKakaoTokens() async => kakaoClears++;
+  Future<void> clearKakaoTokens() async {
+    kakaoClears++;
+    await kakaoClearGate?.future;
+  }
+
   @override
   Future<SocialCredential> authenticateApple({required String nonce}) =>
       throw UnimplementedError();
@@ -547,4 +564,108 @@ void main() {
       });
     },
   );
+
+  /// The real social auth for [platform] on a fake SDK, with Google and Kakao
+  /// configured.
+  _Sdk platformAuth(_Device device, TargetPlatform platform) {
+    final sdk = _Sdk();
+    device.socialAuth = PlatformSocialAuth(
+      sdk: sdk,
+      config: const SocialAuthConfig(
+        googleServerClientId: 'test-server',
+        googleIosClientId: 'test.apps.googleusercontent.com',
+        kakaoNativeAppKey: 'test-kakao',
+      ),
+      platform: platform,
+      isWeb: false,
+    );
+    return sdk;
+  }
+
+  // #250 final review P1: the 5 s Google limit also holds when the SDK has not
+  // finished initializing; the SDK sign-out must not wait for it again.
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets(
+      '${platform.name} a Google initialization that never finishes holds J06 '
+      'for 5 seconds only, and the SDK cleanup runs once when it does',
+      (tester) async {
+        await _run(tester, (device) async {
+          device.server.providers = ['google'];
+          final sdk = platformAuth(device, platform)
+            ..googleInitGate = Completer();
+          await _withdraw(tester, device, settle: false);
+          await tester.pump(const Duration(milliseconds: 4900));
+          expect(sdk.googleInits, 1);
+          expect(sdk.googleDisconnects, 0);
+          expect(_j06, findsNothing);
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pump(const Duration(milliseconds: 100));
+          _expectJ06WithoutRetry(tester, device);
+          expect(sdk.googleInits, 1);
+          expect(sdk.googleDisconnects + sdk.googleSignOuts, 0);
+
+          // The SDK finishes later: each Google cleanup starts once and
+          // nothing is sent to the server again.
+          sdk.googleInitGate!.complete();
+          await tester.pumpAndSettle();
+          expect(sdk.googleInits, 1);
+          expect(sdk.googleDisconnects, 1);
+          expect(sdk.googleSignOuts, 1);
+          expect(device.server.deleteCalls, 1);
+          expect(_j06, findsOneWidget);
+          expect(await _record(), isNull);
+        }, platform: platform);
+      },
+    );
+
+    for (final failing in [false, true]) {
+      testWidgets('${platform.name} a Google SDK sign-out that '
+          '${failing ? 'fails' : 'never finishes'} does not hold J06', (
+        tester,
+      ) async {
+        await _run(tester, (device) async {
+          device.server.providers = ['google'];
+          final sdk = platformAuth(device, platform);
+          if (failing) {
+            sdk.googleSignOutError = StateError('Fixture sign-out failure');
+          } else {
+            sdk.googleSignOutGate = Completer();
+          }
+          await _withdraw(tester, device, settle: false);
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump(const Duration(milliseconds: 100));
+          _expectJ06WithoutRetry(tester, device);
+          expect(sdk.googleDisconnects, 1);
+          expect(sdk.googleSignOuts, 1);
+          sdk.googleSignOutGate?.complete();
+          await tester.pumpAndSettle();
+          expect(sdk.googleSignOuts, 1);
+          expect(device.server.deleteCalls, 1);
+          expect(_failure, findsNothing);
+        }, platform: platform);
+      });
+    }
+
+    testWidgets(
+      '${platform.name} a Kakao SDK token clear that never finishes does not '
+      'hold J06',
+      (tester) async {
+        await _run(tester, (device) async {
+          device.server.providers = ['kakao'];
+          final sdk = platformAuth(device, platform)
+            ..kakaoClearGate = Completer();
+          await _withdraw(tester, device, settle: false);
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump(const Duration(milliseconds: 100));
+          _expectJ06WithoutRetry(tester, device);
+          expect(sdk.kakaoClears, 1);
+          expect(sdk.googleInits + sdk.googleDisconnects, 0);
+          sdk.kakaoClearGate!.complete();
+          await tester.pumpAndSettle();
+          expect(sdk.kakaoClears, 1);
+          expect(device.server.deleteCalls, 1);
+        }, platform: platform);
+      },
+    );
+  }
 }
