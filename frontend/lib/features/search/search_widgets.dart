@@ -179,93 +179,126 @@ class SearchEmptyState extends StatelessWidget {
   const SearchEmptyState({required this.onOpenArchive, super.key});
   final VoidCallback onOpenArchive;
 
+  // Approved original's alpha>128 bounds: (16,28)-(958,1486).
+  // Keep the old body top2/height119/centre40.5 in the 81x123 slot.
+  // The uniform scale makes the body ~1px wider per side; faint outline
+  // overflow is explicitly approved and must remain visible.
+  static const _sourceScale = 119 / 1458;
+  static const _sourceWidth = 1018 * _sourceScale;
+  static const _sourceHeight = 1545 * _sourceScale;
+  static const _sourceLeft = 40.5 - 487 * _sourceScale;
+  static const _sourceTop = 2 - 28 * _sourceScale;
+  // The alpha>0 outline starts at native y=3, slightly above the slot.
+  static const _topPaintOverflow = -(_sourceTop + 3 * _sourceScale);
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     key: const ValueKey('search-empty-viewport'),
-    builder: (context, constraints) => SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: _SearchEmptyLayout(
-        viewportHeight: constraints.maxHeight,
-        child: ConstrainedBox(
-          key: const ValueKey('search-empty-group'),
-          constraints: const BoxConstraints(maxWidth: 260),
-          child: SizedBox(
-            width: 260,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  key: const ValueKey('search-empty-image'),
-                  width: 81,
-                  height: 123,
-                  child: Image.asset(
-                    Assets.searchEmptyIllustration,
-                    key: const ValueKey('search-empty-image-source'),
-                    excludeFromSemantics: true,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  '검색 결과가 없어요',
-                  key: ValueKey('search-empty-title'),
-                  textAlign: TextAlign.center,
-                  style: SearchTextStyles.emptyTitle,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  '핵심 키워드 위주로 검색해 주세요',
-                  key: ValueKey('search-empty-body'),
-                  textAlign: TextAlign.center,
-                  style: SearchTextStyles.emptyBody,
-                ),
-                const SizedBox(height: 16),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 35),
-                  child: Container(
-                    key: const ValueKey('search-empty-cta'),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    foregroundDecoration: BoxDecoration(
-                      border: Border.all(color: AppColors.subtler),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: InkWell(
-                        onTap: onOpenArchive,
-                        borderRadius: BorderRadius.circular(4),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
+    builder: (context, constraints) => OverflowBox(
+      alignment: Alignment.bottomCenter,
+      minHeight: constraints.maxHeight + _topPaintOverflow,
+      maxHeight: constraints.maxHeight + _topPaintOverflow,
+      child: SingleChildScrollView(
+        // Extend only the top paint boundary, with the same content inset.
+        // This keeps the original layout/scroll extent and bottom clip while
+        // preserving the initial outline; scrolling remains hardEdge clipped.
+        clipBehavior: Clip.hardEdge,
+        padding: const EdgeInsets.fromLTRB(16, _topPaintOverflow, 16, 0),
+        child: _SearchEmptyLayout(
+          viewportHeight: constraints.maxHeight,
+          child: ConstrainedBox(
+            key: const ValueKey('search-empty-group'),
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: SizedBox(
+              width: 260,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    key: const ValueKey('search-empty-image'),
+                    width: 81,
+                    height: 123,
+                    child: Stack(
+                      key: const ValueKey('search-empty-image-stack'),
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned(
+                          left: _sourceLeft,
+                          top: _sourceTop,
+                          width: _sourceWidth,
+                          height: _sourceHeight,
+                          child: Image.asset(
+                            Assets.searchEmptyIllustration,
+                            key: const ValueKey('search-empty-image-source'),
+                            excludeFromSemantics: true,
+                            fit: BoxFit.cover,
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SvgPicture.asset(
-                                Assets.bookmarkBookOpen,
-                                key: const ValueKey('search-empty-cta-icon'),
-                                width: 18,
-                                height: 18,
-                              ),
-                              const SizedBox(width: 4),
-                              const Flexible(
-                                child: Text(
-                                  '전체 리스트 보기',
-                                  style: SearchTextStyles.emptyAction,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '검색 결과가 없어요',
+                    key: ValueKey('search-empty-title'),
+                    textAlign: TextAlign.center,
+                    style: SearchTextStyles.emptyTitle,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '핵심 키워드 위주로 검색해 주세요',
+                    key: ValueKey('search-empty-body'),
+                    textAlign: TextAlign.center,
+                    style: SearchTextStyles.emptyBody,
+                  ),
+                  const SizedBox(height: 16),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 35),
+                    child: Container(
+                      key: const ValueKey('search-empty-cta'),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      foregroundDecoration: BoxDecoration(
+                        border: Border.all(color: AppColors.subtler),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: InkWell(
+                          onTap: onOpenArchive,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SvgPicture.asset(
+                                  Assets.bookmarkBookOpen,
+                                  key: const ValueKey('search-empty-cta-icon'),
+                                  width: 18,
+                                  height: 18,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                const Flexible(
+                                  child: Text(
+                                    '전체 리스트 보기',
+                                    style: SearchTextStyles.emptyAction,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -1169,74 +1169,76 @@ class FolderColorPicker extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final minimumWidth =
+          colors.length * 30.0 +
+          (colors.contains(selectedColor) ? 6 : 0) +
+          (colors.length - 1) * 8;
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: math.max(constraints.maxWidth, minimumWidth),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               for (final color in colors)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: InkWell(
-                    key: ValueKey(
-                      'palette-color-${color.toARGB32().toRadixString(16)}',
-                    ),
-                    customBorder: const CircleBorder(),
-                    onTap: () => onChanged(color),
-                    child: SizedBox(
-                      width: color == selectedColor ? 36 : 30,
-                      height: 36,
-                      child: Center(
-                        child: color == selectedColor
-                            ? SizedBox(
-                                width: 36,
-                                height: 36,
-                                child: Stack(
-                                  children: [
-                                    Positioned.fill(
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: color,
-                                            width: 1.431,
-                                          ),
+                InkWell(
+                  key: ValueKey(
+                    'palette-color-${color.toARGB32().toRadixString(16)}',
+                  ),
+                  customBorder: const CircleBorder(),
+                  onTap: () => onChanged(color),
+                  child: SizedBox(
+                    width: color == selectedColor ? 36 : 30,
+                    height: 36,
+                    child: Center(
+                      child: color == selectedColor
+                          ? SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: color,
+                                          width: 1.431,
                                         ),
                                       ),
                                     ),
-                                    Center(
-                                      child: SvgPicture.asset(
-                                        Assets.categorySheetSelectedSwatch,
-                                        width: 30,
-                                        height: 30,
-                                        colorMapper: _CategorySwatchColorMapper(
-                                          color,
-                                        ),
+                                  ),
+                                  Center(
+                                    child: SvgPicture.asset(
+                                      Assets.categorySheetSelectedSwatch,
+                                      width: 30,
+                                      height: 30,
+                                      colorMapper: _CategorySwatchColorMapper(
+                                        color,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              )
-                            : Container(
-                                width: 30,
-                                height: 30,
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  shape: BoxShape.circle,
-                                ),
+                                  ),
+                                ],
                               ),
-                      ),
+                            )
+                          : Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                     ),
                   ),
                 ),
             ],
           ),
         ),
-      ),
-      _CustomFolderColorSwatch(onTap: () => onChanged(const Color(0xFFFF6F61))),
-    ],
+      );
+    },
   );
 }
 
@@ -1258,23 +1260,4 @@ class _CategorySwatchColorMapper extends ColorMapper {
       other.selectedColor == selectedColor;
   @override
   int get hashCode => selectedColor.hashCode;
-}
-
-class _CustomFolderColorSwatch extends StatelessWidget {
-  const _CustomFolderColorSwatch({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    key: const ValueKey('palette-custom'),
-    customBorder: const CircleBorder(),
-    onTap: onTap,
-    child: Image.asset(
-      Assets.categorySheetCustom,
-      scale: 3,
-      width: 38,
-      height: 32,
-    ),
-  );
 }

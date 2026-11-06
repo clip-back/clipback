@@ -1,3 +1,4 @@
+import 'support/empty_asset_probe.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
@@ -359,6 +360,13 @@ void main() {
         onOpenToday: () => todayTaps++,
       ),
     );
+    await expectEmptyAssetResolution(
+      tester,
+      _asset(Assets.homeEmptyIllustration),
+      minimumWidth: 213,
+      minimumHeight: 246,
+      homeCrop: true,
+    );
     expect(find.text('아직 저장한 콘텐츠가 없어요.'), findsOneWidget);
     expect(find.text('지금 하나만 저장해볼까요?'), findsOneWidget);
     expect(find.text('첫 콘텐츠 저장하기'), findsOneWidget);
@@ -638,6 +646,13 @@ void main() {
         ),
       );
       final empty = find.byType(HomeFilteredEmptyContent);
+      await expectEmptyAssetResolution(
+        tester,
+        _asset(Assets.homeEmptyIllustration),
+        minimumWidth: 213,
+        minimumHeight: 246,
+        homeCrop: true,
+      );
       expect(
         find.descendant(of: empty, matching: find.text(copy)),
         findsOneWidget,
@@ -865,6 +880,13 @@ void main() {
           expect(find.byType(HomeContentCard), findsNWidgets(2));
           expect(find.byType(PageDots), findsOneWidget);
         case 'no saved content':
+          await expectEmptyAssetResolution(
+            tester,
+            _asset(Assets.homeEmptyIllustration),
+            minimumWidth: 213,
+            minimumHeight: 246,
+            homeCrop: true,
+          );
           expect(find.text('아직 저장한 콘텐츠가 없어요.'), findsOneWidget);
           expect(find.byType(EmptyHomeContent), findsOneWidget);
           expect(find.text('저장한 콘텐츠가 없어요'), findsOneWidget);

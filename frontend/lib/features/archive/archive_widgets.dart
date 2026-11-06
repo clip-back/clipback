@@ -134,7 +134,7 @@ class ContentListView extends StatelessWidget {
                         ? '분류가 필요한 콘텐츠가 없어요'
                         : '$activeCategoryName 콘텐츠가 없어요',
                     body: activeCategoryName == null
-                        ? '홈의 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
+                        ? '아래 + 버튼에서 링크나 스크린샷을 추가해 보세요.'
                         : '다른 카테고리를 보거나 필터를 해제해 전체 콘텐츠를 확인해 보세요.',
                     actionLabel: activeCategoryName == null ? '홈으로 가기' : '전체보기',
                     onAction: activeCategoryName == null
