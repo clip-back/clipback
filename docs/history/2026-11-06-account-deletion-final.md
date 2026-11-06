@@ -1,12 +1,12 @@
 # 회원 탈퇴 최종 통합 (#250)
 
 2026-11-06–07, 회원 탈퇴 스펙 #250의 일곱 티켓(#251–#257)의 구현·티켓 리뷰·티켓별 전체 검증을 브랜치 `feat/account-deletion`에서 마치고 main을 합친 뒤
-최종 통합 리뷰를 반영했다. 티켓을 마쳤다는 것은 자동 테스트·리뷰까지이며, #256·#257의 시뮬레이터·에뮬레이터 화면 확인과 네이티브 테스트 실행은 아직 하지 않았다(아래 미실행).
+최종 통합 리뷰를 반영했다. 2026-11-07 최종 CI와 #256·#257 양 플랫폼 실행·촬영·네이티브 검사를 마쳤다. 화면의 최종 시각 판정과 PR 생성 승인은 남아 있다.
 main `a6048f98bda7a97680a78a2d1f18d4937b4feb8d` 병합 커밋은 `5a64d98`, 최종 리뷰 반영 코드 커밋은 `3caeb1d`, 그 반영 재리뷰(F1) 코드 커밋은 `509b813`이다.
 최종 전체 검증은 `509b813` 코드(실행 HEAD `5fe61d2`, 그 사이 문서만 다름) 기준이며, 그 전 `3caeb1d` 전체 검증은 이전 결과로 남긴다.
 각 티켓의 구현·리뷰·검증 근거는 티켓 이력에 그대로 두고 여기에는 통합 단계와 승인 원문만 적는다.
 결정 근거는 [ADR 0007](../adr/0007-account-deletion-immediate-and-replayed.md)·[ADR 0008](../adr/0008-account-deletion-ledger-record.md)이다.
-이 기록은 iOS Simulator·Android Emulator 실행 확인, 네이티브 XCTest·Android 계측 테스트 실행, 배포·운영·실계정 확인 완료를 뜻하지 않는다.
+시뮬레이터·에뮬레이터는 합성 API 데이터로 검사했다. 배포·운영·실계정·실기기 확인을 완료했다는 뜻은 아니다.
 
 ## 티켓 이력
 
@@ -132,20 +132,77 @@ skip은 Docker 검사 46건과 로컬 합성 S3 CLI 검사 1건이며 통과 수
 - 저장 세션을 복원한 실행에서 Google 연결 해제가 대상 계정을 찾는지: Android `disconnect`는 이 실행에서 로그인한 계정만 철회하고, iOS도 이 앱이 이전 로그인 복원을
   부르지 않아 현재 사용자가 없을 수 있어 철회하지 못할 수 있다(코드 판단, 실계정 미검증). 바꾸지 않았다.
 
-## 미실행과 남은 확인
+## 최종 CI (2026-11-07)
 
-자동 완료 범위이지만 아직 하지 않은 것(감독 단계):
+기준 HEAD `447a165`(제품 코드 `509b813`), 승인된 브랜치 push와 workflow dispatch로 실행했다.
 
-- iOS Simulator·Android Emulator 실행: #256 변경 후 화면 상태·전환 영상과 변경 전·후·Figma 비교, #257 `cleanup-done`·`cleanup-retry` 실제 프로세스 재시작.
-  빌드 전 확인 테스트 통과는 기기 실행이 아니다.
-- iOS XCTest(`ShareStoreTests`)와 Android 계측(`ShareStoreTest`)의 계정별 공유 삭제 테스트 실행.
-- `509b813`과 그 뒤 문서 커밋의 CI(Docker deployment·operator-recovery 작업 포함). 이전 티켓 CI는 그 티켓 코드의 결과다.
+- [앱 CI 42243952137](https://github.com/clip-back/clipback/actions/runs/42243952137): completed/success.
+- [백엔드 CI 42243957142](https://github.com/clip-back/clipback/actions/runs/42243957142): 마지막 attempt 2 completed/success.
+  `deployment` 14 passed, `operator-recovery` 32 passed, 두 job 모두 실제 실행했고 skip 없음. 나머지 lint·migration·Python 두 버전 검사도 success.
+- 첫 attempt의 `operator-recovery`는 27 passed·5 failed였다. 첫 실패는 control 연결을 끊은 복원 검사에서 `source_lock_released=true`, `cleanup_passed=false`였고,
+  그 뒤 4개는 `prepare_before_maintenance`였다. 이전 성공 커밋 `99e303c`와 백엔드·워크플로 diff가 없음을 확인하고 실패 job만 한 번 재실행했다.
+  코드 변경 없이 32개가 통과했지만 첫 실패 원인은 확정하지 못했다. 첫 실패를 삭제하거나 제품 수정으로 해결했다고 보고하지 않는다.
+- 원본: `.utmp/ticket-250/ci-app-final.json`, `ci-backend-final.json`(attempt 1), `ci-backend-final-attempt2.json`,
+  `ci-backend-final-failed.log`, `ci-backend-attempt2.log`. 로컬 S3 CLI skip 1건을 이 CI 성공으로 대신하지 않는다.
 
-## 병합 후 사람 확인
+## 최종 화면·기기 정리 검증 (2026-11-07)
+
+제품 코드 `509b813`, 문서 HEAD `447a165`. 변경 전은 승인된 별도 워크트리의 `8d185f0`으로 촬영했다.
+기기 잠금을 잡아 iOS → Android 순서로 실행했고 빌드·기기·검사를 겹치지 않았다. 종료 뒤 기기와 Gradle 데몬 종료, 잠금 해제를 확인했다.
+
+| 플랫폼 | 환경 | #256 상태·영상 | #257 실제 재시작·정상 완료 | 네이티브 |
+| --- | --- | --- | --- | --- |
+| iOS | iPhone 16 / iOS 18.6, 393×852, OS 위 59·아래 34 | 8행 + 로그인 복귀 영상 확인 | 두 시나리오 확인 | ShareStoreTests 17 passed, 실패 0 |
+| Android | Medium_Phone / Android 16 API 36, 411.43×914.29, OS 위 24·아래 24 | 8행 + 로그인 복귀 영상 확인 | 두 시나리오 확인 | ShareStoreTest 17 passed, 실패 0 |
+
+#256 상태별 원본 PNG와 같은 순간의 probe JSON은 `.utmp/ticket-256/screens/<플랫폼>-after-<상태 ID>`에 있다.
+`j02-account`, `j04-empty`, `j05-selected`, `deleting-wait`, `delete-failed`, `j06-done`, `j04-guest`, `j04-scale13`을 모두 확인했다.
+
+- J02의 회원 탈퇴 행 유지, J04 이름·콘텐츠 6개/카테고리 6개·사유 미선택·비활성 버튼, J05 재가입 체크·버튼 활성 확인.
+- 응답을 붙잡은 동안 버튼 비활성·스피너 없음, 503 뒤 실패 스낵바·사유 유지·재시도 가능, 204 뒤 J06 완료 문구와 로그인 복귀 확인.
+- 배율 1.0과 1.3을 확인했다. iOS 1.3에서는 스크롤 최대 88pt, 실제 OS 스와이프 뒤 유의사항 전체가 보였다(추가 `ios-after-scale13-scroll.png`).
+  Android 1.3은 해당 기기에서 스크롤 최대 0으로 전체 문구가 들어갔다. 기본 비교 원본은 모두 스크롤 0이며 원본 16장을 직접 열어 확인했다.
+- 영상은 계정 관리 → 사유 선택 → J06 → 로그인까지 OS 탭으로 진행하고 마지막 probe·원본을 확인한 뒤 종료했다.
+  `ios-after-video.mp4`, `android-after-video.mp4`와 각 `.video.json`에 입력·화면 전환 시각이 있다. 영상 길이를 반응 시간으로 해석하지 않는다.
+- 변경 전·후의 플랫폼·크기·인셋·배율·데이터·스크롤·입력 출처 비교가 통과했다: `compare-ios.png`, `compare-android.png`와 각 preview/log.
+  나머지 새 상태는 변경 전을 없음으로 표시한 `new-<플랫폼>-<상태>.png`에 변경 후·Figma를 나란히 제시했다. 없는 화면을 만들어 채우지 않았다.
+- Figma J02 `111:4533`, J04 `111:5780`, J05 `111:5824`, J06 `111:5756`, 조회 `2026-11-06T09:42:22Z`.
+  PNG는 모두 375×812다. 실제 기기 크기·OS 안전 영역과 달라 원본을 잘라 맞추지 않았다. J02 연결 계정과 J04 개수는 합성 데이터와 디자인 예시가 다르다.
+  J04 게스트·1.3배는 같은 J04의 기본 배율 회원 디자인을 참고하며, 대기에는 디자인 없음, 실패는 A09 와이어프레임만 있다는 티켓 한계를 유지한다.
+  현재 Figma 크기를 따른 J04 헤더는 기존 J02와 1px 다르다(구현 때 선택 B). 디자인 일치의 최종 시각 판정은 사용자에게 남는다.
+
+#257의 원본은 `.utmp/ticket-257/screens/`에 있다. 예: `ios-after-cleanup-retry-native-j06.png`(실패 한 번 뒤 J06),
+`ios-after-cleanup-retry-native.png`(재시작), `ios-after-cleanup-done-native-j06.png`(정상 J06), `ios-after-cleanup-done-native.png`(다른 계정 검색).
+Android도 같은 이름의 `android-` 파일이며 각 PNG와 같은 이름의 JSON을 남겼다.
+
+- 검색 삭제를 한 번 실패시키면 J06에 실패 스낵바 없이 도착하고 남은 단계는 `searchHistory`뿐이었다. 실제 native `discardAccountDrafts`의 응답은 양쪽 모두 `ok`였다.
+- 실제 프로세스 종료·재실행 후 `launches` 1→2, `route=login`, 서버 요청 0, 정리 기록 없음, 저장 세션 없음, 다른 계정 검색 기록만 보존됨을 확인했다.
+- 정상 완료에서는 J06 시점부터 정리 기록·저장 세션이 없었고, 계정 2로 로그인해 검색 화면에 다른 계정 검색만 표시됐다.
+  검색 원본에는 대역의 공유 자격 오류 배너가 있다: `/users/me`는 계정 2지만 재사용한 AccountServer의 `/auth/share-credential`은 계정 1 고정이다.
+  이 대역 제한을 제품 오류로 확정하지 않았고 배너를 숨기거나 원본을 편집하지 않았다. Android 검색은 자동 포커스로 키보드가 보이며 직접 문자를 입력하지 않았다.
+- 첫 iOS 시도에서는 진입 파일의 ArchiveAll 공유 대역이 새 삭제 메서드를 거부해 `pendingShares`가 남았다. 제품 코드가 아닌 촬영 준비 결함이었다.
+  같은 작업자가 전용 메신저로 삭제 호출만 원본 그대로 네이티브에 전달하도록 수정했고, 준비 테스트 7개·변형 3종으로 확인한 뒤 재빌드했다.
+  이전 실패 원본을 보존하고 성공 결과는 `native` 접미사로 구분했다. 제품 코드 변경이 없어 전체 VERIFY를 반복하지 않았다.
+- iOS XCTest는 사전 `build-for-testing` 뒤 `test-without-building`, Android는 설치한 테스트 APK의 명시적 ShareStoreTest 클래스만 실행했다.
+  두 플랫폼 모두 계정별 초안·이미지 삭제와 이미지 삭제 실패 시 초안 유지 → 재시도 성공 검사를 포함한다.
+  로그 `.utmp/ticket-257/ios-native-tests.log`, `android-native-tests.log`. 실제 공유 확장으로 항목을 만드는 흐름은 티켓의 미검증 예정대로 자동 테스트와 구분한다.
+
+단계 시간(KST): iOS 빌드·시험 준비 00:34–00:40, 첫 촬영·네이티브 00:40–00:47, 촬영 준비 수정·재빌드 00:47–00:56,
+iOS 재검증 00:56–00:59, Android 빌드·준비 00:59–01:02, Android 촬영·계측 01:02–01:08.
+촬영 중 진전 없이 40분을 넘긴 단계는 없으며, 구현·빌드·대기를 촬영 시간과 구분했다. 상세 과정은 `.utmp/ticket-250/device-progress.md`.
+
+## 남은 확인
+
+- #256 화면의 사용자 시각 판정, PR 초안 승인. #250·#256·#257은 PR의 Closes 대상으로 남긴다.
+- 운영·실계정·실기기, 설치 업그레이드, 실제 공유 확장 항목 생성은 아래 사람 확인이며 자동 완료 조건을 대신하지 않는다.
+- 로컬 합성 S3 CLI 검사는 환경 미지정으로 skip 1건이다. 최신 CI의 첫 복원 검사 실패 원인은 미확정이다.
+
+## 병합 전/후 사람 확인
 
 이 기능의 자동 완료 범위 밖이며 배포 전후 사람이 확인한다.
 
-- 운영 서버 `KAKAO_ADMIN_KEY` 등록, 서버 먼저 배포, 옛 서버 되돌리기 금지 확인.
+- 병합 전: Railway 운영 서버의 `KAKAO_ADMIN_KEY` 등록과 서버 먼저 배포하는 순서 확인. main 병합은 서버 자동 배포로 이어진다.
+- 병합 후: 서버 배포 성공을 확인한 뒤 앱을 배포한다. 실제 탈퇴가 시작된 뒤에는 옛 서버로 되돌리지 않는다.
 - 운영 DB·Bucket과 실계정 공급자(Apple 토큰 철회·카카오 연결 끊기·Google 연결 해제) 확인, 설치된 앱의 실기기 업그레이드.
 - 실기기에서 Google 계정 탈퇴 직후(J06에서 바로) 같은 기기로 Google 재가입: 새 로그인의 Google SDK 상태가 남는지(위 알려진 한계, 4번 결정 A).
 - 실기기에서 저장 세션을 복원한 실행의 Google 계정 탈퇴: 연결 해제가 Google 권한을 실제로 철회하는지.
