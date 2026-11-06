@@ -27,6 +27,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-06 | [탈퇴 때 Apple 토큰 철회·카카오 연결 끊기 (#254)](2026-11-06-account-deletion-provider-revocation.md) | 백엔드 |
 | 2026-11-06 | [`DELETE /users/me`와 앱의 탈퇴 요청 (#253)](2026-11-06-account-deletion-request.md) | 서버·앱 |
 | 2026-11-06 | [격리 복원 검증의 계정 탈퇴 판정 (#252)](2026-11-06-account-deletion-restore-probe.md) | 백엔드 |
 | 2026-11-06 | [계정 탈퇴 장부 기록과 계정 재삭제 (#251)](2026-11-06-account-deletion-ledger.md) | 백엔드 |
