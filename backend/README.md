@@ -102,6 +102,12 @@ scripts          Deployment checks and operator-only backup/recovery commands.
 Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQL 18 default).
 ```
 
+## 회원 탈퇴
+
+`DELETE /api/v1/users/me`는 계정과 그 계정의 서비스 데이터를 그 자리에서 지운다.
+처리는 `app/services/account_deletion_service.py`의 `delete_account`가 맡는다: 삭제 장부 기록 → DB 삭제와 탈퇴 사유 기록(`account_deletion_reasons`, 계정과 연결 없음)을 한 트랜잭션 → 커밋 뒤 Bucket 원본 삭제.
+요청·응답·오류는 [API 계약의 회원 탈퇴](../docs/backend/api-contracts.md#회원-탈퇴), 장부 기록과 운영자 재시도는 [이미지 삭제 운영](../docs/backend/image-deletion.md)을 따른다.
+
 ## 상세 문서
 
 - [API 목록·요청·응답·권한·재시도 계약](../docs/backend/api-contracts.md)

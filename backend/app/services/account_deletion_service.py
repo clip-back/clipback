@@ -5,19 +5,26 @@ deletion order and the cleanup operation ID formula identical in both places.
 """
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid5
+from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.exceptions import AuthenticationError
 from app.integrations.deletion_ledger import (
     ACCOUNT_DELETION,
     LEDGER_WRITE_LOCK,
+    LedgerUnavailableError,
     canonical_json,
     get_deletion_ledger,
 )
+from app.integrations.storage_client import StorageRouter
+from app.models.account_deletion_reason import AccountDeletionReason
 from app.models.category import Category
 from app.models.content import Content
 from app.models.content_event import ContentEvent
@@ -28,7 +35,14 @@ from app.models.recommendation import (
     RecommendationExposure,
 )
 from app.models.user import User
-from app.services.image_deletion_service import deletion_identity, deletion_job
+from app.services.image_deletion_service import (
+    cleanup_image_deletion,
+    deletion_identity,
+    deletion_job,
+)
+
+logger = logging.getLogger(__name__)
+SEOUL = ZoneInfo("Asia/Seoul")
 
 
 def account_content_operation_id(operation_id: str, content_id: int, saved_at: str) -> str:
@@ -122,3 +136,38 @@ async def apply_account_deletion(session: AsyncSession, intent: dict) -> list[st
     ):
         await session.execute(statement)
     return operation_ids
+
+
+async def delete_account(
+    session: AsyncSession, storage: StorageRouter, *, user_id: int, reasons: list[str]
+) -> None:
+    """The app's deletion: ledger record → DB deletion with the reason record → originals.
+
+    The ledger lock orders overlapping requests of one account. A later request rechecks the
+    account after the earlier one finishes: deleted → 401, otherwise it runs again and reuses
+    any ledger record the earlier one left (U2).
+    """
+    try:
+        intent = await record_account_deletion(session, user_id)
+        if intent is None:
+            raise AuthenticationError()
+        operation_ids = await apply_account_deletion(session, intent)
+        session.add(
+            AccountDeletionReason(reasons=reasons, deleted_on=datetime.now(SEOUL).date())
+        )
+        await session.commit()
+    except LedgerUnavailableError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=503, detail="Account deletion is temporarily unavailable"
+        ) from exc
+    except Exception:
+        await session.rollback()
+        raise
+    # The account is gone; an original left behind stays in the cleanup list for retry.
+    for operation_id in operation_ids:
+        try:
+            await cleanup_image_deletion(session, operation_id, storage)
+        except Exception:
+            await session.rollback()
+            logger.warning("Image cleanup deferred: operation_id=%s", operation_id)

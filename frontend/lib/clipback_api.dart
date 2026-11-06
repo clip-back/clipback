@@ -285,6 +285,19 @@ class ApiFeed {
   );
 }
 
+/// Withdrawal reasons as the server spells them (D17, D19).
+enum AccountDeletionReason {
+  rejoin('rejoin'),
+  lowUsage('low_usage'),
+  privacySecurity('privacy_security'),
+  other('other');
+
+  const AccountDeletionReason(this.value);
+  final String value;
+}
+
+enum AccountDeletionResult { deleted, unauthorized, failed }
+
 class ApiUser {
   const ApiUser({
     required this.id,
@@ -709,6 +722,37 @@ class ClipbackApi {
 
   Future<ApiUserStats> readStats() async =>
       ApiUserStats.fromJson(await _json('GET', '/users/me/stats'));
+
+  /// Only 204 deletes. A 401 has already gone through the usual session
+  /// invalidation. The whole submission, refresh and resend included, ends at
+  /// 60 seconds; a later answer is ignored (U5, R4).
+  Future<AccountDeletionResult> deleteAccount(
+    List<AccountDeletionReason> reasons,
+  ) async {
+    final scope = ApiRequestScope(timeout: const Duration(seconds: 60));
+    try {
+      final response = await scope.run(
+        () => _request(
+          'DELETE',
+          '/users/me',
+          body: {'reasons': reasons.map((reason) => reason.value).toList()},
+        ),
+      );
+      return switch (response.statusCode) {
+        204 => AccountDeletionResult.deleted,
+        401 => AccountDeletionResult.unauthorized,
+        _ => AccountDeletionResult.failed,
+      };
+    } on ClipbackApiException catch (error) {
+      return error.statusCode == 401
+          ? AccountDeletionResult.unauthorized
+          : AccountDeletionResult.failed;
+    } catch (_) {
+      return AccountDeletionResult.failed;
+    } finally {
+      scope.cancel();
+    }
+  }
 
   Future<ApiContent> createContent({
     required String originalUrl,
