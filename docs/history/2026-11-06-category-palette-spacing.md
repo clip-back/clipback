@@ -3,7 +3,8 @@
 2026-11-06 사용자 화면 피드백을 반영한 후속 기록이다.
 이전 [작은 UI 묶음 이력](2026-11-06-small-ui-batch-1.md)의 왼쪽 정렬·고정8px 보존은
 이번 결정으로 대체한다. 다른 세 이슈의 결정·화면 증거는 그 이력의 당시 기준을 유지한다.
-제품·테스트 기준은 `6a377dfc5088dfefa09da8515c06aaf4036dc4b2`다.
+간격 변경 당시 제품·테스트 기준은 `6a377dfc5088dfefa09da8515c06aaf4036dc4b2`다.
+최신 main 병합 검증은 아래 최종 검증 절에 구분해 기록한다.
 
 ## 결정·구현
 
@@ -104,7 +105,39 @@ E10 `111:4376`(03:05:07.105700), E11 `111:4427`(01:15:54.202578)이다.
 양 플랫폼 종료와 잠금 반납 후 문서만 기록하며 제품·테스트가 PASS 기준과 같아
 전체 검사를 반복하지 않는다. 실기기·운영·원격 CI는 이번 범위 밖이다.
 
-## 남은 확인
+## 당시 남은 확인
 
 새 배치의 사용자 시각 판정과 PR 본문 승인을 기다린다. push·PR 생성·이슈 종료는 하지 않았다.
 회고 필요: 예. 첫 화면 판정에서 배치 결정이 바뀌어 재작업·재촬영했다.
+
+## main 추가 병합·전체 검사 (최종)
+
+사용자 결정(2026-11-06, 원문): "응" — 조율의 "색 간격을 고친 화면과 PR 초안으로 push·PR을 만들어도 될까요?"에 대한 답이다.
+이후 조율 지시로 main `bf65413`(콘텐츠 삭제 확인, PR #247)을 합쳤다.
+`frontend/README.md`의 유일한 충돌은 삭제 확인 창 안내 다음에 빈 상태 그림 자산 절을
+배치하여 양쪽 문단을 모두 보존했다. 병합 커밋은 `f88e6834cb8a1e56311f7600ccb043f3d941019e`다.
+
+#247의 제품 diff는 삭제 선택 후 확인 창과 계정·소유 화면 guard 변경으로, 이 묶음의 촬영 상태(빈 화면·저장 결과·색 선택·하단 탭) 표시와 겹치지 않아 재촬영하지 않고 기존 증거를 유지했다.
+공유 `clipback_app.dart`의 즐겨찾기 key는 계정 전환 시 화면을 새로 만드는 변경이며,
+같은 계정의 촬영 상태 배치·자산·문구는 바꾸지 않는다. diff 판단 근거는
+`.utmp/pr-publish/main-247-screen-impact.md`에 기록했다.
+
+`busy.sh --wait`로 12:54:26부터 #245의 빌드·기기 차례를 기다려 13:49:34 idle을 확인했다.
+그 뒤 guard를 다시 확인하고 병합된 clean 트리에서 전체 검사를 600초 제한으로 한 번 실행했다.
+
+```sh
+~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/pr-publish/main-247-verify
+```
+
+```text
+pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=11 failed=0
+```
+
+pytest **2048 passed, 46 skipped, 3 warnings**, 앱 **3058 PASS**다.
+결과 파일 `.utmp/pr-publish/main-247-verify/verify-result.txt`와 실제 단계별 로그를 직접 대조했다.
+실행 디렉터리는 `20261106T134940-2ba44f6f8fb6/`이며 이전 결과를 합산하지 않았다.
+Docker deployment와 별도 S3 endpoint 검사는 skip이며, 실기기·운영 확인은 범위 밖이다.
+최종 기록 커밋은 문서만 변경하며 제품·테스트는 이 PASS 기준과 같다.
+사용자 승인에 따라 push·PR을 진행하고, PR 이미지 첨부와 병합은 사용자가 한다.
