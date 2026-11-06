@@ -180,7 +180,9 @@ private control 종료 코드, 예외 클래스와 `CheckError` 코드. 토큰·
 - 정리 단계(`docker_resource_removal`·`workspace_input_removal`·`workspace_removal`)는 `run_restore`가
   하나로 합쳐 내는 `cleanup_passed`와 남은 자원·작업 폴더 상태로 추론한다. 증명할 수 없는 단계는
   `unknown`이고, 실패한 단계를 특정하지 못하면 `unattributed`가 참이다. 예를 들어 `docker rm`이
-  실패했지만 자원이 남지 않으면 Docker와 작업 폴더 삭제 단계가 모두 `unknown`이다.
+  실패했지만 자원이 남지 않으면 Docker 단계는 `unknown`이다. 이때 복사 입력이 남지 않았고 복원
+  영수증까지 끝났으면 작업 폴더 삭제 단계도 `unknown`이고, 영수증이 끝나지 않는 등 삭제를 건너뛰는
+  조건이 확인되면 `skipped`다.
 - 자식 종료 코드는 fixture가 `asyncio.create_subprocess_exec`를 그대로 통과시키며 `run_restore`가 만든
   자식의 Process 객체를 보관해 읽는다. `child_returncode_status`는 `observed`(정수 값),
   `not_spawned`(직접 실행에서 자식을 만들지 않음), `no_child_pid_in_journal`(CLI 실행이며 journal에 자식
