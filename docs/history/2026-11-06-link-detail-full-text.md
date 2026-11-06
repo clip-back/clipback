@@ -87,6 +87,40 @@ API·계정·공유 데이터는 기존 `original_link_preview.dart` 기반 대�
 - Android 외부 화면 `screens/android-browser.png`, 영상 `screens/android-external-final.mp4`.
 - AX·Activity·복귀 probe, 플랫폼별 빌드 로그와 빌드 해시는 같은 폴더에 보존했다.
 
+## main 병합 뒤 최종 검증
+
+최종 fetch에서 origin/main에 #245 `ea2825a`가 새로 있어 감독이 충돌 없는 merge-tree를 확인한 뒤 병합했다(병합 커밋 `3186804a69f0a1fa657b6c832bc9e90c2e85ab04`).
+들어온 변경은 Android `ShareActivity`·iOS `ShareViewController`의 네이티브 공유 화면, 공유 UI 테스트, `share_send` 이미지, `frontend/tool/share_fixture_server.py`와 문서다. Flutter `lib/`·`test/`와 백엔드 변경은 없다.
+fixture 서버의 `/__test/control` 새 키(`hold_save`·`release_save`)와 카테고리 응답의 `last_saved_at`은 추가 계약이다. Dart 소비자 `test/support/share_preview.dart`는 바뀌지 않았다.
+
+병합 뒤 관련 검사(`.utmp/ticket-201/final-verify/partial-merge-related.log`): `flutter analyze --no-pub` 통과, `test/share`와 `original_link_screen_test.dart` 30개 통과, `share_fixture_server.py` 컴파일 확인.
+
+이어서 clean인 병합 커밋에서 전체 검증을 한 번 실행했다(2026-11-06 15:45–15:51 KST).
+
+```sh
+~/.heoturu-agents/busy.sh --wait && ~/.heoturu-agents/busy.sh && python3 ~/.heoturu-agents/verify.py --log-dir .utmp/ticket-201/final-verify
+```
+
+실제 `verify-result.txt` 원문:
+
+```text
+pytest skip: 45 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=11 failed=0 logs=/Users/leehyeongyu/orca/workspaces/Clipback/link-original-open/.utmp/ticket-201/final-verify/20261106T154501-17375470e641
+```
+
+실제 백엔드 pytest 요약 및 앱 전체 테스트 최종 줄:
+
+```text
+2048 passed, 46 skipped, 3 warnings in 169.80s (0:02:49)
+02:31 +3059: All tests passed!
+```
+
+- 콘솔: `.utmp/ticket-201/final-verify/full-verify-console.log`. `verify-progress.json` 진행 이벤트 24개는 모두 병합 커밋 SHA, dirty=false다.
+- 46 skip은 통과가 아니다. Docker deployment 45건과 전용 S3 endpoint가 필요한 CLI 통합 1건은 미실행이다.
+- 네이티브 공유 UI 테스트(XCUITest·Android instrumentation)는 전체 검증 범위 밖이며 이번 단계에서 실행하지 않았다.
+- 위 화면·외부 전환 확인은 병합 전 `6f02a80` 기준이며 그대로 보존한다. 병합 뒤 최종 화면 촬영은 아직 하지 않았다(감독 후속).
+
 ## 남은 승인·범위
 
 사용자 화면 판정과 PR 초안 승인 전이다. push·PR·GitHub 댓글/종료·배포는 하지 않았다.
