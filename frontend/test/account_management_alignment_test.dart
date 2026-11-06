@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/account_preview.dart' as fixture;
 
 class _Calls {
-  int back = 0, logout = 0, connect = 0;
+  int back = 0, logout = 0, connect = 0, withdraw = 0;
 }
 
 Future<_Calls> _pump(
@@ -51,6 +51,7 @@ Future<_Calls> _pump(
         onConnect: () async {
           calls.connect++;
         },
+        onWithdraw: () => calls.withdraw++,
       ),
     ),
   );
@@ -183,7 +184,8 @@ void main() {
               await tester.ensureVisible(_row('회원 탈퇴'));
               await tester.tap(_row('회원 탈퇴'));
               await tester.pumpAndSettle();
-              expect(find.text('회원 탈퇴 API는 아직 제공되지 않습니다.'), findsOneWidget);
+              expect(calls.withdraw, busy ? 0 : 1);
+              expect(find.byType(SnackBar), findsNothing);
               expect(tester.takeException(), isNull);
             }
           }
@@ -230,53 +232,18 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
-    // 첫 탭 뒤 각 탭 사이의 간격(ms). 'exit'는 첫 알림이 표시 시간을 다 채우고
-    // 스스로 내려가는 중(첫 탭 뒤 4.4초)에 두 번 더 누른다.
-    for (final taps in <String, List<int>>{
-      'rapid': [0, 0],
-      'gap100': [100, 100],
-      'exit': [4400, 100],
-    }.entries) {
-      testWidgets(
-        '${platform.name} ${taps.key} withdraw taps show one notice that hides once',
-        (tester) async {
-          await _pump(tester, platform: platform);
-          await tester.ensureVisible(_row('회원 탈퇴'));
-          await tester.pumpAndSettle();
-          await tester.tap(_row('회원 탈퇴'));
-          await tester.pump();
-          for (final (i, gap) in taps.value.indexed) {
-            // 큰 pump 한 번은 프레임을 하나만 그려 등장·표시 타이머가 늦게 시작되므로 50ms씩 진행한다.
-            for (var t = 0; t < gap; t += 50) {
-              await tester.pump(const Duration(milliseconds: 50));
-            }
-            if (taps.key == 'exit' && i == 0) {
-              expect(
-                tester
-                    .widget<SnackBar>(find.byType(SnackBar))
-                    .animation!
-                    .status,
-                AnimationStatus.reverse,
-              );
-            }
-            await tester.tap(_row('회원 탈퇴'));
-            await tester.pump();
-          }
-          const notice = '회원 탈퇴 API는 아직 제공되지 않습니다.';
-          expect(find.text(notice), findsOneWidget);
-          // 마지막 탭 뒤 SnackBar 한 번의 수명(등장 0.25초, 표시 4초, 퇴장 0.25초)을 넘긴 5초에는 사라지고,
-          // 그 뒤 대기열에 쌓인 알림이 다시 나오지 않는다.
-          for (var i = 0; i < 50; i++) {
-            await tester.pump(const Duration(milliseconds: 100));
-          }
-          expect(find.text(notice), findsNothing);
-          for (var i = 0; i < 100; i++) {
-            await tester.pump(const Duration(milliseconds: 100));
-            expect(find.text(notice), findsNothing);
-          }
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+    testWidgets(
+      '${platform.name} withdraw row opens deletion without a notice',
+      (tester) async {
+        final calls = await _pump(tester, platform: platform);
+        await tester.ensureVisible(_row('회원 탈퇴'));
+        await tester.pumpAndSettle();
+        await tester.tap(_row('회원 탈퇴'));
+        await tester.pumpAndSettle();
+        expect(calls.withdraw, 1);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }

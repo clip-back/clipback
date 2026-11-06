@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/account_deletion_screen.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
@@ -705,6 +706,7 @@ Element? get _logoutConfirmation {
 
 String _route() {
   if (_logoutConfirmation != null) return 'logoutConfirmation';
+  if (_find<AccountDeletionScreen>(_root) != null) return 'accountDeletion';
   if (_find<AccountManagementScreen>(_root) != null) return 'account';
   if (_find<LoginScreen>(_root) != null) return 'login';
   if (_find<MyScreen>(_root) != null) return 'my';
@@ -935,12 +937,12 @@ Future<void> _run() async {
   final withdraw = _text(_account, '회원 탈퇴')!;
   await _visible(withdraw);
   await _tap(withdraw);
-  await _wait(
-    () => _text(_root, '회원 탈퇴 API는 아직 제공되지 않습니다.') != null,
-    'Withdrawal notice missing',
+  await _wait(() => _route() == 'accountDeletion', 'Withdrawal screen missing');
+  _record('withdraw_screen');
+  await _tap(
+    _key(_find<AccountDeletionScreen>(_root)!, 'account-deletion-back-hit')!,
   );
-  _record('withdraw_notice');
-  ScaffoldMessenger.of(_account).hideCurrentSnackBar();
+  await _wait(() => _route() == 'account', 'Withdrawal back lost account');
   await _settle(6);
   final p = _position(_account);
   if (p != null) p.jumpTo(p.maxScrollExtent);

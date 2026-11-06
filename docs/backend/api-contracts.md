@@ -12,6 +12,7 @@
 - [Mobile Social Authentication](#mobile-social-authentication)
 - [Native Mobile Share Authentication and Retries](#native-mobile-share-authentication-and-retries)
 - [My Page Account and Statistics](#my-page-account-and-statistics)
+- [회원 탈퇴](#회원-탈퇴)
 - [Content View Events](#content-view-events)
 - [Today Recommendations](#today-recommendations)
 - [Weekly Recommendations](#weekly-recommendations)
@@ -66,6 +67,7 @@
 | `POST` | `/api/v1/auth/social/{provider}/upgrade` | 게스트 데이터 유지 소셜 전환 | 구현 |
 | `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자 조회 | 구현 |
 | `GET` | `/api/v1/users/me/stats` | 이벤트 기준 누적 저장·열람 횟수, 콘텐츠 삭제 후에도 유지 | 구현 |
+| `DELETE` | `/api/v1/users/me` | 회원 탈퇴: 계정과 그 계정의 서비스 데이터 즉시 삭제, 탈퇴 사유 기록 | 구현 |
 | `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
 | `GET` | `/api/v1/categories/recent` | 내 콘텐츠 저장순 최근 카테고리, 미분류·빈 카테고리 제외 | 구현 |
 | `POST` | `/api/v1/categories` | 사용자 카테고리 생성 | 구현 |
@@ -112,7 +114,9 @@
 - 같은 계정·키를 다른 내용이나 작업에 사용하면 `409 category_submission_conflict`로 응답하며
   원래 제출의 성공·거절로 간주할 `submission`은 제공하지 않는다. 잘못된 UUID와 스키마 입력은 기존 `422` 검증을 따른다.
 - 기록을 재사용할 때만 `replayed: true`다. 원래 성공 뒤 수정·삭제된 카테고리를 덮거나 재생성하지 않는다.
-  처리 기록은 자동 만료시키지 않고 카테고리 삭제 후에도 유지하며 계정 삭제 시 FK cascade로 제거한다.
+  처리 기록은 자동 만료시키지 않고 카테고리 삭제 후에도 유지한다. [회원 탈퇴](#회원-탈퇴)로 계정 행을 지우면
+  `category_submissions`는 사용자 FK의 cascade로 함께 지워진다. 콘텐츠·이벤트·추천·카테고리처럼 cascade가 없는
+  표는 탈퇴 처리가 순서대로 먼저 지운다.
 
 `202610250015`는 기존 테이블을 바꾸지 않고 `category_submissions`를 추가한다. 신규 앱 배포 전에 migration과
 이 서버 계약을 먼저 적용한다. 생성·수정 복구의 후속 목록 조회는 저장 트랜잭션과 별개다.
@@ -166,6 +170,9 @@ allowlist of registered Native/REST app keys used by the clients. An SDK-issued
 Kakao ID token uses that SDK's initialization key as its audience. A nonempty
 `KAKAO_CLIENT_IDS` list is authoritative; when empty, `KAKAO_REST_API_KEY` remains
 the legacy single-audience fallback. Neither provider's ID/access tokens are stored.
+`KAKAO_ADMIN_KEY` is the server-only Kakao admin key used to unlink an account on
+[회원 탈퇴](#회원-탈퇴). Production startup requires it; development and test start
+without it and skip the unlink.
 
 ### Apple iOS authentication
 
@@ -345,6 +352,52 @@ endpoint does not create events.
 Existing guest accounts and authentication endpoints remain supported. Social-only
 sign-up is a separate follow-up; this change does not remove guest data or require a
 migration.
+
+## 회원 탈퇴
+
+`DELETE /api/v1/users/me`는 기존 Bearer 인증을 쓰고 본문으로 고른 탈퇴 사유 목록을 받는다.
+
+```json
+{"reasons": ["low_usage", "other"]}
+```
+
+- 사유 값은 `rejoin`(재가입), `low_usage`(이용 빈도 및 기대감이 낮음), `privacy_security`(개인정보보호 및 보안),
+  `other`(기타)다. 1개 이상, 같은 값은 한 번만 보낸다. 값은 정확히 같을 때만 받으며 공백 정리·대소문자 변환을 하지 않는다.
+- 성공은 `204`, 본문 없음이다. 계정·콘텐츠·이벤트·추천 기록·계정 소유 카테고리·태그·세션·소셜 연결을 그 자리에서 지운다.
+  공용 카테고리("미분류"·템플릿)는 남는다. 다른 기기의 세션은 기존처럼 다음 요청에서 `401`이다.
+- 처리 순서는 공급자 연결 정리 → 삭제 장부에 계정 탈퇴 기록 하나 → DB 삭제와 탈퇴 사유 기록을 한 트랜잭션 → 커밋 뒤 Bucket 원본 삭제다.
+- 공급자 연결 정리: Apple 계정은 저장된 refresh token으로 Apple 토큰 철회(`POST https://appleid.apple.com/auth/revoke`,
+  `token_type_hint=refresh_token`)를, 카카오 계정은 `KAKAO_ADMIN_KEY`와 카카오 회원번호로 연결 끊기(`POST https://kapi.kakao.com/v1/user/unlink`,
+  `target_id_type=user_id`)를 시도한다. Google은 앱이 기기에서 연결 해제하고, 네이버 연결은 철회 없이 지운다.
+  Apple 토큰이 이미 비어 있으면 철회하지 않고, 개발·테스트에서 어드민 키가 없으면 연결 끊기를 건너뛴다.
+  시간 초과·공급자 오류·설정 없음·토큰 복호화 실패가 나도 삭제는 끝까지 하고(ADR 0007), 실패는 서버 경고 로그
+  `Provider revocation failed: provider=… reason=timeout|provider_error|not_configured|token_unreadable operation_id=…`로 남는다.
+  로그에는 토큰 값·어드민 키·계정 번호·이메일이 없다. 운영자는 작업 ID로 장부의 계정 탈퇴 기록을 찾는다.
+  공급자 연결을 끊은 뒤 DB 삭제가 실패해도 연결을 되돌리지 않는다(D30).
+  장부·기록 형식과 운영자 재시도는 [이미지 삭제 운영](image-deletion.md)을 따른다(ADR 0007·0008).
+- 탈퇴 사유 기록(`account_deletion_reasons`)에는 고른 사유 목록과 한국 표준시(Asia/Seoul) 탈퇴 날짜만 있다.
+  계정 번호·이메일·이름은 없고 보관 기한이 없다. 탈퇴가 실패하면 사유 기록도 남지 않는다.
+
+| 상황 | 응답 | 계정·데이터 |
+| --- | --- | --- |
+| 삭제 성공 | `204` | 모두 삭제 |
+| Apple 철회·카카오 연결 끊기 실패(시간 초과·공급자 오류·설정 없음·토큰 복호화 실패) | `204` | 모두 삭제, 실패는 서버 로그 |
+| DB 삭제 뒤 Bucket 원본 삭제 실패 | `204` | DB는 삭제, 원본은 삭제 작업 목록에 미완료로 남아 운영자 재시도가 지움 |
+| 본문 없음·JSON 아님·목록 없음·빈 목록·허용 밖 값·타입 오류·중복 | `422` | 변화 없음 |
+| 세션 없음·만료·이미 삭제된 계정 | `401` | 변화 없음 |
+| 삭제 장부 기록 실패 | `503` | 계정 그대로 |
+| DB 삭제 실패와 그 밖의 오류 | `5xx` | 계정 그대로. 이미 쓴 장부 기록은 확정된 탈퇴 요청으로 남아 다시 요청하면 같은 기록을 쓰고, 운영자 재시도·복원 때 지운다 |
+| 서비스 점검 중 | `503` `service_maintenance` | 변화 없음 |
+
+오류가 겹치면 점검 `503` → JSON으로 읽히지 않는 본문 `422` → 인증 `401` → 본문 검증 `422` → 처리 중 오류 순서로 하나만 돌려준다.
+같은 계정의 요청이 겹치면 계정 단위 잠금(PostgreSQL advisory lock)으로 차례를 세운다. 이 잠금은 공급자 연결 정리보다 먼저 잡으므로
+뒤 요청은 앞 요청이 끝날 때까지 공급자 요청을 보내지 않고, 끝난 뒤 계정을 다시 확인한다. 그다음 기존 순서(장부 → 계정)대로 잠근다.
+이 잠금은 탈퇴 요청(같은 처리를 쓰는 운영자 계정 삭제 포함)만 쓰므로 운영자 재시도와 교착이 없고, 공급자 요청 중에도 다른 계정의 삭제는 막지 않는다.
+앞 요청이 성공했으면 `401`, 장부 기록에서 실패했으면 처음부터 다시 처리하고, 장부 기록 뒤 DB에서 실패했으면 같은 장부 기록을 다시 쓴다.
+
+앱은 사유 목록을 보내고 `204`만 성공으로 본다. `401`은 기존 세션 갱신·만료 처리를 따르며, 그 밖의 응답·연결 실패는 실패다.
+로그인 갱신과 재전송을 포함한 제출 전체를 60초에서 끊고 늦은 응답은 버린다. 다른 요청의 대기 정책은 그대로다.
+0.4.0 앱은 이 요청을 보내지 않는다. 서버를 먼저 배포한 뒤 앱을 배포한다.
 
 ## Content View Events
 

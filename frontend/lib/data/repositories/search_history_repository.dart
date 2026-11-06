@@ -166,6 +166,16 @@ class SearchHistoryRepository extends ChangeNotifier {
     }
   }
 
+  /// Removes a deleted account's history; an accepted write for it is
+  /// awaited first so it cannot write the history back afterwards.
+  Future<void> clearAccount(String environment, int userId) async {
+    if (environment == this.environment) {
+      final account = _accounts.remove(userId);
+      await account?.job;
+    }
+    await storage.clear(environment, userId);
+  }
+
   /// Wait for accepted work without introducing retries or starting new reads.
   Future<void> settle() async {
     while (true) {

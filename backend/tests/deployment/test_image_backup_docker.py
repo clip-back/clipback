@@ -20,9 +20,12 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def bucket_backup(tmp_path_factory):
+def bucket_backup(tmp_path_factory, request):
     directory = tmp_path_factory.mktemp("synthetic-bucket-backup")
-    image = os.environ.get("CLIPBACK_RECOVERY_TEST_IMAGE", "clipback-backup-recovery:check")
+    # A module may pass another source API image through indirect parametrization.
+    image = getattr(request, "param", None) or os.environ.get(
+        "CLIPBACK_RECOVERY_TEST_IMAGE", "clipback-backup-recovery:check"
+    )
     drill = RestoreDrill()
     network, db, api, s3 = [
         drill.owner + suffix for suffix in ("-net", "-db", "-api", "-s3")

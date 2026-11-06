@@ -31,6 +31,13 @@ class Assets {
       'assets/figma/content-empty-original.png';
   static const notificationEmptyIllustration = contentEmptyIllustration;
   static const unclassifiedEmptyIllustration = contentEmptyIllustration;
+  static const accountDeletionHardDrive =
+      'assets/figma/account-deletion-hard-drive.svg';
+  static const accountDeletionDot = 'assets/figma/account-deletion-dot.svg';
+  static const accountDeletionCheck = 'assets/figma/account-deletion-check.svg';
+  // J06 image 4069 has the same bytes as the J03 logout illustration.
+  static const accountDeletedIllustration =
+      'assets/figma/logout-illustration.png';
 
   static const home = 'assets/icons/home.svg';
   static const archive = 'assets/icons/archive.svg';

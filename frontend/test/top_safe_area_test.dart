@@ -246,6 +246,7 @@ void main() {
                   onBack: backed,
                   onLogout: () async {},
                   onConnect: () async {},
+                  onWithdraw: () {},
                   isGuest: true,
                 ),
                 () => headerRow('계정 관리'),

@@ -253,6 +253,17 @@ jobs:
         run: |
           docker build --label org.opencontainers.image.revision=${{ github.sha }} -t clipback-operator-api:check .
           docker build --build-arg POSTGRES_MAJOR=18 --label org.opencontainers.image.revision=${{ github.sha }} -f Dockerfile.operator -t clipback-operator-pg18:check .
+      - name: Build API image from before account deletion
+        env:
+          # main 리비전(#247). 계정 탈퇴 기록이 생기기 전에 만든 복구 지점을 이 이미지로 복원한다(ADR 0008).
+          LEGACY_REVISION: bf654132676aa76a8b8152c6d85bb883ea15cfc9
+        run: |
+          set -o pipefail
+          git fetch --no-tags --depth=1 origin "$LEGACY_REVISION"
+          mkdir "$RUNNER_TEMP/legacy-backend"
+          # backend/ 안에서 하위 트리를 archive하면 git이 현재 폴더 범위로 좁혀 실패한다. 저장소 루트에서 꺼낸다.
+          git -C .. archive "$LEGACY_REVISION:backend" | tar -x -C "$RUNNER_TEMP/legacy-backend"
+          docker build --label org.opencontainers.image.revision="$LEGACY_REVISION" -t clipback-operator-api:legacy "$RUNNER_TEMP/legacy-backend"
       - name: Check private source backup, maintenance and isolated recovery
         env:
           RUN_DOCKER_RECOVERY_TESTS: "1"
@@ -262,6 +273,7 @@ jobs:
           CLIPBACK_RECOVERY_TEST_IMAGE: clipback-operator-api:check
           CLIPBACK_RECOVERY_POSTGRES_MAJOR: "18"
           CLIPBACK_RECOVERY_OPERATOR_IMAGE: clipback-operator-pg18:check
+          CLIPBACK_LEGACY_API_IMAGE: clipback-operator-api:legacy
         run: |
           pytest -q \
             tests/deployment/test_manual_backup_docker.py \
@@ -271,5 +283,6 @@ jobs:
             tests/deployment/test_image_backup_docker.py \
             tests/deployment/test_image_migration_docker.py \
             tests/deployment/test_multiuser_image_restore_docker.py \
+            tests/deployment/test_legacy_account_deletion_restore_docker.py \
             tests/deployment/test_backup_restore_docker.py \
             tests/deployment/test_postgres_restore_ready_docker.py

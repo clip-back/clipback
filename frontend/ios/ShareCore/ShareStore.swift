@@ -276,6 +276,20 @@ final class ShareStore {
     }
     if let removed { removeImage(removed) }
   }
+  /// A deleted account's pending shares. Drafts without an account number are not its own.
+  /// Images go first; a draft whose image cannot be deleted stays so the next call retries it.
+  func discardDrafts(userId: String) throws {
+    let failed: Bool = try transaction { state in
+      var failed = false
+      state.drafts.removeAll { draft in
+        guard draft.userId == userId else { return false }
+        guard let url = imageURL(draft), FileManager.default.fileExists(atPath: url.path) else { return true }
+        do { try FileManager.default.removeItem(at: url); return true } catch { failed = true; return false }
+      }
+      return failed
+    }
+    if failed { throw ShareFailure.message("공유 파일을 지우지 못했습니다.") }
+  }
   func acknowledge(_ ids: [String]) throws {
     try transaction { state in state.receipts.removeAll { ids.contains($0.id) && $0.apiBaseUrl == expectedBaseURL } }
   }

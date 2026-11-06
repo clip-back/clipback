@@ -28,6 +28,7 @@ public final class ShareChannel implements MethodChannel.MethodCallHandler {
                     } catch (Exception failure) { pending=null; throw failure; }
                     break;
                 case "acknowledgeReceipts": store.acknowledge(call.argument("ids")); result.success(null); break;
+                case "discardAccountDrafts": store.discardAccountDrafts(((Number)call.argument("userId")).longValue()); result.success(null); break;
                 default: result.notImplemented();
             }
         } catch(Exception failure) { result.error("share_storage","공유 정보를 보관하지 못했습니다. 다시 시도해 주세요.",null); }

@@ -56,6 +56,55 @@ def get(path, token):
         return response.read()
 
 
+def check_deleted_access(token, deleted, token_account_deleted):
+    """Deleted data stays hidden: 404 for a living token account, 401 once it is deleted."""
+    status = 401 if token_account_deleted else 404
+    paths = ["users/me"] if token_account_deleted else []
+    for item in deleted:
+        paths.append(f"contents/{item['content_id']}")
+        paths += [f"uploads/assets/{identifier}" for identifier in item["asset_ids"]]
+        paths += [f"uploads/assets/{identifier}/access" for identifier in item["asset_ids"]]
+    for path in paths:
+        try:
+            get(path, token)
+        except HTTPError as exc:
+            if exc.code != status:
+                raise ValueError("Deleted original API access differs") from None
+        else:
+            raise ValueError("Deleted original was exposed")
+
+
+async def matching_accounts(session, records):
+    """Recorded accounts in this DB; a reused number with another creation time is not one."""
+    matches = []
+    for record in records:
+        if await session.scalar(
+            text("SELECT id FROM users WHERE id = :id AND created_at = :created_at"),
+            {"id": record["user_id"],
+             "created_at": datetime.fromisoformat(record["user_created_at"])},
+        ) is not None:
+            matches.append(record["user_id"])
+    return matches
+
+
+async def account_rows(session, user_ids):
+    """Row counts per table that references the accounts. Older schemas have fewer tables."""
+    rows = {"users": await session.scalar(
+        text("SELECT count(*) FROM users WHERE id = ANY(:ids)"), {"ids": user_ids}
+    )}
+    references = await session.execute(text(
+        "SELECT c.conrelid::regclass::text, quote_ident(a.attname) FROM pg_constraint c "
+        "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1] "
+        "WHERE c.contype = 'f' AND c.confrelid = 'public.users'::regclass "
+        "AND cardinality(c.conkey) = 1 ORDER BY 1, 2"
+    ))
+    for table, column in references.all():
+        rows[table] = rows.get(table, 0) + await session.scalar(
+            text(f"SELECT count(*) FROM {table} WHERE {column} = ANY(:ids)"), {"ids": user_ids}
+        )
+    return rows
+
+
 async def snapshot(payload, *, runtime=None):
     if runtime is None:
         from app.core.config import settings
@@ -70,8 +119,11 @@ async def snapshot(payload, *, runtime=None):
             runtime.config.storage_root.resolve(), runtime.sessions, runtime.storage
         )
     version = payload.get("format_version", 1)
+    # Accounts deleted by applied records (ADR 0008); the token may belong to one of them.
+    deleted_accounts = payload.get("deleted_accounts", [])
+    token_account_deleted = payload.get("token_account_deleted", False)
     authenticated_user = None
-    if version == 2 and payload.get("verify_api", True):
+    if version == 2 and payload.get("verify_api", True) and not token_account_deleted:
         authenticated_user = json.loads(get("users/me", payload["access_token"]))["id"]
     async with sessions() as session:
         # Caller freezes writers or provides a protected, exported DB snapshot.
@@ -153,8 +205,16 @@ async def snapshot(payload, *, runtime=None):
                     backup_key=f"originals/sha256/{digest}",
                 )
             assets.append(asset)
+        matches = None
+        if "account_deletions" in payload:
+            matches = await matching_accounts(session, payload["account_deletions"])
+        if deleted_accounts and any((await account_rows(session, deleted_accounts)).values()):
+            raise ValueError("Deleted account rows remain")
         sample = payload.get("sample")
-        if version == 2 and (not sample or not any(
+        if token_account_deleted:
+            # A deleted account's token opens no original; image GET is skipped.
+            sample = None
+        elif version == 2 and (not sample or not any(
             a["id"] == sample.get("asset_id") and a["content_id"] == sample.get("content_id")
             for a in assets
         )):
@@ -204,18 +264,7 @@ async def snapshot(payload, *, runtime=None):
 
     if payload.get("verify_api", True):
         token = payload["access_token"]
-        for deleted in payload.get("deleted", []):
-            paths = [f"contents/{deleted['content_id']}"]
-            paths += [f"uploads/assets/{identifier}" for identifier in deleted["asset_ids"]]
-            paths += [f"uploads/assets/{identifier}/access" for identifier in deleted["asset_ids"]]
-            for path in paths:
-                try:
-                    get(path, token)
-                except HTTPError as exc:
-                    if exc.code != 404:
-                        raise ValueError("Deleted original API access differs") from None
-                else:
-                    raise ValueError("Deleted original was exposed")
+        check_deleted_access(token, payload.get("deleted", []), token_account_deleted)
         if sample:
             public = json.loads(get(f"contents/{sample['content_id']}", token))
             image = get(f"uploads/assets/{sample['asset_id']}", token)
@@ -226,7 +275,7 @@ async def snapshot(payload, *, runtime=None):
                 or hashlib.sha256(image).hexdigest() != expected["sha256"]
             ):
                 raise ValueError("Authenticated API data differs")
-        elif authenticated_user is None:
+        elif authenticated_user is None and not token_account_deleted:
             # A real authenticated request still proves the restored account/session.
             get("users/me", token)
     referenced = {
@@ -239,7 +288,7 @@ async def snapshot(payload, *, runtime=None):
         if path.is_file() and path.name != ".clipback-source-id"
         and str(path.relative_to(root)) not in referenced
     )
-    return {
+    result = {
         "migration_revisions": revisions,
         "tables": tables,
         "category_links_sha256": fingerprint(links),
@@ -253,6 +302,9 @@ async def snapshot(payload, *, runtime=None):
         } if sample else None,
         "extra_file_count": extra,
     }
+    if matches is not None:
+        result["matching_accounts"] = matches
+    return result
 
 
 if __name__ == "__main__":

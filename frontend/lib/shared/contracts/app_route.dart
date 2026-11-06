@@ -12,6 +12,8 @@ enum AppRoute {
   my,
   account,
   logoutConfirmation,
+  accountDeletion,
+  accountDeleted,
   noticeList,
   categoryManagement,
 }

@@ -99,6 +99,10 @@ python scripts/image_deletions.py retry --limit 100
 한 번의 명령은 최신 독립 기록을 검증하고, DB에 반영되지 않은 삭제 의도를 최대 지정 개수만큼
 반영한 뒤 영속 정리 작업을 최대 지정 개수만큼 시도한다. 결과의 `reconciled`, `attempted`,
 `pending`은 작업 수다. `pending > 0` 또는 작업 실패는 종료 코드 1이며 다음 실행에서 재시도한다.
+계정 탈퇴 기록(아래 계약 절)은 확정된 탈퇴 요청이다. 기록의 계정 번호와 계정 생성 시각이 둘 다 맞는
+계정이 아직 남아 있으면(기록 뒤 DB 삭제 실패) 이 명령이 마저 지우고, 지운 계정 수를 `deleted_accounts`로
+보고한다. 번호만 같고 생성 시각이 다른 계정은 지우지 않는다. 반영한 삭제 의도와 지운 계정을 합쳐
+`--limit`까지 처리한다.
 재처리는 초기화와 달리 전체 API 설정 검증 및 DB·원본 접근이 필요하다. 초기화용 Mac 컨테이너에는
 이 접근이 없으므로 그대로 재처리 실행 환경으로 간주하지 않는다. 스케줄러에서 반복 실행하거나
 장애 해소 후 수동 실행한다. 명령 구현만으로 운영 스케줄을 생성하지는 않는다. 처리량보다 빠르게 쌓이는 큐와 마지막 성공 실행은 운영 점검 대상이다.
@@ -106,6 +110,29 @@ python scripts/image_deletions.py retry --limit 100
 물리 정리는 DB advisory lock `74264001`의 exclusive transaction lock을 얻은 경우에만 수행한다.
 백업의 shared session lock이 유지되는 동안에는 정리를 연기하여 스냅샷 원본을 보존한다.
 정리 직전에 같은 backend/key를 참조하는 현재 원본이 있으면 삭제하지 않는다.
+
+## 운영자 계정 삭제
+
+```bash
+python scripts/image_deletions.py delete-account --user-id <계정 번호> --confirm-irreversible
+```
+
+`python -m scripts.image_deletions delete-account ...` 형태도 같다. 계정 하나를 앱의 회원 탈퇴와 같은
+처리(`delete_account`: 공급자 연결 정리 → 삭제 장부 기록 → DB 삭제 → 원본 삭제)로 지운다. 탈퇴 사유
+기록은 남기지 않는다. 재처리처럼 전체 API 설정(DB·장부·저장소·Apple·카카오 어드민 키)이 필요하고,
+서비스 점검 중이면 실행되지 않는다. 되돌릴 수 없으므로 `--confirm-irreversible`이 필수다.
+
+| 결과 | 종료 코드 | 출력 |
+| --- | --- | --- |
+| 삭제 성공 | 0 | 표준 출력 JSON 한 줄 `{"deleted": true, "pending_original_cleanup": <수>}` |
+| 계정 없음(이미 지워짐 포함) | 1 | 표준 오류 `Account not found; nothing was deleted`, DB 변화 없음(점검 admission도 정상 종료) |
+| 장부·DB 실패, 점검 중, 설정 오류, 그 밖의 오류 | 1 | 표준 오류 `Account deletion failed; no successful completion is confirmed` |
+| 계정 번호 없음·숫자 아님·0 이하, 확인 옵션 없음 | 2 | 표준 오류 사용법 안내, DB 변화 없음 |
+
+`pending_original_cleanup`은 이번 삭제에서 아직 지우지 못한 원본 정리 작업 수다. 0이 아니어도 계정
+삭제는 끝났고, 남은 정리는 `retry`가 맡는다. 실패 문구에는 비밀값·연결 문자열을 넣지 않는다. 장부 기록 뒤
+DB 삭제가 실패하면 기록은 확정된 탈퇴 요청으로 남으므로, 같은 명령을 다시 실행하면 같은 기록을 재사용해
+지운다(`retry`도 남은 계정을 마저 지운다).
 
 ## 백업·복원에서 사용하는 계약
 
@@ -127,6 +154,16 @@ event에는 삭제 operation UUID, 소유자, 콘텐츠 ID·저장 시각·삭�
 backend/key·SHA-256·크기를 기록한다. 과거 원본의 해시·크기는 null일 수 있다. 복원 후 숫자 ID가
 재사용될 수 있으므로 ID만으로 삭제하지 않고 저장 시각과 원본 식별자까지 일치시킨다.
 같은 operation의 재시도는 기존 삭제 시각을 사용하므로 보존 기간을 연장하지 않는다.
+
+회원 탈퇴는 같은 순번 체인에 `kind: "account_deletion"` event 하나를 쓴다([ADR 0008](../adr/0008-account-deletion-ledger-record.md)).
+event에는 operation UUID, 계정 번호, 계정 생성 시각, 삭제 의도 시각, 그 계정 이미지 콘텐츠들의 삭제 정보
+(콘텐츠 ID·저장 시각·원본 backend/key·SHA-256·크기)를 담고 이메일·이름은 넣지 않는다. 이미지 콘텐츠가
+없으면 목록이 비어 있다. operation UUID는 계정 번호와 생성 시각에서 정하므로, 기록 뒤 DB 삭제가 실패해
+다시 시도하면 이미지 목록이 달라도 처음 기록을 그대로 쓴다. 계정 삭제는 삭제 직전 DB에 있는 그 계정의
+이미지 콘텐츠마다 기존 이미지 삭제와 같은 형태의 정리 작업을 만든다. 작업 operation은 탈퇴 기록의
+operation·콘텐츠 ID·저장 시각에서 정해지므로 재시도·복원 반영을 반복해도 늘지 않는다. 이 기능 이전
+event(이미지 삭제)는 형식이 그대로이며 함께 검증된다. 이 기능 이전 서버는 새 event를 읽지 못하므로
+탈퇴가 한 번이라도 일어난 뒤에는 그 서버로 되돌리지 않는다([Railway 배포](../railway-deployment.md#복원과-롤백)).
 
 최신성은 오프라인 checkpoint나 digest만으로 증명할 수 없다. 복원은 삭제 쓰기를 중지하거나
 `74264002` shared session lock을 유지한 상태에서 **현재 독립 저장소**의 checkpoint와 연결된

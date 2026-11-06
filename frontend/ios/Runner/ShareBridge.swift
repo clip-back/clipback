@@ -24,6 +24,9 @@ final class ShareBridge {
         result(try store.publish(JSONDecoder().decode(ShareCredential.self, from: data)))
       case "acknowledgeReceipts":
         try store.acknowledge(args["ids"] as? [String] ?? []); result(nil)
+      case "discardAccountDrafts":
+        guard let userId = args["userId"] as? NSNumber else { throw ShareFailure.message("계정 번호가 없습니다.") }
+        try store.discardDrafts(userId: userId.stringValue); result(nil)
       case "presentDraft":
         guard let id = args["id"] as? String, UUID(uuidString: id) != nil,
               try store.draft(id) != nil, let host = registrar.viewController else {

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, settings
 from app.core.exceptions import NotFoundError
 from app.integrations.deletion_ledger import (
+    ACCOUNT_DELETION,
     IMAGE_CLEANUP_LOCK,
     LEDGER_WRITE_LOCK,
     LedgerUnavailableError,
@@ -263,11 +264,21 @@ async def retry_image_deletions(
     limit: int = 100,
 ) -> dict:
     """Operator entry point. Reconcile durable intents, then retry a bounded batch of cleanup."""
+    # Account deletion builds on this module; import at call time to avoid a cycle.
+    from app.services.account_deletion_service import apply_account_deletion
+
     await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LEDGER_WRITE_LOCK})
     events = await asyncio.to_thread(get_deletion_ledger(config).read_verified_events)
     repository = ContentRepository(session)
-    reconciled = 0
+    reconciled = deleted_accounts = 0
     for intent in events:
+        if intent.get("kind") == ACCOUNT_DELETION:
+            # A confirmed account deletion whose DB transaction never committed (U2).
+            if await apply_account_deletion(session, intent) is not None:
+                deleted_accounts += 1
+                if reconciled + deleted_accounts >= limit:
+                    break
+            continue
         if await session.get(ImageDeletion, intent["operation_id"]) is not None:
             continue
         content = await repository.get_owned(
@@ -278,7 +289,7 @@ async def retry_image_deletions(
         if not await apply_deletion_intent(repository, content, intent):
             continue
         reconciled += 1
-        if reconciled >= limit:
+        if reconciled + deleted_accounts >= limit:
             break
     await session.commit()
     operation_ids = list(
@@ -295,4 +306,9 @@ async def retry_image_deletions(
         select(func.count()).select_from(ImageDeletion).where(ImageDeletion.completed.is_(False))
     )
     await session.commit()
-    return {"reconciled": reconciled, "attempted": len(operation_ids), "pending": pending}
+    return {
+        "reconciled": reconciled,
+        "attempted": len(operation_ids),
+        "pending": pending,
+        "deleted_accounts": deleted_accounts,
+    }
