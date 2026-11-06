@@ -36,7 +36,7 @@
 
 ## 앱 0.4.1
 
-[iOS 0.4.1(10)·Android 0.4.1(6) 후보 기록](docs/releases/app-v0.4.1-ios-b10-android-b6.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 10은 App Store Connect에, Android 6은 Play Console에 업로드했습니다(사용자 보고, 2026-11-07). 처리·테스터 제공·실기기 확인은 미확인입니다. 정식 공개는 미실행입니다. 함께 운영 중인 서버 변경은 [backend-2026-11-06-1](docs/releases/backend-2026-11-06-1.md)을 따릅니다.
+[iOS 0.4.1(10)·Android 0.4.1(6) 후보 기록](docs/releases/app-v0.4.1-ios-b10-android-b6.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 10은 TestFlight 내부 그룹에, Android 6은 Play 내부 테스트로 제공했습니다(사용자 보고, 2026-11-07). 실기기 확인 결과는 미확인입니다. 정식 공개는 미실행입니다. 함께 운영 중인 서버 변경은 [backend-2026-11-06-1](docs/releases/backend-2026-11-06-1.md)을 따릅니다.
 
 ### 개선
 
