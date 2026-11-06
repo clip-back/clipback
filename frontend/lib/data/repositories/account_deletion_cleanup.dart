@@ -13,15 +13,21 @@ class AccountDeletionCleanupRecord {
     required this.userId,
     required this.remaining,
     this.logins = const {},
+    this.loginsComplete = false,
   });
 
   final String environment;
   final int userId;
   final Set<AccountDeletionCleanupStep> remaining;
 
-  /// Fingerprints of the deleted account's sessions. The stored login is
-  /// cleared only while it is one of these, so a newer login is never removed.
+  /// Fingerprints of the sessions the device could hold at the withdrawal.
+  /// The stored login is cleared only while it is one of these, so a newer
+  /// login is never removed.
   final Set<String> logins;
+
+  /// Whether [logins] has every such session. Only then is a stored session
+  /// missing from it a newer login; otherwise it is unknown and kept.
+  final bool loginsComplete;
 
   AccountDeletionCleanupRecord without(
     Iterable<AccountDeletionCleanupStep> done,
@@ -30,6 +36,7 @@ class AccountDeletionCleanupRecord {
     userId: userId,
     remaining: remaining.difference(done.toSet()),
     logins: logins,
+    loginsComplete: loginsComplete,
   );
 
   Map<String, Object> toJson() => {
@@ -37,6 +44,7 @@ class AccountDeletionCleanupRecord {
     'user_id': userId,
     'remaining': [for (final step in remaining) step.name],
     'logins': [...logins],
+    'logins_complete': loginsComplete,
   };
 
   static AccountDeletionCleanupRecord? fromJson(Object? json) {
@@ -54,6 +62,7 @@ class AccountDeletionCleanupRecord {
           if (remaining.contains(step.name)) step,
       },
       logins: {if (logins is List) ...logins.whereType<String>()},
+      loginsComplete: json['logins_complete'] == true,
     );
   }
 }
@@ -123,7 +132,8 @@ class AccountDeletionCleanup {
   }) : _storage = storage ?? PreferencesAccountDeletionCleanupStorage();
 
   final String environment;
-  final Future<void> Function(Set<String> deletedLogins) clearStoredLogin;
+  final Future<void> Function(Set<String> deletedLogins, bool complete)
+  clearStoredLogin;
   final Future<void> Function(String environment, int userId)
   clearSearchHistory;
   final Future<void> Function(int userId) discardPendingShares;
@@ -131,12 +141,17 @@ class AccountDeletionCleanup {
 
   /// After a 204: record first (R2 detail 1), then try every step once. Other
   /// accounts' records left from earlier runs are retried too when readable.
-  Future<void> start(int userId, {required Set<String> logins}) async {
+  Future<void> start(
+    int userId, {
+    required Set<String> logins,
+    bool loginsComplete = false,
+  }) async {
     final record = AccountDeletionCleanupRecord(
       environment: environment,
       userId: userId,
       remaining: AccountDeletionCleanupStep.values.toSet(),
       logins: logins,
+      loginsComplete: loginsComplete,
     );
     await _save(record);
     final others = await _read() ?? const <AccountDeletionCleanupRecord>[];
@@ -172,6 +187,7 @@ class AccountDeletionCleanup {
         await switch (step) {
           AccountDeletionCleanupStep.storedLogin => clearStoredLogin(
             record.logins,
+            record.loginsComplete,
           ),
           AccountDeletionCleanupStep.searchHistory => clearSearchHistory(
             record.environment,

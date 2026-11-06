@@ -365,6 +365,7 @@ void main() {
                 'user_id': _deletedUser,
                 'remaining': [step],
                 'logins': [_deletedLogin],
+                'logins_complete': true,
               },
             ]);
 

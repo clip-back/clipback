@@ -84,7 +84,14 @@ class RemoteSessionRepository extends SessionRepository {
   Future<void>? _invalidationFuture;
   int _pendingStorageOperations = 0;
   ApiSession? _sessionNeedingPersistence;
-  ApiSession? _writingSession;
+  // What the device's stored session can be (#257): every session read from
+  // it or about to be written to it in this run. It is complete once a read
+  // succeeded before any write or clear, while shared_preferences' cache still
+  // matched the device; later reads may show the cache instead.
+  final _storedLogins = <String>{};
+  bool _storedLoginsComplete = false;
+  int _storageChanges = 0; // writes and clears started in this run
+  bool _deletedThisRun = false;
   bool _pendingSessionClear = false;
   bool _authenticationBusy = false;
   bool _disposed = false;
@@ -141,7 +148,8 @@ class RemoteSessionRepository extends SessionRepository {
     // A queued retry must write the latest tokens, not its enqueue-time snapshot.
     final session = _api.session;
     if (session == null) return;
-    _writingSession = session;
+    _storageChanges++;
+    _storedLogins.add(_loginId(session));
     try {
       await _storage.write(session);
       if (identical(_api.session, session)) _sessionNeedingPersistence = null;
@@ -150,8 +158,6 @@ class RemoteSessionRepository extends SessionRepository {
         _sessionNeedingPersistence = session;
       }
       // Issued tokens remain usable even if device persistence failed.
-    } finally {
-      _writingSession = null;
     }
     _notify();
   });
@@ -160,6 +166,7 @@ class RemoteSessionRepository extends SessionRepository {
       _enqueueStorage(() async {
         // A newer login owns its stored session while an earlier logout waits.
         if (afterLogout && _api.hasSession) return;
+        _storageChanges++;
         try {
           await _storage.clear();
           _sessionNeedingPersistence = null;
@@ -177,7 +184,7 @@ class RemoteSessionRepository extends SessionRepository {
   @override
   Future<bool> restoreStoredSession() async {
     if (hasSession) return false;
-    final stored = await _storage.read();
+    final stored = await _readStored();
     if (stored == null || _disposed) return false;
     _api.restoreSession(stored);
     _notify();
@@ -306,21 +313,27 @@ class RemoteSessionRepository extends SessionRepository {
   }) async {
     final deleted = _api.session;
     _api.clearSession();
+    _deletedThisRun = true;
+    // Every session the device could hold now, and the one in memory.
+    final logins = {..._storedLogins, if (deleted != null) _loginId(deleted)};
+    final changes = _storageChanges;
     _pendingSessionClear = true;
     _notify();
     try {
-      // The deleted account's logins: in memory, being written and on disk.
-      final logins = {
-        for (final session in [deleted, _writingSession])
-          if (session != null) _loginId(session),
-      };
       try {
-        final stored = await _storage.read();
-        if (stored != null) logins.add(_loginId(stored));
+        final stored = await _readStored();
+        // Unless a newer write started meanwhile, this is from before too.
+        if (stored != null && _storageChanges == changes) {
+          logins.add(_loginId(stored));
+        }
       } catch (_) {
-        // An unreadable stored session is cleared by the step below anyway.
+        // Unread now, the logins are still complete if this run knew.
       }
-      await _deletionCleanup.start(userId, logins: logins);
+      await _deletionCleanup.start(
+        userId,
+        logins: logins,
+        loginsComplete: _storedLoginsComplete,
+      );
     } finally {
       _pendingSessionClear = false;
       _notify();
@@ -347,34 +360,48 @@ class RemoteSessionRepository extends SessionRepository {
   static String _loginId(ApiSession session) =>
       sha256.convert(utf8.encode(session.refreshToken)).toString();
 
-  // Clears the stored login only while it is the deleted account's; another
-  // stored session is a newer login and stays with its Apple user ID. The
-  // decision is made from the disk each time, so no record update is needed
-  // when a newer login is saved. The session and Apple user ID are each tried.
-  Future<void> _clearDeletedLogin(Set<String> deletedLogins) async {
-    var newer = false;
+  Future<ApiSession?> _readStored() async {
+    final stored = await _storage.read();
+    if (_storageChanges == 0) _storedLoginsComplete = true;
+    if (stored != null) _storedLogins.add(_loginId(stored));
+    return stored;
+  }
+
+  // Clears the stored login only with evidence that it predates the
+  // withdrawal: it is one of [deletedLogins], or this run withdrew and has
+  // written nothing, so the device still holds what it had at launch. An
+  // unread session is never cleared, and neither is the Apple user ID. A
+  // session missing from a complete list is a newer login: both stay and the
+  // step ends; missing from an incomplete one, it is unknown and stays failed.
+  // The decision is made from the disk each time, so no record update is
+  // needed when a newer login is saved. The session and Apple user ID are
+  // each tried.
+  Future<void> _clearDeletedLogin(
+    Set<String> deletedLogins,
+    bool complete,
+  ) async {
+    bool? noNewerLogin; // null: the stored session could not be read
     Object? failure;
     try {
       await _enqueueStorage(() async {
-        ApiSession? stored;
-        var readable = true;
-        try {
-          stored = await _storage.read();
-        } catch (_) {
-          readable = false;
-        }
-        if (readable && stored == null) return;
-        if (stored != null && !deletedLogins.contains(_loginId(stored))) {
-          newer = true;
-          return;
-        }
+        final stored = await _readStored();
+        noNewerLogin =
+            stored == null ||
+            deletedLogins.contains(_loginId(stored)) ||
+            (_deletedThisRun && _storageChanges == 0);
+        if (stored == null || !noNewerLogin!) return;
+        _storageChanges++;
         await _storage.clear();
         _sessionNeedingPersistence = null;
       });
     } catch (error) {
       failure = error;
     }
-    if (newer) return;
+    if (noNewerLogin == null) throw failure!;
+    if (!noNewerLogin!) {
+      if (complete) return;
+      throw StateError('The stored login could not be identified');
+    }
     try {
       await _socialAuth.rememberAppleUserId(null);
     } catch (error) {

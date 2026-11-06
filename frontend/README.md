@@ -78,7 +78,7 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 (`data/repositories/account_deletion_cleanup.dart`)으로 다음 실행 때 세션 복원보다 먼저 다시 합니다.
 그 밖의 결과와 60초 초과는 J04에 머물며 실패 스낵바를 띄우고 고른 사유를 유지합니다. 디자인이 없는 실패·대기·개수 상태는
 [디자인 확인 필요](../docs/figma-ui-alignment-plan.md#figma-pending-15)에 있습니다. 동작 회귀는
-`flutter test --no-pub test/account_deletion_flow_test.dart test/account_deletion_overflow_test.dart test/account_deletion_cleanup_test.dart test/data/account_deletion_cleanup_test.dart`로 확인합니다.
+`flutter test --no-pub test/account_deletion_flow_test.dart test/account_deletion_overflow_test.dart test/account_deletion_cleanup_test.dart test/data/account_deletion_cleanup_test.dart test/data/account_deletion_device_storage_test.dart`로 확인합니다.
 
 ## 화면 폭 정책
 
