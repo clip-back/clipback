@@ -16,7 +16,7 @@ from app.schemas.content import (
     ContentSource,
     ContentType,
 )
-from app.services.content_service import ContentService
+from app.services.content_service import ContentService, SharedLinkContext
 from app.services.extraction_service import ExtractionService
 from app.services.link_url import INSTAGRAM_HOSTS, URL_TRAILING_CHARS, normalize_instagram_url
 from app.services.share_receipt_service import prepare_share_write, share_fingerprint
@@ -88,29 +88,19 @@ class ShareIntakeService:
                     f"{MAX_CONTENT_URL_LENGTH} characters after normalization",
                 ) from exc
             raise
-        if youtube_url:
-            return await self.content_service.create_content(
-                **receipt_args,
-                user_id=user_id,
-                payload=content_payload,
-            )
-        extraction = await self.extraction_service.enrich_link(content_payload)
-        enriched_payload = self.extraction_service.apply_to_payload(content_payload, extraction)
-        metadata_json = self.extraction_service.build_event_metadata_json(
-            extraction,
-            base=self._build_event_metadata(
-                payload=payload,
+        return await self.content_service.save_link(
+            **receipt_args,
+            user_id=user_id,
+            payload=content_payload,
+            share=SharedLinkContext(
+                shared_text=payload.raw_text,
+                source_app=payload.source_app,
+                platform=payload.platform,
+                mime_type=payload.mime_type,
+                attachment_count=len(payload.attachments),
                 extracted_url=normalized_url,
                 url_source=url_source,
             ),
-        )
-
-        return await self.content_service.create_content(
-            **receipt_args,
-            user_id=user_id,
-            payload=enriched_payload,
-            event_metadata_json=metadata_json,
-            recommendation_shared_text=payload.raw_text,
         )
 
     def _select_url(self, payload: ContentShareCreate) -> tuple[str, str]:
@@ -137,19 +127,3 @@ class ShareIntakeService:
     @staticmethod
     def normalize_instagram_url(url: str) -> str:
         return normalize_instagram_url(url)
-
-    @staticmethod
-    def _build_event_metadata(
-        *,
-        payload: ContentShareCreate,
-        extracted_url: str,
-        url_source: str,
-    ) -> dict[str, object]:
-        return {
-            "source_app": payload.source_app,
-            "platform": payload.platform,
-            "mime_type": payload.mime_type,
-            "attachment_count": len(payload.attachments),
-            "extracted_url": extracted_url,
-            "url_source": url_source,
-        }

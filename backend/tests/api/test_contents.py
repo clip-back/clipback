@@ -20,6 +20,7 @@ from app.schemas.content import (
     ContentType,
 )
 from app.schemas.tag import TagRead
+from app.services.content_service import SharedLinkContext
 from app.services.extraction_service import ExtractionService
 
 
@@ -34,23 +35,26 @@ class FakeMetadataClient:
 
 
 class FakeContentService:
-    def __init__(self) -> None:
-        self.requests: list[tuple[ContentCreate, str | None]] = []
+    def __init__(self, extraction_service: ExtractionService | None = None) -> None:
+        self.extraction_service = extraction_service
+        self.requests: list[tuple[ContentCreate, SharedLinkContext | None]] = []
         self.category_update_requests: list[tuple[int, int, ContentCategoryUpdate]] = []
         self.tag_update_requests: list[tuple[int, int, ContentTagUpdate]] = []
         self.favorite_update_requests: list[tuple[int, int, ContentFavoriteUpdate]] = []
         self.delete_requests: list[tuple[int, int]] = []
 
-    async def create_content(
+    async def save_link(
         self,
+        *,
         user_id: int,
         payload: ContentCreate,
-        event_metadata_json: str | None = None,
-        recommendation_shared_text: str | None = None,
-        user_provided_title: bool = False,
-        user_provided_summary: bool = False,
+        share: SharedLinkContext | None = None,
+        share_receipt=None,
     ) -> ContentRead:
-        self.requests.append((payload, event_metadata_json))
+        # 링크 저장처럼 같은 추출 서비스로 값을 보강한다.
+        extraction = await self.extraction_service.enrich_link(payload)
+        payload = self.extraction_service.apply_to_payload(payload, extraction)
+        self.requests.append((payload, share))
         return ContentRead(
             id=len(self.requests),
             categories=[],
@@ -137,8 +141,8 @@ def test_direct_and_share_routes_use_same_enrichment_pipeline(
     async def get_user(self, user_id: int):
         return SimpleNamespace(id=user_id)
 
-    content_service = FakeContentService()
     extraction_service = ExtractionService(metadata_client=FakeMetadataClient())
+    content_service = FakeContentService(extraction_service)
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
     monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
@@ -195,12 +199,12 @@ def test_create_routes_reject_unsafe_redirect_without_saving(client, monkeypatch
         requests.append(request)
         return httpx.Response(302, headers={"location": "/next"})
 
-    content_service = FakeContentService()
     extraction_service = ExtractionService(
         metadata_client=MetadataClient(
             resolver=resolver, http_transport=httpx.MockTransport(handler)
         )
     )
+    content_service = FakeContentService(extraction_service)
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
     monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)

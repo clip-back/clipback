@@ -1,5 +1,4 @@
 import hashlib
-import json
 import logging
 import warnings
 from dataclasses import dataclass
@@ -27,10 +26,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.share_receipt_repository import ShareReceiptRepository
 from app.schemas.content import (
     ContentAssetAccess,
-    ContentCreate,
     ContentRead,
-    ContentSource,
-    ContentType,
 )
 from app.services.content_service import ContentService, PendingContentAsset
 from app.services.image_deletion_service import cleanup_failed_upload
@@ -141,23 +137,13 @@ class UploadService:
                 await self.image_storage_control.observe(
                     f"original_upload_{self.storage_client.backend}", len(content),
                 )
-            return await self.content_service.create_content(
+            return await self.content_service.save_screenshot(
                 **receipt_args,
                 user_id=user_id,
-                payload=ContentCreate(
-                    content_type=ContentType.SCREENSHOT,
-                    source=ContentSource.SCREENSHOT,
-                    category_ids=category_ids,
-                    tag_names=tag_names or [],
-                    title=ocr_result.title or None,
-                    summary=ocr_result.summary or None,
-                ),
-                event_metadata_json=json.dumps(
-                    ocr_metadata,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ),
-                recommendation_shared_text=ocr_result.text or None,
+                category_ids=category_ids,
+                tag_names=tag_names or [],
+                ocr=ocr_result,
+                ocr_metadata=ocr_metadata,
                 asset=PendingContentAsset(
                     asset_type=AssetType.SCREENSHOT,
                     storage_key=storage_key,

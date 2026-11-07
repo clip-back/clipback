@@ -18,6 +18,7 @@ from app.integrations.ocr_client import (
 from app.schemas.content import (
     ContentAssetRead,
     ContentAssetType,
+    ContentCreate,
     ContentRead,
     ContentSource,
     ContentType,
@@ -61,21 +62,33 @@ class FakeContentService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    async def create_content(
+    async def save_screenshot(
         self,
         *,
         user_id: int,
-        payload,
-        event_metadata_json: str,
-        recommendation_shared_text: str | None,
+        category_ids: list[int],
+        tag_names: list[str],
+        ocr: ScreenshotOCRResult,
+        ocr_metadata: dict[str, str | None],
         asset,
     ) -> ContentRead:
+        # 스크린샷 저장이 만드는 저장 요청·이벤트 metadata·추천 입력과 같은 값을 남긴다.
+        payload = ContentCreate(
+            content_type=ContentType.SCREENSHOT,
+            source=ContentSource.SCREENSHOT,
+            category_ids=category_ids,
+            tag_names=tag_names,
+            title=ocr.title or None,
+            summary=ocr.summary or None,
+        )
         self.calls.append(
             {
                 "user_id": user_id,
                 "payload": payload,
-                "event_metadata_json": event_metadata_json,
-                "recommendation_shared_text": recommendation_shared_text,
+                "metadata_json": json.dumps(
+                    ocr_metadata, ensure_ascii=False, separators=(",", ":"),
+                ),
+                "shared_text": ocr.text or None,
                 "asset": asset,
             }
         )
@@ -201,7 +214,7 @@ async def test_upload_screenshot_stores_supported_image_using_detected_format(
     assert result.assets[0].mime_type == expected_mime_type
     assert file.requested_size == 10_001
     assert ocr_client.calls == [(file.content, expected_mime_type)]
-    assert json.loads(call["event_metadata_json"]) == {
+    assert json.loads(call["metadata_json"]) == {
         "ocr_status": "no_text",
         "ocr_failure_reason": None,
     }
@@ -272,12 +285,12 @@ async def test_upload_screenshot_applies_ocr_enrichment_without_persisting_raw_t
     payload = call["payload"]
     assert payload.title == "백엔드 엔지니어 채용"
     assert payload.summary == "백엔드 엔지니어 채용 공고입니다."
-    assert call["recommendation_shared_text"] == raw_text
-    assert json.loads(call["event_metadata_json"]) == {
+    assert call["shared_text"] == raw_text
+    assert json.loads(call["metadata_json"]) == {
         "ocr_status": "success",
         "ocr_failure_reason": None,
     }
-    assert raw_text not in call["event_metadata_json"]
+    assert raw_text not in call["metadata_json"]
     assert result.title == "백엔드 엔지니어 채용"
     assert len(storage.files) == 1
 
@@ -312,8 +325,8 @@ async def test_upload_screenshot_falls_back_when_ocr_fails(
     payload = call["payload"]
     assert payload.title is None
     assert payload.summary is None
-    assert call["recommendation_shared_text"] is None
-    assert json.loads(call["event_metadata_json"]) == {
+    assert call["shared_text"] is None
+    assert json.loads(call["metadata_json"]) == {
         "ocr_status": "failed",
         "ocr_failure_reason": expected_reason,
     }
