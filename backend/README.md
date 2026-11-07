@@ -80,6 +80,7 @@ uvicorn app.main:app --reload
 
 ```bash
 ruff check app scripts alembic tests
+deptry .
 pytest -q
 python -m compileall app scripts alembic tests
 ```

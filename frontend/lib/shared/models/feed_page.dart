@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -19,12 +17,6 @@ class FeedPage {
   Object? error;
   int version = 0;
   double scrollOffset = 0;
-  Future<void>? _pending;
-
-  Future<void>? get pendingRequest => _pending;
-
-  void trackRequest(Future<void> request) => _pending = request;
-  void clearPendingRequest() => _pending = null;
 
   /// Server totals belong to the committed items, including during refresh.
   int? get displayTotalCount {
@@ -52,7 +44,6 @@ class FeedPage {
   void project(FeedSnapshot snapshot, List<ContentItem> contents) {
     if (version != snapshot.version) {
       scrollOffset = 0;
-      _pending = null;
     }
     items
       ..clear()
@@ -80,6 +71,5 @@ class FeedPage {
     hasMore = true;
     error = null;
     scrollOffset = 0;
-    _pending = null;
   }
 }

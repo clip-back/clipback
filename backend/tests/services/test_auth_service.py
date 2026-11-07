@@ -150,21 +150,6 @@ class FakeSocialIdentityRepository:
     ) -> SimpleNamespace | None:
         return self.identities.get((provider, provider_subject))
 
-    async def get_by_user_provider(
-        self,
-        *,
-        user_id: int,
-        provider: SocialProvider,
-    ) -> SimpleNamespace | None:
-        return next(
-            (
-                identity
-                for identity in self.identities.values()
-                if identity.user_id == user_id and identity.provider == provider
-            ),
-            None,
-        )
-
     async def create(
         self,
         *,

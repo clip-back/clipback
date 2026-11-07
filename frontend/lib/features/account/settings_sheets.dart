@@ -1,32 +1,6 @@
-import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
-import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
-
-class AccountSheet extends StatelessWidget {
-  const AccountSheet({required this.user, super.key});
-
-  final AppUser user;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '계정 관리',
-      children: [
-        SheetInfoRow(label: '이름', value: user.name),
-        SheetInfoRow(label: '연동 계정', value: user.providerLabel),
-        SheetInfoRow(label: '가입일', value: user.joinedAt),
-        const SizedBox(height: 12),
-        PrimaryButton(
-          label: '확인',
-          onPressed: () => Navigator.pop(context),
-          height: 48,
-        ),
-      ],
-    );
-  }
-}
 
 class ReminderSheet extends StatelessWidget {
   const ReminderSheet({super.key});

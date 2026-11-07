@@ -498,10 +498,6 @@ class ClipbackApi {
     return session;
   }
 
-  Future<Map<String, String>> health() => _getPublic('/health');
-
-  Future<Map<String, String>> readiness() => _getPublic('/health/ready');
-
   Future<ApiSession> createGuestSession() =>
       _issueSession('/auth/guest', decode: ApiSession.fromJson);
 
@@ -777,36 +773,6 @@ class ClipbackApi {
           'tag_names': tagNames,
           'title': title,
           'summary': summary,
-          'is_favorite': isFavorite,
-        },
-      ),
-    );
-  }
-
-  Future<ApiContent> createContentFromShare({
-    String? url,
-    String? rawText,
-    String? mimeType,
-    String? sourceApp,
-    String? platform,
-    List<Map<String, dynamic>> attachments = const [],
-    List<int> categoryIds = const [],
-    List<String> tagNames = const [],
-    bool isFavorite = false,
-  }) async {
-    return ApiContent.fromJson(
-      await _json(
-        'POST',
-        '/contents/share',
-        body: {
-          'url': url,
-          'raw_text': rawText,
-          'mime_type': mimeType,
-          'source_app': sourceApp,
-          'platform': platform,
-          'attachments': attachments,
-          'category_ids': categoryIds,
-          'tag_names': tagNames,
           'is_favorite': isFavorite,
         },
       ),
@@ -1383,12 +1349,6 @@ class ClipbackApi {
     '/metrics/events',
     body: {'event_type': 'original_link_opened', 'content_id': contentId},
   );
-
-  Future<Map<String, String>> _getPublic(String path) async {
-    final response = await _request('GET', path, authenticated: false);
-    _throwForError(response);
-    return Map<String, String>.from(_decodeJson(response));
-  }
 
   Future<Map<String, dynamic>> _json(
     String method,

@@ -1,9 +1,7 @@
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
-import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/app_text.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
@@ -35,39 +33,6 @@ class PrimaryButton extends StatelessWidget {
           textStyle: AppText.primaryButtonLabel,
         ),
         child: Text(label),
-      ),
-    );
-  }
-}
-
-class FloatingAddButton extends StatelessWidget {
-  const FloatingAddButton({required this.onPressed, super.key});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        width: 56,
-        height: 56,
-        padding: const EdgeInsets.all(12),
-        decoration: const BoxDecoration(
-          color: AppColors.text,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x33000000),
-              blurRadius: 8,
-              offset: Offset(1, 2),
-            ),
-          ],
-        ),
-        child: SvgPicture.asset(
-          Assets.plus,
-          colorFilter: const ColorFilter.mode(AppColors.main, BlendMode.srcIn),
-        ),
       ),
     );
   }

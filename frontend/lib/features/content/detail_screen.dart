@@ -852,26 +852,6 @@ class DetailPager extends StatelessWidget {
   }
 }
 
-class RelatedContentTile extends StatelessWidget {
-  const RelatedContentTile({
-    required this.category,
-    required this.title,
-    this.onTap,
-    super.key,
-  });
-
-  final CategoryItem category;
-  final String title;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => _DetailRelatedContentCard(
-    categories: [category],
-    title: title,
-    onTap: onTap,
-  );
-}
-
 class _DetailCategoryBadge extends StatelessWidget {
   const _DetailCategoryBadge({required this.category, super.key});
 

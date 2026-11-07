@@ -45,17 +45,3 @@ class SocialIdentityRepository:
         self.session.add(identity)
         await self.session.flush()
         return identity
-
-    async def get_by_user_provider(
-        self,
-        *,
-        user_id: int,
-        provider: SocialProvider,
-    ) -> SocialIdentity | None:
-        result = await self.session.scalars(
-            select(SocialIdentity).where(
-                SocialIdentity.user_id == user_id,
-                SocialIdentity.provider == provider,
-            )
-        )
-        return result.first()
