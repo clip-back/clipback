@@ -72,6 +72,14 @@ class Case:
     receipts: tuple[str, ...] = ()
 
 
+# 저장 응답의 카테고리 객체(main 901a3b1 관측값). id는 게스트의 실제 id와 같은지 단언한 뒤
+# 자리표시자로 바꾸고 나머지 필드는 그대로 비교한다.
+CATEGORY_OBJECTS = {
+    "취업": {"id": "<id>", "name": "취업", "color": "#4F46E5", "is_default": True},
+    "미분류": {"id": "<id>", "name": "미분류", "color": "#6B7280", "is_default": True},
+}
+
+
 def content(
     categories, *, content_type="link", source="web", title="추출 제목", summary="추출 설명",
     original_url=WEB, summary_status="not_requested", summary_error_code=None,
@@ -79,7 +87,8 @@ def content(
 ) -> dict:
     return {
         "id": "<id>", "saved_at": "<saved_at>", "summary_status": summary_status,
-        "summary_error_code": summary_error_code, "categories": list(categories),
+        "summary_error_code": summary_error_code,
+        "categories": [CATEGORY_OBJECTS[name] for name in categories],
         "tags": [{"id": "<id>", "name": name} for name in tags],
         "assets": [
             {"id": "<id>", "asset_type": "screenshot", "mime_type": "image/png",
@@ -544,11 +553,11 @@ def placeholder_body(body: dict, category_ids: dict[str, int]) -> dict:
     assert isinstance(body["id"], int)
     datetime.fromisoformat(body["saved_at"])
     body["id"], body["saved_at"] = "<id>", "<saved_at>"
-    names = []
+    categories = []
     for category in body["categories"]:
         assert category["id"] == category_ids[category["name"]]
-        names.append(category["name"])
-    body["categories"] = names
+        categories.append({**category, "id": "<id>"})
+    body["categories"] = categories
     tags = []
     for tag in body["tags"]:
         assert isinstance(tag["id"], int)
