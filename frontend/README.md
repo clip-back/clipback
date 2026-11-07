@@ -152,7 +152,7 @@ MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스
 | `lib/app/` | 의존성 조립·화면 연결·UI 효과를 처리하는 앱 View와 인증·화면 흐름을 조정하는 AppViewModel |
 | `lib/app/actions/` | 여러 Repository를 사용하는 계정 초기화·콘텐츠 변경 후 갱신 순서 |
 | `lib/data/repositories/` | 세션, 콘텐츠·카테고리·피드, 사용자·서버 통계, 계정별 최근 검색어, 네이티브 공유 Repository의 계약과 구현 |
-| `lib/data/services/api_request_scope.dart` | 최초 홈·부가 조회·마이 통계·카테고리 저장/재확인/조회의 요청 수명과 공통 인증 갱신의 늦은 응답 차단 |
+| `lib/data/services/api_request_scope.dart` | 최초 홈·부가 조회·마이 통계·카테고리 저장/재확인/조회의 요청 수명과 공통 인증 갱신의 늦은 응답 차단, 요청 결과를 성공·늦은 응답·실패로 돌려줌 |
 | `lib/data/models/` | 읽기 전용 피드 스냅샷, 요청 세대와 변경 핸들 등 데이터 처리 계약 |
 | `lib/shared/models/` | 여러 기능에서 사용하는 화면 모델 |
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |

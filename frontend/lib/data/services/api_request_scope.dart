@@ -49,4 +49,43 @@ class ApiRequestScope {
     checkActive();
     return Future.any([operation, cancelled.then<T>((_) => throw _reason!)]);
   }
+
+  /// Runs [operation] in this scope and ends the scope after judging how it
+  /// ended. A request that is no longer current is stale even if it failed.
+  Future<RequestOutcome<T>> settle<T>(Future<T> Function() operation) async {
+    RequestOutcome<T> outcome;
+    try {
+      final value = await run(() => wait(operation()));
+      outcome = _isCurrent?.call() == false
+          ? RequestStale<T>()
+          : RequestSucceeded<T>(value);
+    } catch (error) {
+      outcome = _isCurrent?.call() == false
+          ? RequestStale<T>()
+          : RequestFailed<T>(error);
+    }
+    cancel();
+    return outcome;
+  }
+}
+
+/// How a request ended: its value, a late response, or its error.
+sealed class RequestOutcome<T> {
+  const RequestOutcome();
+}
+
+final class RequestSucceeded<T> extends RequestOutcome<T> {
+  const RequestSucceeded(this.value);
+
+  final T value;
+}
+
+final class RequestStale<T> extends RequestOutcome<T> {
+  const RequestStale();
+}
+
+final class RequestFailed<T> extends RequestOutcome<T> {
+  const RequestFailed(this.error);
+
+  final Object error;
 }
