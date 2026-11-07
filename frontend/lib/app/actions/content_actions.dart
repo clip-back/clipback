@@ -174,18 +174,23 @@ class ContentActions {
       isCurrent: current,
     );
     _categoryReadScope = scope;
-    try {
-      final snapshot = await scope.run(
-        () => scope.wait(content.readCurrentCategories()),
-      );
+    final callerZone = Zone.current;
+    // Checks and onLoaded stay inside the operation: a snapshot is current
+    // only while its scope is open.
+    final outcome = await scope.settle(() async {
+      final snapshot = await content.readCurrentCategories();
       scope.checkActive();
       if (!snapshot.current) throw const CategoryReadSuperseded();
-      onLoaded?.call(snapshot.categories);
+      callerZone.run(() => onLoaded?.call(snapshot.categories));
       return current();
-    } on CategoryReadSuperseded {
-      return false;
-    } catch (_) {
-      if (current()) {
+    });
+    if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+    switch (outcome) {
+      case RequestSucceeded(:final value):
+        return value;
+      case RequestStale() || RequestFailed(error: CategoryReadSuperseded()):
+        return false;
+      case RequestFailed():
         feedback(
           MessageEffect(
             afterSave ? '저장은 완료됐지만 카테고리 목록을 새로 불러오지 못했어요' : '최신 정보를 불러오지 못했어요.',
@@ -204,11 +209,7 @@ class ContentActions {
             },
           ),
         );
-      }
-      return false;
-    } finally {
-      scope.cancel();
-      if (identical(_categoryReadScope, scope)) _categoryReadScope = null;
+        return false;
     }
   }
 
@@ -217,49 +218,21 @@ class ContentActions {
     required String color,
     required String submissionKey,
     required ContentFeedback feedback,
-  }) async {
+  }) {
     final generation = content.accountVersion;
-    final scope = ApiRequestScope(
-      timeout: const Duration(seconds: 10),
-      isCurrent: () => _current(generation),
-    );
-    try {
-      final created = await scope.run(
-        () => scope.wait(
-          content.createCategory(
-            name: name,
-            color: color,
-            submissionKey: submissionKey,
-          ),
-        ),
-      );
-      if (!_current(generation) || created == null) {
-        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
-      }
-      refreshCategoriesAfterSave(
+    return _settleCategorySave(
+      generation: generation,
+      submissionKey: submissionKey,
+      save: () => content.createCategory(
+        name: name,
+        color: color,
+        submissionKey: submissionKey,
+      ),
+      onSucceeded: () => refreshCategoriesAfterSave(
         accountVersion: generation,
         feedback: feedback,
-      );
-      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
-    } on CategorySubmissionRejected catch (error) {
-      if (!_current(generation)) {
-        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
-      }
-      return CategorySaveResult(
-        CategorySaveStatus.rejected,
-        submissionKey,
-        rejection: _categorySaveRejection(error.code),
-      );
-    } catch (_) {
-      return CategorySaveResult(
-        _current(generation)
-            ? CategorySaveStatus.unconfirmed
-            : CategorySaveStatus.stale,
-        submissionKey,
-      );
-    } finally {
-      scope.cancel();
-    }
+      ),
+    );
   }
 
   Future<CategorySaveResult> submitCategoryUpdate(
@@ -268,70 +241,65 @@ class ContentActions {
     required String color,
     required String submissionKey,
     required ContentFeedback feedback,
-  }) async {
+  }) {
     final generation = content.accountVersion;
-    final scope = ApiRequestScope(
+    return _settleCategorySave(
+      generation: generation,
+      submissionKey: submissionKey,
+      save: () => content.updateCategorySubmission(
+        categoryId: id,
+        name: name,
+        color: color,
+        submissionKey: submissionKey,
+      ),
+      onSucceeded: () {
+        refreshCategoriesAfterSave(
+          accountVersion: generation,
+          feedback: feedback,
+        );
+        unawaited(
+          Future<void>(() async {
+            if (!_current(generation)) return;
+            final ticket = content.beginRefresh(preserveViewport: true);
+            // Existing feed errors keep their own retry behavior.
+            await ApiRequestScope(
+              timeout: const Duration(seconds: 10),
+              isCurrent: () =>
+                  _current(generation) && content.isCurrentRefresh(ticket),
+            ).settle(() => content.refresh(ticket, includeCategories: false));
+          }),
+        );
+      },
+    );
+  }
+
+  Future<CategorySaveResult> _settleCategorySave({
+    required int generation,
+    required String submissionKey,
+    required Future<ApiCategory?> Function() save,
+    required void Function() onSucceeded,
+  }) async {
+    final outcome = await ApiRequestScope(
       timeout: const Duration(seconds: 10),
       isCurrent: () => _current(generation),
-    );
-    try {
-      final saved = await scope.run(
-        () => scope.wait(
-          content.updateCategorySubmission(
-            categoryId: id,
-            name: name,
-            color: color,
-            submissionKey: submissionKey,
-          ),
-        ),
-      );
-      if (!_current(generation) || saved == null) {
+    ).settle(save);
+    switch (outcome) {
+      case RequestStale() || RequestSucceeded(value: null):
         return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
-      }
-      refreshCategoriesAfterSave(
-        accountVersion: generation,
-        feedback: feedback,
-      );
-      unawaited(
-        Future<void>(() async {
-          if (!_current(generation)) return;
-          final ticket = content.beginRefresh(preserveViewport: true);
-          final read = ApiRequestScope(
-            timeout: const Duration(seconds: 10),
-            isCurrent: () =>
-                _current(generation) && content.isCurrentRefresh(ticket),
-          );
-          try {
-            await read.run(
-              () =>
-                  read.wait(content.refresh(ticket, includeCategories: false)),
-            );
-          } catch (_) {
-            // Existing feed errors keep their own retry behavior.
-          } finally {
-            read.cancel();
-          }
-        }),
-      );
-      return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
-    } on CategorySubmissionRejected catch (error) {
-      if (!_current(generation)) {
-        return CategorySaveResult(CategorySaveStatus.stale, submissionKey);
-      }
-      return CategorySaveResult(
-        CategorySaveStatus.rejected,
-        submissionKey,
-        rejection: _categorySaveRejection(error.code),
-      );
-    } catch (_) {
-      return CategorySaveResult(
-        _current(generation)
-            ? CategorySaveStatus.unconfirmed
-            : CategorySaveStatus.stale,
-        submissionKey,
-      );
-    } finally {
-      scope.cancel();
+      case RequestSucceeded():
+        onSucceeded();
+        return CategorySaveResult(CategorySaveStatus.succeeded, submissionKey);
+      case RequestFailed(error: CategorySubmissionRejected(:final code)):
+        return CategorySaveResult(
+          CategorySaveStatus.rejected,
+          submissionKey,
+          rejection: _categorySaveRejection(code),
+        );
+      case RequestFailed():
+        return CategorySaveResult(
+          CategorySaveStatus.unconfirmed,
+          submissionKey,
+        );
     }
   }
 
