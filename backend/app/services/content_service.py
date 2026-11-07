@@ -178,10 +178,6 @@ class ContentService:
                 shared_text = share.shared_text if share else None
                 if is_youtube_url(str(payload.original_url)):
                     payload, video_id = self._normalize_youtube(payload)
-                    # 보존용 임시 분기, 별도 버그 이슈에서 제거.
-                    # 리다이렉트로 YouTube가 된 링크는 보강된 메타데이터 값을 사용자 입력으로 본다.
-                    typed_title = bool(payload.title and payload.title.strip())
-                    typed_summary = bool(payload.summary and payload.summary.strip())
         if payload.original_url and len(str(payload.original_url)) > MAX_CONTENT_URL_LENGTH:
             raise HTTPException(
                 status_code=422,
