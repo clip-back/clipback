@@ -47,14 +47,13 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationResult,
     CategoryRecommendationService,
 )
-from app.services.extraction_service import ExtractionService
+from app.services.extraction_service import ExtractionService, serialize_event_metadata
 from app.services.image_deletion_service import delete_image_content
 from app.services.summary_kinds import new_summary_job
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
 DEFAULT_CONTENT_SUMMARY = "요약 정보가 아직 없습니다."
-MAX_EVENT_METADATA_LENGTH = 1000
 
 
 @dataclass(frozen=True)
@@ -689,21 +688,7 @@ class ContentService:
                 recommendation.failure_reason.value if recommendation.failure_reason else None
             ),
         )
-
-        serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-        while len(serialized) > MAX_EVENT_METADATA_LENGTH:
-            string_fields = {
-                key: value
-                for key, value in metadata.items()
-                if isinstance(value, str) and value
-            }
-            if not string_fields:
-                break
-            key = max(string_fields, key=lambda item: len(string_fields[item]))
-            overflow = len(serialized) - MAX_EVENT_METADATA_LENGTH
-            metadata[key] = string_fields[key][: max(0, len(string_fields[key]) - overflow)]
-            serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-        return serialized
+        return serialize_event_metadata(metadata)
 
     @staticmethod
     def _validate_category_combination(categories: list[Category]) -> None:

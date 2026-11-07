@@ -14,6 +14,26 @@ from app.services.link_url import infer_content_source, is_instagram_url, normal
 MAX_EVENT_METADATA_LENGTH = 1000
 
 
+def serialize_event_metadata(metadata: dict[str, object]) -> str:
+    """이벤트 metadata를 JSON으로 만들고 최대 길이를 넘으면 긴 문자열 값부터 자른다.
+
+    길이가 같은 값이 여럿이면 먼저 들어간 키를 자른다.
+    """
+    metadata = dict(metadata)
+    serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    while len(serialized) > MAX_EVENT_METADATA_LENGTH:
+        string_fields = {
+            key: value for key, value in metadata.items() if isinstance(value, str) and value
+        }
+        if not string_fields:
+            break
+        key = max(string_fields, key=lambda item: len(string_fields[item]))
+        overflow = len(serialized) - MAX_EVENT_METADATA_LENGTH
+        metadata[key] = string_fields[key][: max(0, len(string_fields[key]) - overflow)]
+        serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    return serialized
+
+
 @dataclass(frozen=True)
 class ExtractionResult:
     resolved_url: str
@@ -94,18 +114,7 @@ class ExtractionService:
             metadata_failure_reason=result.failure_reason,
             resolved_url=result.resolved_url,
         )
-        serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-        while len(serialized) > MAX_EVENT_METADATA_LENGTH:
-            string_fields = {
-                key: value for key, value in metadata.items() if isinstance(value, str) and value
-            }
-            if not string_fields:
-                break
-            key = max(string_fields, key=lambda item: len(string_fields[item]))
-            overflow = len(serialized) - MAX_EVENT_METADATA_LENGTH
-            metadata[key] = string_fields[key][: max(0, len(string_fields[key]) - overflow)]
-            serialized = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-        return serialized
+        return serialize_event_metadata(metadata)
 
     @staticmethod
     def _prefer_user_value(user_value: str | None, extracted_value: str | None) -> str | None:
