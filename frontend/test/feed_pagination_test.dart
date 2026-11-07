@@ -1053,7 +1053,7 @@ void main() {
             (c) => c.id == item.id,
           );
           expect(pendingItem.bookmarked, isFalse);
-          expect(pendingItem.mutationLabel, isNotNull);
+          expect(pendingItem.isMutating, isTrue);
           expect(pending.contents, hasLength(before.contents.length));
           expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
           expect(feed.version, version);
@@ -1071,7 +1071,7 @@ void main() {
               (c) => c.id == item.id,
             );
             expect(restored.bookmarked, isTrue);
-            expect(restored.mutationLabel, isNull);
+            expect(restored.isMutating, isFalse);
             expect(current.bookmarkedIds, contains(item.id));
             expect(_bookmarkPosition(tester).pixels, closeTo(300, .01));
             expect(find.text('즐겨찾기 해제 거절'), findsOneWidget);
@@ -1171,7 +1171,7 @@ void main() {
         );
         final retained = failed.contents.singleWhere((c) => c.id == item.id);
         expect(retained.bookmarked, isFalse);
-        expect(retained.mutationLabel, isNull);
+        expect(retained.isMutating, isFalse);
         expect(failed.feed!.error, isNotNull);
         expect(find.text('총 2개'), findsOneWidget);
         expect(

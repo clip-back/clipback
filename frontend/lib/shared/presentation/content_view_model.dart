@@ -35,6 +35,7 @@ class ContentViewModel extends ViewModel {
 
   ContentItem present(ApiContent item) {
     final currentCategories = categories;
+    final mutation = repository.contentMutationKind(item.id);
     return contentFromApi(
       item,
       {
@@ -44,11 +45,9 @@ class ContentViewModel extends ViewModel {
       uncategorized: currentCategories
           .where((item) => item.name == catUncategorized.name)
           .firstOrNull,
-      mutationLabel: switch (repository.contentMutationKind(item.id)) {
-        ContentMutationKind.delete => '삭제 중…',
-        ContentMutationKind.bookmark || ContentMutationKind.category => '변경 중…',
-        null => null,
-      },
+      // Favorite and category writes lock silently; only deletion shows text.
+      isMutating: mutation != null,
+      mutationLabel: mutation == ContentMutationKind.delete ? '삭제 중…' : null,
     );
   }
 

@@ -510,7 +510,8 @@ void main() {
     await started.future;
     expect(fixture.home.page.items.single.bookmarked, isTrue);
     expect(fixture.detail.content?.bookmarked, isTrue);
-    expect(fixture.home.page.items.single.mutationLabel, '변경 중…');
+    expect(fixture.home.page.items.single.isMutating, isTrue);
+    expect(fixture.home.page.items.single.mutationLabel, isNull);
     await fixture.repository.refreshDetail(
       fixture.repository.currentDetailHandle!,
     );
@@ -525,7 +526,7 @@ void main() {
       expect(item.title, '서버가 갱신한 제목');
       expect(item.summary, '보존할 요약');
       expect(item.summaryStatus, 'processing');
-      expect(item.mutationLabel, isNull);
+      expect(item.isMutating, isFalse);
     }
     expect(fixture.home.bookmarkedIds, isEmpty);
     expect(
@@ -564,14 +565,15 @@ void main() {
       await statsStarted.future;
       expect(fixture.home.page.items.single.bookmarked, isTrue);
       expect(fixture.detail.content?.bookmarked, isTrue);
-      expect(fixture.detail.content?.mutationLabel, '변경 중…');
+      expect(fixture.detail.content?.isMutating, isTrue);
+      expect(fixture.detail.content?.mutationLabel, isNull);
       await fixture.detail.toggleBookmark(fixture.detail.content!);
       expect(writes, 1);
       stats.complete(_json({'saved_count': 42, 'reopened_count': 17}));
       await mutation;
 
-      expect(fixture.home.page.items.single.mutationLabel, isNull);
-      expect(fixture.detail.content?.mutationLabel, isNull);
+      expect(fixture.home.page.items.single.isMutating, isFalse);
+      expect(fixture.detail.content?.isMutating, isFalse);
       expect(fixture.users.stats?.savedCount, 42);
       await fixture.detail.toggleBookmark(fixture.detail.content!);
       expect(writes, 2);

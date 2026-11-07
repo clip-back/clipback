@@ -29,6 +29,7 @@ ContentItem contentFromApi(
   ApiContent content,
   Map<int, CategoryItem> categoryById, {
   CategoryItem? uncategorized,
+  bool isMutating = false,
   String? mutationLabel,
 }) {
   final categories = content.categories
@@ -53,6 +54,7 @@ ContentItem contentFromApi(
     isScreenshot: content.contentType == 'screenshot',
     assets: List.unmodifiable(content.assets),
     summaryStatus: content.summaryStatus,
+    isMutating: isMutating,
     mutationLabel: mutationLabel,
   );
 }

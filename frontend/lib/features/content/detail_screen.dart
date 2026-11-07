@@ -696,7 +696,7 @@ class DetailTopBar extends StatelessWidget {
           BookmarkActionButton(
             initialActive: bookmarked,
             onToggle: onToggleBookmark,
-            enabled: content.mutationLabel == null,
+            enabled: !content.isMutating,
             size: 28,
             hitSize: 28,
           ),
@@ -704,7 +704,7 @@ class DetailTopBar extends StatelessWidget {
           SvgIconButton(
             key: const ValueKey('detail-more'),
             asset: Assets.detailMore,
-            enabled: content.mutationLabel == null,
+            enabled: !content.isMutating,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
               useSafeArea: true,
@@ -718,8 +718,7 @@ class DetailTopBar extends StatelessWidget {
                 isCurrent: () =>
                     context.mounted &&
                     (context.widget as DetailTopBar).content.id == content.id &&
-                    (context.widget as DetailTopBar).content.mutationLabel ==
-                        null,
+                    !(context.widget as DetailTopBar).content.isMutating,
               ),
             ),
             size: 24,

@@ -397,7 +397,7 @@ void main() {
       testWidgets(
         'E06 pending card keeps body but blocks nested writes $platform width$width',
         (tester) async {
-          final item = _item.copyWith(mutationLabel: '변경 중…');
+          final item = _item.copyWith(isMutating: true);
           final calls = await _pump(
             tester,
             platform: platform,
@@ -421,7 +421,7 @@ void main() {
           await tester.tap(find.text(item.title));
           await tester.pump();
           expect(calls.open - before, 1);
-          expect(find.text('변경 중…'), findsOneWidget);
+          expect(find.text('변경 중…'), findsNothing);
           expect(tester.takeException(), isNull);
         },
       );

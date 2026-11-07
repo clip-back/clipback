@@ -209,7 +209,7 @@ class CategoryFeaturedCard extends StatelessWidget {
                   initialActive: bookmarked,
                   hitSize: 28,
                   onToggle: onToggleBookmark,
-                  enabled: content.mutationLabel == null,
+                  enabled: !content.isMutating,
                 ),
               ],
             ),

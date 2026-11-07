@@ -412,7 +412,7 @@ void main() {
             tester,
             platform: platform,
             width: width,
-            page: _page(items: [_item.copyWith(mutationLabel: '변경 중…')]),
+            page: _page(items: [_item.copyWith(isMutating: true)]),
           );
           for (final control in [bookmark, more]) {
             final rect = tester.getRect(control);

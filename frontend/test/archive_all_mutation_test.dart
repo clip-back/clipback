@@ -101,9 +101,7 @@ void main() {
         'mutation lock retains visible hit28 controls and body action $platform width$width',
         (tester) async {
           addTearDown(tester.view.reset);
-          final content = archiveAllContents().first.copyWith(
-            mutationLabel: '변경 중…',
-          );
+          final content = archiveAllContents().first.copyWith(isMutating: true);
           for (final archiveAllStyle in [false, true]) {
             final calls = await _pump(
               tester,
@@ -118,7 +116,7 @@ void main() {
             expect(more, findsOneWidget);
             expect(tester.getSize(bookmark), const Size(28, 28));
             expect(tester.getSize(more), const Size(28, 28));
-            expect(find.text('변경 중…'), findsOneWidget);
+            expect(find.text('변경 중…'), findsNothing);
             for (final target in [bookmark, more]) {
               for (final point in ['center', 'top', 'bottom']) {
                 await tester.tapAt(_point(tester.getRect(target), point));

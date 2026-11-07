@@ -1846,9 +1846,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.favoriteAttempts == 1 &&
-        _screen.contents.any(
-          (c) => c.id == 'api-701' && c.mutationLabel == null,
-        ),
+        _screen.contents.any((c) => c.id == 'api-701' && !c.isMutating),
     'Favorite failure did not settle',
   );
   _require(
@@ -1877,9 +1875,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.categoryAttempts == 1 &&
-        _screen.contents.any(
-          (c) => c.id == 'api-701' && c.mutationLabel == null,
-        ),
+        _screen.contents.any((c) => c.id == 'api-701' && !c.isMutating),
     'Category failure did not settle',
   );
   _require(
@@ -1914,9 +1910,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.deleteAttempts == 1 &&
-        _screen.contents.any(
-          (c) => c.id == 'api-701' && c.mutationLabel == null,
-        ),
+        _screen.contents.any((c) => c.id == 'api-701' && !c.isMutating),
     'Delete failure did not settle',
   );
   _require(

@@ -464,9 +464,7 @@ class _ReviewCardBody extends StatelessWidget {
                       width: 28,
                       height: 28,
                       child: InkWell(
-                        onTap: content.mutationLabel == null
-                            ? onToggleBookmark
-                            : null,
+                        onTap: !content.isMutating ? onToggleBookmark : null,
                         customBorder: const CircleBorder(),
                         child: Center(
                           child: SvgPicture.asset(

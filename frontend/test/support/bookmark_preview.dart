@@ -1554,9 +1554,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.favoriteAttempts == before + 1 &&
-        _screen.contents.any(
-          (c) => c.id == 'api-801' && c.mutationLabel != null,
-        ),
+        _screen.contents.any((c) => c.id == 'api-801' && c.isMutating),
     'Held unbookmark request did not expose actual pending state',
   );
   final pendingRow =
@@ -1567,7 +1565,7 @@ Future<void> _run() async {
   _require(
     _server.favoriteCount == 8 &&
         _server.favoriteSuccesses == 0 &&
-        pendingRow['mutationLabel'] != null &&
+        pendingRow['mutationLabel'] == null &&
         pendingRow['bookmarkEnabled'] == false &&
         pendingRow['moreEnabled'] == false,
     'Pending unbookmark must retain row/data and lock controls',
@@ -1583,9 +1581,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.heldFavorite == null &&
-        _screen.contents.any(
-          (c) => c.id == 'api-801' && c.mutationLabel == null,
-        ) &&
+        _screen.contents.any((c) => c.id == 'api-801' && !c.isMutating) &&
         _screen.bookmarkedIds.contains('api-801'),
     'Failed unbookmark did not restore original actual UI',
   );
