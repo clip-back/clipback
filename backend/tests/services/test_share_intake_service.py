@@ -14,28 +14,37 @@ from app.schemas.content import (
     ContentType,
     ShareAttachment,
 )
+from app.services.content_service import SharedLinkContext
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
 
 class FakeContentService:
-    def __init__(self) -> None:
+    def __init__(self, extraction_service: ExtractionService | None = None) -> None:
+        self.extraction_service = extraction_service
         self.user_id: int | None = None
         self.payload: ContentCreate | None = None
-        self.event_metadata_json: str | None = None
-        self.recommendation_shared_text: str | None = None
+        self.metadata_json: str | None = None
+        self.shared_text: str | None = None
 
-    async def create_content(
+    async def save_link(
         self,
+        *,
         user_id: int,
         payload: ContentCreate,
-        event_metadata_json: str | None = None,
-        recommendation_shared_text: str | None = None,
+        share: SharedLinkContext | None = None,
+        share_receipt=None,
     ) -> ContentRead:
+        if self.extraction_service is not None and share is not None:
+            # 링크 저장처럼 추출 값과 공유 metadata를 붙인다.
+            extraction = await self.extraction_service.enrich_link(payload)
+            payload = self.extraction_service.apply_to_payload(payload, extraction)
+            self.metadata_json = self.extraction_service.build_event_metadata_json(
+                extraction, base=share.event_metadata(),
+            )
+            self.shared_text = share.shared_text
         self.user_id = user_id
         self.payload = payload
-        self.event_metadata_json = event_metadata_json
-        self.recommendation_shared_text = recommendation_shared_text
 
         return ContentRead(
             id=1,
@@ -61,11 +70,12 @@ class FakeMetadataClient:
 
 
 def build_service() -> tuple[ShareIntakeService, FakeContentService]:
-    content_service = FakeContentService()
+    extraction_service = ExtractionService(metadata_client=FakeMetadataClient())
+    content_service = FakeContentService(extraction_service)
     return (
         ShareIntakeService(
             content_service=content_service,
-            extraction_service=ExtractionService(metadata_client=FakeMetadataClient()),
+            extraction_service=extraction_service,
         ),
         content_service,
     )
@@ -103,8 +113,8 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
     assert content_service.payload.tag_names == ["Flutter", "백엔드"]
     assert content_service.payload.is_favorite is True
 
-    assert content_service.event_metadata_json is not None
-    metadata = json.loads(content_service.event_metadata_json)
+    assert content_service.metadata_json is not None
+    metadata = json.loads(content_service.metadata_json)
     assert metadata == {
         "source_app": "com.instagram.android",
         "platform": "android",
@@ -116,8 +126,8 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
         "metadata_failure_reason": None,
         "resolved_url": "https://www.instagram.com/reel/SHORTCODE/",
     }
-    assert "raw text should not be persisted" not in content_service.event_metadata_json
-    assert content_service.recommendation_shared_text == "raw text should not be persisted"
+    assert "raw text should not be persisted" not in content_service.metadata_json
+    assert content_service.shared_text == "raw text should not be persisted"
 
 
 @pytest.mark.asyncio
@@ -133,8 +143,8 @@ async def test_create_instagram_content_extracts_url_from_raw_text() -> None:
 
     assert content_service.payload is not None
     assert str(content_service.payload.original_url) == "https://www.instagram.com/p/ABC123/"
-    assert content_service.event_metadata_json is not None
-    assert json.loads(content_service.event_metadata_json)["url_source"] == "raw_text"
+    assert content_service.metadata_json is not None
+    assert json.loads(content_service.metadata_json)["url_source"] == "raw_text"
 
 
 @pytest.mark.asyncio

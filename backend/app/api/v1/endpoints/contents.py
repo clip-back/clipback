@@ -18,7 +18,6 @@ from app.schemas.content import (
     ContentRead,
     ContentShareCreate,
     ContentTagUpdate,
-    ContentType,
     ContentViewCreate,
     ContentViewEvent,
 )
@@ -26,7 +25,6 @@ from app.services.category_recommendation_service import CategoryRecommendationS
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
-from app.services.youtube_url import is_youtube_url
 
 router = APIRouter()
 
@@ -37,22 +35,9 @@ async def create_content(
     db: DatabaseSession,
     current_user_id: CurrentUserId,
 ) -> ContentRead:
-    if payload.content_type != ContentType.LINK or (
-        payload.original_url and is_youtube_url(str(payload.original_url))
-    ):
-        return await _build_content_service(db).create_content(
-            user_id=current_user_id,
-            payload=payload,
-        )
-
-    extraction_service = ExtractionService()
-    extraction = await extraction_service.enrich_link(payload)
-    return await _build_content_service(db).create_content(
+    return await _build_content_service(db).save_link(
         user_id=current_user_id,
-        payload=extraction_service.apply_to_payload(payload, extraction),
-        event_metadata_json=extraction_service.build_event_metadata_json(extraction),
-        user_provided_title=bool(payload.title and payload.title.strip()),
-        user_provided_summary=bool(payload.summary and payload.summary.strip()),
+        payload=payload,
     )
 
 

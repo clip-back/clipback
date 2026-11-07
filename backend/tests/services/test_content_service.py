@@ -7,6 +7,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.exceptions import NotFoundError, SystemConfigurationError
+from app.integrations.metadata_client import MetadataResult
+from app.integrations.ocr_client import ScreenshotOCRResult
 from app.models.content_asset import AssetType
 from app.models.content_event import ContentEventType
 from app.schemas.content import (
@@ -20,15 +22,21 @@ from app.schemas.content import (
 )
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
+    CategoryRecommendationFailureReason,
     CategoryRecommendationResult,
 )
-from app.services.content_service import ContentService, PendingContentAsset
+from app.services.content_service import ContentService, PendingContentAsset, SharedLinkContext
+from app.services.extraction_service import ExtractionService
 
 
 class FakeSession:
     def __init__(self) -> None:
         self.committed = False
         self.rolled_back = False
+        self.added: list[object] = []
+
+    def add(self, item) -> None:
+        self.added.append(item)
 
     async def commit(self) -> None:
         self.committed = True
@@ -284,6 +292,15 @@ class FakeTagRepository:
         return resolved
 
 
+class FakeMetadataClient:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def extract_from_url(self, url: str) -> MetadataResult:
+        self.urls.append(url)
+        return MetadataResult(resolved_url=url, title=None, description=None, status="success")
+
+
 class FakeRecommendationService:
     def __init__(self, result: CategoryRecommendationResult) -> None:
         self.result = result
@@ -314,6 +331,7 @@ def build_service(
         category_recommendation_service=recommendation_service,
         tag_repository=FakeTagRepository(),
         storage_client=storage_client,
+        extraction_service=ExtractionService(metadata_client=FakeMetadataClient()),
     )
     return service, content_repository, event_repository
 
@@ -347,12 +365,12 @@ def content(content_id: int, *, user_id: int = 1) -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_create_content_links_available_categories_and_records_event() -> None:
+async def test_save_link_links_available_categories_and_records_event() -> None:
     service, content_repository, event_repository = build_service(
         categories=[category(1, "취업", is_default=True), category(2, "여행")]
     )
 
-    result = await service.create_content(
+    result = await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -371,6 +389,9 @@ async def test_create_content_links_available_categories_and_records_event() -> 
     assert len(event_repository.events) == 1
     assert event_repository.events[0].category_ids_at_event == [1, 2]
     assert json.loads(event_repository.events[0].metadata_json) == {
+        "metadata_status": "success",
+        "metadata_failure_reason": None,
+        "resolved_url": "https://example.com/post",
         "category_assignment_method": "user",
         "recommended_category_id": None,
         "category_recommendation_failure_reason": None,
@@ -380,20 +401,18 @@ async def test_create_content_links_available_categories_and_records_event() -> 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("category_ids", [[9, 2], [2, 9], [9, 2, 9, 2]])
-async def test_create_content_rejects_uncategorized_with_other_categories(category_ids) -> None:
+async def test_save_screenshot_rejects_uncategorized_with_other_categories(category_ids) -> None:
     service, content_repository, event_repository = build_service(
         categories=[category(2, "여행"), category(9, "미분류", is_default=True)],
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_content(
+        await service.save_screenshot(
             user_id=1,
-            payload=ContentCreate(
-                content_type=ContentType.SCREENSHOT,
-                source=ContentSource.SCREENSHOT,
-                category_ids=category_ids,
-                tag_names=["저장되면 안 되는 태그"],
-            ),
+            category_ids=category_ids,
+            tag_names=["저장되면 안 되는 태그"],
+            ocr=ScreenshotOCRResult(text="", title="", summary=""),
+            ocr_metadata={"ocr_status": "no_text", "ocr_failure_reason": None},
             asset=PendingContentAsset(
                 asset_type=AssetType.SCREENSHOT,
                 storage_key="screenshots/invalid.png",
@@ -423,7 +442,7 @@ async def test_content_categories_accept_uncategorized_alone(operation, category
     )
 
     if operation == "create":
-        result = await service.create_content(
+        result = await service.save_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post", category_ids=category_ids,
@@ -442,12 +461,12 @@ async def test_content_categories_accept_uncategorized_alone(operation, category
 
 
 @pytest.mark.asyncio
-async def test_create_content_creates_normalized_tags_in_same_transaction() -> None:
+async def test_save_link_creates_normalized_tags_in_same_transaction() -> None:
     service, content_repository, _ = build_service(
         categories=[category(1, "취업", is_default=True)]
     )
 
-    result = await service.create_content(
+    result = await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -462,10 +481,10 @@ async def test_create_content_creates_normalized_tags_in_same_transaction() -> N
 
 
 @pytest.mark.asyncio
-async def test_create_content_scopes_same_tag_name_to_each_user() -> None:
+async def test_save_link_scopes_same_tag_name_to_each_user() -> None:
     service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
 
-    first = await service.create_content(
+    first = await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/first",
@@ -473,7 +492,7 @@ async def test_create_content_scopes_same_tag_name_to_each_user() -> None:
             tag_names=["Flutter"],
         ),
     )
-    second = await service.create_content(
+    second = await service.save_link(
         user_id=2,
         payload=ContentCreate(
             original_url="https://example.com/second",
@@ -488,10 +507,10 @@ async def test_create_content_scopes_same_tag_name_to_each_user() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> None:
+async def test_save_link_reuses_existing_tag_and_preserves_its_name() -> None:
     service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
 
-    first = await service.create_content(
+    first = await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/first",
@@ -499,7 +518,7 @@ async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> No
             tag_names=["Flutter"],
         ),
     )
-    second = await service.create_content(
+    second = await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/second",
@@ -513,11 +532,11 @@ async def test_create_content_reuses_existing_tag_and_preserves_its_name() -> No
 
 
 @pytest.mark.asyncio
-async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -> None:
+async def test_save_link_uses_uncategorized_when_category_ids_are_empty() -> None:
     uncategorized = category(9, "미분류", is_default=True)
     service, content_repository, event_repository = build_service(uncategorized=uncategorized)
 
-    result = await service.create_content(
+    result = await service.save_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", category_ids=[]),
     )
@@ -529,22 +548,38 @@ async def test_create_content_uses_uncategorized_when_category_ids_are_empty() -
 
 
 @pytest.mark.asyncio
-async def test_create_content_records_event_metadata_json() -> None:
+async def test_save_link_records_share_and_extraction_event_metadata() -> None:
     service, _, event_repository = build_service(
         categories=[category(1, "취업", is_default=True)]
     )
 
-    await service.create_content(
+    await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
             category_ids=[1],
         ),
-        event_metadata_json='{"url_source":"url"}',
+        share=SharedLinkContext(
+            shared_text="공유 글",
+            source_app="com.instagram.android",
+            platform="android",
+            mime_type="text/plain",
+            attachment_count=0,
+            extracted_url="https://example.com/post",
+            url_source="url",
+        ),
     )
 
     assert json.loads(event_repository.events[0].metadata_json) == {
+        "source_app": "com.instagram.android",
+        "platform": "android",
+        "mime_type": "text/plain",
+        "attachment_count": 0,
+        "extracted_url": "https://example.com/post",
         "url_source": "url",
+        "metadata_status": "success",
+        "metadata_failure_reason": None,
+        "resolved_url": "https://example.com/post",
         "category_assignment_method": "user",
         "recommended_category_id": None,
         "category_recommendation_failure_reason": None,
@@ -552,7 +587,7 @@ async def test_create_content_records_event_metadata_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_uses_ai_recommendation_and_revalidates_category() -> None:
+async def test_save_link_uses_ai_recommendation_and_revalidates_category() -> None:
     recommended = category(2, "나만의 자료")
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
@@ -567,7 +602,7 @@ async def test_create_content_uses_ai_recommendation_and_revalidates_category() 
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -579,6 +614,9 @@ async def test_create_content_uses_ai_recommendation_and_revalidates_category() 
     assert event_repository.events[0].category_ids_at_event == [recommended.id]
     assert recommendation_service.calls == 1
     assert json.loads(event_repository.events[0].metadata_json) == {
+        "metadata_status": "success",
+        "metadata_failure_reason": None,
+        "resolved_url": "https://example.com/post",
         "category_assignment_method": "ai",
         "recommended_category_id": 2,
         "category_recommendation_failure_reason": None,
@@ -586,7 +624,7 @@ async def test_create_content_uses_ai_recommendation_and_revalidates_category() 
 
 
 @pytest.mark.asyncio
-async def test_create_content_falls_back_when_recommended_category_disappears() -> None:
+async def test_save_link_falls_back_when_recommended_category_disappears() -> None:
     uncategorized = category(9, "미분류", is_default=True)
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
@@ -600,7 +638,7 @@ async def test_create_content_falls_back_when_recommended_category_disappears() 
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", title="제목"),
     )
@@ -614,7 +652,85 @@ async def test_create_content_falls_back_when_recommended_category_disappears() 
 
 
 @pytest.mark.asyncio
-async def test_create_content_skips_ai_for_user_categories() -> None:
+async def test_save_link_uses_uncategorized_when_ai_recommendation_fails() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=None,
+            assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+            failure_reason=CategoryRecommendationFailureReason.ERROR,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        uncategorized=uncategorized,
+        recommendation_service=recommendation_service,
+    )
+
+    await service.save_link(
+        user_id=1,
+        payload=ContentCreate(original_url="https://example.com/post", title="제목"),
+    )
+
+    assert content_repository.created_categories == [uncategorized]
+    assert recommendation_service.calls == 1
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["category_assignment_method"] == "uncategorized"
+    assert metadata["recommended_category_id"] is None
+    assert metadata["category_recommendation_failure_reason"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_save_link_without_recommendation_service_uses_uncategorized() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    service, content_repository, event_repository = build_service(uncategorized=uncategorized)
+
+    await service.save_link(
+        user_id=1,
+        payload=ContentCreate(original_url="https://example.com/post", title="제목"),
+    )
+
+    assert content_repository.created_categories == [uncategorized]
+    metadata = json.loads(event_repository.events[0].metadata_json)
+    assert metadata["category_assignment_method"] == "uncategorized"
+    assert metadata["recommended_category_id"] is None
+    assert metadata["category_recommendation_failure_reason"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_save_link_skips_ai_and_extraction_for_youtube() -> None:
+    uncategorized = category(9, "미분류", is_default=True)
+    recommendation_service = FakeRecommendationService(
+        CategoryRecommendationResult(
+            category_id=2,
+            assignment_method=CategoryAssignmentMethod.AI,
+            failure_reason=None,
+        )
+    )
+    service, content_repository, event_repository = build_service(
+        categories=[category(2, "취업")],
+        uncategorized=uncategorized,
+        recommendation_service=recommendation_service,
+    )
+
+    result = await service.save_link(
+        user_id=1,
+        payload=ContentCreate(original_url="https://youtu.be/dQw4w9WgXcQ?t=30"),
+    )
+
+    assert recommendation_service.calls == 0
+    assert service.extraction_service.metadata_client.urls == []
+    assert content_repository.created_categories == [uncategorized]
+    assert result.source == ContentSource.YOUTUBE
+    assert result.original_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30s"
+    assert json.loads(event_repository.events[0].metadata_json) == {
+        "category_assignment_method": "uncategorized",
+        "recommended_category_id": None,
+        "category_recommendation_failure_reason": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_save_link_skips_ai_for_user_categories() -> None:
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
             category_id=2,
@@ -627,7 +743,7 @@ async def test_create_content_skips_ai_for_user_categories() -> None:
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -640,7 +756,7 @@ async def test_create_content_skips_ai_for_user_categories() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
+async def test_save_screenshot_skips_ai_and_uses_uncategorized() -> None:
     uncategorized = category(9, "미분류", is_default=True)
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
@@ -654,9 +770,17 @@ async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_screenshot(
         user_id=1,
-        payload=ContentCreate(content_type=ContentType.SCREENSHOT),
+        category_ids=[],
+        tag_names=[],
+        ocr=ScreenshotOCRResult(text="", title="", summary=""),
+        ocr_metadata={"ocr_status": "no_text", "ocr_failure_reason": None},
+        asset=PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key="screenshots/1/image.png",
+            mime_type="image/png",
+        ),
     )
 
     assert content_repository.created_categories == [uncategorized]
@@ -667,7 +791,7 @@ async def test_create_screenshot_skips_ai_and_uses_uncategorized() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_screenshot_uses_ai_recommendation_when_ocr_text_is_available() -> None:
+async def test_save_screenshot_uses_ai_recommendation_when_ocr_text_is_available() -> None:
     recommended = category(2, "취업")
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
@@ -682,16 +806,21 @@ async def test_create_screenshot_uses_ai_recommendation_when_ocr_text_is_availab
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_screenshot(
         user_id=1,
-        payload=ContentCreate(
-            content_type=ContentType.SCREENSHOT,
-            source=ContentSource.SCREENSHOT,
+        category_ids=[],
+        tag_names=[],
+        ocr=ScreenshotOCRResult(
+            text="채용 공고\n백엔드 엔지니어",
             title="백엔드 채용 공고",
             summary="백엔드 개발자를 모집합니다.",
         ),
-        event_metadata_json='{"ocr_status":"success","ocr_failure_reason":null}',
-        recommendation_shared_text="채용 공고\n백엔드 엔지니어",
+        ocr_metadata={"ocr_status": "success", "ocr_failure_reason": None},
+        asset=PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key="screenshots/1/image.png",
+            mime_type="image/png",
+        ),
     )
 
     assert content_repository.created_categories == [recommended]
@@ -706,7 +835,7 @@ async def test_create_screenshot_uses_ai_recommendation_when_ocr_text_is_availab
 
 
 @pytest.mark.asyncio
-async def test_create_screenshot_user_category_wins_over_ocr_recommendation() -> None:
+async def test_save_screenshot_user_category_wins_over_ocr_recommendation() -> None:
     recommendation_service = FakeRecommendationService(
         CategoryRecommendationResult(
             category_id=2,
@@ -720,13 +849,17 @@ async def test_create_screenshot_user_category_wins_over_ocr_recommendation() ->
         recommendation_service=recommendation_service,
     )
 
-    await service.create_content(
+    await service.save_screenshot(
         user_id=1,
-        payload=ContentCreate(
-            content_type=ContentType.SCREENSHOT,
-            category_ids=[3],
+        category_ids=[3],
+        tag_names=[],
+        ocr=ScreenshotOCRResult(text="OCR 원문", title="", summary=""),
+        ocr_metadata={"ocr_status": "success", "ocr_failure_reason": None},
+        asset=PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key="screenshots/1/image.png",
+            mime_type="image/png",
         ),
-        recommendation_shared_text="OCR 원문",
     )
 
     assert content_repository.created_categories == [selected]
@@ -734,18 +867,17 @@ async def test_create_screenshot_user_category_wins_over_ocr_recommendation() ->
 
 
 @pytest.mark.asyncio
-async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
+async def test_save_screenshot_persists_asset_in_same_transaction() -> None:
     service, content_repository, event_repository = build_service(
         categories=[category(2, "여행")]
     )
 
-    result = await service.create_content(
+    result = await service.save_screenshot(
         user_id=1,
-        payload=ContentCreate(
-            content_type=ContentType.SCREENSHOT,
-            source=ContentSource.SCREENSHOT,
-            category_ids=[2],
-        ),
+        category_ids=[2],
+        tag_names=[],
+        ocr=ScreenshotOCRResult(text="", title="", summary=""),
+        ocr_metadata={"ocr_status": "no_text", "ocr_failure_reason": None},
         asset=PendingContentAsset(
             asset_type=AssetType.SCREENSHOT,
             storage_key="screenshots/1/image.png",
@@ -762,11 +894,11 @@ async def test_create_screenshot_persists_asset_in_same_transaction() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_fails_when_uncategorized_is_missing() -> None:
+async def test_save_link_fails_when_uncategorized_is_missing() -> None:
     service, content_repository, _ = build_service()
 
     with pytest.raises(SystemConfigurationError) as exc_info:
-        await service.create_content(
+        await service.save_link(
             user_id=1,
             payload=ContentCreate(original_url="https://example.com/post"),
         )
@@ -777,13 +909,13 @@ async def test_create_content_fails_when_uncategorized_is_missing() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("category_ids", [[1, 99], [9, 1, 99]])
-async def test_create_content_rejects_inaccessible_categories(category_ids) -> None:
+async def test_save_link_rejects_inaccessible_categories(category_ids) -> None:
     service, content_repository, _ = build_service(
         categories=[category(1, "취업", is_default=True), category(9, "미분류", is_default=True)]
     )
 
     with pytest.raises(NotFoundError):
-        await service.create_content(
+        await service.save_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
@@ -795,11 +927,11 @@ async def test_create_content_rejects_inaccessible_categories(category_ids) -> N
 
 
 @pytest.mark.asyncio
-async def test_create_link_content_requires_original_url() -> None:
+async def test_save_link_requires_original_url() -> None:
     service, _, _ = build_service(uncategorized=category(9, "미분류", is_default=True))
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_content(
+        await service.save_link(
             user_id=1,
             payload=ContentCreate(content_type=ContentType.LINK, category_ids=[]),
         )
@@ -1098,7 +1230,7 @@ async def test_update_tags_rolls_back_when_replacement_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_rolls_back_when_write_fails_after_resolving_tags() -> None:
+async def test_save_link_rolls_back_when_write_fails_after_resolving_tags() -> None:
     service, content_repository, _ = build_service(
         categories=[category(1, "취업", is_default=True)]
     )
@@ -1109,7 +1241,7 @@ async def test_create_content_rolls_back_when_write_fails_after_resolving_tags()
     content_repository.create = fail_create
 
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await service.create_content(
+        await service.save_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
@@ -1289,7 +1421,7 @@ async def test_record_view_rejects_other_user_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_content_rechecks_url_from_unvalidated_model_copy():
+async def test_save_link_rechecks_url_from_unvalidated_model_copy():
     recommendation = FakeRecommendationService(
         CategoryRecommendationResult(
             category_id=None,
@@ -1303,7 +1435,7 @@ async def test_create_content_rechecks_url_from_unvalidated_model_copy():
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_content(user_id=1, payload=payload)
+        await service.save_link(user_id=1, payload=payload)
 
     assert exc_info.value.status_code == 422
     assert "2048" in exc_info.value.detail

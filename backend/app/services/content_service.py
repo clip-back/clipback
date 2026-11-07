@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.exceptions import InvalidStateError, NotFoundError, SystemConfigurationError
+from app.integrations.ocr_client import ScreenshotOCRResult
 from app.integrations.storage_client import StorageRouter
 from app.models.category import Category
 from app.models.content import (
@@ -46,6 +47,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationResult,
     CategoryRecommendationService,
 )
+from app.services.extraction_service import ExtractionService
 from app.services.image_deletion_service import delete_image_content
 from app.services.summary_kinds import new_summary_job
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
@@ -99,6 +101,27 @@ def content_to_read(content: Content) -> ContentRead:
     )
 
 
+@dataclass(frozen=True)
+class SharedLinkContext:
+    shared_text: str | None
+    source_app: str | None
+    platform: str | None
+    mime_type: str | None
+    attachment_count: int
+    extracted_url: str
+    url_source: str
+
+    def event_metadata(self) -> dict[str, object]:
+        return {
+            "source_app": self.source_app,
+            "platform": self.platform,
+            "mime_type": self.mime_type,
+            "attachment_count": self.attachment_count,
+            "extracted_url": self.extracted_url,
+            "url_source": self.url_source,
+        }
+
+
 class ContentService:
     def __init__(
         self,
@@ -110,6 +133,7 @@ class ContentService:
         tag_repository: TagRepository | None = None,
         storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
+        extraction_service: ExtractionService | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -121,17 +145,15 @@ class ContentService:
         self.recommendation_repository = recommendation_repository or RecommendationRepository(
             content_repository.session
         )
+        self.extraction_service = extraction_service or ExtractionService()
 
-    async def create_content(
+    async def save_link(
         self,
+        *,
         user_id: int,
         payload: ContentCreate,
-        event_metadata_json: str | None = None,
-        recommendation_shared_text: str | None = None,
-        asset: PendingContentAsset | None = None,
+        share: SharedLinkContext | None = None,
         share_receipt: PendingShareReceipt | None = None,
-        user_provided_title: bool = False,
-        user_provided_summary: bool = False,
     ) -> ContentRead:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
@@ -139,70 +161,102 @@ class ContentService:
                 detail="original_url is required for link content",
             )
 
+        typed_title = bool(payload.title and payload.title.strip())
+        typed_summary = bool(payload.summary and payload.summary.strip())
         video_id = None
-        if (
-            payload.content_type == ContentType.LINK
-            and payload.original_url
-            and is_youtube_url(str(payload.original_url))
-        ):
-            url, video_id = normalize_youtube_url(str(payload.original_url))
-            payload = payload.model_copy(
-                update={"original_url": url, "source": ContentSource.YOUTUBE}
-            )
+        base_metadata_json = None
+        shared_text = None
+        if payload.content_type == ContentType.LINK:
+            if is_youtube_url(str(payload.original_url)):
+                payload, video_id = self._normalize_youtube(payload)
+            else:
+                extraction = await self.extraction_service.enrich_link(payload)
+                payload = self.extraction_service.apply_to_payload(payload, extraction)
+                base_metadata_json = self.extraction_service.build_event_metadata_json(
+                    extraction,
+                    base=share.event_metadata() if share else None,
+                )
+                shared_text = share.shared_text if share else None
+                if is_youtube_url(str(payload.original_url)):
+                    payload, video_id = self._normalize_youtube(payload)
+                    # 보존용 임시 분기, 별도 버그 이슈에서 제거.
+                    # 리다이렉트로 YouTube가 된 링크는 보강된 메타데이터 값을 사용자 입력으로 본다.
+                    typed_title = bool(payload.title and payload.title.strip())
+                    typed_summary = bool(payload.summary and payload.summary.strip())
         if payload.original_url and len(str(payload.original_url)) > MAX_CONTENT_URL_LENGTH:
             raise HTTPException(
                 status_code=422,
                 detail=f"original_url must not exceed {MAX_CONTENT_URL_LENGTH} characters "
                 "after normalization",
             )
-        category_ids = self._deduplicate_ids(payload.category_ids)
-        if category_ids:
-            categories = await self.category_repository.list_available_by_ids(
-                user_id=user_id,
-                category_ids=category_ids,
-            )
-            if len(categories) != len(category_ids):
-                raise NotFoundError("Category not found")
-            category_by_id = {category.id: category for category in categories}
-            categories = [category_by_id[category_id] for category_id in category_ids]
-            self._validate_category_combination(categories)
-            recommendation = CategoryRecommendationResult(
-                category_id=None,
-                assignment_method=CategoryAssignmentMethod.USER,
-                failure_reason=None,
-            )
-        elif video_id is None and (
-            payload.content_type == ContentType.LINK or recommendation_shared_text is not None
-        ):
-            recommendation = await self._recommend_category(
-                user_id=user_id,
-                payload=payload,
-                shared_text=recommendation_shared_text,
-            )
-            categories = []
-            if recommendation.category_id is not None:
-                categories = await self.category_repository.list_available_by_ids(
-                    user_id=user_id,
-                    category_ids=[recommendation.category_id],
-                )
-                if not categories:
-                    recommendation = CategoryRecommendationResult(
-                        category_id=recommendation.category_id,
-                        assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
-                        failure_reason=CategoryRecommendationFailureReason.ERROR,
-                    )
-            if not categories:
-                categories = [await self._get_uncategorized()]
-        else:
-            categories = [await self._get_uncategorized()]
-            recommendation = CategoryRecommendationResult(
-                category_id=None,
-                assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
-                failure_reason=None,
-            )
 
-        event_metadata_json = self._build_event_metadata_json(
-            event_metadata_json,
+        return await self._save(
+            user_id=user_id,
+            payload=payload,
+            recommend=payload.content_type == ContentType.LINK and video_id is None,
+            shared_text=shared_text,
+            summary_typed=(
+                (typed_title, typed_summary)
+                if payload.content_type == ContentType.LINK
+                else None
+            ),
+            base_metadata_json=base_metadata_json,
+            asset=None,
+            share_receipt=share_receipt,
+        )
+
+    async def save_screenshot(
+        self,
+        *,
+        user_id: int,
+        category_ids: list[int],
+        tag_names: list[str],
+        ocr: ScreenshotOCRResult,
+        ocr_metadata: dict[str, str | None],
+        asset: PendingContentAsset,
+        share_receipt: PendingShareReceipt | None = None,
+    ) -> ContentRead:
+        shared_text = ocr.text or None
+        return await self._save(
+            user_id=user_id,
+            payload=ContentCreate(
+                content_type=ContentType.SCREENSHOT,
+                source=ContentSource.SCREENSHOT,
+                category_ids=category_ids,
+                tag_names=tag_names,
+                title=ocr.title or None,
+                summary=ocr.summary or None,
+            ),
+            recommend=shared_text is not None,
+            shared_text=shared_text,
+            summary_typed=None,
+            base_metadata_json=json.dumps(ocr_metadata, ensure_ascii=False, separators=(",", ":")),
+            asset=asset,
+            share_receipt=share_receipt,
+        )
+
+    async def _save(
+        self,
+        *,
+        user_id: int,
+        payload: ContentCreate,
+        recommend: bool,
+        shared_text: str | None,
+        summary_typed: tuple[bool, bool] | None,
+        base_metadata_json: str | None,
+        asset: PendingContentAsset | None,
+        share_receipt: PendingShareReceipt | None,
+    ) -> ContentRead:
+        categories, recommendation = await self._decide_categories(
+            user_id=user_id,
+            category_ids=payload.category_ids,
+            payload=payload,
+            shared_text=shared_text,
+            recommend=recommend,
+        )
+
+        metadata_json = self._build_event_metadata_json(
+            base_metadata_json,
             recommendation,
         )
 
@@ -222,14 +276,8 @@ class ContentService:
                 categories=categories,
                 tags=tags,
             )
-            if payload.content_type == ContentType.LINK and payload.original_url:
-                if video_id is not None:
-                    typed_title = bool(payload.title and payload.title.strip())
-                    typed_summary = bool(payload.summary and payload.summary.strip())
-                else:
-                    # The payload already holds the metadata fallback, so the caller
-                    # reports whether the user typed the title and summary.
-                    typed_title, typed_summary = user_provided_title, user_provided_summary
+            if summary_typed is not None:
+                typed_title, typed_summary = summary_typed
                 job = new_summary_job(
                     content_id=content.id,
                     url=str(payload.original_url),
@@ -254,7 +302,7 @@ class ContentService:
                 user_id=user_id,
                 content_id=content.id,
                 event_type=ContentEventType.CONTENT_CREATED,
-                metadata_json=event_metadata_json,
+                metadata_json=metadata_json,
                 category_ids_at_event=sorted({category.id for category in content.categories}),
             )
             created_content = await self.content_repository.get_owned(
@@ -274,6 +322,66 @@ class ContentService:
             raise
 
         return response
+
+    async def _decide_categories(
+        self,
+        *,
+        user_id: int,
+        category_ids: list[int],
+        payload: ContentCreate,
+        shared_text: str | None,
+        recommend: bool,
+    ) -> tuple[list[Category], CategoryRecommendationResult]:
+        category_ids = self._deduplicate_ids(category_ids)
+        if category_ids:
+            categories = await self.category_repository.list_available_by_ids(
+                user_id=user_id,
+                category_ids=category_ids,
+            )
+            if len(categories) != len(category_ids):
+                raise NotFoundError("Category not found")
+            category_by_id = {category.id: category for category in categories}
+            categories = [category_by_id[category_id] for category_id in category_ids]
+            self._validate_category_combination(categories)
+            return categories, CategoryRecommendationResult(
+                category_id=None,
+                assignment_method=CategoryAssignmentMethod.USER,
+                failure_reason=None,
+            )
+        if recommend:
+            recommendation = await self._recommend_category(
+                user_id=user_id,
+                payload=payload,
+                shared_text=shared_text,
+            )
+            categories = []
+            if recommendation.category_id is not None:
+                categories = await self.category_repository.list_available_by_ids(
+                    user_id=user_id,
+                    category_ids=[recommendation.category_id],
+                )
+                if not categories:
+                    recommendation = CategoryRecommendationResult(
+                        category_id=recommendation.category_id,
+                        assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+                        failure_reason=CategoryRecommendationFailureReason.ERROR,
+                    )
+            if not categories:
+                categories = [await self._get_uncategorized()]
+            return categories, recommendation
+        return [await self._get_uncategorized()], CategoryRecommendationResult(
+            category_id=None,
+            assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
+            failure_reason=None,
+        )
+
+    @staticmethod
+    def _normalize_youtube(payload: ContentCreate) -> tuple[ContentCreate, str]:
+        url, video_id = normalize_youtube_url(str(payload.original_url))
+        return (
+            payload.model_copy(update={"original_url": url, "source": ContentSource.YOUTUBE}),
+            video_id,
+        )
 
     async def read_content(self, user_id: int, content_id: int) -> ContentRead:
         content = await self.content_repository.get_owned(user_id=user_id, content_id=content_id)
