@@ -3,7 +3,7 @@
 2026-11-07, 시작 커밋 `b3f3b0b` 기준으로 구현하고 티켓 리뷰(Standards·Spec 지적 0건)와 전체 검증까지 마쳤다.
 코드 커밋은 `32dc0ba`이고, 전체 검증의 기준 코드도 `32dc0ba`이다.
 화면이 바뀌지 않는 정리만 했다. `TagChip`, `SearchHistoryRepository.settle`, `EntryTagline`, `CardPagerProgress`는 그대로 두었다.
-#212(`SortSheet` 제거)는 같은 PR에서 따로 처리한다.
+#212(`SortSheet` 제거)는 같은 PR에서 이어서 처리했다. 아래 [#212 정렬 선택 시트 삭제](#212-정렬-선택-시트-삭제) 절에 따로 적는다.
 
 ## 구현
 
@@ -30,3 +30,27 @@
   - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
 - 미검증: 기기에서 돌리는 촬영 도구(`safe_area_device_check.dart`, `*_preview.dart`)의 실행(컴파일만 확인), iOS Simulator·Android Emulator 실행(화면 변경 없음), 원격 CI.
+
+## #212 정렬 선택 시트 삭제
+
+2026-11-07, 시작 커밋 `af2b90a` 기준으로 구현하고 티켓 리뷰(Standards·Spec 지적 0건)와 전체 검증까지 마쳤다.
+코드 커밋은 `de987d4`이고, 전체 검증의 기준 코드도 `de987d4`이다. 앱에서 열리지 않는 위젯만 지워 화면은 바뀌지 않는다.
+
+### 구현
+
+- `frontend/lib/features/archive/archive_widgets.dart`에서 `SortSheet`와 이로써 안 쓰게 된 `sheet_primitives.dart` import를 지웠다.
+  `AppSheet`·`SheetActionTile`·`SheetInfoRow`는 다른 화면에서 쓰여 그대로 두었다. 정렬 전환(`ArchiveSortButton` 팝업 메뉴)은 건드리지 않았다.
+- `frontend/test/favorite_wording_test.dart`에서 `SortSheet`만 다루던 테스트 `정렬 선택 시트 항목은 즐겨찾기 우선이다`를 지웠다.
+- 촬영 도구 `frontend/test/support/bookmark_preview.dart`의 정렬 메뉴 없음 확인에서 `_find<SortSheet>(_root) == null` 조건과 안 쓰게 된 import를 지웠다.
+  다른 조건(화면 유지, 요청 수 그대로)은 남겼고 대체 조건은 넣지 않았다.
+
+### 검증
+
+- 생성 0회: 작업 전(`af2b90a`) `git grep -n "SortSheet(" -- frontend/lib`는 선언 `const SortSheet({` 1줄뿐이었다.
+  `SortSheet` 사용처는 위 테스트 2곳과 `docs/history/` 2곳이었다. 작업 뒤 `git grep -n "SortSheet" -- frontend`는 0회이고, `docs/history/`의 과거 기록은 그대로 두었다.
+- 부분 검사(구현 중): `flutter analyze --no-pub` 0건, `archive_widgets.dart`를 import하는 테스트 8개 파일 `flutter test --no-pub` 271개 통과(정렬 전환 테스트 기대값 그대로).
+- 리뷰: 티켓 리뷰에서 Standards·Spec 모두 지적 0건.
+- 전체 검증(`de987d4`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트(`flutter test --no-pub`) 3225개 통과, pytest 2235 passed, 47 skipped.
+  - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
+  - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
+- 미검증: 촬영 도구 `bookmark_preview.dart`의 기기 실행(컴파일만 확인), iOS Simulator·Android Emulator 실행(화면 변경 없음), 원격 CI.
