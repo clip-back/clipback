@@ -31,6 +31,9 @@
 | --- | --- | --- |
 | 2026-11-07 | [카테고리 수정 중 "변경 중…" 문구 없애기 (#266)](2026-11-07-category-pending-label.md) | 앱 |
 | 2026-11-07 | [콘텐츠 즐겨찾기·카테고리 이동 중 "변경 중…" 문구 없애기 (#265)](2026-11-07-pending-label.md) | 앱 |
+| 2026-11-07 | [미분류 표시 이름 예약 (#191)](2026-11-07-reserved-category-name.md) | 서버 |
+| 2026-11-07 | [아이콘 버튼 스크린 리더 이름 (#202)](2026-11-07-icon-button-semantics.md) | 앱 |
+| 2026-11-07 | [복원 테스트 실패 때 정리 단계 결과를 안전한 artifact로 남기기 (#262)](2026-11-07-restore-ci-failure-evidence.md) | CI |
 | 2026-11-06 | [회원 탈퇴 최종 통합 (#250)](2026-11-06-account-deletion-final.md) | 서버·앱 |
 | 2026-11-06 | [탈퇴 뒤 기기 정리와 다음 실행 재정리 (#257)](2026-11-06-account-deletion-device-cleanup.md) | 앱 |
 | 2026-11-06 | [탈퇴 화면 J04·J05·J06과 탈퇴 흐름 (#256)](2026-11-06-account-deletion-screens.md) | 앱 |
@@ -211,6 +214,7 @@
 | 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 명세 작성](2026-10-25-category-save-recovery-spec.md) | 명세 |
 | 2026-10-25 | [카테고리 생성·수정 입력 보존과 실패 복구 구현 티켓 분할](2026-10-25-category-save-recovery-tickets.md) | 티켓 |
 | 2026-10-25 | [카테고리 입력 보존과 실패 복구 구현](2026-10-25-category-save-recovery-implementation.md) | 기능 |
+| 2026-10-25 | [이미지 local 유지 호환 배포 준비 구현·검증](2026-10-25-image-compatible-deployment.md) | 백엔드 |
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 | 2026-10-26 | [삭제·보존 정리 없는 수동 백업](2026-10-26-manual-backup-command.md) | 백업 |

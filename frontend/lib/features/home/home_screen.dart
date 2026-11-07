@@ -278,6 +278,7 @@ class HomeHero extends StatelessWidget {
                     const Spacer(),
                     SvgIconButton(
                       asset: Assets.search,
+                      semanticLabel: '검색',
                       onPressed: onSearch,
                       size: 24,
                       hitSize: 24,
@@ -286,6 +287,7 @@ class HomeHero extends StatelessWidget {
                     const SizedBox(width: 16),
                     SvgIconButton(
                       asset: Assets.bell,
+                      semanticLabel: '알림',
                       onPressed:
                           onOpenNotifications ??
                           () => showModalBottomSheet<void>(

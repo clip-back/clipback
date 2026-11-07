@@ -16,6 +16,9 @@ from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.schemas.category import CategoryCreate, CategoryRead, CategorySummaryRead, CategoryUpdate
 
+# 앱이 미분류 카테고리를 이 이름으로 표시하고 판별하므로 일반 카테고리에 쓰지 못하게 한다.
+RESERVED_CATEGORY_NAME = "분류가 필요한 콘텐츠"
+
 
 @dataclass(frozen=True)
 class CategorySubmissionResult:
@@ -99,6 +102,8 @@ class CategoryService:
             raise
 
     async def _check_name(self, user_id: int, name: str, category_id: int | None = None) -> None:
+        if name == RESERVED_CATEGORY_NAME:
+            raise InvalidStateError("Category already exists")
         existing = await self.category_repository.find_available_by_name(
             user_id,
             name,

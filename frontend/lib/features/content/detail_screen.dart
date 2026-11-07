@@ -685,6 +685,7 @@ class DetailTopBar extends StatelessWidget {
           SvgIconButton(
             key: const ValueKey('detail-back'),
             asset: Assets.detailBack,
+            semanticLabel: '뒤로가기',
             onPressed: onBack,
             size: 24,
           ),
@@ -704,6 +705,7 @@ class DetailTopBar extends StatelessWidget {
           SvgIconButton(
             key: const ValueKey('detail-more'),
             asset: Assets.detailMore,
+            semanticLabel: '더보기',
             enabled: !content.isMutating,
             onPressed: () => showModalBottomSheet<void>(
               context: context,
