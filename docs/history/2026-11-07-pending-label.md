@@ -60,3 +60,22 @@
 - 촬영 진입 파일의 빌드 전 확인: 변경 전 코드에서 `변경 중…`이 보이는 상태 6개, 변경 후 코드에서 문구가 없는 상태 6개가 각각 통과했다.
 
 미검증: 변경 후 iOS Simulator·Android Emulator 실행과 변경 전·후·Figma 비교·영상(감독 담당, 화면 확인 미완료). 실기기·운영 서버·CI는 이번 확인 범위가 아니다.
+
+## 기능 전체 최종 검수와 main 병합
+
+- #264 기능 전체 최종 검수(#265 `c28f039`, #266 `69f88be` 포함): Standards 0건, Spec 0건. #266 세부 검증은 [카테고리 이력](2026-11-07-category-pending-label.md)에 있다.
+- `488ddf0`에서 `origin/main`(`b8d4b45`, 아이콘 접근성 이름·미분류 예약 이름 #268)을 병합했다. 양쪽 결정대로 main의 `semanticLabel`·`Semantics`와 이 브랜치의 `isMutating`을 모두 보존했다.
+  main에서 온 접근성 테스트 `frontend/test/icon_button_semantics_test.dart`의 콘텐츠 fixture에만 `isMutating: mutating`을 보완했다(앱 코드 추가 변경 없음).
+
+## 전체 검사(최종)
+
+2026-11-07 14:50–14:57, 기준 코드 `488ddf0`(병합 뒤, 로컬, 대역 데이터).
+
+- 전체 검증 `python3 ~/.heoturu-agents/verify.py`: `VERIFY result=PASS scope=all checks=11 failed=0`.
+  앱 테스트 `+3253: All tests passed!`, 백엔드 `pytest: 2207 passed, 47 skipped, 3 warnings`.
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+  - 건너뛴 Docker 복구·S3 통합 테스트는 이 기능과 무관하며 CI·별도 환경 대상이다.
+
+화면: 변경 전 iOS·Android 기기 촬영은 #265 단계에서 확보했다. 변경 후 촬영, 변경 전·후·Figma 3열 비교와 영상은 아직 하지 않았으며 최종 촬영 단계(감독)에 남아 있다.
+실기기·운영 서버·CI는 이번 확인 범위가 아니다.
