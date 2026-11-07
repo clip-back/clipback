@@ -406,6 +406,7 @@ Map<String, Object?> managementMeasurements(
       'serverCount': category.contentCount,
       'displayDate': category.lastSavedAt,
       'rawTimestamp': category.rawLastSavedAt?.toIso8601String(),
+      'isMutating': category.isMutating,
       'mutationLabel': category.mutationLabel,
       'bounds': _bounds(rowRect),
       'nameStyle': _paragraph(name),
@@ -620,7 +621,7 @@ Map<String, Object?> managementJudgment(Map<String, Object?> metrics) {
     ]);
     if (r['countVisuallyPresent'] != false ||
         r['onRowTapIsNull'] != true ||
-        r['moreLocked'] != (r['mutationLabel'] != null)) {
+        r['moreLocked'] != r['isMutating']) {
       layout.add('Row ${r['id']} count visibility/tap/mutation policy differs');
     }
     if (!_near(box['height'], 44) ||

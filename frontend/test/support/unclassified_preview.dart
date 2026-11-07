@@ -1066,7 +1066,7 @@ Future<void> _changeCategory(String id) async {
   await _wait(
     () =>
         _find<CategoryChangeSheet>(_root) == null &&
-        _screen.contents.every((c) => c.mutationLabel == null) &&
+        _screen.contents.every((c) => !c.isMutating) &&
         _screen.feed?.loading == false,
     'Category mutation did not settle',
   );
@@ -1477,7 +1477,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.records.first['is_favorite'] != favoriteBefore &&
-        _screen.contents.every((c) => c.mutationLabel == null),
+        _screen.contents.every((c) => !c.isMutating),
     'Bookmark write did not finish',
   );
   _require(
@@ -1501,7 +1501,7 @@ Future<void> _run() async {
   await _wait(
     () =>
         _server.records.first['is_favorite'] == favoriteBefore &&
-        _screen.contents.every((c) => c.mutationLabel == null),
+        _screen.contents.every((c) => !c.isMutating),
     'Bookmark restoration did not finish',
   );
   _require(

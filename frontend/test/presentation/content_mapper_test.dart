@@ -106,6 +106,7 @@ void main() {
         contentCount: 42,
         lastSavedAt: savedAt,
       ),
+      isMutating: true,
       mutationLabel: '삭제 중…',
     );
 
@@ -137,9 +138,12 @@ void main() {
       isDefault: false,
     );
     final current = categoryFromApi(remote).copyWith(name: '변경한 분류');
-    final content = contentFromApi(_content(categories: [remote]), {
-      2: current,
-    }, mutationLabel: '변경 중…');
+    final content = contentFromApi(
+      _content(categories: [remote]),
+      {2: current},
+      isMutating: true,
+      mutationLabel: '삭제 중…',
+    );
 
     expect(content.category, same(current));
     expect(content.categories, [current]);
@@ -149,7 +153,8 @@ void main() {
     expect(content.tags, ['태그']);
     expect(content.bookmarked, isTrue);
     expect(content.summaryStatus, 'processing');
-    expect(content.mutationLabel, '변경 중…');
+    expect(content.isMutating, isTrue);
+    expect(content.mutationLabel, '삭제 중…');
     expect(content.source, '웹 링크');
     expect(content.originalUrl, '');
     expect(content.savedAt, '26.10.12');

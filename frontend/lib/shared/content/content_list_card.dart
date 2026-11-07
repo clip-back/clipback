@@ -66,13 +66,13 @@ class ContentListCard extends StatelessWidget {
                       initialActive: bookmarked,
                       hitSize: 28,
                       onToggle: onToggleBookmark,
-                      enabled: content.mutationLabel == null,
+                      enabled: !content.isMutating,
                     ),
                     const SizedBox(width: 4),
                     SvgIconButton(
                       asset: Assets.more,
                       semanticLabel: '더보기',
-                      enabled: content.mutationLabel == null,
+                      enabled: !content.isMutating,
                       onPressed: () => showModalBottomSheet<void>(
                         context: context,
                         useSafeArea: true,
@@ -87,10 +87,9 @@ class ContentListCard extends StatelessWidget {
                               context.mounted &&
                               (context.widget as ContentListCard).content.id ==
                                   content.id &&
-                              (context.widget as ContentListCard)
-                                      .content
-                                      .mutationLabel ==
-                                  null,
+                              !(context.widget as ContentListCard)
+                                  .content
+                                  .isMutating,
                         ),
                       ),
                       size: 24,
@@ -215,7 +214,7 @@ class _ArchiveAllContentListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = card.content;
-    final enabled = content.mutationLabel == null;
+    final enabled = !content.isMutating;
     return Material(
       color: AppColors.surface,
       child: InkWell(
@@ -399,11 +398,10 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                                     .content
                                     .id ==
                                 content.id &&
-                            (context.widget as _ArchiveAllContentListCard)
-                                    .card
-                                    .content
-                                    .mutationLabel ==
-                                null,
+                            !(context.widget as _ArchiveAllContentListCard)
+                                .card
+                                .content
+                                .isMutating,
                       ),
                     ),
                   ),

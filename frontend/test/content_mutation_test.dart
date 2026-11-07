@@ -9,6 +9,7 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -303,6 +304,45 @@ void _change(DetailScreen detail, String action, {ContentItem? target}) {
     case 'delete':
       detail.onDeleteContent(content);
   }
+}
+
+Finder _detailStar() => find.descendant(
+  of: find.byType(DetailTopBar),
+  matching: find.byType(BookmarkActionButton),
+);
+
+bool _detailStarEnabled(WidgetTester tester) =>
+    tester.widget<BookmarkActionButton>(_detailStar()).enabled;
+
+bool _detailMoreEnabled(WidgetTester tester) => tester
+    .widget<SvgIconButton>(find.byKey(const ValueKey('detail-more')))
+    .enabled;
+
+/// 화면에 보이는 그 콘텐츠의 별(홈·목록·전체보기·카드 다시보기·상세) 활성 여부.
+bool _starEnabled(WidgetTester tester, ContentItem content) {
+  final keyed = find.byWidgetPredicate(
+    (widget) =>
+        widget.key is ValueKey<String> &&
+        {
+          'home-bookmark-${content.title}',
+          'list-bookmark-${content.title}',
+          'review-bookmark-${content.id}',
+        }.contains((widget.key as ValueKey<String>).value),
+  );
+  final found = keyed.evaluate().isNotEmpty ? keyed : _detailStar();
+  final element = found.evaluate().single;
+  final widget = element.widget;
+  if (widget is BookmarkActionButton) return widget.enabled;
+  final button = find.descendant(of: found, matching: find.byType(IconButton));
+  if (button.evaluate().isNotEmpty) {
+    return tester.widget<IconButton>(button.first).onPressed != null;
+  }
+  return tester
+          .widget<InkWell>(
+            find.descendant(of: found, matching: find.byType(InkWell)),
+          )
+          .onTap !=
+      null;
 }
 
 http.Response _failure(String kind) => switch (kind) {
@@ -1763,7 +1803,8 @@ void main() {
         await tester.pump();
         final pending = _currentDetail(tester);
         expect(pending.content.bookmarked, isTrue);
-        expect(pending.content.mutationLabel, isNotNull);
+        expect(pending.content.isMutating, isTrue);
+        expect(find.text('변경 중…'), findsNothing);
         _change(pending, 'category');
         _change(pending, 'delete');
         await tester.pump();
@@ -1771,14 +1812,14 @@ void main() {
         metadata.complete(null);
         await tester.pumpAndSettle();
         final complete = _currentDetail(tester);
-        expect(complete.content.mutationLabel, isNull);
+        expect(complete.content.isMutating, isFalse);
         _change(complete, 'category');
         await tester.pumpAndSettle();
         final after = _currentDetail(tester);
         expect(_mutations(server), hasLength(2));
         expect(after.content.bookmarked, isTrue);
         expect(after.content.category.id, 202);
-        expect(after.content.mutationLabel, isNull);
+        expect(after.content.isMutating, isFalse);
         expect(server.calls('/api/v1/contents/3/view'), hasLength(1));
         expect(server.calls('/api/v1/metrics/events'), hasLength(1));
       });
@@ -1825,12 +1866,19 @@ void main() {
                 .enabled,
             isTrue,
           );
+          expect(_currentDetail(tester).content.isMutating, isTrue);
           expect(
             _currentDetail(tester).content.mutationLabel,
-            action == 'delete' ? '삭제 중…' : '변경 중…',
+            action == 'delete' ? '삭제 중…' : isNull,
           );
+          expect(
+            find.text('삭제 중…'),
+            action == 'delete' ? findsOneWidget : findsNothing,
+          );
+          expect(find.text('변경 중…'), findsNothing);
           pending.complete(_json({'detail': '변경 거절'}, 503));
           await tester.pumpAndSettle();
+          expect(_currentDetail(tester).content.isMutating, isFalse);
           expect(_currentDetail(tester).content.mutationLabel, isNull);
           expect(
             tester
@@ -1847,6 +1895,210 @@ void main() {
       },
     );
   }
+
+  // #265: 즐겨찾기·카테고리 이동 요청 중에는 '변경 중…' 없이 잠근다(쓰기 대기·후속 재조회 대기 모두).
+  for (final action in ['favorite', 'category']) {
+    for (final hold in ['write', 'reload']) {
+      testWidgets(
+        'pending $action $hold shows no 변경 중… while detail stays locked and writes once',
+        (tester) async {
+          final pending = Completer<http.Response?>();
+          var categoryReads = 0;
+          final server = _Server(
+            respond: (request, _) {
+              if (hold == 'write' && request.method == 'PUT') {
+                return pending.future;
+              }
+              if (hold == 'reload' &&
+                  request.url.path == '/api/v1/categories' &&
+                  ++categoryReads == 2) {
+                return pending.future;
+              }
+              return null;
+            },
+          );
+          await _withApp(tester, server, () async {
+            await _detail(tester);
+            if (action == 'favorite') {
+              await tester.tap(_detailStar());
+            } else {
+              _change(_currentDetail(tester), 'category');
+            }
+            await tester.pump();
+            if (hold == 'reload') {
+              for (var i = 0; i < 20 && categoryReads < 2; i++) {
+                await tester.pump();
+              }
+              expect(categoryReads, 2, reason: '쓰기 성공 뒤 후속 재조회 대기');
+            }
+            expect(_detailStarEnabled(tester), isFalse);
+            expect(_detailMoreEnabled(tester), isFalse);
+            expect(_mutations(server), hasLength(1));
+            await tester.tap(_detailStar(), warnIfMissed: false);
+            await tester.pump();
+            expect(_mutations(server), hasLength(1), reason: '연속 탭도 쓰기 1회');
+            final content = _currentDetail(tester).content;
+            if (action == 'favorite') {
+              expect(content.bookmarked, isTrue);
+            } else {
+              expect(content.category.id, 202);
+            }
+            expect(find.text('변경 중…'), findsNothing);
+            expect(find.text('삭제 중…'), findsNothing);
+            pending.complete(null);
+            await tester.pumpAndSettle();
+            expect(find.text('변경 중…'), findsNothing);
+            expect(_detailStarEnabled(tester), isTrue);
+            expect(_detailMoreEnabled(tester), isTrue);
+            await tester.tap(_detailStar());
+            await tester.pumpAndSettle();
+            expect(_mutations(server), hasLength(2), reason: '끝나면 다시 누를 수 있다');
+          });
+        },
+      );
+    }
+  }
+
+  // #265 표시 자리: 루트 앱의 각 화면에서 즐겨찾기 쓰기를 붙잡고 문구 없음과 그 자리 별 잠금을 본다.
+  for (final place in [
+    'home',
+    'archive-all',
+    'category-list',
+    'bookmark',
+    'search',
+    'card-review',
+  ]) {
+    testWidgets(
+      'pending favorite in $place shows no 변경 중… and locks its star',
+      (tester) async {
+        final pending = Completer<http.Response?>();
+        final server = _Server(
+          count: place == 'card-review' ? 1 : 3,
+          respond: (request, _) =>
+              request.method == 'PUT' ? pending.future : null,
+        );
+        if (place == 'bookmark') {
+          server.records.first['is_favorite'] = true;
+        }
+        await _withApp(tester, server, () async {
+          final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+          late ContentItem target;
+          late ValueChanged<ContentItem> toggle;
+          switch (place) {
+            case 'home':
+              target = home.contents.first;
+              toggle = home.onToggleBookmark;
+            case 'archive-all' || 'category-list' || 'card-review':
+              home.onTab(AppRoute.archive);
+              await tester.pumpAndSettle();
+              if (place != 'archive-all') {
+                final archive = _currentArchive(tester);
+                archive.onOpenCategory(
+                  archive.categories.singleWhere((c) => c.id == 101),
+                );
+                await tester.pumpAndSettle();
+                if (place == 'card-review') {
+                  _currentArchive(tester).onOpenRandomView();
+                  await tester.pumpAndSettle();
+                }
+              }
+              final archive = _currentArchive(tester);
+              target = archive.contents.first;
+              toggle = archive.onToggleBookmark;
+            case 'bookmark':
+              home.onTab(AppRoute.bookmark);
+              await tester.pumpAndSettle();
+              final screen = tester.widget<BookmarkScreen>(
+                find.byType(BookmarkScreen),
+              );
+              target = screen.contents.first;
+              toggle = screen.onToggleBookmark;
+            case 'search':
+              await _search(tester, '피드 항목 1');
+              final screen = tester.widget<SearchScreen>(
+                find.byType(SearchScreen),
+              );
+              target = screen.contents.single;
+              toggle = screen.onToggleBookmark;
+          }
+          expect(_starEnabled(tester, target), isTrue);
+          toggle(target);
+          await tester.pump();
+          expect(_mutations(server), hasLength(1));
+          expect(_starEnabled(tester, target), isFalse);
+          toggle(target);
+          await tester.pump();
+          expect(_mutations(server), hasLength(1));
+          expect(find.text('변경 중…'), findsNothing);
+          pending.complete(null);
+          await tester.pumpAndSettle();
+          expect(find.text('변경 중…'), findsNothing);
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  // 사용자 결정(2026-11-07 "둘 다 추천대로", 결정 1): 잠긴 별을 다시 누르면 쓰기·별은 그대로이고,
+  // 카드 탭으로 상세가 열리는 지금 동작을 보존한다(상세 이동 차단은 범위 밖).
+  testWidgets(
+    'retapping a locked home star keeps the write and star and opens detail',
+    (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      await _withApp(tester, server, () async {
+        final star = find.byKey(const ValueKey('home-bookmark-피드 항목 1'));
+        await tester.tap(star);
+        await tester.pump();
+        expect(_mutations(server), hasLength(1));
+        expect(tester.widget<BookmarkActionButton>(star).enabled, isFalse);
+        await tester.tap(star, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(_mutations(server), hasLength(1));
+        expect(find.byType(DetailScreen), findsOneWidget);
+        expect(_currentDetail(tester).content.bookmarked, isTrue);
+        expect(_detailStarEnabled(tester), isFalse);
+        expect(find.text('변경 중…'), findsNothing);
+        pending.complete(null);
+        await tester.pumpAndSettle();
+        expect(_detailStarEnabled(tester), isTrue);
+      });
+    },
+  );
+
+  testWidgets(
+    'closing detail during a pending favorite applies the late result once on home',
+    (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      await _withApp(tester, server, () async {
+        await _detail(tester);
+        await tester.tap(_detailStar());
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('detail-back')));
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsNothing);
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        expect(_starEnabled(tester, home.contents.first), isFalse);
+        expect(find.text('변경 중…'), findsNothing);
+        // 서버가 쓰기를 받아들인 상태로 늦게 응답한다(이어지는 재조회도 같은 값).
+        server.records.first['is_favorite'] = true;
+        pending.complete(_json(server.records.first));
+        await tester.pumpAndSettle();
+        final after = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        expect(after.contents.first.bookmarked, isTrue);
+        expect(_starEnabled(tester, after.contents.first), isTrue);
+        expect(_mutations(server), hasLength(1));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
 
   for (final action in ['favorite', 'category', 'delete']) {
     testWidgets(
@@ -2022,7 +2274,7 @@ void main() {
       source: 'web',
       originalUrl: 'https://example.com/card',
       originalText: '원문',
-      mutationLabel: '변경 중…',
+      isMutating: true,
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -2048,7 +2300,7 @@ void main() {
     final categoryText = tester.widget<Text>(find.text(content.category.name));
     expect(categoryText.maxLines, 1);
     expect(categoryText.overflow, TextOverflow.ellipsis);
-    expect(find.text('변경 중…'), findsOneWidget);
+    expect(find.text('변경 중…'), findsNothing);
     expect(tester.getSize(find.byType(HomeContentCard)), const Size(298, 186));
     final bookmark = find.byType(BookmarkActionButton);
     expect(tester.widget<BookmarkActionButton>(bookmark).enabled, isFalse);
@@ -2087,7 +2339,8 @@ void main() {
         await tester.pump();
         final during = _currentDetail(tester);
         expect(during.content.category.id, 202);
-        expect(during.content.mutationLabel, '변경 중…');
+        expect(during.content.isMutating, isTrue);
+        expect(find.text('변경 중…'), findsNothing);
         final bookmark = tester.widget<BookmarkActionButton>(
           find.descendant(
             of: find.byType(DetailTopBar),
@@ -2098,11 +2351,12 @@ void main() {
         read.complete(stale!);
         await tester.pumpAndSettle();
         expect(_currentDetail(tester).content.category.id, 202);
-        expect(_currentDetail(tester).content.mutationLabel, '변경 중…');
+        expect(_currentDetail(tester).content.isMutating, isTrue);
+        expect(find.text('변경 중…'), findsNothing);
         write.complete(_json({'detail': '변경 거절'}, 503));
         await tester.pumpAndSettle();
         expect(_currentDetail(tester).content.category.id, 101);
-        expect(_currentDetail(tester).content.mutationLabel, isNull);
+        expect(_currentDetail(tester).content.isMutating, isFalse);
         expect(server.calls('/api/v1/contents/3/view'), hasLength(1));
       });
     },

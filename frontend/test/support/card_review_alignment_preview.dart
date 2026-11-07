@@ -1167,7 +1167,7 @@ Future<void> _rootRun() async {
     () =>
         _server.bookmarkRequests.length == 1 &&
         (_screen.widget as CategoryCardReviewScreen).contents.every(
-          (c) => c.mutationLabel == null,
+          (c) => !c.isMutating,
         ),
     'Failed mutation did not settle',
   );
@@ -1213,7 +1213,7 @@ Future<void> _rootRun() async {
     () =>
         _server.bookmarkRequests.length == 2 &&
         (_screen.widget as CategoryCardReviewScreen).contents.every(
-          (c) => c.mutationLabel == null,
+          (c) => !c.isMutating,
         ),
     'Retry did not settle',
   );

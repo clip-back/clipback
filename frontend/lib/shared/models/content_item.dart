@@ -20,8 +20,10 @@ class ContentItem {
     this.isScreenshot = false,
     this.assets = const [],
     this.summaryStatus = 'not_requested',
+    this.isMutating = false,
     this.mutationLabel,
-  }) : _category = category,
+  }) : assert(mutationLabel == null || isMutating),
+       _category = category,
        _categories = categories;
 
   final String id;
@@ -45,12 +47,19 @@ class ContentItem {
   final bool isScreenshot;
   final List<ApiAsset> assets;
   final String summaryStatus;
+
+  /// A write for this content is in flight: its star, more menu and
+  /// management actions stay locked until the write and its reload finish.
+  final bool isMutating;
+
+  /// Text shown while [isMutating]; only deletion has one (`삭제 중…`).
   final String? mutationLabel;
 
   ContentItem copyWith({
     CategoryItem? category,
     List<CategoryItem>? categories,
     bool? bookmarked,
+    bool? isMutating,
     String? mutationLabel,
     bool clearMutationLabel = false,
   }) {
@@ -76,6 +85,7 @@ class ContentItem {
       isScreenshot: isScreenshot,
       assets: assets,
       summaryStatus: summaryStatus,
+      isMutating: isMutating ?? this.isMutating,
       mutationLabel: clearMutationLabel
           ? null
           : mutationLabel ?? this.mutationLabel,

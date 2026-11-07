@@ -1013,7 +1013,7 @@ class HomeContentCard extends StatelessWidget {
                 initialActive: bookmarked,
                 inactiveAsset: Assets.homeBookmarkOutline,
                 onToggle: onToggleBookmark,
-                enabled: content.mutationLabel == null,
+                enabled: !content.isMutating,
               ),
             ),
           ],

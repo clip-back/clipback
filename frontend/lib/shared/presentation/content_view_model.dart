@@ -15,19 +15,15 @@ class ContentViewModel extends ViewModel {
 
   final ContentRepository repository;
 
-  List<CategoryItem> get categories => [
-    for (final category in repository.categories)
-      categoryFromApi(
-        category,
-        mutationLabel: switch (repository.categoryMutationDeleting(
-          category.id,
-        )) {
-          true => '삭제 중…',
-          false => '변경 중…',
-          null => null,
-        },
-      ),
-  ];
+  List<CategoryItem> get categories => repository.categories.map((category) {
+    final deleting = repository.categoryMutationDeleting(category.id);
+    // Edits lock silently; only deletion shows text.
+    return categoryFromApi(
+      category,
+      isMutating: deleting != null,
+      mutationLabel: deleting == true ? '삭제 중…' : null,
+    );
+  }).toList();
 
   Set<String> get bookmarkedIds => {
     for (final id in repository.bookmarkedIds) 'api-$id',
@@ -35,6 +31,7 @@ class ContentViewModel extends ViewModel {
 
   ContentItem present(ApiContent item) {
     final currentCategories = categories;
+    final mutation = repository.contentMutationKind(item.id);
     return contentFromApi(
       item,
       {
@@ -44,11 +41,9 @@ class ContentViewModel extends ViewModel {
       uncategorized: currentCategories
           .where((item) => item.name == catUncategorized.name)
           .firstOrNull,
-      mutationLabel: switch (repository.contentMutationKind(item.id)) {
-        ContentMutationKind.delete => '삭제 중…',
-        ContentMutationKind.bookmark || ContentMutationKind.category => '변경 중…',
-        null => null,
-      },
+      // Favorite and category writes lock silently; only deletion shows text.
+      isMutating: mutation != null,
+      mutationLabel: mutation == ContentMutationKind.delete ? '삭제 중…' : null,
     );
   }
 

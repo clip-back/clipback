@@ -191,6 +191,7 @@ void main() {
                 color: _category.color,
                 tint: _category.tint,
                 deep: _category.deep,
+                isMutating: mutating,
                 mutationLabel: mutating ? '삭제 중…' : null,
               ),
               archiveStyle: archiveStyle,

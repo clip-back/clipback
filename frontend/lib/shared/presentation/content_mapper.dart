@@ -7,7 +7,11 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
-CategoryItem categoryFromApi(ApiCategory category, {String? mutationLabel}) {
+CategoryItem categoryFromApi(
+  ApiCategory category, {
+  bool isMutating = false,
+  String? mutationLabel,
+}) {
   final color = _colorFromHex(category.color) ?? AppColors.subSubtle;
   return CategoryItem(
     id: category.id,
@@ -20,6 +24,7 @@ CategoryItem categoryFromApi(ApiCategory category, {String? mutationLabel}) {
     lastSavedAt: category.lastSavedAt == null
         ? null
         : _formatSavedAt(category.lastSavedAt!),
+    isMutating: isMutating,
     mutationLabel: mutationLabel,
   );
 }
@@ -29,6 +34,7 @@ ContentItem contentFromApi(
   ApiContent content,
   Map<int, CategoryItem> categoryById, {
   CategoryItem? uncategorized,
+  bool isMutating = false,
   String? mutationLabel,
 }) {
   final categories = content.categories
@@ -53,6 +59,7 @@ ContentItem contentFromApi(
     isScreenshot: content.contentType == 'screenshot',
     assets: List.unmodifiable(content.assets),
     summaryStatus: content.summaryStatus,
+    isMutating: isMutating,
     mutationLabel: mutationLabel,
   );
 }

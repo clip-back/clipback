@@ -61,7 +61,7 @@ class _ContentActionSheetState extends State<ContentActionSheet> {
           icon: Assets.archive,
           title: '카테고리 변경',
           description: '이 콘텐츠를 다른 카테고리로 옮겨요.',
-          enabled: content.mutationLabel == null,
+          enabled: !content.isMutating,
           onTap: () {
             Navigator.pop(context);
             showModalBottomSheet<void>(
@@ -73,7 +73,7 @@ class _ContentActionSheetState extends State<ContentActionSheet> {
                 current: content.category,
                 categories: categories,
                 onChange: onChangeCategory,
-                enabled: content.mutationLabel == null,
+                enabled: !content.isMutating,
               ),
             );
           },
@@ -82,7 +82,7 @@ class _ContentActionSheetState extends State<ContentActionSheet> {
           icon: Assets.close,
           title: '삭제',
           description: '저장한 콘텐츠 목록에서 제거해요.',
-          enabled: content.mutationLabel == null,
+          enabled: !content.isMutating,
           onTap: _delete,
         ),
       ],

@@ -364,7 +364,7 @@ Future<void> _existingPendingParentTap() async {
     () =>
         _server.bookmarkCalls == 1 &&
         (_home.widget as HomeScreen).contents.any(
-          (v) => v.apiId == id && v.mutationLabel != null,
+          (v) => v.apiId == id && v.isMutating,
         ),
     'Separate pending parent-tap setup failed',
   );
@@ -405,9 +405,7 @@ Future<void> _existingPendingParentTap() async {
   });
   _server.bookmarkGate!.complete(false);
   await _wait(
-    () => (_home.widget as HomeScreen).contents.every(
-      (v) => v.mutationLabel == null,
-    ),
+    () => (_home.widget as HomeScreen).contents.every((v) => !v.isMutating),
     'Separate parent-tap cleanup failed',
   );
   ScaffoldMessenger.of(_home).hideCurrentSnackBar();
@@ -506,7 +504,7 @@ Future<void> _run() async {
     () =>
         _server.bookmarkCalls == 1 &&
         (_home.widget as HomeScreen).contents.any(
-          (v) => v.apiId == target && v.mutationLabel != null,
+          (v) => v.apiId == target && v.isMutating,
         ),
     'Bookmark pending missing',
   );
@@ -517,9 +515,7 @@ Future<void> _run() async {
   _record('bookmark_pending_position_preserved', {'targetId': target});
   _server.bookmarkGate!.complete(false);
   await _wait(
-    () => (_home.widget as HomeScreen).contents.every(
-      (v) => v.mutationLabel == null,
-    ),
+    () => (_home.widget as HomeScreen).contents.every((v) => !v.isMutating),
     'Bookmark failure did not release lock',
   );
   _require(
@@ -540,9 +536,7 @@ Future<void> _run() async {
         _server.bookmarkCalls == 2 &&
         _server.feedCalls > feedBefore &&
         (_home.widget as HomeScreen).feed?.loading == false &&
-        (_home.widget as HomeScreen).contents.every(
-          (v) => v.mutationLabel == null,
-        ),
+        (_home.widget as HomeScreen).contents.every((v) => !v.isMutating),
     'Bookmark successful retry/refetch missing',
   );
   _require(

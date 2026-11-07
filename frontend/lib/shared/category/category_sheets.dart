@@ -140,7 +140,7 @@ void showCategoryActionSheet({
   CategoryUpdateSubmitCallback? onSubmitUpdate,
   CategoryPrepareCallback? onPrepare,
 }) {
-  if (category.mutationLabel != null) return;
+  if (category.isMutating) return;
   showModalBottomSheet<void>(
     context: context,
     useSafeArea: true,
@@ -300,14 +300,14 @@ class CategoryActionSheet extends StatelessWidget {
                 icon: Icons.edit_outlined,
                 title: '카테고리 수정',
                 onTap: onEdit,
-                enabled: category.mutationLabel == null,
+                enabled: !category.isMutating,
               ),
               CategoryActionRow(
                 key: const ValueKey('category-actions-delete'),
                 icon: Icons.delete_outline,
                 title: '카테고리 삭제',
                 onTap: onDelete,
-                enabled: category.mutationLabel == null,
+                enabled: !category.isMutating,
               ),
             ],
           ),
@@ -447,9 +447,7 @@ class CategoryDeleteDialog extends StatelessWidget {
                     Expanded(
                       child: FilledButton(
                         key: const ValueKey('category-delete-confirm'),
-                        onPressed: category.mutationLabel == null
-                            ? onDelete
-                            : null,
+                        onPressed: category.isMutating ? null : onDelete,
                         style: FilledButton.styleFrom(
                           minimumSize: Size.zero,
                           padding: EdgeInsets.zero,
