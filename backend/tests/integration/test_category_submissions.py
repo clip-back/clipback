@@ -402,3 +402,31 @@ async def test_replayed_submission_keeps_current_state_and_receipts_until_accoun
             CategorySubmission.user_id == user_id,
         )) == 0
     assert len(set(pids)) >= 2
+
+
+async def test_reserved_uncategorized_display_name_is_rejected_like_duplicate(api):
+    headers, _, _ = await guest(api)
+    reserved = "분류가 필요한 콘텐츠"
+    target = await request(api, "POST", "categories", headers=headers,
+                           json={"name": "이름 바꿀 대상"}, status=201)
+    path = f"categories/{target['id']}"
+    for name in [reserved, f"  {reserved} "]:
+        created = await request(api, "POST", "categories", headers=headers,
+                                json={"name": name}, status=409)
+        assert created == {"detail": "Category already exists"}
+        renamed = await request(api, "PATCH", path, headers=headers,
+                                json={"name": name}, status=409)
+        assert renamed == {"detail": "Category already exists"}
+        for method, route in [("POST", "categories"), ("PATCH", path)]:
+            key = str(uuid4())
+            denied = await request(api, method, route, headers={
+                **headers, "Idempotency-Key": key,
+            }, json={"name": name}, status=409)
+            assert denied == {
+                "detail": "Category already exists", "code": "category_name_exists",
+                "submission": {"key": key, "status": "rejected", "replayed": False},
+            }
+    listed = await request(api, "GET", "categories", headers=headers)
+    assert not any(item["name"] == reserved for item in listed)
+    current = next(item for item in listed if item["id"] == target["id"])
+    assert current["name"] == "이름 바꿀 대상"

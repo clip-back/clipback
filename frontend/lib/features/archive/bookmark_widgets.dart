@@ -45,12 +45,14 @@ class BookmarkTopBar extends StatelessWidget {
           _BookmarkAssetButton(
             key: const ValueKey('bookmark-search'),
             asset: Assets.archiveSearch,
+            semanticLabel: '검색',
             onPressed: onSearch,
           ),
           const SizedBox(width: 16),
           _BookmarkAssetButton(
             key: const ValueKey('bookmark-settings'),
             asset: Assets.archiveSettings,
+            semanticLabel: '카테고리 관리',
             onPressed: onOpenCategoryManagement,
           ),
         ],
@@ -62,11 +64,13 @@ class BookmarkTopBar extends StatelessWidget {
 class _BookmarkAssetButton extends StatelessWidget {
   const _BookmarkAssetButton({
     required this.asset,
+    required this.semanticLabel,
     required this.onPressed,
     super.key,
   });
 
   final String asset;
+  final String semanticLabel;
   final VoidCallback? onPressed;
 
   @override
@@ -77,7 +81,10 @@ class _BookmarkAssetButton extends StatelessWidget {
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 24, height: 24),
       onPressed: onPressed,
-      icon: SvgPicture.asset(asset, width: 24, height: 24),
+      icon: Semantics(
+        label: semanticLabel,
+        child: SvgPicture.asset(asset, width: 24, height: 24),
+      ),
     ),
   );
 }

@@ -791,6 +791,51 @@ void main() {
       );
     }
   }
+  for (final management in [false, true]) {
+    for (final edit in [false, true]) {
+      testWidgets(
+        '${management ? '관리' : '아카이브'} ${edit ? '수정' : '생성'}에서 미분류 표시 이름을 쓰면 같은 이름 오류 문구를 보여 준다',
+        (tester) async {
+          const reserved = '분류가 필요한 콘텐츠';
+          final writes = <http.Request>[];
+          final server = _Server(
+            respond: (r, _) {
+              if (r.method == 'PATCH' ||
+                  (r.method == 'POST' && r.url.path == _categories)) {
+                writes.add(r);
+                // 서버는 이 이름을 이름 중복과 같은 응답으로 거절한다(#191).
+                return _json({
+                  'detail': 'Category already exists',
+                  'code': 'category_name_exists',
+                  'submission': {
+                    'key': r.headers['Idempotency-Key'],
+                    'status': 'rejected',
+                    'replayed': false,
+                  },
+                }, 409);
+              }
+              return null;
+            },
+          );
+          await _withApp(tester, server, (_) async {
+            await _navigate(tester, management);
+            await _open(tester, edit);
+            await _save(tester, edit, reserved);
+            expect(
+              (jsonDecode(writes.single.body) as Map<String, dynamic>)['name'],
+              reserved,
+            );
+            expect(
+              find.text('같은 이름의 카테고리가 있어요. 다른 이름을 입력해 주세요.'),
+              findsOneWidget,
+            );
+            expect(find.byType(CategoryFormSheet), findsOneWidget);
+            expect(_input(tester), reserved);
+          });
+        },
+      );
+    }
+  }
   testWidgets('수정 재진입 대상 부재는 같은 이름의 다른 카테고리로 대체하지 않는다', (tester) async {
     final server = _Server();
     await _withApp(tester, server, (_) async {

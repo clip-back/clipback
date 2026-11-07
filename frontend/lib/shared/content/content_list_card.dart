@@ -71,6 +71,7 @@ class ContentListCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     SvgIconButton(
                       asset: Assets.more,
+                      semanticLabel: '더보기',
                       enabled: content.mutationLabel == null,
                       onPressed: () => showModalBottomSheet<void>(
                         context: context,
@@ -378,6 +379,7 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                   _ArchiveAllAssetButton(
                     key: ValueKey('archive-all-more-${content.id}'),
                     asset: Assets.archiveAllMore,
+                    semanticLabel: '더보기',
                     size: 24,
                     enabled: enabled,
                     onPressed: () => showModalBottomSheet<void>(
@@ -458,12 +460,14 @@ class _ArchiveAllAssetButton extends StatelessWidget {
     required this.size,
     required this.enabled,
     required this.onPressed,
+    this.semanticLabel,
     super.key,
   });
   final String asset;
   final double size;
   final bool enabled;
   final VoidCallback onPressed;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -473,7 +477,10 @@ class _ArchiveAllAssetButton extends StatelessWidget {
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 28, height: 28),
       onPressed: enabled ? onPressed : null,
-      icon: SvgPicture.asset(asset, width: size, height: size),
+      icon: Semantics(
+        label: semanticLabel,
+        child: SvgPicture.asset(asset, width: size, height: size),
+      ),
     ),
   );
 }

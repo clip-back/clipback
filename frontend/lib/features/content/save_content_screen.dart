@@ -558,6 +558,7 @@ class SaveContentTopBar extends StatelessWidget {
           children: [
             SvgIconButton(
               asset: Assets.close,
+              semanticLabel: '닫기',
               onPressed: onClose,
               size: 24,
               hitSize: 24,

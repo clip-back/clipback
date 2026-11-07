@@ -184,11 +184,13 @@ class _CategoryArchiveText {
 class _CategoryArchiveAssetButton extends StatelessWidget {
   const _CategoryArchiveAssetButton({
     required this.asset,
+    required this.semanticLabel,
     required this.onPressed,
     super.key,
   });
 
   final String asset;
+  final String semanticLabel;
   final VoidCallback onPressed;
 
   @override
@@ -200,7 +202,10 @@ class _CategoryArchiveAssetButton extends StatelessWidget {
       constraints: const BoxConstraints.tightFor(width: 24, height: 24),
       onPressed: onPressed,
       // Keep the original strokes and white gear interior unchanged.
-      icon: SvgPicture.asset(asset, width: 24, height: 24),
+      icon: Semantics(
+        label: semanticLabel,
+        child: SvgPicture.asset(asset, width: 24, height: 24),
+      ),
     ),
   );
 }
@@ -228,6 +233,7 @@ class CategoryArchiveTopBar extends StatelessWidget {
           _CategoryArchiveAssetButton(
             key: const ValueKey('archive-category-search'),
             asset: Assets.archiveSearch,
+            semanticLabel: '검색',
             onPressed: onSearch,
           ),
           if (onOpenCategoryManagement != null) ...[
@@ -235,6 +241,7 @@ class CategoryArchiveTopBar extends StatelessWidget {
             _CategoryArchiveAssetButton(
               key: const ValueKey('archive-manage-categories'),
               asset: Assets.archiveSettings,
+              semanticLabel: '카테고리 관리',
               onPressed: onOpenCategoryManagement!,
             ),
           ],
@@ -273,6 +280,7 @@ class CategoryArchiveToolbar extends StatelessWidget {
           _CategoryArchiveAssetButton(
             key: const ValueKey('archive-category-add'),
             asset: Assets.archiveFolderPlus,
+            semanticLabel: '카테고리 추가',
             onPressed: onAddCategory,
           ),
         ],
@@ -525,25 +533,30 @@ class CategoryRow extends StatelessWidget {
                   style: const TextStyle(color: AppColors.subtle, fontSize: 14),
                 ),
                 const SizedBox(width: 8),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
-                  child: SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Center(
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: const BoxDecoration(
-                          color: AppColors.faint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: SvgIcon(
-                            asset: Assets.moreHorizontal,
-                            size: 19.2,
-                            color: AppColors.middle,
+                Semantics(
+                  container: true,
+                  button: true,
+                  label: '더보기',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: category.mutationLabel == null ? onMore : null,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: AppColors.faint,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: SvgIcon(
+                              asset: Assets.moreHorizontal,
+                              size: 19.2,
+                              color: AppColors.middle,
+                            ),
                           ),
                         ),
                       ),
@@ -621,32 +634,37 @@ class _ArchiveCategoryRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                GestureDetector(
-                  key: ValueKey('archive-category-more-$id'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
-                  child: SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Center(
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: const BoxDecoration(
-                          color: AppColors.faint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            2.4,
-                            2.4,
-                            2.4,
-                            3.2,
+                Semantics(
+                  container: true,
+                  button: true,
+                  label: '더보기',
+                  child: GestureDetector(
+                    key: ValueKey('archive-category-more-$id'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: category.mutationLabel == null ? onMore : null,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(
+                            color: AppColors.faint,
+                            shape: BoxShape.circle,
                           ),
-                          child: SvgPicture.asset(
-                            Assets.archiveCategoryMore,
-                            width: 19.2,
-                            height: 18.4,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              2.4,
+                              2.4,
+                              2.4,
+                              3.2,
+                            ),
+                            child: SvgPicture.asset(
+                              Assets.archiveCategoryMore,
+                              width: 19.2,
+                              height: 18.4,
+                            ),
                           ),
                         ),
                       ),

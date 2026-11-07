@@ -31,6 +31,7 @@ class UnclassifiedTopBar extends StatelessWidget {
           _UnclassifiedAssetButton(
             key: const ValueKey('unclassified-back'),
             asset: Assets.detailBack,
+            semanticLabel: '뒤로가기',
             onPressed: onBack,
           ),
           const SizedBox(width: 8),
@@ -53,12 +54,14 @@ class UnclassifiedTopBar extends StatelessWidget {
           _UnclassifiedAssetButton(
             key: const ValueKey('unclassified-search'),
             asset: Assets.archiveSearch,
+            semanticLabel: '검색',
             onPressed: onSearch,
           ),
           const SizedBox(width: 16),
           _UnclassifiedAssetButton(
             key: const ValueKey('unclassified-settings'),
             asset: Assets.archiveSettings,
+            semanticLabel: '카테고리 관리',
             onPressed: onOpenCategoryManagement,
           ),
         ],
@@ -70,11 +73,13 @@ class UnclassifiedTopBar extends StatelessWidget {
 class _UnclassifiedAssetButton extends StatelessWidget {
   const _UnclassifiedAssetButton({
     required this.asset,
+    required this.semanticLabel,
     required this.onPressed,
     super.key,
   });
 
   final String asset;
+  final String semanticLabel;
   final VoidCallback? onPressed;
 
   @override
@@ -85,7 +90,10 @@ class _UnclassifiedAssetButton extends StatelessWidget {
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 24, height: 24),
       onPressed: onPressed,
-      icon: SvgPicture.asset(asset, width: 24, height: 24),
+      icon: Semantics(
+        label: semanticLabel,
+        child: SvgPicture.asset(asset, width: 24, height: 24),
+      ),
     ),
   );
 }
