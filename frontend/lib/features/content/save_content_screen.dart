@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/services/api_request_scope.dart';
 import 'package:clipback_frontend/data/services/event_uuid.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -14,7 +13,6 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
-import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1319,88 +1317,6 @@ class SaveErrorToast extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class LinkAddSheet extends StatefulWidget {
-  const LinkAddSheet({
-    required this.categories,
-    required this.onSave,
-    super.key,
-  });
-
-  final List<CategoryItem> categories;
-  final void Function({required String url, required CategoryItem category})
-  onSave;
-
-  @override
-  State<LinkAddSheet> createState() => _LinkAddSheetState();
-}
-
-class _LinkAddSheetState extends State<LinkAddSheet> {
-  final _controller = TextEditingController(
-    text: 'https://www.instagram.com/p/hutureu-mock',
-  );
-  late CategoryItem _category;
-
-  @override
-  void initState() {
-    super.initState();
-    _category = widget.categories.first;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final url = _controller.text.trim();
-    if (url.isEmpty) return;
-    widget.onSave(url: url, category: _category);
-    final navigator = Navigator.of(context);
-    navigator.pop();
-    navigator.pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '링크 추가',
-      children: [
-        TextField(
-          controller: _controller,
-          decoration: const InputDecoration(
-            hintText: 'https://',
-            filled: true,
-            fillColor: AppColors.bg,
-            border: OutlineInputBorder(borderSide: BorderSide.none),
-          ),
-        ),
-        const SizedBox(height: 16),
-        CategorySelectField(
-          categories: widget.categories,
-          selected: _category,
-          onChanged: (category) => setState(() => _category = category),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.bg,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Text(
-            '미리보기: 링크 제목, 핵심 요약, 자동 추천 카테고리를 확인한 뒤 저장하는 목데이터 흐름입니다.',
-            style: TextStyle(color: AppColors.subtle, fontSize: 14),
-          ),
-        ),
-        const SizedBox(height: 18),
-        PrimaryButton(label: '저장하기', onPressed: _save, height: 52),
-      ],
     );
   }
 }

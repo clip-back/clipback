@@ -10,6 +10,7 @@ The backend supports Python 3.11 and 3.12. Run the same checks used by CI from t
 
 ```bash
 ruff check app alembic tests
+deptry .
 pytest -q
 python -m compileall app alembic tests
 alembic upgrade head

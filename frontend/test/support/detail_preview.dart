@@ -630,11 +630,7 @@ Map<String, Object?> _metrics() {
         e.category.name == _hostKey.currentState!.active.category.name,
   )) {
     final title = _text(related.title, list);
-    final root =
-        _key('detail-related-card-${related.id}', detail) ??
-        (title == null
-            ? null
-            : _ancestor(title, (w) => w is RelatedContentTile));
+    final root = _key('detail-related-card-${related.id}', detail);
     if (root == null || title == null) continue;
     final container = _elements(root)
         .where(

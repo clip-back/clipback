@@ -49,7 +49,3 @@ class UserRepository:
         user.is_guest = False
         await self.session.flush()
         return user
-
-    async def list_all(self) -> list[User]:
-        result = await self.session.scalars(select(User).order_by(User.id.asc()))
-        return list(result)

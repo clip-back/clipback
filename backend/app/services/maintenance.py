@@ -173,14 +173,6 @@ class MaintenanceGate:
             await asyncio.sleep(0.1)
         return await self.status()
 
-    async def assert_frozen(self, run_id, generation=None):
-        async with self.sessions() as session, session.begin():
-            row = await self._state(session)
-            self._owner(row, run_id, generation)
-            if row.phase != "frozen":
-                raise MaintenanceError("source_write_freeze_required")
-            return row.generation
-
     async def begin_restore(self, run_id, generation=None):
         async with self.sessions() as session, session.begin():
             row = await self._state(session)
