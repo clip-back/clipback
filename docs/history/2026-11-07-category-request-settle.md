@@ -35,7 +35,7 @@
 
 ## #282 고정 테스트를 main에서 실행 (#282 결과 댓글에서 옮김)
 
-- 방법: 정식 `git worktree`가 아니다. `git archive 901a3b1 frontend`로 main의 frontend 소스를 작업 폴더 밖 임시 위치에 풀고, 같은 파일(SHA 동일)을 넣어 `flutter pub get --enforce-lockfile --offline` 뒤 `flutter test --no-pub <이 파일>`을 실행한 소스 비교다.
+- 방법: 정식 `git worktree`가 아니다. `git archive 901a3b1 frontend`로 main의 frontend 소스를 이 워크트리 안의 임시 디렉터리 `.utmp/ticket-282/main-901a3b1`(커밋하지 않는 작업 폴더)에 풀고, 같은 파일(SHA 동일)을 넣어 `flutter pub get --enforce-lockfile --offline` 뒤 `flutter test --no-pub <이 파일>`을 실행한 소스 비교다.
 - 결과: `+128: All tests passed!`. 기획 단계 측정값과 다른 행은 없었다.
 - 참고: 901a3b1과 #282 시작 커밋 8cf9698의 차이는 `GLOSSARY.md` 4줄뿐이다.
 - 같은 파일의 `a6afae6` 전체 검증은 `VERIFY result=PASS scope=all checks=11 failed=0`, 앱 테스트 `+3353: All tests passed!`였다(원문: [#282 댓글](https://github.com/clip-back/clipback/issues/282#issuecomment-6706830132)).
