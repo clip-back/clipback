@@ -26,7 +26,7 @@
 
 ## 앱 0.5.0
 
-[iOS 0.5.0(11)·Android 0.5.0(7) 후보 기록](docs/releases/app-v0.5.0-ios-b11-android-b7.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 11은 App Store Connect에 업로드했고, Android 7 업로드와 테스터 제공은 미확인입니다. 정식 공개는 미실행입니다. 회원 탈퇴는 [backend-2026-11-07-1](docs/releases/backend-2026-11-07-1.md)의 서버 변경에 의존합니다.
+[iOS 0.5.0(11)·Android 0.5.0(7) 후보 기록](docs/releases/app-v0.5.0-ios-b11-android-b7.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 11은 TestFlight 테스터에게, Android 7은 내부 테스터에게 제공했습니다(사용자 보고, 2026-11-08). 실기기 확인 결과는 미확인입니다. 정식 공개는 미실행입니다. 회원 탈퇴는 [backend-2026-11-07-1](docs/releases/backend-2026-11-07-1.md)의 서버 변경에 의존합니다.
 
 ### 추가
 

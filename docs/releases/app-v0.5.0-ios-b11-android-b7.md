@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 회원 탈퇴 화면 (#256, CHANGELOG 앱 0.5.0 추가); [앱] 탈퇴 후 기기 정리 (#257, CHANGELOG 앱 0.5.0 추가); [앱] 즐겨찾기·카테고리 이동 중 “변경 중…” 문구 제거 (#265, CHANGELOG 앱 0.5.0 개선); [앱] 아이콘 버튼 스크린 리더 이름 (#202, CHANGELOG 앱 0.5.0 수정); [앱] 링크 상세의 전문 보기 제거 (#201, CHANGELOG 앱 0.5.0 수정)
 - 관련 PR·작업 링크: [전문 보기 제거 #259](https://github.com/clip-back/clipback/pull/259)(#201), [회원 탈퇴 #261](https://github.com/clip-back/clipback/pull/261)(#250·#256·#257, 서버 #253·#254·#255도 이 PR로 병합), [아이콘 접근성 이름·미분류 예약 이름 #268](https://github.com/clip-back/clipback/pull/268)(#202, 서버 #191), [“변경 중…” 제거 #270](https://github.com/clip-back/clipback/pull/270)(#264·#265)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.4.1(10)·Android 0.4.1(6)](app-v0.4.1-ios-b10-android-b6.md)
-- 후보 준비 상태·미확인 사유: iOS 0.5.0(11) 아카이브·IPA와 Android 0.5.0(7) AAB 빌드 완료(2026-11-07). 후보 태그 생성·푸시(2026-11-07). iOS 11은 배포 세션이 App Store Connect에 업로드(2026-11-07 18:14 KST, Upload succeeded). Android 7 업로드는 사용자 진행 예정, 미확인. App Store Connect 처리·테스터 제공·심사·실기기 확인 미확인, 정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.5.0(11) 아카이브·IPA와 Android 0.5.0(7) AAB 빌드 완료(2026-11-07). 후보 태그 생성·푸시(2026-11-07). iOS 11은 배포 세션이 App Store Connect에 업로드(2026-11-07 18:14 KST, Upload succeeded). Android 7은 사용자가 Play Console에 업로드(시각 미확인). iOS 11은 TestFlight 테스터에게, Android 7은 내부 테스터에게 제공(사용자 보고, 2026-11-08, 시각·그룹·트랙 이름 미보고). 외부 베타 심사·실기기 확인 미확인, 정식 공개 미실행
 
 사용자 결정(2026-11-07, 원문): "버전은 0.5.0으로 해줘 ios 10 android 6이야". 앞 숫자는 스토어 최대 업로드 번호이며 새 번호는 iOS 11·Android 7입니다.
 포함 변경은 CHANGELOG `미배포`의 `[앱]` 항목 5개 전부입니다(`[iOS]`·`[Android]` 항목은 없었음). 새 기능인 회원 탈퇴(`추가`)가 들어가 MINOR 규칙에 따라 0.4.1에서 0.5.0으로 올렸습니다.
@@ -44,9 +44,9 @@
 | 후보 태그·실제 생성 여부 | app-ios-v0.5.0-b11 (2026-11-07 생성·푸시, annotated) | app-android-v0.5.0-b7 (2026-11-07 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 테스트 배포·실기기 확인 전 | 미결정 — 테스트 배포·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.5.0-ios-b11/Runner.xcarchive`(생성 2026-11-07 17:56 KST), IPA `frontend/build/release-candidates/app-v0.5.0-ios-b11/ipa/clipback_frontend.ipa` 42,842,956바이트, SHA-256 `4557a0299ac844e6d7a30280e46db948c174bd39099117b74e7be56240e09468` — 본앱 `com.huturu.app` 0.5.0(11), 공유 확장 `com.huturu.app.ShareExtension` 0.5.0(11), 팀 `8X6N747PQM`, 권한 설명 3종 존재 | Release AAB 성공. `frontend/build/release-candidates/app-v0.5.0-android-b7/app-release.aab`, 74,540,484바이트, SHA-256 `fb39451441a7168a9a5211d43d14f0fa713e317e3ef0e8e10b1d7d09f9996038`. versionName 0.5.0·versionCode 7 확인 |
-| 업로드·처리 상태 | 후보 아카이브 `app-v0.5.0-ios-b11/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-07 18:14 KST). App Store Connect 처리 결과 미확인 | 사용자 진행 예정, 미확인 |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 — 처리 결과 확인 전 | 미실행 — 업로드 전 |
-| 심사 상태 | 미확인 | 미실행 — 업로드 전 |
+| 업로드·처리 상태 | 후보 아카이브 `app-v0.5.0-ios-b11/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-07 18:14 KST). App Store Connect 처리 완료 — TestFlight 테스터 제공이 이뤄졌다는 사용자 보고(2026-11-08)로 판단 | 사용자가 Play Console에 업로드(사용자 보고, 2026-11-08 수신, 업로드 시각 미확인). 올린 파일이 `app-v0.5.0-android-b7/app-release.aab`인지는 사용자가 따로 확인해 주지 않음. Play 처리 완료 — 내부 테스터 제공이 이뤄졌다는 사용자 보고(2026-11-08)로 판단 |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | TestFlight 테스터에게 제공(사용자 보고, 2026-11-08). 내부·외부 그룹과 그룹 이름은 사용자 보고 없음, 제공 시각 미확인 | 내부 테스터에게 제공(사용자 보고, 2026-11-08). 트랙 이름은 사용자 보고 없음, 제공 시각 미확인 |
+| 심사 상태 | 미확인 — 외부 베타 심사 여부는 사용자 보고 없음 | 미확인 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
 | 실제 공개일·시각 | 해당 없음 — 공개 전 | 해당 없음 — 공개 전 |
 
@@ -98,3 +98,4 @@
 | 2026-11-07 17:56–17:58 | Android AAB | iOS 빌드 종료 후 실행. 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.5.0 --build-number=7`, 운영 API·공개 SDK 설정 지정. `android/gradlew`가 빌드 전에 없어 단독 `validateReleaseSigning`은 빌드 뒤 실행해 BUILD SUCCESSFUL | 98초 성공, 0.5.0(7) 확인. 본체 후보 폴더로 복사(SHA-256 일치), `./gradlew --stop`으로 데몬 정지. 업로드 미실행 |
 | 2026-11-07 18:12 | 태그 생성·푸시 | 사용자 승인(2026-11-07, 원문 "1 2 4 진행해줘": 태그 2개 push, iOS 11 업로드, 기록 브랜치 push·PR. Android 7 업로드는 사용자가 직접). 푸시 직전 origin에 같은 태그 없음 확인. annotated 태그 `app-ios-v0.5.0-b11`·`app-android-v0.5.0-b7`을 `901a3b138894528ef17003874eef0ef28e58467a`에 만들어 origin에 푸시 | origin `ls-remote`로 두 태그가 `901a3b1`을 가리킴을 확인 |
 | 2026-11-07 18:13–18:14 | iOS 업로드 | 같은 승인. 올리기 전 아카이브의 본앱 `com.huturu.app`·공유 확장 `com.huturu.app.ShareExtension` 모두 0.5.0(11), 소스 `901a3b1`(이 기록) 대조. 새로 빌드하지 않고 같은 아카이브를 `xcodebuild -exportArchive -allowProvisioningUpdates`로 업로드. 내보내기 설정은 IPA 내보내기와 같은 자동 서명·팀 `8X6N747PQM`·method `app-store-connect`에서 destination만 upload로, 빌드 번호 자동 변경(`manageAppVersionAndBuildNumber`)은 끔. Xcode에 로그인된 계정 사용 | 96초, `Upload succeeded`·`EXPORT SUCCEEDED`, 한 번 시도. 로그에 Xcode에 등록된 다른 계정 하나의 키체인 자격 증명 로드 실패 경고가 있었으나 업로드에 영향 없음. App Store Connect 처리·TestFlight 제공은 사용자 확인 대기. Android 7 업로드는 사용자 진행 예정, 미확인 |
+| 2026-11-08 (시각 미확인) | 테스터 제공 보고 수신 | 사용자 보고(조율 경유). Android 7 원문 "안드로이드 내부 테스터에게 제공까지 했어". iOS 11은 조율의 질문 "TestFlight 테스터에게도 제공됐나요?"에 원문 "제공했어" | 사용자 보고, 화면 증거 받지 않음. Android에 올린 파일이 후보 AAB인지는 따로 확인받지 않음. iOS 테스트 그룹(내부·외부)·이름, Android 트랙 이름, 제공 시각은 사용자 보고 없음. 외부 베타 심사·실기기 확인 미확인, 정식 배포 대상 지정은 미결정 |
