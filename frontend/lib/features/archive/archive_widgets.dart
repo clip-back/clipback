@@ -13,7 +13,6 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
-import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -549,48 +548,6 @@ class _ArchiveSortOption extends StatelessWidget {
             const Icon(Icons.check, size: 16, color: AppColors.mainDeep),
         ],
       ),
-    );
-  }
-}
-
-class SortSheet extends StatelessWidget {
-  const SortSheet({
-    required this.activeBookmarkedFirst,
-    required this.onSelect,
-    super.key,
-  });
-
-  final bool activeBookmarkedFirst;
-  final ValueChanged<bool> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '정렬',
-      children: [
-        SheetActionTile(
-          icon: Assets.chevronDown,
-          title: '최신순',
-          description: activeBookmarkedFirst
-              ? '최근 저장한 콘텐츠부터 다시 보여줘요.'
-              : '현재 적용 중인 정렬입니다.',
-          onTap: () {
-            onSelect(false);
-            Navigator.pop(context);
-          },
-        ),
-        SheetActionTile(
-          icon: Assets.star,
-          title: '즐겨찾기 우선',
-          description: activeBookmarkedFirst
-              ? '현재 적용 중인 정렬입니다.'
-              : '중요 표시한 정보를 먼저 보여줘요.',
-          onTap: () {
-            onSelect(true);
-            Navigator.pop(context);
-          },
-        ),
-      ],
     );
   }
 }

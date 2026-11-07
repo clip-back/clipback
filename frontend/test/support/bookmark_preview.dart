@@ -7,7 +7,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
-import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
@@ -1437,9 +1436,7 @@ Future<void> _run() async {
   final requestCount = _server.requests.length;
   await _tap(sort);
   _require(
-    _route() == 'bookmark' &&
-        _find<SortSheet>(_root) == null &&
-        _server.requests.length == requestCount,
+    _route() == 'bookmark' && _server.requests.length == requestCount,
     'Latest label must remain static without sort menu/query',
   );
   _record('static_latest_label_no_action');
