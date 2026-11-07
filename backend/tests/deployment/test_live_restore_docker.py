@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.services.maintenance import MaintenanceGate
 from scripts.restore_execution import prepare, run_restore
+from tests.deployment.restore_evidence import FAILURE, RestoreEvidence
 from tests.deployment.test_image_backup_docker import bucket_backup as bucket_backup
 
 pytestmark = pytest.mark.skipif(
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture
-def live_context(bucket_backup, monkeypatch, tmp_path):
+def live_context(bucket_backup, monkeypatch, tmp_path, request):
     store, _, _, _, image = bucket_backup
     fixture = store.fixture_context
     env = fixture["env"]
@@ -44,6 +45,11 @@ def live_context(bucket_backup, monkeypatch, tmp_path):
         "STORAGE_ROOT": str(tmp_path),
         "PYTHONPATH": str(Path(__file__).parents[2]),
     }
+    evidence = RestoreEvidence(request.node.name)
+    # Pass-through wrapper: run_restore's child Process is kept to read its returncode.
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", evidence.observe(asyncio.create_subprocess_exec)
+    )
     private = subprocess.Popen(
         [
             sys.executable,
@@ -77,6 +83,7 @@ def live_context(bucket_backup, monkeypatch, tmp_path):
             time.sleep(0.1)
         else:
             raise AssertionError("private control did not start")
+        evidence.start(r.json)
         credentials = fixture["directory"] / "restore-credentials.json"
         root = tmp_path / "runs"
         root.mkdir(mode=0o700)
@@ -88,10 +95,23 @@ def live_context(bucket_backup, monkeypatch, tmp_path):
             "directory": fixture["directory"] / "materialized",
             "private": private,
             "url": url,
+            "evidence": evidence,
         }
     finally:
-        private.terminate()
-        private.wait(timeout=10)
+        try:
+            failure = request.node.stash.get(FAILURE, None)
+            directory = os.environ.get("RESTORE_EVIDENCE_DIR")
+            if failure is not None and directory:
+                # Collect before the private control stops and the module DB is reused.
+                evidence.write(
+                    Path(directory),
+                    failure=failure,
+                    read_state=lambda: asyncio.run(maintenance_status(fixture["env"])),
+                    private_returncode=private.poll(),
+                )
+        finally:
+            private.terminate()
+            private.wait(timeout=10)
 
 
 async def gate_for(env):
@@ -99,6 +119,14 @@ async def gate_for(env):
 
     engine = create_async_engine(make_url(env["DATABASE_URL"]).set(drivername="postgresql+asyncpg"))
     return engine, MaintenanceGate(async_sessionmaker(engine, expire_on_commit=False))
+
+
+async def maintenance_status(env):
+    engine, gate = await gate_for(env)
+    try:
+        return await gate.status()
+    finally:
+        await engine.dispose()
 
 
 def test_authoritative_live_restore_finishes_receipt_and_keeps_maintenance(live_context):
@@ -113,10 +141,17 @@ def test_authoritative_live_restore_finishes_receipt_and_keeps_maintenance(live_
             run_id = prepared["run_id"]
             await gate.start(run_id)
             await gate.drain(run_id)
-            result = await run_restore(Path(prepared["workspace"]), timeout_seconds=120)
-            assert result["passed"], result
-            assert result["live_deletion_ledger_verified"] and result["source_lock_released"]
-            assert result["restore_receipt_finished"] and result["cleanup_passed"]
+            result = item["evidence"].record(
+                await run_restore(Path(prepared["workspace"]), timeout_seconds=120),
+                Path(prepared["workspace"]),
+            )
+            assert result["passed"], item["evidence"].summary()
+            assert result["live_deletion_ledger_verified"] and result["source_lock_released"], (
+                item["evidence"].summary()
+            )
+            assert result["restore_receipt_finished"] and result["cleanup_passed"], (
+                item["evidence"].summary()
+            )
             assert not Path(prepared["workspace"]).exists()
             state = await gate.status()
             assert state["phase"] == "frozen" and not state["operations"]
@@ -174,16 +209,24 @@ def test_total_timeout_stops_real_child_and_daemon_container(live_context, monke
             owner = json.loads((workspace / "journal.json").read_text())["owner"]
             await gate.start(prepared["run_id"])
             await gate.drain(prepared["run_id"])
-            result = await run_restore(workspace, timeout_seconds=8)
+            result = item["evidence"].record(
+                await run_restore(workspace, timeout_seconds=8), workspace
+            )
             assert marker.exists(), "The timeout must exercise an actual daemon-owned container"
             # The killed child must not strand its private runtime.env in the global temp root.
             import tempfile
             for temporary in Path(tempfile.gettempdir()).glob("clipback-recovery-private-*"):
                 env = temporary / "runtime.env"
                 assert not env.exists() or f"@{owner}-db:5432" not in env.read_text()
-            assert not result["passed"] and result["error"] == "restore_timeout", result
-            assert result["child_stopped"] and result["executors_stopped"]
-            assert result["cleanup_passed"] and result["restore_receipt_finished"]
+            assert not result["passed"] and result["error"] == "restore_timeout", (
+                item["evidence"].summary()
+            )
+            assert result["child_stopped"] and result["executors_stopped"], (
+                item["evidence"].summary()
+            )
+            assert result["cleanup_passed"] and result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
             state = await gate.status()
             assert state["phase"] == "frozen" and not state["operations"]
             await gate.resume(prepared["run_id"])
@@ -211,7 +254,10 @@ def test_timeout_stops_descendants_even_after_the_restore_leader_exits(
             )
             await gate.start(prepared["run_id"])
             await gate.drain(prepared["run_id"])
-            result = await run_restore(Path(prepared["workspace"]), timeout_seconds=8)
+            result = item["evidence"].record(
+                await run_restore(Path(prepared["workspace"]), timeout_seconds=8),
+                Path(prepared["workspace"]),
+            )
             assert descendant.exists(), "The timeout must exercise a real descendant executor"
             executor = json.loads(descendant.read_text())
             try:
@@ -221,7 +267,9 @@ def test_timeout_stops_descendants_even_after_the_restore_leader_exits(
             else:
                 stopped = False
             assert stopped, "A terminated leader does not prove its descendant stopped"
-            assert result["child_stopped"] and result["restore_receipt_finished"], result
+            assert result["child_stopped"] and result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
             state = await gate.status()
             assert state["phase"] == "frozen" and not state["operations"]
             await gate.resume(prepared["run_id"])
@@ -262,10 +310,16 @@ def test_control_disconnect_stops_child_but_keeps_durable_recovery(
             assert marker.exists()
             item["private"].terminate()
             await asyncio.to_thread(item["private"].wait, timeout=10)
-            result = await running
-            assert not result["passed"] and not result["restore_receipt_finished"]
-            assert result["child_stopped"] and result["executors_stopped"]
-            assert result["source_lock_released"] and result["cleanup_passed"]
+            result = item["evidence"].record(await running, workspace)
+            assert not result["passed"] and not result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
+            assert result["child_stopped"] and result["executors_stopped"], (
+                item["evidence"].summary()
+            )
+            assert result["source_lock_released"] and result["cleanup_passed"], (
+                item["evidence"].summary()
+            )
             state = await gate.status()
             assert state["phase"] == "frozen" and len(state["operations"]) == 1
             # The server-side fallback is independent of the lost Mac control connection.
@@ -349,9 +403,13 @@ def test_lost_registration_response_retains_journal_until_authoritative_recovery
                 text=True,
                 timeout=30,
             )
-            result = json.loads(failed.stdout)
-            assert failed.returncode == 1 and not result["passed"]
-            assert not result["restore_receipt_finished"] and workspace.exists()
+            result = item["evidence"].record(
+                json.loads(failed.stdout), workspace, returncode=failed.returncode
+            )
+            assert failed.returncode == 1 and not result["passed"], item["evidence"].summary()
+            assert not result["restore_receipt_finished"] and workspace.exists(), (
+                item["evidence"].summary()
+            )
             saved = json.loads((workspace / "journal.json").read_text())
             assert saved["registration_attempted"] and "operation_id" not in saved
             state = await gate.status()
@@ -411,11 +469,17 @@ def test_cleanup_failure_blocks_resume_until_owned_executor_is_stopped(
             owner = json.loads((workspace / "journal.json").read_text())["owner"]
             await gate.start(prepared["run_id"])
             await gate.drain(prepared["run_id"])
-            result = await run_restore(workspace, timeout_seconds=8)
+            result = item["evidence"].record(
+                await run_restore(workspace, timeout_seconds=8), workspace
+            )
             assert marker.exists()
-            assert not result["passed"] and not result["cleanup_passed"]
-            assert not result["executors_stopped"] and not result["restore_receipt_finished"]
-            assert "container" in result["remaining_resource_kinds"]
+            assert not result["passed"] and not result["cleanup_passed"], (
+                item["evidence"].summary()
+            )
+            assert not result["executors_stopped"] and not result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
+            assert "container" in result["remaining_resource_kinds"], item["evidence"].summary()
             assert workspace.exists()
             state = await gate.status()
             assert state["phase"] == "frozen" and len(state["operations"]) == 1
@@ -472,10 +536,14 @@ def test_source_database_disconnect_retains_receipt_until_lock_is_verified_gone(
                 assert await connection.scalar(
                     text("SELECT pg_terminate_backend(:pid)"), {"pid": pid}
                 )
-            result = await running
-            assert not result["passed"] and not result["restore_receipt_finished"]
-            assert result["executors_stopped"] and result["child_stopped"]
-            assert not result["source_lock_released"]
+            result = item["evidence"].record(await running, workspace)
+            assert not result["passed"] and not result["restore_receipt_finished"], (
+                item["evidence"].summary()
+            )
+            assert result["executors_stopped"] and result["child_stopped"], (
+                item["evidence"].summary()
+            )
+            assert not result["source_lock_released"], item["evidence"].summary()
             state = await gate.status()
             assert state["phase"] == "frozen" and len(state["operations"]) == 1
             async with engine.connect() as connection:
@@ -517,9 +585,13 @@ def test_wrong_database_tunnel_cannot_authorize_a_restore(live_context, monkeypa
             await gate.drain(prepared["run_id"])
             wrong = make_url(item["fixture"]["env"]["DATABASE_URL"]).set(database="postgres")
             monkeypatch.setenv("DATABASE_URL", wrong.render_as_string(hide_password=False))
-            result = await run_restore(workspace, timeout_seconds=120)
-            assert not result["passed"] and result["error"] == "source_database_mismatch", result
-            assert not result["restore_receipt_finished"]
+            result = item["evidence"].record(
+                await run_restore(workspace, timeout_seconds=120), workspace
+            )
+            assert not result["passed"] and result["error"] == "source_database_mismatch", (
+                item["evidence"].summary()
+            )
+            assert not result["restore_receipt_finished"], item["evidence"].summary()
             state = await gate.status()
             assert state["phase"] == "frozen" and len(state["operations"]) == 1
             await gate.finish_restore(
