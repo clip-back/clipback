@@ -66,6 +66,7 @@
 
 - #282 티켓 리뷰(`a6afae6`): Standards 0건, Spec 0건.
 - #283 티켓 리뷰(`a6afae6...8653f6f`): Standards 0건, Spec 0건. 반영할 지적이 없어 코드는 `8653f6f` 그대로다.
+- #276 최종 리뷰: Standards 낮음 1건, Spec 0건. 이 파일의 main 비교 위치를 실제 실행 위치로 고쳤고(`5d5a5f4`), #282 결과 댓글의 같은 한 줄도 고쳤다. 문서만 바뀌었다.
 
 ## 검증
 
@@ -78,7 +79,36 @@
   - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
   - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
   - 백엔드는 이번에 바꾸지 않았다. 건너뛴 Docker 복구·S3 통합 테스트는 이 변경과 무관하며 CI·별도 환경 대상이다.
-- 이 기록을 쓰는 시점에 iOS Simulator·Android Emulator 실행은 하지 않았다. 최종 리뷰 뒤 감독이 실행하고 그 결과를 이 파일에 더한다. push·원격 CI·실기기·운영 서버 확인은 하지 않았다.
+- iOS Simulator·Android Emulator 실행 결과는 아래 "기기 실행 확인"에 적었다. push·원격 CI·실기기·운영 서버 확인은 하지 않았다.
+
+## 기기 실행 확인
+
+2026-11-07 KST, 감독이 최종 리뷰 뒤 실행했다. 실행한 앱의 코드는 `8653f6f`와 같다(촬영 HEAD `5d5a5f4`, 그 사이는 문서만 바뀜).
+iOS는 21:43경 빌드를 시작해 21:52에 끝냈고, Android는 21:52경 시작해 21:55에 끝냈다.
+
+- 실행 구성: 실제 `ClipbackApp`, `ContentActions`, Repository, `ClipbackApi`에 앱 프로세스 안의 `MockClient`를 붙인 로컬 대역이다. 카테고리 목록은 메모리에 두며, 저장된 사용자·운영 데이터는 쓰지 않았다.
+  실제 HTTP 전송과 운영 서버 저장은 확인 범위가 아니다.
+- 입력: Orca의 OS 탭과 ASCII 입력으로 `Scope276`을 쓰고, 수정 때 `X`를 더했다. 미리 채운 값은 없다. 앱 안의 probe로 입력 필드의 문자열과 선택 위치를 확인했다.
+  iOS는 하드웨어 키보드 경로라 화면 키보드가 나오지 않았고(probe의 아래쪽 inset 0), Android는 화면 키보드가 나왔다(입력 확인 probe의 아래쪽 inset 336.38).
+- 글자 배율은 두 플랫폼 모두 1.0이다.
+
+| 플랫폼 | 기종·OS | 논리 크기(probe JSON) | 시나리오와 결과 |
+| --- | --- | --- | --- |
+| iOS | iPhone 16 Simulator, iOS 18.6 | 393×852 | 편집기 준비 조회(`GET /api/v1/categories`) 뒤 편집기가 열리고 입력 필드에 초점. 생성 저장 `POST /api/v1/categories` 1회(`Scope276`) 뒤 목록 재조회 1회, 목록에 `Scope276`. 수정 저장 `PATCH /api/v1/categories/900` 1회(`Scope276X`) 뒤 목록 재조회 1회, 목록에 `Scope276X` |
+| Android | Medium_Phone Emulator, Android 16(API 36) | 411.42857142857144×914.2857142857143 | iOS와 같은 세 시나리오와 같은 요청 순서·결과 |
+
+- 요청 기록: 각 상태의 probe가 기록한 카테고리 요청은 편집기 준비 2건(첫 목록 조회와 편집기 준비 조회), 생성 뒤 누적 4건, 수정 뒤 누적 7건이다. 예상 밖 요청 목록은 6개 상태 모두 비어 있다.
+- 화면: 감독이 원본 PNG 6장을 열어 편집기, 생성한 이름, 수정한 이름을 확인했다. 원본 스크린샷은 보정하지 않았다.
+  Android 편집기 준비 화면에는 화면 키보드가 보이지만, 같은 상태의 probe JSON은 아래쪽 inset이 0이다. probe와 스크린샷을 찍은 시점이 다른 것으로 보이며, 따로 재현하지 않았다.
+- 증거: 작업 폴더 `.utmp/ticket-283/`(커밋하지 않음)의 `capture-report.md`, `capture-evidence.json`, `screens/`의 PNG와 같은 이름의 JSON이다.
+  - iOS: `ios-after-editor-ready-fixed`, `ios-after-created`, `ios-after-updated`
+  - Android: `android-after-editor-ready`, `android-after-created`, `android-after-updated`
+  - 이미지는 아직 GitHub에 올리지 않았다.
+- 촬영 준비 재작업: 앱 코드와 화면은 바꾸지 않았고, 작업 폴더의 촬영용 프리뷰만 고쳤다.
+  - 첫 사전 점검은 SharedPreferences mock 초기화가 빠져 시작 대기 시간 초과로 실패했다(`capture-preflight.log`). 초기화를 더한 뒤 `capture-preflight-2.log`, `capture-preflight-3.log`에서 모두 2개 통과했다.
+  - iOS 편집기 첫 probe는 공용 프리뷰 설정이 홈 스크롤만 찾아 null 오류가 났다(`ios-editor-ready.log`, 저장을 누르기 전). 현재 화면의 ScrollView를 찾도록 고쳐 iOS를 다시 빌드한 뒤 세 시나리오를 마쳤다. 입력 방식은 바꾸지 않았다.
+  - 빌드·설치 로그: `build-ios-fix.log`, `build-ios-after-capture-fix.log`, `ios-install-2.log`, `build-android.log`, `build-android-after-capture-fix.log`, `android-install.log`.
+- 제한: 회의 결정에 따라 변경 전 촬영, 변경 전·후·Figma 3면 비교, 영상은 없다. 글자 배율 1.0만 확인했고 iOS 화면 키보드 상태는 확인하지 않았다. 사용자 시각 판정은 대기 중이다.
 
 ## 동작 보존 증거에서 제외하는 것 (#276)
 
