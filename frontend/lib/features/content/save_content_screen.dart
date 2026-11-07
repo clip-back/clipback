@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:clipback_frontend/clipback_api.dart';
-import 'package:clipback_frontend/data/services/api_request_scope.dart';
-import 'package:clipback_frontend/data/services/event_uuid.dart';
+import 'package:clipback_frontend/features/content/view_models/content_save_submission.dart';
 import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -48,16 +46,6 @@ class AddContentSheet extends StatefulWidget {
   State<AddContentSheet> createState() => _AddContentSheetState();
 }
 
-class _SaveSubmission {
-  const _SaveSubmission.link(this.label) : photoBytes = null;
-  const _SaveSubmission.photo(this.label, Uint8List bytes) : photoBytes = bytes;
-
-  final String label;
-  final Uint8List? photoBytes;
-  bool get isLink => photoBytes == null;
-  int get tab => isLink ? 0 : 1;
-}
-
 class _AddContentSheetState extends State<AddContentSheet> {
   final _urlController = TextEditingController();
   final _bodyScrollController = ScrollController();
@@ -68,16 +56,17 @@ class _AddContentSheetState extends State<AddContentSheet> {
   var _photoStage = SaveFlowStage.editing;
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
-  String? _photoSubmissionKey;
-  ApiRequestScope? _photoRequest;
-  var _isSaving = false;
-  _SaveSubmission? _pendingSubmission;
   String? _saveError;
-  ({ContentItem content, _SaveSubmission submission})? _savedResult;
+  late final _submission = ContentSaveSubmission(
+    onAddLink: widget.onAddLink,
+    onAddScreenshot: widget.onAddScreenshot,
+  )..addListener(_submissionChanged);
+
+  void _submissionChanged() => setState(() {});
 
   @override
   void dispose() {
-    _photoRequest?.cancel();
+    _submission.dispose();
     _validationTimer?.cancel();
     _saveErrorTimer?.cancel();
     _urlController.dispose();
@@ -86,10 +75,10 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   Future<void> _paste() async {
-    if (_savedResult != null) return;
+    if (_submission.saved != null) return;
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (!mounted ||
-        _savedResult != null ||
+        _submission.saved != null ||
         data?.text == null ||
         data!.text!.trim().isEmpty) {
       return;
@@ -126,10 +115,12 @@ class _AddContentSheetState extends State<AddContentSheet> {
   }
 
   void _changeTab(int tab) {
-    if (_savedResult != null) return;
+    if (_submission.saved != null) return;
     setState(() => _activeTab = tab);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+      if (mounted &&
+          _submission.saved == null &&
+          _bodyScrollController.hasClients) {
         _bodyScrollController.jumpTo(0);
       }
     });
@@ -138,83 +129,51 @@ class _AddContentSheetState extends State<AddContentSheet> {
   Future<void> _submit() async {
     final isLink = _activeTab == 0;
     final stage = isLink ? _linkStage : _photoStage;
-    if (_savedResult != null || _isSaving || stage != SaveFlowStage.valid) {
+    if (_submission.saved != null ||
+        _submission.isSaving ||
+        stage != SaveFlowStage.valid) {
       return;
     }
 
-    final _SaveSubmission submission;
+    final String? error;
     if (isLink) {
-      submission = _SaveSubmission.link(_urlController.text.trim());
+      error = await _submission.submitLink(_urlController.text.trim());
     } else {
       final bytes = _selectedPhotoBytes;
       final filename = _selectedPhotoFilename;
       if (bytes == null || filename == null) return;
-      submission = _SaveSubmission.photo(filename, bytes);
+      error = await _submission.submitPhoto(bytes, filename);
     }
-
+    if (!mounted) return;
+    if (error != null) {
+      _showSaveErrorToast(error);
+      return;
+    }
+    final saved = _submission.saved;
+    if (saved == null) return;
+    _validationTimer?.cancel();
+    _saveErrorTimer?.cancel();
     setState(() {
-      _isSaving = true;
-      _pendingSubmission = submission;
+      _activeTab = saved.submission.isLink ? 0 : 1;
+      _saveError = null;
     });
-    try {
-      late final ContentItem savedContent;
-      if (submission.isLink) {
-        savedContent = await widget.onAddLink(url: submission.label);
-      } else {
-        _photoRequest = ApiRequestScope();
-        savedContent = await _photoRequest!.run(
-          () => widget.onAddScreenshot(
-            bytes: submission.photoBytes!,
-            filename: submission.label,
-            submissionKey: _photoSubmissionKey ??= newEventUuid(),
-          ),
-        );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _bodyScrollController.hasClients) {
+        _bodyScrollController.jumpTo(0);
       }
-      if (mounted) {
-        _validationTimer?.cancel();
-        _saveErrorTimer?.cancel();
-        setState(() {
-          _isSaving = false;
-          _pendingSubmission = null;
-          _savedResult = (content: savedContent, submission: submission);
-          _activeTab = submission.tab;
-          _saveError = null;
-        });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _bodyScrollController.hasClients) {
-            _bodyScrollController.jumpTo(0);
-          }
-        });
-      }
-    } on ClipbackApiException catch (error) {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-          _pendingSubmission = null;
-        });
-        _showSaveErrorToast(error.message);
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-          _pendingSubmission = null;
-        });
-        _showSaveErrorToast();
-      }
-    }
+    });
   }
 
-  void _showSaveErrorToast([String? message]) {
+  void _showSaveErrorToast(String message) {
     _saveErrorTimer?.cancel();
-    setState(() => _saveError = message ?? '저장하지 못했어요. 다시 시도해 주세요.');
+    setState(() => _saveError = message);
     _saveErrorTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _saveError = null);
     });
   }
 
   Future<void> _selectPhoto() async {
-    if (_savedResult != null || _isSaving) return;
+    if (_submission.saved != null || _submission.isSaving) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowCompression: false,
@@ -223,19 +182,22 @@ class _AddContentSheetState extends State<AddContentSheet> {
     final photo = result != null && result.files.isNotEmpty
         ? result.files.first
         : null;
-    if (!mounted || _savedResult != null || _isSaving || photo?.bytes == null) {
+    if (!mounted ||
+        _submission.saved != null ||
+        _submission.isSaving ||
+        photo?.bytes == null) {
       return;
     }
+    _submission.photoSelected(photo!.bytes!);
     setState(() {
-      if (!listEquals(_selectedPhotoBytes, photo!.bytes)) {
-        _photoSubmissionKey = null;
-      }
       _selectedPhotoBytes = photo.bytes;
       _selectedPhotoFilename = photo.name;
       _photoStage = SaveFlowStage.valid;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _savedResult == null && _bodyScrollController.hasClients) {
+      if (mounted &&
+          _submission.saved == null &&
+          _bodyScrollController.hasClients) {
         _bodyScrollController.jumpTo(0);
       }
     });
@@ -243,15 +205,16 @@ class _AddContentSheetState extends State<AddContentSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final savedResult = _savedResult;
+    final savedResult = _submission.saved;
+    final isSaving = _submission.isSaving;
     final stage = _activeTab == 0 ? _linkStage : _photoStage;
     final enabled =
-        savedResult != null || (!_isSaving && stage == SaveFlowStage.valid);
+        savedResult != null || (!isSaving && stage == SaveFlowStage.valid);
     // Only render a known processing design while it still describes the
     // current submitted input. Editing/reselection retains the legacy view.
-    final pending = _pendingSubmission;
+    final pending = _submission.pending;
     final canShowPending =
-        _isSaving && savedResult == null && _saveError == null;
+        isSaving && savedResult == null && _saveError == null;
     final pendingLink =
         canShowPending &&
         pending?.isLink == true &&
@@ -336,11 +299,11 @@ class _AddContentSheetState extends State<AddContentSheet> {
                             ? _PhotoPendingBody(
                                 photoBytes: pending.photoBytes!,
                                 label: pending.label,
-                                onSelect: _isSaving ? null : _selectPhoto,
+                                onSelect: isSaving ? null : _selectPhoto,
                               )
                             : PhotoSaveBody(
                                 stage: _photoStage,
-                                onSelect: _isSaving ? null : _selectPhoto,
+                                onSelect: isSaving ? null : _selectPhoto,
                                 photoBytes: _selectedPhotoBytes,
                               ),
                       ),
@@ -380,7 +343,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
                                     ? '닫기'
                                     : '허투루에 저장하기',
                                 enabled: enabled,
-                                loading: _isSaving && !processing,
+                                loading: isSaving && !processing,
                                 onPressed: savedResult == null
                                     ? _submit
                                     : () => Navigator.of(
