@@ -15,19 +15,15 @@ class ContentViewModel extends ViewModel {
 
   final ContentRepository repository;
 
-  List<CategoryItem> get categories => [
-    for (final category in repository.categories)
-      categoryFromApi(
-        category,
-        mutationLabel: switch (repository.categoryMutationDeleting(
-          category.id,
-        )) {
-          true => '삭제 중…',
-          false => '변경 중…',
-          null => null,
-        },
-      ),
-  ];
+  List<CategoryItem> get categories => repository.categories.map((category) {
+    final deleting = repository.categoryMutationDeleting(category.id);
+    // Edits lock silently; only deletion shows text.
+    return categoryFromApi(
+      category,
+      isMutating: deleting != null,
+      mutationLabel: deleting == true ? '삭제 중…' : null,
+    );
+  }).toList();
 
   Set<String> get bookmarkedIds => {
     for (final id in repository.bookmarkedIds) 'api-$id',

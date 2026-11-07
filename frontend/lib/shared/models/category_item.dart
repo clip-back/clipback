@@ -7,12 +7,13 @@ class CategoryItem {
     this.lastSavedAt,
     this.contentCount = 0,
     this.rawLastSavedAt,
+    this.isMutating = false,
     this.mutationLabel,
     required this.name,
     required this.color,
     required this.tint,
     required this.deep,
-  });
+  }) : assert(mutationLabel == null || isMutating);
 
   final int? id;
   final String? lastSavedAt;
@@ -22,6 +23,11 @@ class CategoryItem {
   final Color color;
   final Color tint;
   final Color deep;
+
+  /// Whether an edit or deletion is in flight; locks the row and sheet actions.
+  final bool isMutating;
+
+  /// Text shown while [isMutating]; only deletion has one (`삭제 중…`).
   final String? mutationLabel;
   bool get isDeleting => mutationLabel == '삭제 중…';
 
@@ -30,6 +36,7 @@ class CategoryItem {
     Color? color,
     Color? tint,
     Color? deep,
+    bool? isMutating,
     String? mutationLabel,
     bool clearMutationLabel = false,
   }) => CategoryItem(
@@ -41,6 +48,7 @@ class CategoryItem {
     color: color ?? this.color,
     tint: tint ?? this.tint,
     deep: deep ?? this.deep,
+    isMutating: isMutating ?? this.isMutating,
     mutationLabel: clearMutationLabel
         ? null
         : mutationLabel ?? this.mutationLabel,

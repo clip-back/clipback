@@ -527,7 +527,7 @@ class CategoryRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
+                  onTap: category.isMutating ? null : onMore,
                   child: SizedBox(
                     width: 44,
                     height: 44,
@@ -624,7 +624,7 @@ class _ArchiveCategoryRow extends StatelessWidget {
                 GestureDetector(
                   key: ValueKey('archive-category-more-$id'),
                   behavior: HitTestBehavior.opaque,
-                  onTap: category.mutationLabel == null ? onMore : null,
+                  onTap: category.isMutating ? null : onMore,
                   child: SizedBox(
                     width: 44,
                     height: 44,

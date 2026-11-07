@@ -156,6 +156,7 @@ class CategoryArchivePreviewState extends State<CategoryArchivePreviewHost> {
           lastSavedAt: value.lastSavedAt,
           rawLastSavedAt: value.rawLastSavedAt,
           contentCount: value.contentCount,
+          isMutating: value.isMutating,
           mutationLabel: value.mutationLabel,
         ),
       ],

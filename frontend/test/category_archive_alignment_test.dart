@@ -268,7 +268,10 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: CategoryRow(
-            category: category.copyWith(mutationLabel: '삭제 중…'),
+            category: category.copyWith(
+              isMutating: true,
+              mutationLabel: '삭제 중…',
+            ),
             onMore: () => opened++,
           ),
         ),

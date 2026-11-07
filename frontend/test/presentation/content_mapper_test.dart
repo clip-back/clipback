@@ -106,6 +106,7 @@ void main() {
         contentCount: 42,
         lastSavedAt: savedAt,
       ),
+      isMutating: true,
       mutationLabel: '삭제 중…',
     );
 

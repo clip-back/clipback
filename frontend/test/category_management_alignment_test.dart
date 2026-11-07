@@ -183,7 +183,7 @@ void main() {
     tester,
   ) async {
     final values = managementData();
-    values[1] = values[1].copyWith(mutationLabel: '삭제 중…');
+    values[1] = values[1].copyWith(isMutating: true, mutationLabel: '삭제 중…');
     final key = await _pump(tester, categories: values);
     expect(find.text('삭제 중…'), findsOneWidget);
     await tester.tap(_more(tester, 112));
