@@ -54,3 +54,14 @@
   - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
 - 미검증: 촬영 도구 `bookmark_preview.dart`의 기기 실행(컴파일만 확인), iOS Simulator·Android Emulator 실행(화면 변경 없음), 원격 CI.
+
+## 최종 리뷰와 전체 검사(최종, #273·#212 묶음)
+
+위 두 절의 결과는 티켓별 결과이고, 이 절은 두 티켓을 묶은 최종 결과다.
+
+- 기준: `main`과의 merge-base `b3f3b0b`에서 `1cc1158`까지(코드 커밋 `32dc0ba`, `de987d4`, 기록 커밋 `af2b90a`, `1cc1158`). 확인 시점에 `main`은 앞으로 나가지 않았다.
+- 최종 리뷰: `b3f3b0b...1cc1158` diff를 #273·#212 본문과 사용자 결정 기준으로 검토해 Standards·Spec 모두 지적 0건.
+- 전체 검사(최종, `1cc1158`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트(`flutter test --no-pub`) 3225개 통과, pytest 2235 passed, 47 skipped.
+  - `pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
+  - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
+- 미검증: 기기에서 돌리는 촬영 도구(`safe_area_device_check.dart`, `*_preview.dart`, `bookmark_preview.dart`)의 실행(컴파일만 확인), iOS Simulator·Android Emulator 실행(화면 변경 없음), 원격 CI.
