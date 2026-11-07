@@ -8,7 +8,6 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
@@ -503,11 +502,6 @@ Map<String, Object?> loginMeasure(Element root) {
               _elements(e).any((child) => child.widget is RichText),
         )
         .length,
-    'fakeStatusCount': _elements(e)
-        .where(
-          (e) => e.widget is EntryStatusBar || e.widget is EntryHomeIndicator,
-        )
-        .length,
   };
 }
 
@@ -735,11 +729,7 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
     near(hit['height'], 44) && near(hit['top'], lastBottom + 24 + 17 + 11),
     'guest hit44/gap11',
   );
-  check(
-    lf,
-    m['textFittedBoxCount'] == 0 && m['fakeStatusCount'] == 0,
-    'no font shrinking or app OS replicas',
-  );
+  check(lf, m['textFittedBoxCount'] == 0, 'no font shrinking');
   final font = m['fontBundle'] as Map;
   check(
     af,

@@ -1,7 +1,7 @@
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
-import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import 'fixtures/sample_contents.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

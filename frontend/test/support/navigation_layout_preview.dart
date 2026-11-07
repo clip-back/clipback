@@ -8,14 +8,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/placeholder_screen.dart';
+import 'placeholder_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
-import 'package:clipback_frontend/shared/data/sample_categories.dart';
-import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import '../fixtures/sample_categories.dart';
+import '../fixtures/sample_contents.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';

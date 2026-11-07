@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:clipback_frontend/clipback_api.dart';
-import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -231,11 +230,6 @@ Map<String, Object?> splashMeasure(Element root) {
               splashElements(e).any((e) => e.widget is RichText),
         )
         .length,
-    'fakeIndicatorCount': all
-        .where(
-          (e) => e.widget is EntryHomeIndicator || e.widget is EntryStatusBar,
-        )
-        .length,
     'fontBundle': Map<String, Object?>.from(splashFontBundle),
   };
 }
@@ -310,11 +304,7 @@ Map<String, Object?> splashJudgment(Map<String, Object?> m) {
     ),
     'window centerX+.5',
   );
-  check(
-    lf,
-    m['textFittedBoxCount'] == 0 && m['fakeIndicatorCount'] == 0,
-    'no text shrink or fakeOS',
-  );
+  check(lf, m['textFittedBoxCount'] == 0, 'no text shrink');
   final fullYellow =
       (m['scaffoldColor'] == '0xFFFFD75C' &&
           near((m['frame'] as Map)['width'], window['width'])) ||

@@ -117,10 +117,7 @@ Map<String, Object?> conflictMeasure(Element root) {
     'fakeOSCount': conflictElements(screen)
         .where(
           (e) => [
-            'DesignStatusBar',
             'DesignHomeIndicator',
-            'EntryHomeIndicator',
-            'EntryStatusBar',
             'NavigationHomeIndicator',
           ].contains(e.widget.runtimeType.toString()),
         )

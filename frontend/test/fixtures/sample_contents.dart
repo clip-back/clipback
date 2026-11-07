@@ -1,4 +1,4 @@
-import 'package:clipback_frontend/shared/data/sample_categories.dart';
+import 'sample_categories.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 

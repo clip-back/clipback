@@ -1,5 +1,5 @@
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/placeholder_screen.dart';
+import 'support/placeholder_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';

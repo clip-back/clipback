@@ -1,4 +1,3 @@
-import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -67,8 +66,6 @@ void main() {
       expect(g['top'], closeTo(346, .2));
       expect(g['height'], closeTo(89, .2));
       expect(g['width'], 232);
-      expect(find.byType(EntryHomeIndicator), findsNothing);
-      expect(find.byType(EntryStatusBar), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 900));
     },

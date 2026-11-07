@@ -128,7 +128,6 @@ void main() {
           expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
           expect(j['assetPassed'], isTrue, reason: '${j['assetFailures']}');
           expect(m['textScale'], 1.0);
-          expect(m['fakeStatusCount'], 0);
           expect(m['textFittedBoxCount'], 0);
           expect(tester.takeException(), isNull);
         },

@@ -34,7 +34,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'archive_all_preview.dart' as e01;
 
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
+import 'top_bars.dart';
 
 const bookmarkPhase = String.fromEnvironment(
   'BOOKMARK_PHASE',
