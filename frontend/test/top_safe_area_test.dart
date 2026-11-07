@@ -19,10 +19,10 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
+import 'support/top_bars.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
-import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import 'fixtures/sample_contents.dart';
 
 final events = <String>[];
 void noop() {}

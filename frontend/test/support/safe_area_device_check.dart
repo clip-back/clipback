@@ -20,12 +20,10 @@ import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -107,6 +105,9 @@ Element _first<T extends Widget>({Element? within, bool Function(T)? where}) =>
     );
 
 T _widget<T extends Widget>() => _first<T>().widget as T;
+
+Element _keyed(String key) =>
+    _first<Widget>(where: (widget) => widget.key == ValueKey(key));
 
 Rect _rect(Element element) {
   final render = element.findRenderObject();
@@ -240,10 +241,10 @@ Future<void> _runChecks() async {
   _widget<HomeScreen>().onTab(AppRoute.archive);
   await _waitFor<ArchiveScreen>();
   await _settle();
-  await _header('03_archive', _first<AppTopBar>());
+  await _header('03_archive', _keyed('archive-category-header'));
   _widget<ArchiveScreen>().onTab(AppRoute.bookmark);
   await _waitFor<BookmarkScreen>();
-  await _header('04_bookmark', _first<AppTopBar>());
+  await _header('04_bookmark', _keyed('bookmark-header'));
   _widget<BookmarkScreen>().onSearch();
   await _waitFor<SearchScreen>();
   FocusManager.instance.primaryFocus?.unfocus();
@@ -313,7 +314,7 @@ Future<void> _runChecks() async {
     archive.categories.firstWhere((category) => category.name != '미분류'),
   );
   await _settle();
-  await _header('11_category_archive', _first<CategoryTopBar>());
+  await _header('11_category_archive', _keyed('category-content-header'));
   _widget<ArchiveScreen>().onOpenRandomView();
   await _waitFor<CategoryCardReviewScreen>();
   await _header(

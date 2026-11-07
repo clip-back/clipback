@@ -182,10 +182,7 @@ Map<String, Object?> failureMeasure(Element root) {
     'fakeOSWidgetCount': failureElements(screen)
         .where(
           (e) => [
-            'DesignStatusBar',
             'DesignHomeIndicator',
-            'EntryHomeIndicator',
-            'EntryStatusBar',
             'NavigationHomeIndicator',
           ].contains(e.widget.runtimeType.toString()),
         )

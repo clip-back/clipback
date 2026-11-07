@@ -22,7 +22,7 @@ import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
+import 'top_bars.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -1203,7 +1203,7 @@ Future<void> _run() async {
           ),
       'Category callback lost actual ID',
     );
-    final back = _find<SvgIconButton>(_find<CategoryTopBar>(_root)!)!;
+    final back = _key(_root, 'category-content-back-hit')!;
     await _tap(back);
     _record('open_category_$id');
   }

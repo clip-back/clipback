@@ -382,24 +382,8 @@ ScrollPosition? _position(Element root) {
       : ((e as StatefulElement).state as ScrollableState).position;
 }
 
-Element? _headerControl(Element root, String role) {
-  final keyed = _key(root, 'unclassified-$role');
-  if (keyed != null) return keyed;
-  final header = _find<CategoryTopBar>(root);
-  if (header == null) return null;
-  final old = role == 'back'
-      ? Assets.back
-      : role == 'search'
-      ? Assets.search
-      : Assets.more;
-  return _elements(header)
-      .where(
-        (e) =>
-            e.widget is SvgIconButton &&
-            (e.widget as SvgIconButton).asset == old,
-      )
-      .firstOrNull;
-}
+Element? _headerControl(Element root, String role) =>
+    _key(root, 'unclassified-$role');
 
 Map<String, Object?> unclassifiedMeasure(Element root) {
   final screen = _find<ArchiveScreen>(root);
@@ -417,8 +401,7 @@ Map<String, Object?> unclassifiedMeasure(Element root) {
       bounds = <String, Object?>{},
       assets = <String, Object?>{},
       rows = <Map<String, Object?>>[];
-  final header =
-      _key(screen, 'unclassified-header') ?? _find<CategoryTopBar>(screen)!;
+  final header = _key(screen, 'unclassified-header')!;
   final headerText = _text(header, catUncategorized.name)!;
   bounds['header'] = _rect(_box(header));
   styles['header'] = _paragraph(headerText);

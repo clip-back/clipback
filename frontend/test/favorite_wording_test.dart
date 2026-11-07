@@ -112,15 +112,6 @@ void main() {
     }
   }
 
-  testWidgets('정렬 선택 시트 항목은 즐겨찾기 우선이다', (tester) async {
-    await pumpBody(
-      tester,
-      SortSheet(activeBookmarkedFirst: false, onSelect: (_) {}),
-    );
-    expect(find.text('즐겨찾기 우선'), findsOneWidget);
-    expect(find.textContaining('북마크'), findsNothing);
-  });
-
   testWidgets('즐겨찾기 빈 화면 문구는 즐겨찾기로 안내한다', (tester) async {
     await pumpBody(tester, BookmarkEmptyState(onOpenArchiveAll: () {}));
     expect(find.text('즐겨찾기한 콘텐츠가 없어요'), findsOneWidget);

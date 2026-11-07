@@ -1,4 +1,4 @@
-import 'package:clipback_frontend/features/account/placeholder_screen.dart';
+import 'support/placeholder_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';

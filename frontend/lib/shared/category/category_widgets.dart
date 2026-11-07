@@ -4,62 +4,10 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
-import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:flutter/material.dart';
 import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-
-class CategoryTopBar extends StatelessWidget {
-  const CategoryTopBar({
-    required this.title,
-    required this.onBack,
-    required this.onSearch,
-    this.onMore,
-    super.key,
-  });
-
-  final String title;
-  final VoidCallback onBack;
-  final VoidCallback onSearch;
-  final VoidCallback? onMore;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: appHeaderHeight,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            SvgIconButton(asset: Assets.back, onPressed: onBack, size: 24),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.45,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SvgIconButton(asset: Assets.search, onPressed: onSearch, size: 24),
-            const SizedBox(width: 16),
-            SvgIconButton(
-              asset: Assets.more,
-              onPressed: onMore ?? () {},
-              size: 24,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class CategoryChips extends StatelessWidget {
   const CategoryChips({

@@ -1,7 +1,7 @@
 import 'package:clipback_frontend/shared/theme/app_text.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/top_bars.dart';
+import 'top_bars.dart';
 import 'package:flutter/material.dart';
 
 class PlaceholderScreen extends StatelessWidget {

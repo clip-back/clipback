@@ -9,10 +9,9 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
-import 'package:clipback_frontend/features/account/placeholder_screen.dart';
+import 'support/placeholder_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dart';
-import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
@@ -535,17 +534,6 @@ void main() {
           OnboardingScreen(onDone: () {}),
           SessionRestoreScreen(errorMessage: '불러오지 못했어요.', onRetry: () {}),
           const PlaceholderScreen(title: '준비', activeIndex: 0),
-          const EntrySurface(
-            backgroundColor: Colors.white,
-            children: [
-              Positioned(
-                left: 16,
-                right: 16,
-                top: 100,
-                child: Text('진입 화면', key: ValueKey('entry-content')),
-              ),
-            ],
-          ),
         ];
         for (final screen in screens) {
           testWidgets('$label ${screen.runtimeType} visible surface', (
@@ -558,20 +546,6 @@ void main() {
               ).push(MaterialPageRoute<void>(builder: (_) => screen));
               await tester.pumpAndSettle();
               _screen(tester, screen.runtimeType.toString(), edges);
-              if (screen is EntrySurface) {
-                expect(
-                  tester
-                      .getRect(find.byKey(const ValueKey('entry-content')))
-                      .left,
-                  edges.$1 + 16,
-                );
-                expect(
-                  tester
-                      .getRect(find.byKey(const ValueKey('entry-content')))
-                      .right,
-                  edges.$2 - 16,
-                );
-              }
             });
           });
         }

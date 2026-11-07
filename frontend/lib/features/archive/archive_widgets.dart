@@ -4,10 +4,7 @@ import 'package:clipback_frontend/features/archive/category_content_widgets.dart
 
 import 'package:clipback_frontend/features/archive/unclassified_widgets.dart';
 
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
-import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
-import 'package:clipback_frontend/shared/content/mutation_status.dart';
 import 'package:clipback_frontend/shared/content/paged_content_list.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
@@ -16,7 +13,6 @@ import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
-import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -153,187 +149,6 @@ class ContentListView extends StatelessWidget {
               onDelete: () => onDeleteContent(content),
               onTap: () => onOpenContent(content),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class CategoryFeaturedCard extends StatelessWidget {
-  const CategoryFeaturedCard({
-    required this.content,
-    required this.bookmarked,
-    required this.onTap,
-    required this.onToggleBookmark,
-    super.key,
-  });
-
-  final ContentItem content;
-  final bool bookmarked;
-  final VoidCallback onTap;
-  final VoidCallback onToggleBookmark;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 319,
-        height: 435,
-        padding: const EdgeInsets.fromLTRB(16, 21, 16, 21),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x3D767676),
-              blurRadius: 8,
-              offset: Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Flexible(child: CategoryBadge(category: content.category)),
-                const Spacer(),
-                if (content.mutationLabel != null) ...[
-                  ContentMutationStatus(label: content.mutationLabel!),
-                  const SizedBox(width: 8),
-                ],
-                BookmarkActionButton(
-                  initialActive: bookmarked,
-                  hitSize: 28,
-                  onToggle: onToggleBookmark,
-                  enabled: !content.isMutating,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              content.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
-                letterSpacing: -0.45,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Text(
-                content.originalText.isNotEmpty
-                    ? content.originalText
-                    : content.summary,
-                maxLines: 13,
-                overflow: TextOverflow.clip,
-                style: const TextStyle(
-                  color: AppColors.middle,
-                  fontSize: 14,
-                  height: 1.6,
-                  letterSpacing: -0.35,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class CategoryCardPager extends StatefulWidget {
-  const CategoryCardPager({
-    required this.contents,
-    required this.categoryName,
-    required this.bookmarkedIds,
-    required this.onOpenContent,
-    required this.onToggleBookmark,
-    super.key,
-  });
-
-  final List<ContentItem> contents;
-  final String categoryName;
-  final Set<String> bookmarkedIds;
-  final ValueChanged<ContentItem> onOpenContent;
-  final ValueChanged<ContentItem> onToggleBookmark;
-
-  @override
-  State<CategoryCardPager> createState() => _CategoryCardPagerState();
-}
-
-class _CategoryCardPagerState extends State<CategoryCardPager> {
-  late final PageController _pageController;
-  var _activeIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final displayCount = widget.contents.length.clamp(1, 5);
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '딱 5개만 다시 확인해볼까요?',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const FolderGlyph(color: AppColors.main, size: 28),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.categoryName,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              CardPagerProgress(activeIndex: _activeIndex, count: displayCount),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: widget.contents.length,
-            onPageChanged: (index) => setState(() => _activeIndex = index),
-            itemBuilder: (context, index) {
-              final content = widget.contents[index];
-              return Center(
-                child: CategoryFeaturedCard(
-                  content: content,
-                  bookmarked: widget.bookmarkedIds.contains(content.id),
-                  onTap: () => widget.onOpenContent(content),
-                  onToggleBookmark: () => widget.onToggleBookmark(content),
-                ),
-              );
-            },
           ),
         ),
       ],
@@ -733,48 +548,6 @@ class _ArchiveSortOption extends StatelessWidget {
             const Icon(Icons.check, size: 16, color: AppColors.mainDeep),
         ],
       ),
-    );
-  }
-}
-
-class SortSheet extends StatelessWidget {
-  const SortSheet({
-    required this.activeBookmarkedFirst,
-    required this.onSelect,
-    super.key,
-  });
-
-  final bool activeBookmarkedFirst;
-  final ValueChanged<bool> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '정렬',
-      children: [
-        SheetActionTile(
-          icon: Assets.chevronDown,
-          title: '최신순',
-          description: activeBookmarkedFirst
-              ? '최근 저장한 콘텐츠부터 다시 보여줘요.'
-              : '현재 적용 중인 정렬입니다.',
-          onTap: () {
-            onSelect(false);
-            Navigator.pop(context);
-          },
-        ),
-        SheetActionTile(
-          icon: Assets.star,
-          title: '즐겨찾기 우선',
-          description: activeBookmarkedFirst
-              ? '현재 적용 중인 정렬입니다.'
-              : '중요 표시한 정보를 먼저 보여줘요.',
-          onTap: () {
-            onSelect(true);
-            Navigator.pop(context);
-          },
-        ),
-      ],
     );
   }
 }

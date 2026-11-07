@@ -1,8 +1,7 @@
 // #265: 즐겨찾기·카테고리 이동 요청 중에는 '변경 중…' 없이 잠그고, 배치는 평상시와 같다.
 // 실제 Pretendard, 40자 한글 카테고리 이름 × 저장 날짜 있음/없음 × 글자 배율 1.0·1.3을
 // 조합마다 따로 둔다(Flutter는 같은 위젯의 넘침을 한 번만 알린다).
-// 콘텐츠 관리 시트(B9)와 화면에 연결되지 않은 대표 카드는 위젯에 상태를 직접 넣어 확인한다.
-import 'package:clipback_frontend/features/archive/archive_widgets.dart';
+// 콘텐츠 관리 시트(B9)는 위젯에 상태를 직접 넣어 확인한다.
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -259,45 +258,6 @@ void main() {
       )) {
         expect(tile.enabled, state == 'idle', reason: tile.title);
       }
-    });
-  }
-
-  // 화면에 연결되지 않은 카테고리 대표 카드 위젯.
-  for (final state in ['idle', 'pending', 'deleting']) {
-    testWidgets('category featured card $state status and star', (
-      tester,
-    ) async {
-      final content = _content(
-        dated: true,
-        mutating: state != 'idle',
-        label: state == 'deleting' ? '삭제 중…' : null,
-      );
-      await tester.pumpWidget(
-        _app(
-          Center(
-            child: CategoryFeaturedCard(
-              content: content,
-              bookmarked: false,
-              onTap: () {},
-              onToggleBookmark: () {},
-            ),
-          ),
-          1,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      expect(find.text('변경 중…'), findsNothing);
-      expect(
-        find.text('삭제 중…'),
-        state == 'deleting' ? findsOneWidget : findsNothing,
-      );
-      expect(
-        tester
-            .widget<BookmarkActionButton>(find.byType(BookmarkActionButton))
-            .enabled,
-        state == 'idle',
-      );
     });
   }
 }

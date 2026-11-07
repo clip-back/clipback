@@ -158,7 +158,6 @@ MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |
 | `lib/shared/theme/` | 색상·문자 스타일 등 공통 화면 표현 |
 | `lib/shared/contracts/` | `AppRoute`와 저장 콜백 등 기능과 앱이 공유하는 계약 |
-| `lib/shared/data/` | 기존 초기 카테고리와 샘플 콘텐츠 데이터 |
 | `lib/shared/widgets/` | 기능 모델에 의존하지 않는 범용 위젯 |
 | `lib/shared/content/` | 콘텐츠 모델에 의존하는 재사용 UI |
 | `lib/shared/category/` | 카테고리 모델에 의존하는 재사용 UI |

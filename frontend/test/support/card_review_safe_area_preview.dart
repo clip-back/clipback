@@ -8,7 +8,7 @@ import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
-import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import '../fixtures/sample_contents.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';

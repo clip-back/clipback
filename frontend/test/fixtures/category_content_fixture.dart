@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
-import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
@@ -296,9 +295,7 @@ Map<String, Object?> f01Svg(Element e) {
 Map<String, Object?> f01Measure(Element root) {
   final screen = f01Find<ArchiveScreen>(root)!;
   final w = screen.widget as ArchiveScreen;
-  final header =
-      f01Key(screen, 'category-content-header') ??
-      f01Find<CategoryTopBar>(screen)!;
+  final header = f01Key(screen, 'category-content-header')!;
   final toolbar = f01Find<ArchiveToolbar>(screen)!;
   final navigation = f01Find<ClipbackNavigationBar>(screen)!;
   final random = f01Find<RandomReviewButton>(screen)!;

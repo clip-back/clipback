@@ -7,8 +7,8 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/shared/data/sample_categories.dart';
-import 'package:clipback_frontend/shared/data/sample_contents.dart';
+import '../fixtures/sample_categories.dart';
+import '../fixtures/sample_contents.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';

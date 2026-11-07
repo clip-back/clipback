@@ -55,10 +55,3 @@ class PhoneFrame extends StatelessWidget {
     );
   }
 }
-
-class DesignStatusBar extends StatelessWidget {
-  const DesignStatusBar({super.key});
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
-}
