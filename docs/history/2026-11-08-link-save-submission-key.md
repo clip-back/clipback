@@ -1,7 +1,7 @@
 # 본앱 링크 저장 재시도에 제출 키 보내기 (#298)
 
 2026-11-08, 시작 커밋 `c55242c` 기준으로 구현하고 main `f52660b`(#297)를 병합한 뒤 티켓 리뷰 반영과 전체 검증을 마쳤다.
-코드 커밋은 `fe6fa5c`(구현), `785d148`(리뷰 반영), `3c3c0ff`(빈 카테고리 검사 범위 조정)와 재검수 반영(실패 문구 보존) 커밋이다.
+코드 커밋은 `fe6fa5c`(구현), `785d148`(리뷰 반영), `3c3c0ff`(빈 카테고리 검사 범위 조정)와 `3211e33`(재검수 실패 문구 보존)이다.
 
 ## 사용자 결정
 
@@ -60,5 +60,33 @@
   - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
   - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 - 같은 날 `785d148`의 첫 전체 검증은 위 빈 카테고리 fixture 8개로 `app:test` 실패였다. `3c3c0ff`의 전체 검증은 위와 같은 수치로 통과했다.
-- 미실행: Docker deployment 테스트와 원격 CI(PR 생성 뒤 확인), iOS Simulator·Android Emulator 링크 저장 성공 확인(화면 변화 없음, 이후 진행).
+- 미실행: Docker deployment 테스트와 원격 CI(PR 생성 뒤 확인).
   운영 확인은 완료 조건 밖이다. 화면 문구·배치는 바뀌지 않아 3면 비교 촬영은 하지 않는다.
+
+## 플랫폼 실행 확인
+
+2026-11-08, 코드 `3211e33`, main `f52660b` 포함. 실제 ClipbackApp과 메모리 API 대역으로 실행했다.
+두 플랫폼에서 OS 네이티브 입력으로 `https://example.com/g-link`를 입력하고 저장 버튼을 눌렀다.
+실제 `createContent`가 UUID `Idempotency-Key`를 보낸 요청 1회, 201 응답 1회, 결과 ID 7과 저장 완료 화면을 확인했다.
+키 없음·잘못된 UUID·다른 URL은 대역이 422로 거절하며 사전 검사에서 이를 확인했다.
+이는 앱 실행 확인이며 실제 백엔드와 연결한 종단간 검사나 운영 확인이 아니다.
+
+| 플랫폼 | 환경 | 확인 결과 |
+| --- | --- | --- |
+| iOS | iPhone 16 Simulator, iOS 18.6, 393×852 pt, 배율 1.0 | UUID 요청·결과 ID·저장 완료 통과, 원본 PNG와 AX 확인 |
+| Android | Medium_Phone Emulator, Android 16, 411.43×914.29 논리 크기, 배율 1.0 | UUID 요청·결과 ID·저장 완료 통과, 원본 PNG와 AX 확인 |
+
+입력 시 iOS는 화면 키보드 없이 네이티브 입력을 전달했고, Android는 화면 키보드 인셋 약 336.38이었다.
+키보드 배치 검사가 아닌 `nativeText` 조건으로 실제 문자열·포커스·선택 범위·입력 출처를 검증했다.
+결과 화면에서는 양쪽 모두 키보드가 없고 링크·미리보기·카테고리·저장 완료 버튼이 보이며 원본 PNG를 감독이 확인했다.
+예상 밖 API 요청은 없었다. 결과 시트 아래 홈 목록 개수는 기기 probe에서 관측하지 못했으며, 홈 1건 조건은 별도 앱 회귀 테스트 근거다.
+화면 문구·배치 변경이 없어 변경 전/후/Figma 3면 비교는 하지 않았다.
+
+기기 잠금을 플랫폼별로 잡았고 Android qemu 프로세스는 잠금에 등록했다.
+iOS는 설치된 Xcode에 Simulator GUI 앱이 없어 지정한 시뮬레이터 ID로 부팅하고 Orca helper로 입력·AX를 확인했으며,
+등록할 Simulator GUI 프로세스는 없었다. 잠금은 유지했고 실기기에는 설치하지 않았다.
+각 플랫폼 종료 뒤 잠금을 해제했고 Android 빌드 뒤 Gradle 데몬 종료를 확인했다.
+
+로컬 증거는 `.utmp/ticket-298/screens/{ios,android}-after-save-result.png`와 같은 이름 JSON, 입력 증거·AX 기록이다.
+촬영 진입 파일·manifest와 플랫폼별 빌드/사전 검사 로그도 같은 티켓 폴더에 보존했다.
+PR에는 원본 스크린샷을 사용자가 첨부한다.
