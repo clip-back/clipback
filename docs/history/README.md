@@ -29,6 +29,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-08 | [처리 중 잠긴 별·더보기를 누르면 상세가 열리던 문제 수정 (#297)](2026-11-08-locked-star-retap.md) | 앱 |
 | 2026-11-08 | [기기 촬영 도구 safe_area_device_check·category_archive_preview 끝까지 실행 (#292)](2026-11-08-capture-tools-device-run.md) | 앱 |
 | 2026-11-08 | [저장 화면 제출 상태를 ContentSaveSubmission으로 옮기기 (#288, #289, #290)](2026-11-08-save-submission-object.md) | 앱 |
 | 2026-11-08 | [리다이렉트로 YouTube가 된 링크의 자동 요약 제목·요약 반영 (#281)](2026-11-08-youtube-redirect-summary-flags.md) | 서버 |
