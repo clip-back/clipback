@@ -105,8 +105,11 @@ Future<void> main() async {
   }
 }
 
-Future<ContentItem> _saveLink({required String url, CategoryItem? category}) =>
-    Future.error(UnsupportedError('Fixture does not save'));
+Future<ContentItem> _saveLink({
+  required String url,
+  String? submissionKey,
+  CategoryItem? category,
+}) => Future.error(UnsupportedError('Fixture does not save'));
 Future<ContentItem> _savePhoto({
   required Uint8List bytes,
   required String filename,

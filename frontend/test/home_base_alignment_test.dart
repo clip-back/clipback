@@ -63,7 +63,7 @@ Future<void> _pump(
         onOpenToday: () {},
         onOpenContent: (_) {},
         onToggleBookmark: (_) {},
-        onAddLink: ({required url, category}) async =>
+        onAddLink: ({required url, submissionKey, category}) async =>
             fixture.homeBaseContents().first,
         onAddScreenshot:
             ({

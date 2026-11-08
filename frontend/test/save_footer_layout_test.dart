@@ -73,7 +73,7 @@ Future<void> _open(
           builder: (context) => TextButton(
             onPressed: () => showContentSaveScreen(
               context: context,
-              onAddLink: ({required url, category}) => save(url),
+              onAddLink: ({required url, submissionKey, category}) => save(url),
               onAddScreenshot:
                   ({
                     required bytes,

@@ -81,7 +81,7 @@ Future<void> _pumpDetail(
         onOpenOriginalLink: () {},
         onOpenAdjacent: (_) {},
         onOpenContent: (_) {},
-        onAddLink: ({required url, category}) async => _content,
+        onAddLink: ({required url, submissionKey, category}) async => _content,
         onAddScreenshot:
             ({
               required bytes,

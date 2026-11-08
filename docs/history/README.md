@@ -31,6 +31,7 @@
 | --- | --- | --- |
 | 2026-11-08 | [자동 요약 제목·요약 길이 상한을 한 곳으로 모으기 (#158)](2026-11-08-summary-length-limits.md) | 서버 |
 | 2026-11-08 | [인스타그램 페이지 요청의 httpx 시간 초과를 timeout으로 기록 (#157)](2026-11-08-instagram-httpx-timeout.md) | 서버 |
+| 2026-11-08 | [본앱 링크 저장 재시도에 제출 키 보내기 (#298)](2026-11-08-link-save-submission-key.md) | 앱·서버 |
 | 2026-11-08 | [주간 추천 방문 상태를 HomeWeeklyViewModel로 옮기기 (#294, #295, #296)](2026-11-08-home-weekly-visit.md) | 앱 |
 | 2026-11-08 | [처리 중 잠긴 별·더보기를 누르면 상세가 열리던 문제 수정 (#297)](2026-11-08-locked-star-retap.md) | 앱 |
 | 2026-11-08 | [기기 촬영 도구 safe_area_device_check·category_archive_preview 끝까지 실행 (#292)](2026-11-08-capture-tools-device-run.md) | 앱 |

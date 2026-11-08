@@ -32,6 +32,7 @@ void one<T>(T value) => events.add('value:$value');
 void two<A, B>(A _, B __) {}
 Future<ContentItem> saveLink({
   required String url,
+  String? submissionKey,
   CategoryItem? category,
 }) async => initialContents.first;
 Future<ContentItem> saveImage({

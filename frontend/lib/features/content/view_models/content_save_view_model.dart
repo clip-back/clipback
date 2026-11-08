@@ -13,11 +13,13 @@ class ContentSaveViewModel extends ContentViewModel {
 
   Future<ContentItem> addLink({
     required String url,
+    String? submissionKey,
     CategoryItem? category,
   }) async {
     ContentItem? saved;
     final response = await actions.saveLink(
       url: url,
+      submissionKey: submissionKey,
       categoryId: category?.id,
       onSaved: (item) {
         saved = present(item);

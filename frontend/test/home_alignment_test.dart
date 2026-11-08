@@ -127,7 +127,7 @@ Widget _home({
   onOpenToday: onOpenToday ?? () {},
   onOpenContent: (_) {},
   onToggleBookmark: (_) {},
-  onAddLink: ({required url, category}) async => _content(0),
+  onAddLink: ({required url, submissionKey, category}) async => _content(0),
   onAddScreenshot:
       ({
         required bytes,

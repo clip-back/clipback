@@ -90,6 +90,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   void _validateLink(String value) {
     _validationTimer?.cancel();
     final trimmed = value.trim();
+    _submission.linkChanged(trimmed);
     if (trimmed.isEmpty) {
       setState(() => _linkStage = SaveFlowStage.editing);
       return;
@@ -111,6 +112,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   void _clearLink() {
     _validationTimer?.cancel();
     _urlController.clear();
+    _submission.linkChanged('');
     setState(() => _linkStage = SaveFlowStage.editing);
   }
 

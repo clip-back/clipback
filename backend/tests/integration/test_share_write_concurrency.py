@@ -361,3 +361,45 @@ async def test_empty_ocr_photo_replay_preserves_original_and_default_content(
     # Classification is part of the same-key input contract, even with identical bytes.
     await request(api, "POST", "uploads/screenshots", status=409, headers=headers,
                   data={"category_ids": str(first["categories"][0]["id"])}, **payload)
+
+
+async def test_concurrent_main_link_saves_with_one_key_keep_one_content(
+    independent_api, monkeypatch,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = []
+    original = MetadataClient.extract_from_url
+
+    async def external(self, url):
+        calls.append(url)
+        entered.set()
+        await asyncio.wait_for(release.wait(), 10)
+        return await original(self, url)
+
+    monkeypatch.setattr(MetadataClient, "extract_from_url", external)
+    headers = {**headers, "Idempotency-Key": str(uuid4())}
+    body = {"original_url": "https://www.instagram.com/p/concurrent298/"}
+    tasks = []
+    try:
+        tasks.append(asyncio.create_task(request(api, "POST", "contents", status=201,
+                                                 headers=headers, json=body)))
+        await asyncio.wait_for(entered.wait(), 10)
+        tasks.append(asyncio.create_task(request(api, "POST", "contents", status=201,
+                                                 headers=headers, json=body)))
+        await asyncio.sleep(0.2)
+        assert len(calls) == 1 and not tasks[1].done()
+        release.set()
+        first, second = await asyncio.wait_for(asyncio.gather(*tasks), 10)
+        assert first == second and len(calls) == 1
+        async with sessions() as session:
+            for model in (Content, ContentEvent, ShareReceipt):
+                assert await session.scalar(select(func.count()).select_from(model).where(
+                    model.user_id == user_id,
+                )) == 1
+            assert await session.scalar(select(func.count()).select_from(SummaryJob).where(
+                SummaryJob.content_id == first["id"],
+            )) == 1
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)

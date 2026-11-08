@@ -437,7 +437,8 @@ void main() {
                   onOpenOriginalLink: () {},
                   onOpenAdjacent: (_) {},
                   onOpenContent: (_) {},
-                  onAddLink: ({required url, category}) async => content,
+                  onAddLink: ({required url, submissionKey, category}) async =>
+                      content,
                   onAddScreenshot:
                       ({
                         required bytes,

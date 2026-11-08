@@ -40,6 +40,8 @@ class ContentSaveSubmission extends ChangeNotifier {
   final SaveScreenshotCallback _onAddScreenshot;
   Uint8List? _selectedPhotoBytes;
   String? _photoKey;
+  String? _linkUrl;
+  String? _linkKey;
   ApiRequestScope? _photoRequest;
   var _isSaving = false;
   PendingSave? _pending;
@@ -56,9 +58,22 @@ class ContentSaveSubmission extends ChangeNotifier {
     _selectedPhotoBytes = bytes;
   }
 
+  /// A different address gets a new submission key on its next submit.
+  void linkChanged(String url) {
+    if (url != _linkUrl) _linkKey = null;
+    _linkUrl = url;
+  }
+
   /// Returns the message to show when saving fails, otherwise null.
-  Future<String?> submitLink(String url) =>
-      _submit(PendingSave.link(url), () => _onAddLink(url: url));
+  /// Resubmitting the same address reuses its submission key.
+  Future<String?> submitLink(String url) {
+    linkChanged(url);
+    final submissionKey = _linkKey ??= newEventUuid();
+    return _submit(
+      PendingSave.link(url),
+      () => _onAddLink(url: url, submissionKey: submissionKey),
+    );
+  }
 
   /// Returns the message to show when saving fails, otherwise null.
   Future<String?> submitPhoto(Uint8List bytes, String filename) =>
