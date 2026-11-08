@@ -354,7 +354,7 @@ async def test_youtube_failure_names_the_stage_that_failed(
         ({"post": answer(403)}, "provider_error", "instagram", None, {}),
         ({"post": answer(404)}, "content_unavailable", "instagram", None, {}),
         ({"post": failing_with(httpx.ConnectError)}, "provider_error", "instagram", None, {}),
-        ({"post": failing_with(httpx.ReadTimeout)}, "provider_error", "instagram", None, {}),
+        ({"post": failing_with(httpx.ReadTimeout)}, "timeout", "instagram", None, {}),
         ({"post": slow_page, "page_timeout": 0.05}, "timeout", "instagram", None, {}),
         (
             {"post": lambda r: page(description=None, title=None)},

@@ -24,7 +24,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import Settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
-from app.integrations.summary import SummaryError, SummaryResult, validated_result
+from app.integrations.summary import (
+    MAX_TITLE_LENGTH,
+    SummaryError,
+    SummaryResult,
+    validated_result,
+)
 from app.services.link_url import instagram_post_code
 
 IMAGE_TIMEOUT_SECONDS = 5
@@ -42,7 +47,7 @@ LOGIN_PATH_PREFIX = "/accounts/login"
 
 PROMPT = (
     "인스타그램 게시물의 캡션과 대표 이미지를 분석하여 한국어 제목과 요약을 작성하라. "
-    "제목은 120자 이내. 요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "
+    f"제목은 {MAX_TITLE_LENGTH}자 이내. 요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "
     "headline은 게시물이 무엇을 다루는지 밝힌 40자 이내 한 문장. "
     "points는 핵심 한 줄 아래 나열할 주요 사실·수치·조건이며 하나에 60자 이내. "
     "points는 근거만큼 1–5개. 보통 3–5개, 캡션과 이미지에서 확인한 근거가 적으면 1–2개만 쓰고 "
@@ -144,7 +149,7 @@ class InstagramSummaryClient:
         except UnsafeUrlError as exc:
             raise self._page_error("provider_error", reason="unsafe_url") from exc
         if page.status != "success":
-            raise self._page_failure(page.failure_reason, page.http_status)
+            raise self._page_failure(page.failure_reason, page.http_status, page.timed_out)
         # Accessibility first: only a page for the saved post may supply evidence.
         reason = self._unavailable_reason(url, page)
         if reason is not None:
@@ -255,9 +260,12 @@ class InstagramSummaryClient:
         error.reason = reason
         return error
 
-    def _page_failure(self, reason: str | None, http_status: int | None) -> SummaryError:
+    def _page_failure(
+        self, reason: str | None, http_status: int | None, timed_out: bool
+    ) -> SummaryError:
         """Map a failed page fetch: 404, 410 and non-HTML 200 are skipped, 401/403 blocks fail."""
-        if reason == "timeout":
+        # An httpx timeout is as slow as hitting the total limit, so both are a timeout.
+        if reason == "timeout" or timed_out:
             return self._page_error("timeout", retryable=True, reason="timeout")
         if reason in {"dns_failure", "request_failure"}:
             return self._page_error("provider_error", retryable=True, reason="network_error")

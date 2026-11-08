@@ -7,7 +7,12 @@ import re
 import httpx
 
 from app.core.config import Settings
-from app.integrations.summary import SummaryError, SummaryResult, validated_result
+from app.integrations.summary import (
+    MAX_TITLE_LENGTH,
+    SummaryError,
+    SummaryResult,
+    validated_result,
+)
 
 
 class YouTubeSummaryClient:
@@ -113,7 +118,8 @@ class YouTubeSummaryClient:
             raise SummaryError("invalid_response") from exc
         prompt = (
             "공개 영상 전체의 실제 내용을 분석하여 한국어 제목과 요약을 작성하라. "
-            "제목은 120자 이내. 요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "
+            f"제목은 {MAX_TITLE_LENGTH}자 이내. "
+            "요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "
             "headline은 영상이 무엇을 다루는지 밝힌 40자 이내 한 문장. "
             "points는 핵심 한 줄 아래 나열할 주요 사실·수치·조건이며 하나에 60자 이내. "
             "points는 근거만큼 1–5개. 보통 3–5개, 영상에서 확인한 근거가 적으면 1–2개만 쓰고 "
@@ -147,7 +153,7 @@ class YouTubeSummaryClient:
                     "responseJsonSchema": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string", "maxLength": 120},
+                            "title": {"type": "string", "maxLength": MAX_TITLE_LENGTH},
                             "headline": {"type": "string", "maxLength": 40},
                             "points": {
                                 "type": "array",

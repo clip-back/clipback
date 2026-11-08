@@ -63,6 +63,8 @@ Gemini에 공개 URL을 입력하며 영상/대본을 직접 다운로드하거�
    길이 지시(40·60자)를 넘거나 요점이 6개 이상인 것만으로는 실패시키지 않는다.
 
 정리 규칙과 판정 표의 기준은 #203 "공통 정리 규칙과 결과 판정"이다.
+제목 120자·합친 요약 500자 상한은 `app/integrations/summary.py`의 `MAX_TITLE_LENGTH`·`MAX_SUMMARY_LENGTH` 한 곳에 둔다.
+YouTube·인스타그램 프롬프트와 YouTube 응답 스키마의 제목 상한, 결과 검증이 모두 이 값을 쓴다.
 
 ## 작업·운영
 
@@ -155,8 +157,8 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 | 401·403 | failed / `provider_error` | 없음 | `access_denied` |
 | 429 | `provider_error` | 30초 뒤 1회 | `rate_limited` |
 | 5xx | `provider_error` | 30초 뒤 1회 | `server_error` |
-| 네트워크 오류 | `provider_error` | 30초 뒤 1회 | `network_error` |
-| 시간 초과 | `timeout` | 30초 뒤 1회 | `timeout` |
+| 네트워크 오류(연결 실패·DNS 실패 등) | `provider_error` | 30초 뒤 1회 | `network_error` |
+| 시간 초과(전체 5초 상한, httpx 연결·읽기 등의 시간 초과) | `timeout` | 30초 뒤 1회 | `timeout` |
 | 그 밖의 상태(400 등)·응답 크기 초과·리다이렉트 한도·파싱 실패·해석할 수 없는 주소·내부망 주소 | failed / `provider_error` | 없음 | `unexpected_status`, `response_too_large`, `redirect_limit` 등, `invalid_url`, `unsafe_url` |
 
 401·403은 게시물이 아니라 우리 서버가 차단됐을 가능성이 커서 게시물 제외가 아닌 실패로 둔다. 재시도 가능한 오류도
@@ -169,7 +171,7 @@ pending_count, elapsed_seconds, error_code, model, usage를 집계해 대기량�
 OpenAI 단계와 성공 시 null), `retryable`(재시도 대상 여부. 실제 재시도는 `youtube_summary_claim`의 `attempt`로 확인), `usage`.
 페이지 판정을 통과해 대표 이미지 단계까지 간 시도는 성공이든 실패든 `image`(`used` 사용 여부, `reason` 미사용 사유, `http_status` 이미지 응답 상태)도 남는다.
 미사용 사유는 `no_image_url`(`og:image` 없음), `invalid_url`(해석할 수 없는 `og:image` 주소나 리다이렉트 주소), `unsafe_url`(내부망 주소), `not_found`·`gone`(410)·`access_denied`(401·403)·`rate_limited`·`server_error`·`unexpected_status`
-(이미지 HTTP 오류, `http_status` 포함), `timeout`, `dns_failure`, `request_failure`, `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아니거나 압축 폭탄 보호 한도 초과), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
+(이미지 HTTP 오류, `http_status` 포함), `timeout`(전체 5초 상한), `dns_failure`, `request_failure`(httpx 시간 초과 포함), `response_too_large`(10MB 초과), `redirect_*`, `invalid_image`(JPEG·PNG·WEBP가 아니거나 압축 폭탄 보호 한도 초과), `parse_failure`이다. 사용했으면 `reason`과 `http_status`는 null이다.
 캡션 원문·이미지 주소·요청 URL·응답 원문·키·공급자 오류 메시지는 기록하지 않는다.
 
 차단 의심 신호 해석(서버 IP 차단은 게시물 문제가 아니므로 구분한다):
