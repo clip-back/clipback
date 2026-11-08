@@ -297,7 +297,7 @@ class _HostState extends State<_Host> {
                 open(contents[index + delta], 'adjacent$delta');
               },
               onOpenContent: (item) => open(item, 'related'),
-              onAddLink: ({required url, category}) async {
+              onAddLink: ({required url, submissionKey, category}) async {
                 _record('saveLink', {'url': url});
                 return _item('saved-link');
               },

@@ -97,7 +97,7 @@ void main() {
                 child: TextButton(
                   onPressed: () => showContentSaveScreen(
                     context: context,
-                    onAddLink: ({required url, category}) async {
+                    onAddLink: ({required url, submissionKey, category}) async {
                       links.add(url);
                       throw const ClipbackApiException('수동 저장 실패 확인');
                     },

@@ -108,7 +108,12 @@ Future<_Calls> _pump(
     #onToggleBookmark: (ContentItem _) => calls.favorite++,
     #onChangeContentCategory: (ContentItem _, CategoryItem _) {},
     #onDeleteContent: (ContentItem _) {},
-    #onAddLink: ({required String url, CategoryItem? category}) async => _item,
+    #onAddLink:
+        ({
+          required String url,
+          String? submissionKey,
+          CategoryItem? category,
+        }) async => _item,
     #onAddScreenshot:
         ({
           required Uint8List bytes,

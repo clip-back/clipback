@@ -261,10 +261,15 @@ class CategoryArchivePreviewState extends State<CategoryArchivePreviewHost> {
       #onAddCategory: add,
       #onUpdateCategory: update,
       #onDeleteCategory: delete,
-      #onAddLink: ({required String url, CategoryItem? category}) async {
-        record('saveLink');
-        return _content(categories[1]);
-      },
+      #onAddLink:
+          ({
+            required String url,
+            String? submissionKey,
+            CategoryItem? category,
+          }) async {
+            record('saveLink');
+            return _content(categories[1]);
+          },
       #onAddScreenshot:
           ({
             required Uint8List bytes,

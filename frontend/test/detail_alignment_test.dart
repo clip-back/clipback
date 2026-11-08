@@ -172,7 +172,8 @@ Future<_Calls> _pump(
         onOpenOriginalLink: () => calls.original++,
         onOpenAdjacent: calls.adjacent.add,
         onOpenContent: calls.opened.add,
-        onAddLink: ({required url, category}) async => scene.current,
+        onAddLink: ({required url, submissionKey, category}) async =>
+            scene.current,
         onAddScreenshot:
             ({
               required bytes,

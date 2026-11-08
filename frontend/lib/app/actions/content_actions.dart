@@ -363,6 +363,7 @@ class ContentActions {
 
   Future<ApiContent> saveLink({
     required String url,
+    String? submissionKey,
     int? categoryId,
     required void Function(ApiContent) onSaved,
     required ContentFeedback feedback,
@@ -372,7 +373,11 @@ class ContentActions {
       throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
     }
     final generation = content.accountVersion;
-    final item = await content.saveLink(url: url, categoryId: categoryId);
+    final item = await content.saveLink(
+      url: url,
+      submissionKey: submissionKey,
+      categoryId: categoryId,
+    );
     if (!_current(generation)) return item;
     content.insertSavedContent(item);
     if (!_current(generation)) return item;

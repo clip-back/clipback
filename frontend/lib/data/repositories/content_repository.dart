@@ -79,7 +79,11 @@ abstract class ContentRepository extends ChangeNotifier {
     required String color,
     required String submissionKey,
   });
-  Future<ApiContent> saveLink({required String url, int? categoryId});
+  Future<ApiContent> saveLink({
+    required String url,
+    String? submissionKey,
+    int? categoryId,
+  });
   Future<ApiContent> saveScreenshot({
     required Uint8List bytes,
     required String filename,
@@ -1041,9 +1045,14 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
-  Future<ApiContent> saveLink({required String url, int? categoryId}) => _save(
+  Future<ApiContent> saveLink({
+    required String url,
+    String? submissionKey,
+    int? categoryId,
+  }) => _save(
     () => _api.createContent(
       originalUrl: url,
+      submissionKey: submissionKey,
       categoryIds: categoryId == null ? const [] : [categoryId],
     ),
   );

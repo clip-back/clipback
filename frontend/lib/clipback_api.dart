@@ -760,23 +760,38 @@ class ClipbackApi {
     String? summary,
     List<String> tagNames = const [],
     bool isFavorite = false,
+    String? submissionKey,
   }) async {
-    return ApiContent.fromJson(
-      await _json(
-        'POST',
-        '/contents',
-        body: {
-          'content_type': 'link',
-          'source': 'web',
-          'original_url': originalUrl,
-          'category_ids': categoryIds,
-          'tag_names': tagNames,
-          'title': title,
-          'summary': summary,
-          'is_favorite': isFavorite,
-        },
-      ),
+    final response = await _request(
+      'POST',
+      '/contents',
+      headers: submissionKey == null
+          ? null
+          : {'Idempotency-Key': submissionKey},
+      body: {
+        'content_type': 'link',
+        'source': 'web',
+        'original_url': originalUrl,
+        'category_ids': categoryIds,
+        'tag_names': tagNames,
+        'title': title,
+        'summary': summary,
+        'is_favorite': isFavorite,
+      },
     );
+    _throwForError(response);
+    try {
+      final result = _savedContent(_decodeJson(response));
+      if (result.contentType != 'link' || result.originalUrl == null) {
+        throw const FormatException('Invalid saved link');
+      }
+      return result;
+    } on FormatException {
+      // Keeps the link save's existing failure message.
+      throw const ClipbackApiException('저장하지 못했어요. 다시 시도해 주세요.');
+    } on TypeError {
+      throw const ClipbackApiException('저장하지 못했어요. 다시 시도해 주세요.');
+    }
   }
 
   Future<ApiContent> readContent(int contentId) async =>
@@ -1048,25 +1063,8 @@ class ClipbackApi {
     _throwForError(response);
     final data = _decodeJson(response);
     try {
-      for (final field in ['categories', 'tags', 'assets']) {
-        final value = data[field];
-        if (value is! List ||
-            value.any((item) => item is! Map<String, dynamic>)) {
-          throw const FormatException('Invalid photo result collection');
-        }
-      }
-      if (data['is_favorite'] is! bool ||
-          !data.containsKey('original_url') ||
-          !data.containsKey('last_viewed_at')) {
-        throw const FormatException('Incomplete photo result');
-      }
-      if (data['last_viewed_at'] != null &&
-          _dateTime(data['last_viewed_at']) == null) {
-        throw const FormatException('Invalid photo result date');
-      }
-      final result = ApiContent.fromJson(data);
-      if (result.id <= 0 ||
-          result.contentType != 'screenshot' ||
+      final result = _savedContent(data);
+      if (result.contentType != 'screenshot' ||
           result.source != 'screenshot' ||
           !result.assets.any((asset) => asset.assetType == 'screenshot') ||
           result.assets.any((asset) => asset.id <= 0) ||
@@ -1079,6 +1077,31 @@ class ClipbackApi {
     } on TypeError {
       throw const ClipbackApiException('저장 결과를 확인하지 못했어요. 다시 시도해 주세요.');
     }
+  }
+
+  /// A save response with every field a saved result shows. Unlike reads,
+  /// a missing collection or flag is a damaged response, not an empty one.
+  /// Throws [FormatException] or [TypeError] for a damaged response.
+  ApiContent _savedContent(Map<String, dynamic> data) {
+    for (final field in ['categories', 'tags', 'assets']) {
+      final value = data[field];
+      if (value is! List ||
+          value.any((item) => item is! Map<String, dynamic>)) {
+        throw const FormatException('Invalid saved result collection');
+      }
+    }
+    if (data['is_favorite'] is! bool ||
+        !data.containsKey('original_url') ||
+        !data.containsKey('last_viewed_at')) {
+      throw const FormatException('Incomplete saved result');
+    }
+    if (data['last_viewed_at'] != null &&
+        _dateTime(data['last_viewed_at']) == null) {
+      throw const FormatException('Invalid saved result date');
+    }
+    final result = ApiContent.fromJson(data);
+    if (result.id <= 0) throw const FormatException('Invalid saved content');
+    return result;
   }
 
   Future<Uint8List> readAsset(int assetId) async {
@@ -1357,6 +1380,7 @@ class ClipbackApi {
     Map<String, dynamic>? body,
     bool allowEmpty = false,
     bool retryUnauthorized = true,
+    Map<String, String>? headers,
   }) async {
     final response = await _request(
       method,
@@ -1364,6 +1388,7 @@ class ClipbackApi {
       authenticated: authenticated,
       body: body,
       retryUnauthorized: retryUnauthorized,
+      headers: headers,
     );
     _throwForError(response);
     if (allowEmpty && response.body.isEmpty) return const {};

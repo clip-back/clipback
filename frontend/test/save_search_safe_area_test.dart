@@ -69,7 +69,7 @@ void main() {
                 child: TextButton(
                   onPressed: () => showContentSaveScreen(
                     context: context,
-                    onAddLink: ({required url, category}) async {
+                    onAddLink: ({required url, submissionKey, category}) async {
                       urls.add(url);
                       throw const ClipbackApiException('fixture failure');
                     },
