@@ -90,3 +90,15 @@ iOS는 설치된 Xcode에 Simulator GUI 앱이 없어 지정한 시뮬레이터 
 로컬 증거는 `.utmp/ticket-298/screens/{ios,android}-after-save-result.png`와 같은 이름 JSON, 입력 증거·AX 기록이다.
 촬영 진입 파일·manifest와 플랫폼별 빌드/사전 검사 로그도 같은 티켓 폴더에 보존했다.
 PR에는 원본 스크린샷을 사용자가 첨부한다.
+
+## PR 승인 뒤 main 병합과 최종 검사
+
+2026-11-08 사용자 승인 "298 승인" 뒤 main `3b3d10f`(#294)를 충돌 없이 병합했다(`15bdbbf`).
+승인된 PR 본문과 이미지 자리는 유지한다. 기기 증거는 앞 절의 `3211e33` 실행이며 이번 병합 뒤 다시 촬영한 결과는 아니다.
+
+- 병합 후 `flutter analyze --no-pub` 통과, 이어 전체 검사 `VERIFY result=PASS scope=all checks=11 failed=0`.
+- 앱 `+3440: All tests passed!`, 백엔드 `2325 passed, 47 skipped, 3 warnings`.
+- pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+- pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+- `deptry .` 별도 실행 통과. 최종 코드 기준은 `15bdbbf`이며 이 검사 이후 변경은 이력 문서뿐이다.
+- 정확한 로컬 실행 로그: `.utmp/ticket-298-prepush/20261108T185331-cfaf5725d48f/`, deptry 로그는 그 상위 폴더.
