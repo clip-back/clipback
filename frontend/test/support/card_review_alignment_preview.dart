@@ -1027,11 +1027,9 @@ Future<void> _directRun() async {
     _record('direct_advance_${i + 1}');
   }
   _kind = 'complete';
-  _require(_find<AnimatedSlide>(_screen) == null, 'Last card not exhausted');
-  _record('direct_complete');
-  await _tap(_text(_screen, '나가기')!);
-  _require(state.exits == 1, 'Complete exit callback missing');
-  _record('direct_complete_exit');
+  // #309: 마지막 카드를 넘기면 나가기 콜백이 자동으로 한 번 불린다.
+  _require(state.exits == 1, 'Complete auto exit callback missing');
+  _record('direct_complete_auto_exit');
   await _freshDirect('stack', 0);
   _require(
     (_screen.widget as CategoryCardReviewScreen).contents.isEmpty,
