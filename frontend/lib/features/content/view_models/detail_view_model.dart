@@ -10,6 +10,7 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
+import 'package:flutter/foundation.dart' show VoidCallback;
 
 class DetailViewModel extends ContentViewModel {
   DetailViewModel(
@@ -31,6 +32,8 @@ class DetailViewModel extends ContentViewModel {
   WeeklyNavigationOrigin? _weeklyOrigin;
   _TodayDetailContext? _todayContext;
   Object? _todayPending;
+  Object _todayAttempt = Object();
+  Object? _todayRequest;
   bool get isToday => _todayContext != null;
   WeeklyNavigationOrigin? get weeklyOrigin => _weeklyOrigin;
 
@@ -201,8 +204,44 @@ class DetailViewModel extends ContentViewModel {
       );
   }
 
+  /// Builds the home action for the current attempt without changing state.
+  VoidCallback todayAction({
+    required bool Function() isCurrent,
+    required VoidCallback onOpened,
+  }) {
+    final attempt = _todayAttempt;
+    return () {
+      if (isDisposed ||
+          !identical(attempt, _todayAttempt) ||
+          !isCurrent() ||
+          _todayRequest != null) {
+        return;
+      }
+      final token = Object();
+      _todayRequest = token;
+      bool current() =>
+          identical(attempt, _todayAttempt) &&
+          isCurrent() &&
+          identical(_todayRequest, token);
+      unawaited(() async {
+        try {
+          final opened = await _openToday(isCurrent: current);
+          if (opened && current()) onOpened();
+        } finally {
+          if (identical(_todayRequest, token)) _todayRequest = null;
+        }
+      }());
+    };
+  }
+
+  /// Starts a new attempt; the caller decides when to rebuild.
+  void invalidateToday() {
+    _todayAttempt = Object();
+    _todayRequest = null;
+  }
+
   /// The home action owns the entire query plus the initial detail read.
-  Future<bool> openToday({required bool Function() isCurrent}) async {
+  Future<bool> _openToday({required bool Function() isCurrent}) async {
     try {
       final response = await repository.loadToday(isCurrent: isCurrent);
       if (isDisposed || !isCurrent() || response == null) return false;
@@ -404,6 +443,7 @@ class DetailViewModel extends ContentViewModel {
 
   @override
   void dispose() {
+    _todayRequest = null;
     _todayPending = null;
     _todayContext = null;
     _originalOpening = null;
