@@ -3,7 +3,7 @@
 2026-11-08, 상위 스펙 #294의 두 티켓을 브랜치 `refactor/app-root-flow-state`에서 진행했다.
 #295는 앱 코드를 바꾸기 전에 동작 고정 테스트를 추가했고(커밋 `02e5240`), #296은 앱 루트 View가 들고 있던 주간 추천 방문 상태를 새 `HomeWeeklyViewModel`로 옮겼다(커밋 `11d8ff8`).
 그보다 먼저 용어집에 **주간 추천 방문**을 더했다(커밋 `964a054`, 회의 Q6).
-이 기록을 더한 커밋은 문서만 바꾼다. 전체 검증과 기기 실행의 기준 코드는 `11d8ff8`이다.
+최초 이력 추가 커밋 `4a1f501`은 문서만 바꿨다. 최초 전체 검증과 기기 실행의 기준 코드는 `11d8ff8`이며, 승인 뒤 main 병합의 최종 전체 검증은 아래에 별도로 기록한다.
 사용자에게 보이는 동작은 바뀌지 않으므로 CHANGELOG `미배포`에는 적지 않았다.
 
 ## 사용자 결정
@@ -90,6 +90,19 @@
 - CI App Validation의 4개 명령(`flutter pub get --enforce-lockfile`, `dart format --output=none --set-exit-if-changed lib test`, `flutter analyze --no-pub`, `flutter test --no-pub`)은 verify의 앱 단계가 같은 문구로 실행했다.
 - 리뷰어는 main 대조·변형 실험·촬영 전 확인을 다시 실행하지 않고 작업자 로그와 대조했다.
 - push·원격 CI·실기기·운영 서버 확인은 하지 않았다. 원격 CI는 PR 생성 뒤 실행한다.
+
+### PR 승인 뒤 main 병합·전체 검사(최종)
+
+- 2026-11-08 사용자가 PR 초안과 양 플랫폼 원본 화면을 확인하고 "승인"했다. 승인 본문과 이미지 6칸을 보존하며, 이미지는 사용자가 PR 생성 뒤 첨부한다.
+- push 직전 main이 `f52660b`(#297, PR #299)로 전진했다. `git merge-tree --write-tree origin/main HEAD`로 충돌 없음을 확인한 뒤 `f1a8936`으로 병합했다. 주간 추천 인터페이스와 겹치는 변경은 없었다.
+- `git diff origin/main -- CHANGELOG.md`는 비어 있고, 이력 목차에는 두 작업의 항목이 각각 한 번씩 남았다. 승인 본문은 변경하지 않았다.
+- 병합 코드 `f1a8936`에서 전체 검증을 새로 실행하고 종료 코드 0을 회수했다: `VERIFY result=PASS scope=all checks=11 failed=0`.
+  - 앱: CI와 같은 4개 명령 모두 통과, `flutter test --no-pub` 3414개 통과.
+  - pytest: 2320 passed, 47 skipped, 3 warnings in 216.99s (0:03:36).
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+  - 로그: `.utmp/pre-pr-294-verify/20261108T170139-d0a67e60d788/`.
+- 이 결과를 기록한 후속 커밋은 이 문서만 바꾼다. 기기 화면은 앞서 승인받은 `11d8ff8` 실행 증거이며, main 병합 뒤 기기를 다시 실행한 결과로 표시하지 않는다. 원격 CI 결과는 PR에서 별도로 확인한다.
 
 ## 기기 실행 확인
 
