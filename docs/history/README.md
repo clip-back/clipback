@@ -29,6 +29,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-08 | [기기 촬영 도구 safe_area_device_check·category_archive_preview 끝까지 실행 (#292)](2026-11-08-capture-tools-device-run.md) | 앱 |
 | 2026-11-08 | [리다이렉트로 YouTube가 된 링크의 자동 요약 제목·요약 반영 (#281)](2026-11-08-youtube-redirect-summary-flags.md) | 서버 |
 | 2026-11-07 | [콘텐츠 저장 진입점 정리 최종 리뷰·검증 (#277)](2026-11-07-content-save-final-review.md) | 서버 |
 | 2026-11-07 | [이벤트 metadata 1000자 자르기를 함수 하나로 합침 (#280)](2026-11-07-event-metadata-truncation.md) | 서버 |
