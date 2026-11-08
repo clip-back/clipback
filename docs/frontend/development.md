@@ -147,10 +147,43 @@ flutter run --no-pub -d <iPhone-device-id> -t test/support/safe_area_device_chec
 ```
 
 자동 순회는 앱 임시 폴더에 `report.json`과 PNG를 저장하고 경로 및 PASS/FAIL을 출력합니다.
+홈 내용이 화면보다 짧아 스크롤 범위가 0인 기기에서는 홈 스크롤 검사를 넘기고, 결과 줄의
+`note="home: 이 화면 크기에서 스크롤 없음 (...)"`에 측정값을 남깁니다. 범위가 있는데 스크롤되지 않거나
+머리가 따라가지 않으면 FAIL입니다.
 무선 iOS 실행에서 Flutter 터미널에 앱 로그가 보이지 않으면 Xcode 콘솔이나 기기의
 `tmp/clipback-safe-area-*` 결과 파일을 확인합니다.
 이 결과는 **실제 기기의 렌더링과 프로그램 입력 검증**이며 사람의 수동 탭·실제 OAuth·운영 API 검증과
 구분합니다. 이 진입점을 출시하지 않으며 제품 빌드의 진입점은 계속 `lib/main.dart`입니다.
+
+### iOS Simulator 키보드 설정
+
+카테고리 아카이브 자동 확인(`test/support/category_archive_preview.dart`)은 화면 키보드가 실제로 올라왔는지
+(`viewInsets.bottom > 0`)를 검사합니다. iOS Simulator는 하드웨어 키보드를 본 적이 있으면 키보드 최소화
+설정으로 화면 키보드를 숨겨 이 검사가 실패합니다. 실행 전에 시뮬레이터 안 설정을 끄고 재부팅하고, 끝나면 되돌립니다.
+
+```bash
+SIM=<simulator-udid>
+# 원래 값을 기록합니다. 1·0이 출력되거나, 키가 없으면 "does not exist" 오류가 납니다.
+xcrun simctl spawn "$SIM" defaults read com.apple.keyboard.preferences AutomaticMinimizationEnabled
+# 끄고 재부팅한 뒤 0이 출력되는지 확인합니다.
+xcrun simctl spawn "$SIM" defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool NO
+xcrun simctl shutdown "$SIM" && xcrun simctl boot "$SIM" && xcrun simctl bootstatus "$SIM" -b
+xcrun simctl spawn "$SIM" defaults read com.apple.keyboard.preferences AutomaticMinimizationEnabled
+
+# frontend/에서 실행합니다. 준비되면 CATEGORY_ARCHIVE ready가 출력됩니다.
+flutter run --no-pub -d "$SIM" -t test/support/category_archive_preview.dart --dart-define=CATEGORY_ARCHIVE_PHASE=after
+curl -s http://127.0.0.1:8767/run   # 실패하면 응답의 error와 앱 로그의 CATEGORY_ARCHIVE FAIL
+
+# 끝나면 처음 기록한 값으로 되돌리고 재부팅합니다. 아래 셋 중 하나만 실행합니다.
+xcrun simctl spawn "$SIM" defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool YES  # 원래 1
+xcrun simctl spawn "$SIM" defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool NO   # 원래 0
+xcrun simctl spawn "$SIM" defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled           # 원래 키 없음
+xcrun simctl shutdown "$SIM" && xcrun simctl boot "$SIM" && xcrun simctl bootstatus "$SIM" -b
+# 처음 기록한 출력(1·0 또는 "does not exist" 오류)과 같은지 확인합니다.
+xcrun simctl spawn "$SIM" defaults read com.apple.keyboard.preferences AutomaticMinimizationEnabled
+```
+
+Android Emulator는 이 설정이 필요 없고, `/run` 전에 `adb -s <serial> forward tcp:8767 tcp:8767`을 실행합니다.
 
 ## Android 개발 실행
 
