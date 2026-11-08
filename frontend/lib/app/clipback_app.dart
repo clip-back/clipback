@@ -1283,7 +1283,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),
-            onOpenNotices: _noticeNavigation(AppRoute.my, AppRoute.noticeList),
             onTab: _selectRootTab,
           ),
         ),

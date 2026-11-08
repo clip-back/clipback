@@ -8,7 +8,6 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
@@ -719,34 +718,23 @@ void main() {
       await tester.pump(const Duration(seconds: 30));
       expect(server.calls(_stats), hasLength(2));
 
-      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenNotices!();
+      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
       await tester.pumpAndSettle();
       expect(server.calls(_stats), hasLength(2));
-      tester.widget<NoticeListScreen>(find.byType(NoticeListScreen)).onBack();
+      tester
+          .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
+          .onBack();
       await tester.pumpAndSettle();
       expect(server.calls(_stats), hasLength(3));
       expect(find.text('3'), findsOneWidget);
 
       tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
       await tester.pumpAndSettle();
-      expect(server.calls(_stats), hasLength(3));
-      tester
-          .widget<AccountManagementScreen>(find.byType(AccountManagementScreen))
-          .onBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
+      expect(find.byType(MyScreen), findsOneWidget);
       expect(server.calls(_stats), hasLength(4));
       expect(find.text('4'), findsOneWidget);
-
-      for (final notices in [true, false]) {
-        final my = tester.widget<MyScreen>(find.byType(MyScreen));
-        (notices ? my.onOpenNotices! : my.onOpenAccount)();
-        await tester.pumpAndSettle();
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
-        expect(find.byType(MyScreen), findsOneWidget);
-      }
-      expect(server.calls(_stats), hasLength(6));
-      expect(find.text('6'), findsOneWidget);
       expect(storage.clears, 0);
       expect(server.calls(_guest), isEmpty);
     });

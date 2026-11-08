@@ -6,6 +6,7 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
@@ -246,9 +247,16 @@ void main() {
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
             _screen(tester, 'MyScreen', edges);
-            tester.widget<MyScreen>(_type('MyScreen')).onOpenNotices!();
+            Navigator.of(tester.element(_type('MyScreen'))).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    NoticeListScreen(titles: mockNotices, onBack: () {}),
+              ),
+            );
             await tester.pumpAndSettle();
             _screen(tester, 'NoticeListScreen', edges);
+            Navigator.of(tester.element(_type('NoticeListScreen'))).pop();
+            await tester.pumpAndSettle();
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
             tester.widget<MyScreen>(_type('MyScreen')).onOpenAccount();

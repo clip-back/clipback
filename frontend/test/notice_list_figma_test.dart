@@ -1,14 +1,11 @@
-import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
-import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
 import 'fixtures/notice_alignment_fixture.dart' as fixture;
-import 'support/app_startup.dart';
 
 Finder get _notice => find.byWidgetPredicate(
   (w) => w.runtimeType.toString() == 'NoticeListScreen',
@@ -31,34 +28,19 @@ Future<void> _root(
   addTearDown(tester.view.reset);
   final server = fixture.NoticeServer(kind);
   addTearDown(server.client.close);
-  await http.runWithClient(() async {
-    try {
-      await tester.pumpWidget(
-        ClipbackApp(
-          key: UniqueKey(),
-          sessionStorage: fixture.NoticeMemoryStorage(),
-          socialAuth: fixture.NoticeSocial(),
-        ),
-      );
-      await completeAppStartup(tester);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(ClipbackNavigationBar),
-          matching: find.text('마이'),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(MyScreen), findsOneWidget);
-      await tester.ensureVisible(find.text('공지사항'));
-      await tester.tap(find.text('공지사항'));
-      await tester.pumpAndSettle();
-      await body(server);
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      debugDefaultTargetPlatformOverride = previous;
-    }
-  }, () => server.client);
+  try {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NoticeListScreen(titles: mockNotices, onBack: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await body(server);
+  } finally {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    debugDefaultTargetPlatformOverride = previous;
+  }
 }
 
 void _expectOracle(WidgetTester tester) {
