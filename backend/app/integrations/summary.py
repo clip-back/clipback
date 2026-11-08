@@ -3,6 +3,11 @@
 import re
 from dataclasses import dataclass
 
+# The one place for both limits (#158): both prompts and the YouTube response schema take the
+# title limit, validated_result() checks both.
+MAX_TITLE_LENGTH = 120
+MAX_SUMMARY_LENGTH = 500
+
 
 class SummaryError(Exception):
     def __init__(self, code: str, *, retryable: bool = False, skipped: bool = False):
@@ -39,7 +44,7 @@ def validated_result(
     """
     summary = _joined_summary(headline, points)
     title = title.strip()
-    if not title or len(title) > 120 or len(summary) > 500:
+    if not title or len(title) > MAX_TITLE_LENGTH or len(summary) > MAX_SUMMARY_LENGTH:
         raise SummaryError("invalid_response")
     if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
         category_id = None
