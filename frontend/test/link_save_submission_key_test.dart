@@ -393,7 +393,6 @@ void main() {
   final damaged = <String, Object? Function(Map<String, Object?>)>{
     'missing categories': (body) => body..remove('categories'),
     'null categories': (body) => body..['categories'] = null,
-    'empty categories': (body) => body..['categories'] = <Object>[],
     'numeric category': (body) => body..['categories'] = [1],
     'missing tags': (body) => body..remove('tags'),
     'array tag': (body) => body..['tags'] = [<Object>[]],

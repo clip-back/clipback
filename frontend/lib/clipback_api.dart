@@ -1066,7 +1066,8 @@ class ClipbackApi {
       if (result.contentType != 'screenshot' ||
           result.source != 'screenshot' ||
           !result.assets.any((asset) => asset.assetType == 'screenshot') ||
-          result.assets.any((asset) => asset.id <= 0)) {
+          result.assets.any((asset) => asset.id <= 0) ||
+          result.categories.isEmpty) {
         throw const FormatException('Invalid saved photo');
       }
       return result;
@@ -1098,9 +1099,7 @@ class ClipbackApi {
       throw const FormatException('Invalid saved result date');
     }
     final result = ApiContent.fromJson(data);
-    if (result.id <= 0 || result.categories.isEmpty) {
-      throw const FormatException('Invalid saved content');
-    }
+    if (result.id <= 0) throw const FormatException('Invalid saved content');
     return result;
   }
 
