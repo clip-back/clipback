@@ -144,7 +144,7 @@ class InstagramSummaryClient:
         except UnsafeUrlError as exc:
             raise self._page_error("provider_error", reason="unsafe_url") from exc
         if page.status != "success":
-            raise self._page_failure(page.failure_reason, page.http_status)
+            raise self._page_failure(page.failure_reason, page.http_status, page.timed_out)
         # Accessibility first: only a page for the saved post may supply evidence.
         reason = self._unavailable_reason(url, page)
         if reason is not None:
@@ -255,9 +255,12 @@ class InstagramSummaryClient:
         error.reason = reason
         return error
 
-    def _page_failure(self, reason: str | None, http_status: int | None) -> SummaryError:
+    def _page_failure(
+        self, reason: str | None, http_status: int | None, timed_out: bool
+    ) -> SummaryError:
         """Map a failed page fetch: 404, 410 and non-HTML 200 are skipped, 401/403 blocks fail."""
-        if reason == "timeout":
+        # An httpx timeout is as slow as hitting the total limit, so both are a timeout.
+        if reason == "timeout" or timed_out:
             return self._page_error("timeout", retryable=True, reason="timeout")
         if reason in {"dns_failure", "request_failure"}:
             return self._page_error("provider_error", retryable=True, reason="network_error")

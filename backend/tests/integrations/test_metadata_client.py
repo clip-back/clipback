@@ -348,3 +348,27 @@ async def test_fetch_page_reports_failure_and_keeps_safety_limits() -> None:
     assert (await too_large.fetch_page("https://example.com")).failure_reason == (
         "response_too_large"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "timed_out"),
+    [(httpx.ReadTimeout, True), (httpx.ConnectTimeout, True), (httpx.ConnectError, False)],
+)
+async def test_request_failure_keeps_its_reason_and_marks_httpx_timeouts(
+    failure: type[httpx.TransportError], timed_out: bool
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise failure("injected")
+
+    client = build_client(fail)
+    metadata = await client.extract_from_url("https://example.com")
+    page = await client.fetch_page("https://example.com")
+    image = await client.fetch_image(
+        "https://example.com/a.jpg", total_timeout_seconds=1, max_bytes=10
+    )
+
+    assert (metadata.status, metadata.failure_reason) == ("failed", "request_failure")
+    assert (page.status, page.failure_reason) == ("failed", "request_failure")
+    assert (image.content, image.failure_reason) == (None, "request_failure")
+    assert (metadata.timed_out, page.timed_out) == (timed_out, timed_out)

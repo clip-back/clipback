@@ -33,6 +33,8 @@ class MetadataResult:
     status: str
     failure_reason: str | None = None
     http_status: int | None = None
+    # A request_failure that was an httpx timeout; the reason itself stays request_failure.
+    timed_out: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class PageMeta:
     failure_reason: str | None = None
     http_status: int | None = None
     properties: dict[str, str] = field(default_factory=dict)
+    timed_out: bool = False
 
 
 @dataclass(frozen=True)
@@ -130,7 +133,11 @@ class MetadataClient:
         result = await self._fetch(url, self._to_page)
         if isinstance(result, MetadataResult):
             return PageMeta(
-                result.resolved_url, "failed", result.failure_reason, result.http_status
+                result.resolved_url,
+                "failed",
+                result.failure_reason,
+                result.http_status,
+                timed_out=result.timed_out,
             )
         return result
 
@@ -198,6 +205,8 @@ class MetadataClient:
             return self._failure(last_safe_url[0], "timeout")
         except UrlResolutionError:
             return self._failure(last_safe_url[0], "dns_failure")
+        except httpx.TimeoutException:
+            return self._failure(last_safe_url[0], "request_failure", timed_out=True)
         except httpx.HTTPError:
             return self._failure(last_safe_url[0], "request_failure")
         except Exception:
@@ -414,7 +423,13 @@ class MetadataClient:
         return urlunparse(parsed._replace(fragment=""))
 
     @staticmethod
-    def _failure(resolved_url: str, reason: str, http_status: int | None = None) -> MetadataResult:
+    def _failure(
+        resolved_url: str,
+        reason: str,
+        http_status: int | None = None,
+        *,
+        timed_out: bool = False,
+    ) -> MetadataResult:
         return MetadataResult(
             resolved_url=resolved_url,
             title=None,
@@ -422,4 +437,5 @@ class MetadataClient:
             status="failed",
             failure_reason=reason,
             http_status=http_status,
+            timed_out=timed_out,
         )

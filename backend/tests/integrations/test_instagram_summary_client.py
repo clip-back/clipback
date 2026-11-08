@@ -501,8 +501,8 @@ async def test_page_network_failures_are_retryable():
     client, _ = build(read_timeout, lambda r: completion())
     with pytest.raises(SummaryError) as stalled:
         await summarize(client)
-    assert (stalled.value.code, stalled.value.retryable) == ("provider_error", True)
-    assert stalled.value.reason == "network_error"
+    assert (stalled.value.code, stalled.value.retryable) == ("timeout", True)
+    assert stalled.value.reason == "timeout"
 
     def down(request):
         raise httpx.ConnectError("down")
@@ -511,6 +511,21 @@ async def test_page_network_failures_are_retryable():
     with pytest.raises(SummaryError) as network:
         await summarize(client)
     assert (network.value.code, network.value.retryable) == ("provider_error", True)
+
+
+@pytest.mark.asyncio
+async def test_image_read_timeout_stays_a_request_failure():
+    image_url = "https://cdn.example.com/a.jpg"
+
+    def handler(request):
+        if request.url.path == "/a.jpg":
+            raise httpx.ReadTimeout("slow")
+        return page(image=image_url)
+
+    client, _ = build(handler, lambda r: completion())
+    summary = await summarize(client)
+
+    assert summary.image == {"used": False, "reason": "request_failure", "http_status": None}
 
 
 @pytest.mark.asyncio
