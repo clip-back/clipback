@@ -93,8 +93,6 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   bool _myNoticeStorageBlocked = true;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
   AppRoute _statsRoute = AppRoute.splash;
-  Object? _weeklyVisit, _weeklyRequest, _pendingWeeklyFailure;
-  int _weeklyGeneration = -1;
   bool _weeklyForeground = true;
   bool _weeklyVisibilityScheduled = false;
   late final _WeeklyOverlayObserver _weeklyObserver = _WeeklyOverlayObserver(
@@ -109,60 +107,12 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       !_d.session.pendingSessionClear;
   bool get _weeklyVisible =>
       _weeklyHome && _weeklyForeground && !_weeklyObserver.covered;
-  bool _ownsWeekly(Object visit) =>
-      _weeklyHome &&
-      identical(_weeklyVisit, visit) &&
-      _weeklyGeneration == _d.app.accountGeneration;
 
   void _syncWeeklyHome() {
-    if (!_weeklyHome || _weeklyGeneration != _d.app.accountGeneration) {
-      final old = _weeklyVisit;
-      _weeklyVisit = null;
-      _weeklyRequest = null;
-      _pendingWeeklyFailure = null;
-      if (old != null) _d.content.endWeeklyVisit(old);
-    }
-    if (_weeklyHome && _weeklyVisit == null) {
-      _weeklyGeneration = _d.app.accountGeneration;
-      final visit = _d.content.beginWeeklyVisit();
-      _weeklyVisit = visit;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_ownsWeekly(visit)) unawaited(_loadWeekly(visit));
-      });
-    }
+    _d.homeWeekly.sync();
     if (_d.app.route != AppRoute.archive && _d.app.route != AppRoute.detail) {
       _d.archive.clearWeeklyOrigin();
     }
-  }
-
-  Future<void> _loadWeekly(Object visit) async {
-    if (!_ownsWeekly(visit) || _weeklyRequest != null) return;
-    final request = Object();
-    _weeklyRequest = request;
-    try {
-      await _d.content.loadWeekly(visit);
-    } catch (_) {
-      if (_ownsWeekly(visit)) {
-        _pendingWeeklyFailure = visit;
-        _showWeeklyFailure();
-      }
-    } finally {
-      if (identical(_weeklyRequest, request)) _weeklyRequest = null;
-    }
-  }
-
-  void _showWeeklyFailure() {
-    final visit = _pendingWeeklyFailure;
-    if (visit == null || !_weeklyVisible || !_ownsWeekly(visit)) return;
-    _pendingWeeklyFailure = null;
-    _handleEffect(
-      MessageEffect(
-        '이번주 추천을 불러오지 못했어요. 다시 시도해 주세요.',
-        retry: () {
-          if (_ownsWeekly(visit)) unawaited(_loadWeekly(visit));
-        },
-      ),
-    );
   }
 
   void _weeklyVisibilityChanged() {
@@ -172,21 +122,12 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       _weeklyVisibilityScheduled = false;
       if (!mounted) return;
       setState(() {});
-      _showWeeklyFailure();
+      _d.homeWeekly.visibilityChanged();
     });
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
-  void _openWeekly(Object? visit, ApiWeeklyRecommendationItem item) {
-    if (visit == null ||
-        !_ownsWeekly(visit) ||
-        !_weeklyVisible ||
-        !(_d.content.weekly?.items.any(
-              (c) => c.id == item.id && c.category.id == item.category.id,
-            ) ??
-            false)) {
-      return;
-    }
+  void _openWeekly(ApiWeeklyRecommendationItem item) {
     _d.detail.close();
     if (_d.archive.openWeekly(item)) {
       _d.archive.recordCategoryOpen(item.category.id);
@@ -216,6 +157,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       socialAuth: widget.socialAuth,
       nativeShare: widget.nativeShare,
       canPrepareSharing: () => _launchPhase == _LaunchPhase.ready,
+      weeklyHome: () => _weeklyHome,
+      weeklyVisible: () => _weeklyVisible,
     );
     _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
@@ -1223,17 +1166,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           )),
           showingNotifications: _d.app.route == AppRoute.notificationList,
           home: HomeScreen(
-            weeklyItems: _weeklyVisit == null
-                ? const []
-                : _d.content.weekly?.items ?? const [],
+            weeklyItems: _d.homeWeekly.items,
             weeklyExposureEnabled: _weeklyVisible,
-            onWeeklySelected: ((visit) =>
-                (item) => _openWeekly(visit, item))(_weeklyVisit),
-            onWeeklyExposed: ((visit) => (id) {
-              if (visit != null && _ownsWeekly(visit) && _weeklyVisible) {
-                _d.content.recordWeeklyExposure(visit, id);
-              }
-            })(_weeklyVisit),
+            onWeeklySelected: _d.homeWeekly.selectionAction(_openWeekly),
+            onWeeklyExposed: _d.homeWeekly.exposureAction(),
             contents: _d.home.page.items,
             previousEmptyHero: _d.home.emptyHero,
             feed: _d.home.page,

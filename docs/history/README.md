@@ -30,6 +30,7 @@
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
 | 2026-11-08 | [본앱 링크 저장 재시도에 제출 키 보내기 (#298)](2026-11-08-link-save-submission-key.md) | 앱·서버 |
+| 2026-11-08 | [주간 추천 방문 상태를 HomeWeeklyViewModel로 옮기기 (#294, #295, #296)](2026-11-08-home-weekly-visit.md) | 앱 |
 | 2026-11-08 | [처리 중 잠긴 별·더보기를 누르면 상세가 열리던 문제 수정 (#297)](2026-11-08-locked-star-retap.md) | 앱 |
 | 2026-11-08 | [기기 촬영 도구 safe_area_device_check·category_archive_preview 끝까지 실행 (#292)](2026-11-08-capture-tools-device-run.md) | 앱 |
 | 2026-11-08 | [저장 화면 제출 상태를 ContentSaveSubmission으로 옮기기 (#288, #289, #290)](2026-11-08-save-submission-object.md) | 앱 |
