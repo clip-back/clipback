@@ -787,9 +787,10 @@ class ClipbackApi {
       }
       return result;
     } on FormatException {
-      throw const ClipbackApiException('저장 결과를 확인하지 못했어요. 다시 시도해 주세요.');
+      // Keeps the link save's existing failure message.
+      throw const ClipbackApiException('저장하지 못했어요. 다시 시도해 주세요.');
     } on TypeError {
-      throw const ClipbackApiException('저장 결과를 확인하지 못했어요. 다시 시도해 주세요.');
+      throw const ClipbackApiException('저장하지 못했어요. 다시 시도해 주세요.');
     }
   }
 

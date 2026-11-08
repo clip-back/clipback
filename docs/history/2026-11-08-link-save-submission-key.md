@@ -1,7 +1,7 @@
 # 본앱 링크 저장 재시도에 제출 키 보내기 (#298)
 
 2026-11-08, 시작 커밋 `c55242c` 기준으로 구현하고 main `f52660b`(#297)를 병합한 뒤 티켓 리뷰 반영과 전체 검증을 마쳤다.
-코드 커밋은 `fe6fa5c`(구현), `785d148`(리뷰 반영), `3c3c0ff`(빈 카테고리 검사 범위 조정)이다.
+코드 커밋은 `fe6fa5c`(구현), `785d148`(리뷰 반영), `3c3c0ff`(빈 카테고리 검사 범위 조정)와 재검수 반영(실패 문구 보존) 커밋이다.
 
 ## 사용자 결정
 
@@ -14,13 +14,14 @@
 
 - 원인: 서버가 링크를 저장한 뒤 응답이 끊기면 앱은 실패를 띄우고 입력을 남긴다. 다시 저장하면 두 요청을 같은 제출로 알 방법이 없어 새 행이 생겼다.
 - 서버 `backend/app/api/v1/endpoints/contents.py`: 선택적 UUID `Idempotency-Key`를 받아 `prepare_share_write`(같은 계정·키 트랜잭션 잠금 → 영수증 조회)를
-  종류 `content`, 요청 본문(`ContentCreate`) 지문으로 호출한다. 재전송은 기존 콘텐츠를 돌려주고, 다른 입력·종류는 409, 삭제 뒤는 410이다.
+  종류 `content`, 요청 본문(`ContentCreate`) 지문으로 호출한다. 지문은 Pydantic 기본값·URL 정규화 이후, 메타데이터 추출 전 값이다. 재전송은 기존 콘텐츠를 돌려주고, 다른 입력·종류는 409, 삭제 뒤는 410이다.
   영수증은 기존 `save_link`가 콘텐츠·이벤트·요약 작업과 같은 commit에 넣는다. DB 스키마는 바꾸지 않았다.
 - 앱: `SaveLinkCallback` → `ContentSaveViewModel.addLink` → `ContentActions.saveLink` → `ContentRepository.saveLink` → `ClipbackApi.createContent`로 키를 넘긴다.
   `ContentSaveSubmission.linkChanged`가 입력·붙여넣기(`_validateLink`)·지우기(`_clearLink`)에서 주소가 바뀌면 키를 버리고, 같은 주소의 재저장은 키를 이어 쓴다.
   저장 시트마다 새 제출 상태라 화면을 새로 열면 새 키다.
 - 앱 `createContent`는 저장 응답을 사진과 같은 공통 검사(`_savedContent`: 목록 필드·`is_favorite`·`original_url`·`last_viewed_at` 존재와 타입, ID 1 이상)와
-  링크 조건(`content_type == link`, `original_url` 있음)으로 확인한다. 손상 응답은 "저장 결과를 확인하지 못했어요. 다시 시도해 주세요."로 실패 처리해 같은 키로 다시 저장할 수 있다.
+  링크 조건(`content_type == link`, `original_url` 있음)으로 확인한다. 손상 응답은 링크 저장의 기존 기본 실패 문구 "저장하지 못했어요. 다시 시도해 주세요."로 실패 처리해 같은 키로 다시 저장할 수 있다.
+  사진 업로드의 손상 응답 문구("저장 결과를 확인하지 못했어요. 다시 시도해 주세요.")는 그대로다.
   공통 조회 파서(`ApiContent.fromJson`)의 허용 규칙은 그대로다. 빈 카테고리 거절은 사진에만 남겼다(아래 리뷰 참고).
 - 링크 요청에는 사진의 요청 범위 취소(`ApiRequestScope`)를 붙이지 않았다. 저장 중 시트를 닫아도 상세가 열리는 기존 동작(#288 G2)을 유지한다.
 
@@ -45,16 +46,19 @@
   - S2 주소를 바꿨다가 제출 없이 되돌리면 이전 키 재사용: 입력 시점에 키를 버리도록 반영(`785d148`).
   - 같은 원인의 진입점: 홈·보관함·즐겨찾기·상세·마이의 링크 저장은 모두 같은 저장 시트·콜백·API를 쓰며 iOS·Android 공통 Dart 경로다.
     주소를 바꾸는 곳은 입력·붙여넣기·지우기 세 곳이고 모두 연결했다.
+- 재검수(`2a612b3`): Standards 0건, Spec 낮음 1건. S1·S2 해결, 사진 검사 추출과 링크의 빈 카테고리 허용은 수용.
+  - F1 손상된 링크 성공 응답의 실패 문구가 사진용 문구로 바뀜: 이슈의 화면 문구 보존 조건에 맞춰 링크는 기존 기본 실패 문구로 되돌렸다.
+    사진 문구와 기존 테스트 단언은 그대로다. 신규 링크 테스트의 기대 문구를 바꾼 뒤 구현 전 17종 실패를 확인했다.
 
 ## 검증
 
-2026-11-08, 기준 코드 `3c3c0ff`(로컬, 대역 데이터).
+2026-11-08, 재검수 반영 코드(로컬, 대역 데이터, 커밋 직전 작업 트리. 커밋에는 이 코드와 이력 문서만 들어간다).
 
 - 전체 검증 `python3 ~/.heoturu-agents/verify.py`: `VERIFY result=PASS scope=all checks=11 failed=0`.
   앱 테스트 `+3428: All tests passed!`, 백엔드 `pytest: 2325 passed, 47 skipped, 3 warnings`.
-  CI App Validation 4개 명령과 서버 `ruff check app scripts alembic tests`·`pytest`는 verify 단계와 같다. verify에 없는 `deptry .`는 따로 실행해 통과했다.
+  CI App Validation 4개 명령과 서버 `ruff check app scripts alembic tests`·`pytest`는 verify 단계와 같다. verify에 없는 `deptry .`는 같은 코드에서 따로 실행해 통과했다.
   - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
   - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
-- 같은 날 `785d148`의 첫 전체 검증은 위 빈 카테고리 fixture 8개로 `app:test` 실패였다.
-- 미실행: Docker deployment 테스트와 원격 CI(PR 생성 뒤 확인), iOS Simulator·Android Emulator 링크 저장 성공 확인(화면 변화 없음, 감독 진행 예정),
-  운영 서버 확인. 화면 문구·배치는 바뀌지 않아 3면 비교 촬영은 하지 않는다.
+- 같은 날 `785d148`의 첫 전체 검증은 위 빈 카테고리 fixture 8개로 `app:test` 실패였다. `3c3c0ff`의 전체 검증은 위와 같은 수치로 통과했다.
+- 미실행: Docker deployment 테스트와 원격 CI(PR 생성 뒤 확인), iOS Simulator·Android Emulator 링크 저장 성공 확인(화면 변화 없음, 이후 진행).
+  운영 확인은 완료 조건 밖이다. 화면 문구·배치는 바뀌지 않아 3면 비교 촬영은 하지 않는다.

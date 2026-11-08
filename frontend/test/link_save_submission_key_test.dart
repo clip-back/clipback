@@ -22,7 +22,6 @@ import 'support/memory_api_session_storage.dart';
 const _contents = '/api/v1/contents';
 const _link = 'https://example.com/g-link';
 const _defaultError = '저장하지 못했어요. 다시 시도해 주세요.';
-const _resultError = '저장 결과를 확인하지 못했어요. 다시 시도해 주세요.';
 final _uuid = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
@@ -424,7 +423,7 @@ void main() {
         await _openSheet(tester);
         await _enter(tester, _link);
         await _submit(tester);
-        expect(find.text(_resultError), findsOneWidget);
+        expect(find.text(_defaultError), findsOneWidget);
         expect(find.byType(SavedContentConfirmation), findsNothing);
         expect(_home(tester).contents, isEmpty);
         await _waitToast(tester);
