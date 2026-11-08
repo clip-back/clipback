@@ -22,6 +22,7 @@ import 'support/memory_api_session_storage.dart';
 const _contents = '/api/v1/contents';
 const _link = 'https://example.com/g-link';
 const _defaultError = '저장하지 못했어요. 다시 시도해 주세요.';
+const _resultError = '저장 결과를 확인하지 못했어요. 다시 시도해 주세요.';
 final _uuid = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
@@ -195,6 +196,14 @@ Future<void> _submit(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _waitToast(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 4));
+  await tester.pumpAndSettle();
+}
+
+LinkSaveBody _body(WidgetTester tester) =>
+    tester.widget<LinkSaveBody>(find.byType(LinkSaveBody));
+
 Future<void> _closeSheet(WidgetTester tester) async {
   await tester.tap(find.text('저장 완료'));
   await tester.pumpAndSettle();
@@ -322,6 +331,119 @@ void main() {
         expect(keys.first, matches(_uuid));
         expect(keys.last, keys.first);
         expect(_home(tester).contents, isEmpty);
+      });
+    });
+  }
+
+  // Leaving the failed address before resubmitting it starts a new submission,
+  // as selecting a different photo does.
+  final leaveAddress = <String, Future<void> Function(WidgetTester)>{
+    'typing': (tester) => _enter(tester, 'https://example.com/other-link'),
+    'pasting': (tester) async {
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? {'text': 'https://example.com/pasted-link'}
+            : null,
+      );
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      _body(tester).onPaste();
+      await tester.pumpAndSettle();
+      expect(find.text('https://example.com/pasted-link'), findsOneWidget);
+    },
+    'clearing': (tester) async {
+      _body(tester).onClear();
+      await tester.pumpAndSettle();
+    },
+  };
+  for (final MapEntry(key: way, value: leave) in leaveAddress.entries) {
+    testWidgets('the failed address after $way another one gets a new key', (
+      tester,
+    ) async {
+      final server = _Server(
+        respond: (request) async => request.url.path == _contents
+            ? _json({'detail': 'Injected failure'}, 500)
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openSheet(tester);
+        await _enter(tester, _link);
+        await _submit(tester);
+        await _waitToast(tester);
+        await _submit(tester);
+        await _waitToast(tester);
+        await leave(tester);
+        await _enter(tester, _link);
+        await _submit(tester);
+        final keys = server.keys();
+        expect(keys, hasLength(3));
+        expect(keys.first, matches(_uuid));
+        expect(keys[1], keys.first);
+        expect(keys.last, matches(_uuid));
+        expect(keys.last, isNot(keys.first));
+      });
+    });
+  }
+
+  // A success response the app cannot read is not shown as saved, and the
+  // retry keeps the key so the server can return the content it saved.
+  final damaged = <String, Object? Function(Map<String, Object?>)>{
+    'missing categories': (body) => body..remove('categories'),
+    'null categories': (body) => body..['categories'] = null,
+    'empty categories': (body) => body..['categories'] = <Object>[],
+    'numeric category': (body) => body..['categories'] = [1],
+    'missing tags': (body) => body..remove('tags'),
+    'array tag': (body) => body..['tags'] = [<Object>[]],
+    'missing assets': (body) => body..remove('assets'),
+    'missing is_favorite': (body) => body..remove('is_favorite'),
+    'numeric is_favorite': (body) => body..['is_favorite'] = 0,
+    'missing original_url': (body) => body..remove('original_url'),
+    'null original_url': (body) => body..['original_url'] = null,
+    'missing last_viewed_at': (body) => body..remove('last_viewed_at'),
+    'invalid last_viewed_at': (body) => body..['last_viewed_at'] = 'later',
+    'zero id': (body) => body..['id'] = 0,
+    'string id': (body) => body..['id'] = '7',
+    'null id': (body) => body..['id'] = null,
+    'photo type': (body) => body..['content_type'] = 'screenshot',
+    'array body': (body) => [body],
+  };
+  for (final MapEntry(key: damage, value: corrupt) in damaged.entries) {
+    testWidgets('link success with $damage is a failure that keeps its key', (
+      tester,
+    ) async {
+      late final _Server server;
+      server = _Server(
+        respond: (request) async =>
+            request.url.path == _contents && server.keys().length == 1
+            ? _json(corrupt(_linkContent()), 201)
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openSheet(tester);
+        await _enter(tester, _link);
+        await _submit(tester);
+        expect(find.text(_resultError), findsOneWidget);
+        expect(find.byType(SavedContentConfirmation), findsNothing);
+        expect(_home(tester).contents, isEmpty);
+        await _waitToast(tester);
+
+        await _submit(tester);
+        final keys = server.keys();
+        expect(keys, hasLength(2));
+        expect(keys.first, matches(_uuid));
+        expect(keys.last, keys.first);
+        expect(
+          tester
+              .widget<SavedContentConfirmation>(
+                find.byType(SavedContentConfirmation),
+              )
+              .content
+              .apiId,
+          7,
+        );
       });
     });
   }
