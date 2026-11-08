@@ -55,3 +55,20 @@
 - 구현 중 부분 실행에서 DB가 없어 건너뛴 요약 테스트 98개는 이번 전체 실행에서 모두 돌았다(위 skip에 요약 테스트 없음).
 - verify에 없는 `deptry .`(backend)를 따로 실행해 통과했다.
 - Docker가 필요한 deployment·운영자 복구 테스트(위 skip 46개)는 로컬에서 돌지 않았다. 이번 변경은 이 범위를 바꾸지 않았고, 원격 CI는 PR 생성 뒤 확인한다.
+
+## 묶음 최종 검증 (#157·#158)
+
+2026-11-08, main의 #298(`ef9f6a8`)을 충돌 없이 합친 `3e679f2`에서 최종 검수자가 직접 실행했다. 이번 절을 추가한 커밋은 문서만 바꾸며 검증 대상 코드와 같다. [#157 이력](2026-11-08-instagram-httpx-timeout.md)의 티켓 검사와 위 #158 티켓 검사는 병합 전 증거다.
+
+- main merge-base `ef9f6a8`부터 `3e679f2`까지 최종 검수: Standards 0건, Spec 0건. main 대비 콘텐츠 저장 endpoint·저장 테스트·프론트엔드 변경 없음.
+- main에서 바뀐 저장 callback 소비처를 대조하고 전체 검사 전에 `flutter analyze --no-pub`를 실행: No issues found.
+- `python3 ~/.heoturu-agents/verify.py`: `VERIFY result=PASS scope=all checks=11 failed=0`.
+  - 백엔드 pytest: 2330 passed, 47 skipped, 3 warnings in 202.74s (0:03:22).
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+  - backend ruff/compileall, 테스트·maintenance DB upgrade/check, app pub-get/format/analyze/test 통과.
+- backend의 `deptry .`를 별도로 실행: No dependency issues found.
+- main과 최종 코드의 `validated_result()` 전체 결과 또는 예외를 12,096개 입력 조합으로 대조하고 두 프롬프트 바이트 동일을 다시 확인했다.
+- `git diff --check` 통과. CHANGELOG는 main 대비 차이 없음. #157은 앱 표시·재시도 변화 없이 API·로그 분류만 바꾸며, #158은 동작 보존 정리이므로 제외했다.
+- 화면 변경이 없어 최종 화면 검증·시뮬레이터·에뮬레이터·실기기 실행을 하지 않았다. 실제 공급자·운영 검증과 원격 CI도 미실행이다. 원격 `backend-validation.yml`은 승인 후 PR 생성 뒤 확인한다. Docker 복구 및 S3 skip은 통과로 세지 않는다.
+- 서버 병합은 운영 배포로 이어진다. 병합 뒤 운영 확인은 이번 완료 조건에 포함하지 않는다.
