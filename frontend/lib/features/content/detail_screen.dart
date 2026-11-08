@@ -110,6 +110,29 @@ class _DetailText {
   );
 }
 
+/// Picks up to three loaded contents, in loaded order, that share at least one
+/// category id with [content]. Uncategorized contents pick each other even when
+/// one side is the id-less placeholder.
+List<ContentItem> relatedContentsFor(
+  ContentItem content,
+  List<ContentItem> contents,
+) {
+  bool same(CategoryItem a, CategoryItem b) =>
+      (a.id != null && a.id == b.id) ||
+      (a.name == catUncategorized.name && b.name == catUncategorized.name);
+  return contents
+      .where(
+        (item) =>
+            item.id != content.id &&
+            item.categories.any(
+              (category) =>
+                  content.categories.any((own) => same(own, category)),
+            ),
+      )
+      .take(3)
+      .toList();
+}
+
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     required this.onReadAsset,
@@ -271,13 +294,7 @@ class _DetailScreenState extends State<DetailScreen> {
     final currentIndex = widget.contents.indexWhere(
       (item) => item.id == content.id,
     );
-    final relatedContents = widget.contents
-        .where(
-          (item) =>
-              item.id != content.id &&
-              item.category.name == content.category.name,
-        )
-        .toList();
+    final relatedContents = relatedContentsFor(content, widget.contents);
 
     void showAddContentSheet() {
       showContentSaveScreen(

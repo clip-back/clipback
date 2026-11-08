@@ -624,10 +624,9 @@ Map<String, Object?> _metrics() {
   final scaffoldWidget = scaffold.widget as Scaffold;
   final topBack = _icon(Assets.back, top)!;
   final cards = <Map<String, Object?>>[];
-  for (final related in _hostKey.currentState!.contents.where(
-    (e) =>
-        e.id != _hostKey.currentState!.activeId &&
-        e.category.name == _hostKey.currentState!.active.category.name,
+  for (final related in relatedContentsFor(
+    _hostKey.currentState!.active,
+    _hostKey.currentState!.contents,
   )) {
     final title = _text(related.title, list);
     final root = _key('detail-related-card-${related.id}', detail);
