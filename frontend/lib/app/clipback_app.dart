@@ -135,11 +135,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     }
   }
 
-  Object _todayVisit = Object();
-  Object? _todayRequest;
   late final NavigatorObserver _todayObserver = _TodayTransientObserver(() {
-    _todayVisit = Object();
-    _todayRequest = null;
+    _d.detail.invalidateToday();
     _d.detail.cancelTodayNavigation();
     if (mounted) setState(() {});
   });
@@ -204,8 +201,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         !_canUseAccountActions ||
         !_d.session.hasSession ||
         _d.session.pendingSessionClear) {
-      _todayVisit = Object();
-      _todayRequest = null;
+      _d.detail.invalidateToday();
     }
     if (_d.app.route != AppRoute.detail && _d.detail.isToday) {
       _d.detail.cancelTodayNavigation();
@@ -900,35 +896,19 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   }
 
   VoidCallback _todayAction() {
-    final visit = _todayVisit;
     final generation = _d.app.accountGeneration;
     final epoch = _d.app.authEpoch;
-    bool current() =>
-        mounted &&
-        identical(visit, _todayVisit) &&
-        _d.app.route == AppRoute.home &&
-        _canUseAccountActions &&
-        _d.session.hasSession &&
-        !_d.session.pendingSessionClear &&
-        generation == _d.app.accountGeneration &&
-        epoch == _d.app.authEpoch;
-    return () {
-      if (!current() || _todayRequest != null) return;
-      final token = Object();
-      _todayRequest = token;
-      unawaited(() async {
-        try {
-          final opened = await _d.detail.openToday(
-            isCurrent: () => current() && identical(_todayRequest, token),
-          );
-          if (opened && current() && identical(_todayRequest, token)) {
-            _d.app.openDetail();
-          }
-        } finally {
-          if (identical(_todayRequest, token)) _todayRequest = null;
-        }
-      }());
-    };
+    return _d.detail.todayAction(
+      isCurrent: () =>
+          mounted &&
+          _d.app.route == AppRoute.home &&
+          _canUseAccountActions &&
+          _d.session.hasSession &&
+          !_d.session.pendingSessionClear &&
+          generation == _d.app.accountGeneration &&
+          epoch == _d.app.authEpoch,
+      onOpened: _d.app.openDetail,
+    );
   }
 
   // Logical screens share one Navigator route. Keep this wrapper stable so
