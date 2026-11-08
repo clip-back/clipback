@@ -263,6 +263,30 @@ class _PreviewServer {
       });
     }
     if (method == 'GET' && path == '/api/v1/feed') return _feed(request);
+    if (method == 'GET' && path == '/api/v1/recommendations/weekly') {
+      return _json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': 1,
+        'generated_at': '2026-10-26T00:00:00Z',
+        'items': [
+          for (final (index, type) in const [
+            'MOST_SAVED',
+            'MOST_VIEWED',
+            'REDISCOVERY',
+          ].indexed)
+            {
+              'recommendation_item_id': index + 1,
+              'rank': index + 1,
+              'card_type': type,
+              'category': categories[index],
+            },
+        ],
+      });
+    }
+    if (method == 'POST' && path == '/api/v1/recommendations/exposures') {
+      return _json({}, 201);
+    }
     if (method == 'POST' && path == '/api/v1/metrics/events') {
       return _json({}, 201);
     }

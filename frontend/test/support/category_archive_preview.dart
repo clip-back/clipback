@@ -1181,6 +1181,10 @@ Future<void> _run() async {
   await _tap(search!);
   _require(_find<SearchScreen>(_root) != null, 'Search route missing');
   await _tapText('취소');
+  // iOS pop transition is 500ms; wait for the route to leave the tree.
+  for (var i = 0; i < 20 && _find<SearchScreen>(_root) != null; i++) {
+    await _settle(1);
+  }
   _require(_find<SearchScreen>(_root) == null, 'Search close failed');
   _record('search_roundtrip');
   await _tapText('전체보기');
@@ -1203,7 +1207,10 @@ Future<void> _run() async {
           ),
       'Category callback lost actual ID',
     );
-    final back = _key(_root, 'category-content-back-hit')!;
+    final back = _key(
+      _root,
+      id == 99 ? 'unclassified-back' : 'category-content-back-hit',
+    )!;
     await _tap(back);
     _record('open_category_$id');
   }

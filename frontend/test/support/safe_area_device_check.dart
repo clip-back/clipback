@@ -176,17 +176,24 @@ Future<void> _capture(String name) async {
   }
 }
 
-Future<void> _header(String name, Element element) async {
-  final rect = _rect(element);
+Future<void> _header(
+  String name,
+  Element element, {
+  double gap = 0,
+  double height = appHeaderHeight,
+}) async {
+  final rect = _rect(element), expectedTop = _topInset + gap;
   _measurements.add({
     'screen': name,
     'top': rect.top,
     'height': rect.height,
-    'expectedTop': _topInset,
+    'expectedTop': expectedTop,
   });
-  if ((rect.top - _topInset).abs() > 0.5 ||
-      (rect.height - appHeaderHeight).abs() > 0.5) {
-    throw StateError('$name header $rect; expected top=$_topInset height=64');
+  if ((rect.top - expectedTop).abs() > 0.5 ||
+      (rect.height - height).abs() > 0.5) {
+    throw StateError(
+      '$name header $rect; expected top=$expectedTop height=$height',
+    );
   }
   debugPrint('SAFE_AREA_DEVICE header $name: $rect inset=$_topInset');
   await _capture(name);
@@ -216,10 +223,10 @@ Future<void> _runChecks() async {
   await _waitFor<InterestSelectionScreen>();
   _widget<InterestSelectionScreen>().onDone();
   await _waitFor<HomeScreen>();
-  await _header('01_home', _first<Row>(within: _first<HomeHero>()));
+  await _header('01_home', _keyed('home-header'), gap: 8, height: 56);
 
   final scroll =
-      _first<Scrollable>(within: _first<HomeScreen>()) as StatefulElement;
+      _first<Scrollable>(within: _keyed('home-scroll')) as StatefulElement;
   final position = (scroll.state as ScrollableState).position;
   final target = position.maxScrollExtent.clamp(0.0, 100.0).toDouble();
   await position.animateTo(
@@ -228,8 +235,18 @@ Future<void> _runChecks() async {
     curve: Curves.linear,
   );
   await _capture('02_home_scrolled');
-  final scrolledTop = _rect(_first<Row>(within: _first<HomeHero>())).top;
-  if ((scrolledTop - (_topInset - target)).abs() > 0.5) {
+  final scrolled = position.pixels;
+  final scrolledTop = _rect(_keyed('home-header')).top;
+  _measurements.add({
+    'screen': 'home_scrolled',
+    'maxScrollExtent': position.maxScrollExtent,
+    'scrollOffset': scrolled,
+    'headerTop': scrolledTop,
+  });
+  if (scrolled <= 0) {
+    throw StateError('Home did not scroll: max=${position.maxScrollExtent}');
+  }
+  if ((scrolledTop - (_topInset + 8 - scrolled)).abs() > 0.5) {
     throw StateError('Home header no longer scrolls with its content');
   }
   await position.animateTo(
@@ -249,7 +266,12 @@ Future<void> _runChecks() async {
   await _waitFor<SearchScreen>();
   FocusManager.instance.primaryFocus?.unfocus();
   await _settle();
-  await _header('05_search', _first<Row>(within: _first<SearchScreen>()));
+  await _header(
+    '05_search',
+    _first<Row>(within: _first<SearchScreen>()),
+    gap: 16,
+    height: 44,
+  );
   _widget<SearchScreen>().onClose();
   await _waitFor<BookmarkScreen>();
   _widget<BookmarkScreen>().onTab(AppRoute.home);
@@ -279,12 +301,8 @@ Future<void> _runChecks() async {
     _first<Row>(within: _first<CategoryManagementScreen>()),
   );
 
-  (_first<SvgIconButton>(
-            within: _first<CategoryManagementScreen>(),
-            where: (button) => button.asset == Assets.folderPlus,
-          ).widget
-          as SvgIconButton)
-      .onPressed();
+  (_first<IconButton>(within: _keyed('management-add')).widget as IconButton)
+      .onPressed!();
   await _waitFor<CategoryFormSheet>();
   final editable =
       _first<EditableText>(within: _first<CategoryFormSheet>())
@@ -306,8 +324,6 @@ Future<void> _runChecks() async {
   Navigator.of(_first<CategoryFormSheet>()).pop();
   await _settle();
   _widget<CategoryManagementScreen>().onBack();
-  await _waitFor<MyScreen>();
-  _widget<MyScreen>().onTab(AppRoute.archive);
   await _waitFor<ArchiveScreen>();
   final archive = _widget<ArchiveScreen>();
   archive.onOpenCategory(
