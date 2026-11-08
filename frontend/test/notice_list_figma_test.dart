@@ -3,7 +3,6 @@ import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'fixtures/notice_alignment_fixture.dart' as fixture;
 
@@ -60,40 +59,6 @@ void main() {
   setUpAll(() async {
     await fixture.noticeLoadFonts(loadForTest: true);
   });
-  setUp(() {
-    var revision = 0;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(const MethodChannel('com.huturu.app/share'), (
-          call,
-        ) async {
-          switch (call.method) {
-            case 'getState':
-              return {
-                'revision': revision,
-                'drafts': <Object>[],
-                'receipts': <Object>[],
-              };
-            case 'blockCredential':
-              return ++revision;
-            case 'publishCredential':
-              return true;
-            case 'presentDraft':
-            case 'acknowledgeReceipts':
-              return null;
-            default:
-              throw StateError(
-                'Unexpected isolated share method ${call.method}',
-              );
-          }
-        });
-  });
-  tearDown(
-    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          const MethodChannel('com.huturu.app/share'),
-          null,
-        ),
-  );
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
       testWidgets(
