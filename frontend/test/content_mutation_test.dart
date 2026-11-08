@@ -9,12 +9,15 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
+import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
+import 'package:clipback_frontend/shared/content/content_actions.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -344,6 +347,79 @@ bool _starEnabled(WidgetTester tester, ContentItem content) {
           .onTap !=
       null;
 }
+
+/// #297: 별·더보기를 실제로 누를 화면을 열고 그 화면의 첫 콘텐츠를 돌려준다.
+Future<ContentItem> _openLockPlace(WidgetTester tester, String place) async {
+  final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+  switch (place) {
+    case 'home':
+      return home.contents.first;
+    case 'detail':
+      await _detail(tester);
+      return _currentDetail(tester).content;
+    case 'bookmark':
+      home.onTab(AppRoute.bookmark);
+      await tester.pumpAndSettle();
+      return tester
+          .widget<BookmarkScreen>(find.byType(BookmarkScreen))
+          .contents
+          .first;
+    case 'search':
+      await _search(tester, '피드 항목 1');
+      return tester
+          .widget<SearchScreen>(find.byType(SearchScreen))
+          .contents
+          .single;
+  }
+  home.onTab(AppRoute.archive);
+  await tester.pumpAndSettle();
+  if (place != 'archive-all') {
+    final archive = _currentArchive(tester);
+    archive.onOpenCategory(archive.categories.singleWhere((c) => c.id == 101));
+    await tester.pumpAndSettle();
+    if (place == 'card-review') {
+      _currentArchive(tester).onOpenRandomView();
+      await tester.pumpAndSettle();
+    }
+  }
+  return _currentArchive(tester).contents.first;
+}
+
+/// #297: 지금 화면에 반영된 그 콘텐츠.
+ContentItem _placeContent(
+  WidgetTester tester,
+  String place,
+  ContentItem target,
+) {
+  final contents = switch (place) {
+    'home' => tester.widget<HomeScreen>(find.byType(HomeScreen)).contents,
+    'detail' => [_currentDetail(tester).content],
+    'bookmark' =>
+      tester.widget<BookmarkScreen>(find.byType(BookmarkScreen)).contents,
+    'search' => tester.widget<SearchScreen>(find.byType(SearchScreen)).contents,
+    _ => _currentArchive(tester).contents,
+  };
+  return contents.singleWhere((content) => content.id == target.id);
+}
+
+Finder _placeStar(String place, ContentItem target) => switch (place) {
+  'home' => find.byKey(ValueKey('home-bookmark-${target.title}')),
+  'detail' => _detailStar(),
+  'card-review' => find.byKey(ValueKey('review-bookmark-${target.id}')),
+  _ => find.byKey(ValueKey('list-bookmark-${target.title}')),
+};
+
+Finder _placeMore(String place) => place == 'detail'
+    ? find.byKey(const ValueKey('detail-more'))
+    : find
+          .byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key as ValueKey<String>).value.startsWith(
+                  'archive-all-more-',
+                ),
+          )
+          .first;
 
 http.Response _failure(String kind) => switch (kind) {
   'network' => throw http.ClientException('Offline'),
@@ -2039,10 +2115,205 @@ void main() {
     );
   }
 
-  // 사용자 결정(2026-11-07 "둘 다 추천대로", 결정 1): 잠긴 별을 다시 누르면 쓰기·별은 그대로이고,
-  // 카드 탭으로 상세가 열리는 지금 동작을 보존한다(상세 이동 차단은 범위 밖).
+  // #297: 즐겨찾기 요청 중 잠긴 별·더보기를 실제로 눌러도 화면이 바뀌지 않는다.
+  for (final (place, button) in [
+    ('home', 'star'),
+    ('archive-all', 'star'),
+    ('archive-all', 'more'),
+    ('category-list', 'star'),
+    ('category-list', 'more'),
+    ('bookmark', 'star'),
+    ('bookmark', 'more'),
+    ('search', 'star'),
+    ('search', 'more'),
+    ('card-review', 'star'),
+    ('detail', 'star'),
+    ('detail', 'more'),
+  ]) {
+    testWidgets('tapping a locked $button in $place changes nothing', (
+      tester,
+    ) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        count: place == 'card-review' ? 1 : 3,
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      if (place == 'bookmark') {
+        server.records.first['is_favorite'] = true;
+      }
+      await _withApp(tester, server, () async {
+        final target = await _openLockPlace(tester, place);
+        final star = _placeStar(place, target);
+        final initial = _placeContent(tester, place, target).bookmarked;
+        await tester.tap(star);
+        await tester.pump();
+        expect(_mutations(server), hasLength(1));
+        expect(_starEnabled(tester, target), isFalse);
+        final detailsBefore = find.byType(DetailScreen).evaluate().length;
+        await tester.tap(
+          button == 'star' ? star : _placeMore(place),
+          warnIfMissed: false,
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsNWidgets(detailsBefore));
+        expect(find.byType(ContentActionSheet), findsNothing);
+        expect(_mutations(server), hasLength(1));
+        expect(_placeContent(tester, place, target).bookmarked, !initial);
+        expect(_starEnabled(tester, target), isFalse);
+        pending.complete(null);
+        await tester.pumpAndSettle();
+        if (place == 'bookmark') {
+          // 즐겨찾기를 끈 콘텐츠는 요청이 끝나면 즐겨찾기 목록에서 빠진다.
+          expect(star, findsNothing);
+        } else if (button == 'star') {
+          expect(_starEnabled(tester, target), isTrue);
+          await tester.tap(star);
+          await tester.pumpAndSettle();
+          expect(_mutations(server), hasLength(2));
+          expect(_placeContent(tester, place, target).bookmarked, initial);
+        } else {
+          expect(_starEnabled(tester, target), isTrue);
+          await tester.tap(_placeMore(place));
+          await tester.pumpAndSettle();
+          expect(find.byType(ContentActionSheet), findsOneWidget);
+          expect(_mutations(server), hasLength(1));
+        }
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  for (final place in [
+    'home',
+    'archive-all',
+    'category-list',
+    'bookmark',
+    'search',
+    'card-review',
+  ]) {
+    testWidgets('tapping the card title in $place opens detail while its star '
+        'is locked', (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        count: place == 'card-review' ? 1 : 3,
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      if (place == 'bookmark') {
+        server.records.first['is_favorite'] = true;
+      }
+      await _withApp(tester, server, () async {
+        final target = await _openLockPlace(tester, place);
+        final star = _placeStar(place, target);
+        await tester.tap(star);
+        await tester.pump();
+        expect(_starEnabled(tester, target), isFalse);
+        await tester.tap(
+          find.descendant(
+            of: find.ancestor(of: star, matching: find.byType(InkWell)).first,
+            matching: find.text(target.title),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsOneWidget);
+        expect(_currentDetail(tester).content.id, target.id);
+        expect(_mutations(server), hasLength(1));
+        pending.complete(null);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  // #297: 별이 잠겨도 카드 다시보기의 끌어 넘기기는 그대로다(잠긴 별·카드 가운데에서 시작).
+  for (final start in ['locked star', 'card center']) {
+    testWidgets('dragging from the $start passes the card while its star '
+        'is locked', (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openLockPlace(tester, 'card-review');
+        // 랜덤 보기 순서와 상관없이 맨 앞 카드의 콘텐츠를 누른다.
+        final target = tester
+            .widget<CategoryReviewCard>(find.byType(CategoryReviewCard))
+            .content;
+        final star = _placeStar('card-review', target);
+        int activeIndex() => tester
+            .widget<CardPagerProgress>(find.byType(CardPagerProgress))
+            .activeIndex;
+        expect(activeIndex(), 0);
+        await tester.tap(star);
+        await tester.pump();
+        expect(_starEnabled(tester, target), isFalse);
+        await tester.dragFrom(
+          tester.getCenter(
+            start == 'locked star'
+                ? star
+                : find.byKey(const ValueKey('review-active-card')),
+          ),
+          const Offset(-200, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(activeIndex(), 1);
+        expect(find.byType(DetailScreen), findsNothing);
+        expect(_mutations(server), hasLength(1));
+        pending.complete(null);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  // #297: 같은 잠금을 쓰는 카테고리 이동·삭제 중에도 잠긴 별·더보기는 상세를 열지 않는다.
+  for (final action in ['category move', 'delete']) {
+    testWidgets(
+      'tapping a locked star or more during a $action changes nothing',
+      (tester) async {
+        final pending = Completer<http.Response?>();
+        final server = _Server(
+          respond: (request, _) =>
+              request.method == 'PUT' || request.method == 'DELETE'
+              ? pending.future
+              : null,
+        );
+        await _withApp(tester, server, () async {
+          final target = await _openLockPlace(tester, 'archive-all');
+          final archive = _currentArchive(tester);
+          if (action == 'delete') {
+            archive.onDeleteContent(target);
+          } else {
+            archive.onChangeContentCategory(
+              target,
+              archive.categories.singleWhere((category) => category.id == 202),
+            );
+          }
+          await tester.pump();
+          expect(_starEnabled(tester, target), isFalse);
+          for (final button in [
+            _placeStar('archive-all', target),
+            _placeMore('archive-all'),
+          ]) {
+            await tester.tap(button, warnIfMissed: false);
+            await tester.pumpAndSettle();
+            expect(find.byType(DetailScreen), findsNothing);
+            expect(find.byType(ContentActionSheet), findsNothing);
+          }
+          expect(_mutations(server), hasLength(1));
+          pending.complete(null);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  }
+
+  // #297(사용자 결정 2026-11-08): 잠긴 별을 다시 누르면 쓰기·별은 그대로이고 상세도 열리지 않는다.
   testWidgets(
-    'retapping a locked home star keeps the write and star and opens detail',
+    'retapping a locked home star keeps the write and star and stays on home',
     (tester) async {
       final pending = Completer<http.Response?>();
       final server = _Server(
@@ -2058,13 +2329,14 @@ void main() {
         await tester.tap(star, warnIfMissed: false);
         await tester.pumpAndSettle();
         expect(_mutations(server), hasLength(1));
-        expect(find.byType(DetailScreen), findsOneWidget);
-        expect(_currentDetail(tester).content.bookmarked, isTrue);
-        expect(_detailStarEnabled(tester), isFalse);
+        expect(find.byType(DetailScreen), findsNothing);
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        expect(home.contents.first.bookmarked, isTrue);
+        expect(tester.widget<BookmarkActionButton>(star).enabled, isFalse);
         expect(find.text('변경 중…'), findsNothing);
         pending.complete(null);
         await tester.pumpAndSettle();
-        expect(_detailStarEnabled(tester), isTrue);
+        expect(tester.widget<BookmarkActionButton>(star).enabled, isTrue);
       });
     },
   );

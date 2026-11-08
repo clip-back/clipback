@@ -468,16 +468,19 @@ class _ArchiveAllAssetButton extends StatelessWidget {
   final String? semanticLabel;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 28,
-    height: 28,
-    child: IconButton(
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-      onPressed: enabled ? onPressed : null,
-      icon: Semantics(
-        label: semanticLabel,
-        child: SvgPicture.asset(asset, width: size, height: size),
+  Widget build(BuildContext context) => LockedTapBarrier(
+    locked: !enabled,
+    child: SizedBox(
+      width: 28,
+      height: 28,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        onPressed: enabled ? onPressed : null,
+        icon: Semantics(
+          label: semanticLabel,
+          child: SvgPicture.asset(asset, width: size, height: size),
+        ),
       ),
     ),
   );

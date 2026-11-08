@@ -6,6 +6,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
+import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -463,16 +464,19 @@ class _ReviewCardBody extends StatelessWidget {
                       key: ValueKey('review-bookmark-${content.id}'),
                       width: 28,
                       height: 28,
-                      child: InkWell(
-                        onTap: !content.isMutating ? onToggleBookmark : null,
-                        customBorder: const CircleBorder(),
-                        child: Center(
-                          child: SvgPicture.asset(
-                            bookmarked
-                                ? Assets.starFilled
-                                : Assets.categoryCardStar,
-                            width: 28,
-                            height: 28,
+                      child: LockedTapBarrier(
+                        locked: content.isMutating,
+                        child: InkWell(
+                          onTap: !content.isMutating ? onToggleBookmark : null,
+                          customBorder: const CircleBorder(),
+                          child: Center(
+                            child: SvgPicture.asset(
+                              bookmarked
+                                  ? Assets.starFilled
+                                  : Assets.categoryCardStar,
+                              width: 28,
+                              height: 28,
+                            ),
                           ),
                         ),
                       ),

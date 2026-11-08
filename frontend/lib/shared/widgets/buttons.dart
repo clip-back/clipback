@@ -101,18 +101,42 @@ class SvgIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: hitSize,
-      height: hitSize,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        constraints: BoxConstraints.tight(Size(hitSize, hitSize)),
-        onPressed: enabled ? onPressed : null,
-        icon: Semantics(
-          label: semanticLabel,
-          child: SvgIcon(asset: asset, size: size, color: color),
+    return LockedTapBarrier(
+      locked: !enabled,
+      child: SizedBox(
+        width: hitSize,
+        height: hitSize,
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: BoxConstraints.tight(Size(hitSize, hitSize)),
+          onPressed: enabled ? onPressed : null,
+          icon: Semantics(
+            label: semanticLabel,
+            child: SvgIcon(asset: asset, size: size, color: color),
+          ),
         ),
       ),
     );
   }
+}
+
+/// 잠긴 버튼을 누른 탭이 아래 카드의 누르기 처리로 넘어가지 않게 막는다.
+/// 겉모습과 접근성 정보는 바꾸지 않는다.
+class LockedTapBarrier extends StatelessWidget {
+  const LockedTapBarrier({
+    required this.locked,
+    required this.child,
+    super.key,
+  });
+
+  final bool locked;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: locked ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
+    excludeFromSemantics: true,
+    onTap: locked ? () {} : null,
+    child: child,
+  );
 }
