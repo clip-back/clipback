@@ -26,7 +26,7 @@
 
 ## 앱 0.5.1
 
-[iOS 0.5.1(12)·Android 0.5.1(8) 후보 기록](docs/releases/app-v0.5.1-ios-b12-android-b8.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 12는 App Store Connect에 업로드했습니다. 처리·테스터 제공과 Android 8 업로드는 미확인입니다. 정식 공개는 미실행입니다. 링크 저장 재시도 중복 방지는 [backend-2026-11-09-1](docs/releases/backend-2026-11-09-1.md)의 서버 변경에 의존합니다.
+[iOS 0.5.1(12)·Android 0.5.1(8) 후보 기록](docs/releases/app-v0.5.1-ios-b12-android-b8.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 12는 TestFlight 테스터에게, Android 8은 내부 테스트로 제공했습니다(사용자 보고, 2026-11-09). 실기기 확인 결과는 미확인입니다. 정식 공개는 미실행입니다. 링크 저장 재시도 중복 방지는 [backend-2026-11-09-1](docs/releases/backend-2026-11-09-1.md)의 서버 변경에 의존합니다.
 
 ### 수정
 

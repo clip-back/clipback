@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱·서버] 링크 저장 응답 유실 뒤 재시도 중복 방지 (#298, CHANGELOG 앱 0.5.1 수정); [앱] 잠긴 별·더보기를 눌러도 상세가 열리지 않음 (#297, CHANGELOG 앱 0.5.1 수정)
 - 관련 PR·작업 링크: [잠긴 별·더보기 상세 열림 수정 #299](https://github.com/clip-back/clipback/pull/299)(#297), [링크 저장 재시도 중복 방지 #302](https://github.com/clip-back/clipback/pull/302)(#298, 서버 쪽도 이 PR로 병합)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.5.0(11)·Android 0.5.0(7)](app-v0.5.0-ios-b11-android-b7.md)
-- 후보 준비 상태·미확인 사유: iOS 0.5.1(12) 아카이브·IPA와 Android 0.5.1(8) AAB 빌드 완료(2026-11-09). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 후보 태그 생성·푸시(2026-11-09). iOS 12는 배포 세션이 App Store Connect에 업로드(2026-11-09 02:59 KST, Upload succeeded). App Store Connect 처리·TestFlight 테스터 제공은 미확인(사용자 확인 대기). Android 8은 사용자가 Play Console에 직접 올릴 예정, 미확인. 실기기 확인 미확인, 정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.5.1(12) 아카이브·IPA와 Android 0.5.1(8) AAB 빌드 완료(2026-11-09). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 후보 태그 생성·푸시(2026-11-09). iOS 12는 배포 세션이 App Store Connect에 업로드(2026-11-09 02:59 KST, Upload succeeded). Android 8은 사용자가 Play Console에 업로드(시각 미확인). iOS 12는 TestFlight 테스터에게, Android 8은 내부 테스트로 제공(사용자 보고, 2026-11-09, 시각·그룹·트랙 이름 미보고). 외부 베타 심사·실기기 확인 미확인, 정식 공개 미실행
 
 사용자 결정(2026-11-09, 원문): "빌드 하자 0.5.1로 하자". 스토어 최대 업로드 번호는 원문 "iOS 11·Android 7 확인함"이며 새 번호는 iOS 12·Android 8입니다.
 포함 변경은 CHANGELOG `미배포`의 `수정` 2개 전부입니다(`추가`·`개선`과 `[iOS]`·`[Android]` 항목은 없었음). 새 기능 없이 수정만 들어가 PATCH 규칙에 따라 0.5.0에서 0.5.1로 올렸습니다.
@@ -56,9 +56,9 @@
 | 후보 태그·실제 생성 여부 | app-ios-v0.5.1-b12 (2026-11-09 생성·푸시, annotated) | app-android-v0.5.1-b8 (2026-11-09 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 업로드·실기기 확인 전 | 미결정 — 업로드·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.5.1-ios-b12/Runner.xcarchive`(생성 2026-11-09 02:51 KST), IPA `frontend/build/release-candidates/app-v0.5.1-ios-b12/ipa/clipback_frontend.ipa` 42,843,555바이트, SHA-256 `4feb04621fed451c461b46b6635a4322563990aebfabb2c725fcf43a6258a314` — 본앱 `com.huturu.app` 0.5.1(12), 공유 확장 `com.huturu.app.ShareExtension` 0.5.1(12), 팀 `8X6N747PQM`, 권한 설명 3종 존재 | Release AAB 성공. `frontend/build/release-candidates/app-v0.5.1-android-b8/app-release.aab`, 74,525,084바이트, SHA-256 `f5254e419da5105f5310b2cfb9827c509cc96d2256fdebb5d922b199546aa492`. versionName 0.5.1·versionCode 8 확인 |
-| 업로드·처리 상태 | 후보 아카이브 `app-v0.5.1-ios-b12/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-09 02:59 KST). App Store Connect 처리는 미확인(사용자 확인 대기) | 미확인 — 사용자가 Play Console에 직접 올릴 예정(이번 승인 범위 밖) |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인(사용자 확인 대기) | 미확인 — 업로드 전 |
-| 심사 상태 | 미실행 | 미실행 |
+| 업로드·처리 상태 | 후보 아카이브 `app-v0.5.1-ios-b12/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-09 02:59 KST). App Store Connect 처리 완료 — TestFlight 테스터 제공이 이뤄졌다는 사용자 보고(2026-11-09)로 판단 | 사용자가 Play Console에 업로드(사용자 보고, 2026-11-09 수신, 업로드 시각 미확인). 올린 파일이 `app-v0.5.1-android-b8/app-release.aab`인지는 사용자 보고 없음. Play 처리 완료 — 내부 테스트 제공이 이뤄졌다는 사용자 보고(2026-11-09)로 판단 |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | TestFlight 테스터에게 제공(사용자 보고, 2026-11-09). 내부·외부 그룹과 그룹 이름은 사용자 보고 없음, 제공 시각 미확인 | 내부 테스트로 제공(사용자 보고, 2026-11-09). 트랙 이름은 사용자 보고 없음, 제공 시각 미확인 |
+| 심사 상태 | 미확인 — 외부 베타 심사 여부는 사용자 보고 없음 | 미확인 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
 | 실제 공개일·시각 | 해당 없음 — 공개 전 | 해당 없음 — 공개 전 |
 
@@ -92,9 +92,9 @@
 | 원격 CI | `813702b`의 App Validation·Backend Validation, `3626004`의 Backend Validation (push) | 모두 success | [App Validation run 42492637634](https://github.com/clip-back/clipback/actions/runs/42492637634)(`813702b`, 이후 `3626004`까지 `frontend/` 변경 없음 — App Validation은 `frontend/` 변경 때만 실행), [Backend Validation run 42500439306](https://github.com/clip-back/clipback/actions/runs/42500439306)(`3626004`). 이번 후보 준비에서 새로 실행한 결과 아님 |
 | iOS Simulator | 미실행 | 미실행 | 배포 작업 범위를 빌드·기록으로 정함(메모리 8GB). 변경별 시뮬레이터 확인은 각 PR 작업 기록에 있으며 이번 산출물 검증으로 쓰지 않음 |
 | Android Emulator | 미실행 | 미실행 | iOS Simulator와 같은 이유 |
-| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 테스터 제공 전 |
+| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 테스터 제공 뒤 사용자 확인 결과 보고 없음 |
 | 운영 서버 | Railway production 배포 목록, `/api/v1/health/ready` (2026-11-09 02:50 KST) | `3626004` SUCCESS, health 200 | 이 앱 후보와 운영 API의 연동(#298 키 전송 포함) 검증은 미실행 — 사용자 확인 필요 |
-| 실기기 | 미실행 | 미실행 | 테스터 제공 전. TestFlight 설치 뒤 사용자 확인 예정(iPhone 13): #298 링크 저장 응답 유실 뒤 재시도가 한 콘텐츠로 남는지, #250 탈퇴·재가입, #245 VoiceOver 음성 안내 |
+| 실기기 | 미실행 | 미실행 | 테스터 제공 뒤 사용자 확인 결과 보고 없음. TestFlight 설치 뒤 사용자 확인 예정(iPhone 13): #298 링크 저장 응답 유실 뒤 재시도가 한 콘텐츠로 남는지, #250 탈퇴·재가입, #245 VoiceOver 음성 안내 |
 
 ## 진행 기록과 중단·복구
 
@@ -110,3 +110,4 @@
 | 2026-11-09 02:52–02:54 | Android AAB | iOS 빌드 종료 후 실행. 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.5.1 --build-number=8`, 운영 API·공개 SDK 설정 지정. 빌드 뒤 단독 `:app:validateReleaseSigning` BUILD SUCCESSFUL | 91초 성공, 0.5.1(8) 확인. 본체 후보 폴더로 복사(SHA-256 일치), `./gradlew --stop`으로 데몬 정지. 업로드 미실행 |
 | 2026-11-09 02:57 | 태그 생성·푸시 | 사용자 승인(2026-11-09, 선택 원문: "태그 생성·push (Recommended)", "iOS 12 App Store Connect 업로드 (Recommended)", "기록 브랜치 push·PR (Recommended)". Android 8 업로드는 승인 항목 아님 — 사용자가 직접). 만들기 전 로컬·origin에 같은 태그 없음 확인. annotated 태그 `app-ios-v0.5.1-b12`·`app-android-v0.5.1-b8`을 `3626004b94e14a4613fbcd0e1236c50c9d1d0311`에 만들어 origin에 푸시 | origin `ls-remote`로 두 태그가 `3626004`를 가리킴을 확인 |
 | 2026-11-09 02:57–02:59 | iOS 업로드 | 같은 승인. 빌드 차례 확인(비어 있음) 뒤 실행. 올리기 전 아카이브의 본앱 `com.huturu.app`·공유 확장 `com.huturu.app.ShareExtension` 모두 0.5.1(12), 소스 `3626004`(이 기록) 대조. 새로 빌드하지 않고 같은 아카이브를 `xcodebuild -exportArchive -allowProvisioningUpdates`로 업로드. 내보내기 설정은 IPA 내보내기와 같은 자동 서명·팀 `8X6N747PQM`·method `app-store-connect`에서 destination만 upload로, 빌드 번호 자동 변경(`manageAppVersionAndBuildNumber`)은 끔. Xcode에 로그인된 계정 사용 | 116초, `Upload succeeded`·`EXPORT SUCCEEDED`, 한 번 시도. 로그에 Xcode에 등록된 다른 계정 하나의 자격 증명 로드 실패 경고가 있었으나(0.5.0 때와 같음) 업로드에 영향 없음. App Store Connect 처리·TestFlight 제공은 미확인(사용자 확인 대기). Android 8 업로드는 사용자 진행 예정, 미확인 |
+| 2026-11-09 (시각 미확인) | 테스터 제공 보고 수신 | 사용자 보고(조율 경유). 조율의 요청 "iOS 12 처리 뒤 TestFlight 테스터 제공, Android 8 Play Console 내부 테스트 업로드"에 원문 "둘 다 제공했어" | 사용자 보고, 화면 증거 받지 않음. Android에 올린 파일이 후보 AAB인지는 따로 확인받지 않음. iOS 테스트 그룹(내부·외부)·이름, Android 트랙 이름, 업로드·제공 시각은 사용자 보고 없음. 외부 베타 심사·실기기 확인 미확인, 정식 배포 대상 지정은 미결정 |
