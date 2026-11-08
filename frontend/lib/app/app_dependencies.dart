@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+
 import '../data/services/search_history_storage.dart';
 import '../data/services/original_image_cache.dart';
 import '../data/services/api_request_scope.dart';
@@ -18,6 +20,7 @@ import '../features/categories/view_models/category_management_view_model.dart';
 import '../features/content/view_models/content_save_view_model.dart';
 import '../features/content/view_models/detail_view_model.dart';
 import '../features/home/view_models/home_view_model.dart';
+import '../features/home/view_models/home_weekly_view_model.dart';
 import '../features/search/view_models/search_view_model.dart';
 import '../shared/presentation/view_model.dart';
 import 'actions/account_initialization_action.dart';
@@ -33,6 +36,8 @@ class AppDependencies {
     NativeShareService? nativeShare,
     OriginalLinkOpener? originalLinkOpener,
     bool Function()? canPrepareSharing,
+    bool Function()? weeklyHome,
+    bool Function()? weeklyVisible,
   }) {
     final api = ClipbackApi(
       originalImageCache: OriginalImageCache(),
@@ -84,6 +89,14 @@ class AppDependencies {
     app.addListener(sharing.sessionSettled);
     session.addListener(sharing.sessionSettled);
     home = HomeViewModel(content, contentActions);
+    homeWeekly = HomeWeeklyViewModel(
+      content,
+      isHome: weeklyHome ?? () => false,
+      isVisible: weeklyVisible ?? () => false,
+      accountGeneration: () => app.accountGeneration,
+      afterFrame: (callback) =>
+          WidgetsBinding.instance.addPostFrameCallback((_) => callback()),
+    );
     archive = ArchiveViewModel(content, contentActions);
     bookmark = BookmarkViewModel(content, contentActions);
     searchHistory = SearchHistoryRepository(
@@ -131,6 +144,7 @@ class AppDependencies {
   late final ContentActions contentActions;
   late final AppViewModel app;
   late final HomeViewModel home;
+  late final HomeWeeklyViewModel homeWeekly;
   late final ArchiveViewModel archive;
   late final BookmarkViewModel bookmark;
   late final SearchViewModel search;
@@ -142,6 +156,7 @@ class AppDependencies {
   List<ViewModel> get featureViewModels => [
     sharing,
     home,
+    homeWeekly,
     archive,
     bookmark,
     search,

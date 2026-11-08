@@ -188,7 +188,7 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 ### 현재 기능 연결과 디자인 기준
 
 - Today·Weekly, 최근 검색어, 시스템 뒤로가기는 기준 커밋에 연결되어 있습니다. 작업별 실제 검증과 한계는 이력 목차를 확인합니다.
-- 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다.
+- 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다. 홈의 주간 추천 방문(시작·끝, 첫 프레임 뒤 불러오기, 가려진 동안 미룬 실패 안내)은 `features/home/view_models/home_weekly_view_model.dart`가 맡고, 앱 View는 홈인지·보이는지 판정과 카드 선택 뒤 화면 이동만 조정합니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
 - iOS·Android 공유 메뉴는 송신 앱 위에 공유 저장 시트(손잡이·저장하기·안내 문구)를 띄웁니다.
   저장 요청 중에는 `전송 중 ...`·회색 버튼·종이비행기와 저장 중 안내를 표시하고 중복 탭을 막습니다. 구현·검증과 남은 화면 확인은 [작업 이력](../docs/history/2026-11-06-share-save-progress.md)에 기록합니다.
