@@ -34,6 +34,7 @@ import 'login_alignment_preview.dart' as login;
 final _captureKey = GlobalKey();
 final _measurements = <Map<String, Object?>>[];
 final _frameworkErrors = <String>[];
+final _notes = <String>[];
 late Directory _output;
 
 Future<void> main() async {
@@ -68,6 +69,7 @@ Future<void> main() async {
           'logicalSize': '${_view.physicalSize / _view.devicePixelRatio}',
           'measurements': _measurements,
           'frameworkErrors': _frameworkErrors,
+          'notes': _notes,
           'failure': failure?.toString(),
         };
         await File(
@@ -75,7 +77,9 @@ Future<void> main() async {
         ).writeAsString(const JsonEncoder.withIndent('  ').convert(report));
         debugPrint(
           'SAFE_AREA_DEVICE ${failure == null ? 'PASS' : 'FAIL'} '
-          'screens=${_measurements.length} output=${_output.path}',
+          'screens=${_measurements.length} '
+          '${_notes.map((note) => 'note="$note" ').join()}'
+          'output=${_output.path}',
         );
       }
     },
@@ -240,14 +244,20 @@ Future<void> _runChecks() async {
   _measurements.add({
     'screen': 'home_scrolled',
     'maxScrollExtent': position.maxScrollExtent,
+    'viewport': position.viewportDimension,
     'scrollOffset': scrolled,
     'headerTop': scrolledTop,
   });
-  if (scrolled <= 0) {
-    throw StateError('Home did not scroll: max=${position.maxScrollExtent}');
-  }
-  if ((scrolledTop - (_topInset + 8 - scrolled)).abs() > 0.5) {
-    throw StateError('Home header no longer scrolls with its content');
+  final note = checkHomeScroll(
+    maxScrollExtent: position.maxScrollExtent,
+    viewport: position.viewportDimension,
+    scrolled: scrolled,
+    headerTop: scrolledTop,
+    restingTop: _topInset + 8,
+  );
+  if (note != null) {
+    _measurements.last['note'] = note;
+    _notes.add(note);
   }
   await position.animateTo(
     0,
@@ -354,6 +364,28 @@ Future<void> _runChecks() async {
   await _header('14_save', _first<SaveContentTopBar>());
   Navigator.of(_first<AddContentSheet>()).pop();
   await _settle();
+}
+
+/// Home content shorter than the viewport cannot scroll; that is recorded
+/// (2026-11-08 decision). Otherwise the home must scroll and its header follow.
+String? checkHomeScroll({
+  required double maxScrollExtent,
+  required double viewport,
+  required double scrolled,
+  required double headerTop,
+  required double restingTop,
+}) {
+  if (maxScrollExtent <= 0) {
+    return 'home: 이 화면 크기에서 스크롤 없음 '
+        '(max=$maxScrollExtent viewport=$viewport headerTop=$headerTop)';
+  }
+  if (scrolled <= 0) {
+    throw StateError('Home did not scroll: max=$maxScrollExtent');
+  }
+  if ((headerTop - (restingTop - scrolled)).abs() > 0.5) {
+    throw StateError('Home header no longer scrolls with its content');
+  }
+  return null;
 }
 
 Future<void> _checkOriginalSheet() async {
