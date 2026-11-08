@@ -229,7 +229,8 @@ class CategoryContentHostState extends State<CategoryContentHost> {
       onUpdateCategory: (_, __) {},
       onDeleteCategory: (_) {},
       onOpenCategory: (_) {},
-      onAddLink: ({required String url, category}) async => feed.items.first,
+      onAddLink: ({required String url, submissionKey, category}) async =>
+          feed.items.first,
       onAddScreenshot:
           ({
             required bytes,

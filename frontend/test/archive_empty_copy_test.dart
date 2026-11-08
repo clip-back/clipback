@@ -62,7 +62,7 @@ void main() {
               onAddCategory: (_) {},
               onUpdateCategory: (_, _) {},
               onDeleteCategory: (_) {},
-              onAddLink: ({required url, category}) async =>
+              onAddLink: ({required url, submissionKey, category}) async =>
                   throw StateError('unused'),
               onAddScreenshot:
                   ({

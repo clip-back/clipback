@@ -5,7 +5,11 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:flutter/services.dart';
 
 typedef SaveLinkCallback =
-    Future<ContentItem> Function({required String url, CategoryItem? category});
+    Future<ContentItem> Function({
+      required String url,
+      String? submissionKey,
+      CategoryItem? category,
+    });
 
 typedef SaveScreenshotCallback =
     Future<ContentItem> Function({

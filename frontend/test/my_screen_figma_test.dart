@@ -49,7 +49,7 @@ Future<_Calls> _pump(
       home: MyScreen(
         user: user,
         appInfo: appInfo,
-        onAddLink: ({required url, category}) async {
+        onAddLink: ({required url, submissionKey, category}) async {
           calls.links++;
           throw StateError('Unrequested save');
         },

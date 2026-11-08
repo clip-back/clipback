@@ -156,6 +156,7 @@ class _Api extends ClipbackApi {
     String? summary,
     List<String> tagNames = const [],
     bool isFavorite = false,
+    String? submissionKey,
   }) => onSave?.call() ?? Future.value(_item());
   @override
   Future<void> recordContentView(int contentId) async =>

@@ -429,7 +429,8 @@ void main() {
       final uploads = <(String, Uint8List, String?)>[];
       await _open(
         tester,
-        onAddLink: ({required url, category}) async => _savedContent(),
+        onAddLink: ({required url, submissionKey, category}) async =>
+            _savedContent(),
         onAddScreenshot:
             ({
               required bytes,
@@ -481,7 +482,7 @@ void main() {
       FilePicker.platform = _Picker([('first-photo.png', firstBytes)]);
       await _open(
         tester,
-        onAddLink: ({required url, category}) async =>
+        onAddLink: ({required url, submissionKey, category}) async =>
             throw Exception('link boom'),
         onAddScreenshot:
             ({
@@ -521,7 +522,7 @@ void main() {
       final failures = <Completer<ContentItem>>[];
       await _open(
         tester,
-        onAddLink: ({required url, category}) {
+        onAddLink: ({required url, submissionKey, category}) {
           failures.add(Completer<ContentItem>());
           return failures.last.future;
         },
@@ -578,7 +579,8 @@ void main() {
         await _open(
           tester,
           height: 330,
-          onAddLink: ({required url, category}) => response.future,
+          onAddLink: ({required url, submissionKey, category}) =>
+              response.future,
           onAddScreenshot:
               ({
                 required bytes,
@@ -627,7 +629,7 @@ void main() {
     final response = Completer<ContentItem>();
     await _open(
       tester,
-      onAddLink: ({required url, category}) => response.future,
+      onAddLink: ({required url, submissionKey, category}) => response.future,
       onAddScreenshot:
           ({
             required bytes,
@@ -666,7 +668,7 @@ void main() {
     final response = Completer<ContentItem>();
     await _open(
       tester,
-      onAddLink: ({required url, category}) => response.future,
+      onAddLink: ({required url, submissionKey, category}) => response.future,
       onAddScreenshot:
           ({
             required bytes,
@@ -760,9 +762,7 @@ void main() {
     },
   );
 
-  testWidgets('G5 link save sends no key while photo save sends one', (
-    tester,
-  ) async {
+  testWidgets('G5 link and photo saves each send a key', (tester) async {
     final server = _Server();
     await _withApp(tester, server, () async {
       await _submitAppLink(tester);
@@ -777,7 +777,7 @@ void main() {
       final links = server.calls(_contents);
       expect(links, hasLength(1));
       expect(links.single.method, 'POST');
-      expect(links.single.headers.containsKey('Idempotency-Key'), isFalse);
+      expect(links.single.headers['Idempotency-Key'], matches(_uuid));
       final photos = server.calls(_upload);
       expect(photos, hasLength(1));
       expect(photos.single.headers['Idempotency-Key'], matches(_uuid));

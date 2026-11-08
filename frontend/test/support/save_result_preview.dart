@@ -555,7 +555,7 @@ Future<void> _open(
   unawaited(
     showContentSaveScreen(
       context: navigator.context,
-      onAddLink: ({required url, category}) =>
+      onAddLink: ({required url, submissionKey, category}) =>
           state.save(kind: 'link', url: url),
       onAddScreenshot:
           ({

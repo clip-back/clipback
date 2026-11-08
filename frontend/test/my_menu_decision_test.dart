@@ -27,7 +27,7 @@ Future<void> _my(
       home: MyScreen(
         user: fixture.myMember,
         appInfo: info,
-        onAddLink: ({required url, category}) async =>
+        onAddLink: ({required url, submissionKey, category}) async =>
             throw UnimplementedError(),
         onAddScreenshot:
             ({

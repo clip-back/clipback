@@ -189,7 +189,7 @@ void main() {
               tester,
               width: width,
               scale: scale,
-              onAddLink: ({required url, category}) async {
+              onAddLink: ({required url, submissionKey, category}) async {
                 calls++;
                 return returned;
               },
@@ -249,7 +249,7 @@ void main() {
         var calls = 0;
         await _open(
           tester,
-          onAddLink: ({required url, category}) {
+          onAddLink: ({required url, submissionKey, category}) {
             calls++;
             return pending.future;
           },
@@ -318,7 +318,8 @@ void main() {
       final keys = <String?>[];
       await _open(
         tester,
-        onAddLink: ({required url, category}) async => throw StateError('link'),
+        onAddLink: ({required url, submissionKey, category}) async =>
+            throw StateError('link'),
         onAddScreenshot:
             ({
               required bytes,
@@ -388,7 +389,8 @@ void main() {
     final returned = _savedContent();
     await _open(
       tester,
-      onAddLink: ({required url, category}) async => throw StateError('link'),
+      onAddLink: ({required url, submissionKey, category}) async =>
+          throw StateError('link'),
       onAddScreenshot:
           ({
             required bytes,
@@ -432,7 +434,7 @@ void main() {
         try {
           await _open(
             tester,
-            onAddLink: ({required url, category}) async =>
+            onAddLink: ({required url, submissionKey, category}) async =>
                 throw StateError('link'),
             onAddScreenshot:
                 ({
@@ -540,7 +542,7 @@ void main() {
     final calls = <String>[];
     await _open(
       tester,
-      onAddLink: ({required url, category}) async {
+      onAddLink: ({required url, submissionKey, category}) async {
         calls.add(url);
         return _savedContent(isScreenshot: true);
       },
@@ -574,7 +576,7 @@ void main() {
       var linkCalls = 0;
       await _open(
         tester,
-        onAddLink: ({required url, category}) async {
+        onAddLink: ({required url, submissionKey, category}) async {
           linkCalls++;
           return _savedContent();
         },
@@ -632,7 +634,7 @@ void main() {
     var photoCalls = 0;
     await _open(
       tester,
-      onAddLink: ({required url, category}) {
+      onAddLink: ({required url, submissionKey, category}) {
         urls.add(url);
         return response.future;
       },
@@ -677,7 +679,8 @@ void main() {
     final uploads = <(String, Uint8List)>[];
     await _open(
       tester,
-      onAddLink: ({required url, category}) async => throw StateError('link'),
+      onAddLink: ({required url, submissionKey, category}) async =>
+          throw StateError('link'),
       onAddScreenshot:
           ({
             required bytes,
@@ -723,7 +726,7 @@ void main() {
     final urls = <String>[];
     await _open(
       tester,
-      onAddLink: ({required url, category}) {
+      onAddLink: ({required url, submissionKey, category}) {
         urls.add(url);
         return urls.length == 1
             ? firstResponse.future
@@ -764,7 +767,8 @@ void main() {
       var calls = 0;
       await _open(
         tester,
-        onAddLink: ({required url, category}) async => throw StateError('link'),
+        onAddLink: ({required url, submissionKey, category}) async =>
+            throw StateError('link'),
         onAddScreenshot:
             ({
               required bytes,
@@ -825,7 +829,7 @@ void main() {
         var photoCalls = 0;
         await _open(
           tester,
-          onAddLink: ({required url, category}) async {
+          onAddLink: ({required url, submissionKey, category}) async {
             linkCalls++;
             return _savedContent();
           },
@@ -868,7 +872,7 @@ void main() {
         var calls = 0;
         await _open(
           tester,
-          onAddLink: ({required url, category}) {
+          onAddLink: ({required url, submissionKey, category}) {
             calls++;
             return response.future;
           },

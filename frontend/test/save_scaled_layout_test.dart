@@ -205,7 +205,7 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () => showContentSaveScreen(
                   context: context,
-                  onAddLink: ({required url, category}) async =>
+                  onAddLink: ({required url, submissionKey, category}) async =>
                       throw StateError('unexpected link save'),
                   onAddScreenshot:
                       ({

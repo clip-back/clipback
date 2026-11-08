@@ -87,7 +87,7 @@ Future<void> _render(
         onOpenToday: () {},
         onOpenContent: (_) {},
         onToggleBookmark: (_) {},
-        onAddLink: ({required url, category}) async =>
+        onAddLink: ({required url, submissionKey, category}) async =>
             fixture.homeBaseContents().first,
         onAddScreenshot:
             ({
