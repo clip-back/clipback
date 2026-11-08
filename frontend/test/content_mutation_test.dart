@@ -9,7 +9,9 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
+import 'package:clipback_frontend/features/archive/category_card_review_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -2216,6 +2218,48 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(DetailScreen), findsOneWidget);
         expect(_currentDetail(tester).content.id, target.id);
+        expect(_mutations(server), hasLength(1));
+        pending.complete(null);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  // #297: 별이 잠겨도 카드 다시보기의 끌어 넘기기는 그대로다(잠긴 별·카드 가운데에서 시작).
+  for (final start in ['locked star', 'card center']) {
+    testWidgets('dragging from the $start passes the card while its star '
+        'is locked', (tester) async {
+      final pending = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request, _) =>
+            request.method == 'PUT' ? pending.future : null,
+      );
+      await _withApp(tester, server, () async {
+        await _openLockPlace(tester, 'card-review');
+        // 랜덤 보기 순서와 상관없이 맨 앞 카드의 콘텐츠를 누른다.
+        final target = tester
+            .widget<CategoryReviewCard>(find.byType(CategoryReviewCard))
+            .content;
+        final star = _placeStar('card-review', target);
+        int activeIndex() => tester
+            .widget<CardPagerProgress>(find.byType(CardPagerProgress))
+            .activeIndex;
+        expect(activeIndex(), 0);
+        await tester.tap(star);
+        await tester.pump();
+        expect(_starEnabled(tester, target), isFalse);
+        await tester.dragFrom(
+          tester.getCenter(
+            start == 'locked star'
+                ? star
+                : find.byKey(const ValueKey('review-active-card')),
+          ),
+          const Offset(-200, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(activeIndex(), 1);
+        expect(find.byType(DetailScreen), findsNothing);
         expect(_mutations(server), hasLength(1));
         pending.complete(null);
         await tester.pumpAndSettle();
