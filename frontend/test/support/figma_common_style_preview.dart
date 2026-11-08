@@ -171,7 +171,7 @@ class _PreviewState extends State<_Preview> {
               onOpenToday: () => count('today'),
               onOpenContent: (_) => count('content'),
               onToggleBookmark: (_) => count('bookmark'),
-              onAddLink: ({required url, category}) =>
+              onAddLink: ({required url, submissionKey, category}) =>
                   Future<ContentItem>.error(
                     UnsupportedError('Fixture does not save'),
                   ),

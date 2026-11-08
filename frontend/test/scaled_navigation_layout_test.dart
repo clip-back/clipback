@@ -153,6 +153,7 @@ void _contained(Rect child, Rect parent) {
 
 Future<ContentItem> _saveLink({
   required String url,
+  String? submissionKey,
   CategoryItem? category,
 }) async => _content;
 Future<ContentItem> _saveScreenshot({

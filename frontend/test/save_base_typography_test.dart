@@ -296,7 +296,7 @@ Future<_Saved> _open(
           builder: (context) => TextButton(
             onPressed: () => showContentSaveScreen(
               context: context,
-              onAddLink: ({required url, category}) async {
+              onAddLink: ({required url, submissionKey, category}) async {
                 saved.calls++;
                 saved.label = url;
                 return saved.content();

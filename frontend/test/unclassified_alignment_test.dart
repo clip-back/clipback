@@ -120,7 +120,7 @@ Future<_Calls> _pump(
         onAddCategory: (_) {},
         onUpdateCategory: (_, _) {},
         onDeleteCategory: (_) {},
-        onAddLink: ({required url, category}) async => _item,
+        onAddLink: ({required url, submissionKey, category}) async => _item,
         onAddScreenshot:
             ({
               required bytes,

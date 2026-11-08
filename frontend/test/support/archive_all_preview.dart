@@ -442,8 +442,12 @@ class ArchiveAllStaticState extends State<ArchiveAllStaticHost> {
       onAddCategory: (_) {},
       onUpdateCategory: (_, __) {},
       onDeleteCategory: (_) {},
-      onAddLink: ({required String url, CategoryItem? category}) async =>
-          feed.items.first,
+      onAddLink:
+          ({
+            required String url,
+            String? submissionKey,
+            CategoryItem? category,
+          }) async => feed.items.first,
       onAddScreenshot:
           ({
             required Uint8List bytes,

@@ -760,11 +760,15 @@ class ClipbackApi {
     String? summary,
     List<String> tagNames = const [],
     bool isFavorite = false,
+    String? submissionKey,
   }) async {
     return ApiContent.fromJson(
       await _json(
         'POST',
         '/contents',
+        headers: submissionKey == null
+            ? null
+            : {'Idempotency-Key': submissionKey},
         body: {
           'content_type': 'link',
           'source': 'web',
@@ -1357,6 +1361,7 @@ class ClipbackApi {
     Map<String, dynamic>? body,
     bool allowEmpty = false,
     bool retryUnauthorized = true,
+    Map<String, String>? headers,
   }) async {
     final response = await _request(
       method,
@@ -1364,6 +1369,7 @@ class ClipbackApi {
       authenticated: authenticated,
       body: body,
       retryUnauthorized: retryUnauthorized,
+      headers: headers,
     );
     _throwForError(response);
     if (allowEmpty && response.body.isEmpty) return const {};

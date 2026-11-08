@@ -245,8 +245,12 @@ class CategorySheetPreviewState extends State<CategorySheetPreviewHost> {
       onAddCategory: add,
       onUpdateCategory: update,
       onDeleteCategory: delete,
-      onAddLink: ({required String url, CategoryItem? category}) async =>
-          contents.first,
+      onAddLink:
+          ({
+            required String url,
+            String? submissionKey,
+            CategoryItem? category,
+          }) async => contents.first,
       onAddScreenshot:
           ({
             required Uint8List bytes,

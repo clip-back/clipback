@@ -60,7 +60,7 @@ Future<int Function()> _pumpDetail(
         onOpenOriginalLink: () => opens++,
         onOpenAdjacent: (_) {},
         onOpenContent: (_) {},
-        onAddLink: ({required url, category}) async => content,
+        onAddLink: ({required url, submissionKey, category}) async => content,
         onAddScreenshot:
             ({
               required bytes,
