@@ -318,16 +318,19 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
             ShareActivityTest.tap(getInstrumentation(),ShareActivityTest.tagged(activity,"share.save"));
             getInstrumentation().waitForIdleSync();
             assertEquals("전송 중 ...",((Button)ShareActivityTest.tagged(activity,"share.save")).getText().toString());
+            assertEquals("전송 중",ShareActivityTest.tagged(activity,"share.save").getContentDescription().toString());
             awaitSaveRequests(requests+1);
         } finally { control(new JSONObject().put("release_save",true)); }
         android.view.accessibility.AccessibilityNodeInfo alert=ShareActivityTest.awaitAlert(getInstrumentation(),RETRY_TITLE,UNCONFIRMED,"다시 시도","닫기");
         Button save=(Button)ShareActivityTest.tagged(activity,"share.save");
         assertEquals("저장하기",save.getText().toString());assertFalse(save.isEnabled());
+        assertEquals("저장하기",save.getContentDescription().toString());
         assertNull(save.getCompoundDrawables()[2]);
         control(new JSONObject().put("hold_save",true));
         try {
             ShareActivityTest.pressAlertButton(getInstrumentation(),alert,"다시 시도");
             assertEquals("전송 중 ...",save.getText().toString());assertFalse(save.isEnabled());
+            assertEquals("전송 중",save.getContentDescription().toString());
             assertNotNull(save.getCompoundDrawables()[2]);
             awaitSaveRequests(requests+2);
         } finally { control(new JSONObject().put("release_save",true)); }
@@ -360,6 +363,7 @@ public final class ShareServiceFixtureTest extends InstrumentationTestCase {
             Button button=(Button)ShareActivityTest.tagged(activity,"share.save");
             getInstrumentation().waitForIdleSync();
             assertEquals("전송 중 ...",button.getText().toString());
+            assertEquals("전송 중",button.getContentDescription().toString());
             assertFalse(button.isEnabled());
             assertNotNull(button.getCompoundDrawables()[2]);
             assertTrue(ShareActivityTest.visibleTexts(activity.getWindow().getDecorView())

@@ -213,7 +213,7 @@ final class ShareViewController: UIViewController {
     saveButton.isEnabled = false
     titleHeightConstraint.constant = active ? 16 : 36
     saveButton.backgroundColor = active ? Self.subtler : Self.main
-    saveButton.accessibilityLabel = active ? "전송 중 ..." : "저장하기"
+    saveButton.accessibilityLabel = active ? "전송 중" : "저장하기"
     saveButton.setAttributedTitle(Self.text(active ? "전송 중 ..." : "저장하기",
                                             font: "Pretendard-SemiBold", size: active ? 17 : 16,
                                             color: active ? Self.subtle : Self.ink), for: .normal)

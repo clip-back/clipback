@@ -542,7 +542,7 @@ final class ShareUITests: XCTestCase {
     defer { control(["release_save": true]) }
     tapReady(sender.alerts.buttons["share.retry"])
     let save = sender.buttons["share.save"]
-    XCTAssertTrue(eventually { save.exists && save.label == "전송 중 ..." })
+    XCTAssertTrue(eventually { save.exists && save.label == "전송 중" })
     XCTAssertFalse(save.isEnabled)
     XCTAssertTrue(sender.staticTexts["저장하고 있어요... 잠시만 기다려주세요 !"].exists)
     XCTAssertTrue(eventually { self.saveRequests() == requests + 2 })
@@ -566,7 +566,7 @@ final class ShareUITests: XCTestCase {
     XCTAssertTrue(eventually { save.isEnabled })
     XCTAssertFalse(showsSendIcon(save), "The idle button must not match the progress icon golden")
     tapReady(save)
-    XCTAssertTrue(eventually { save.label == "전송 중 ..." })
+    XCTAssertTrue(eventually { save.label == "전송 중" })
     XCTAssertFalse(save.isEnabled)
     XCTAssertTrue(showsSendIcon(save), "The held save button must visibly contain the original grey 20pt send icon")
     XCTAssertTrue(sender.staticTexts["저장하고 있어요... 잠시만 기다려주세요 !"].exists)

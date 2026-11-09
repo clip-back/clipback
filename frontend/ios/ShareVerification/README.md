@@ -128,6 +128,8 @@ Simulator 성공은 실제 Instagram·YouTube 앱, 실기기 프로비저닝, Te
 
 `testHeldSaveShowsProgressAndRejectsRepeatedTaps`는 실제 저장 버튼 탭 뒤 대역 응답을 보류해
 `전송 중 ...`·종이비행기·비활성 버튼·저장 중 안내를 단언하고, 연속 탭 요청 1회와 해제 후 저장 1건·완료 토스트를 확인한다.
+처리 중 버튼의 접근성 이름(`save.label`)은 점 없이 `전송 중`이다(#318). 화면 글자 `전송 중 ...`는 XCUITest가 따로 읽지 못해
+`testCaptureShareLoadingStates` 첨부로 확인한다.
 버튼 내부 장식 이미지는 접근성 요소가 아니므로 실제 버튼 스크린샷을 원본 20pt 아이콘 golden과 비교한다.
 같은 검출이 저장 전 버튼에는 실패하고 처리 중에는 통과하는지도 확인한다.
 처리 중 버튼은 UIKit의 기본 배치가 끝난 뒤 제목과 20pt 아이콘을 10pt 간격으로 배치한다.
