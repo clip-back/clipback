@@ -12,9 +12,10 @@ from openai import (
     LengthFinishReasonError,
     OpenAIError,
 )
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import Settings, settings
+from app.integrations.summary import join_headline_and_points
 
 MAX_OCR_TEXT_LENGTH = 5_000
 MAX_OCR_TITLE_LENGTH = 120
@@ -43,6 +44,21 @@ class ScreenshotOCRResult(BaseModel):
     text: str
     title: str
     summary: str
+
+
+class ScreenshotOCROutput(BaseModel):
+    """What the model answers; extract() joins headline and points into the summary (#315).
+
+    The length and count limits go to the request schema only, as in the Instagram summary:
+    the shared cleaning rules handle count, the summary limit cuts length.
+    """
+
+    text: str
+    title: str
+    headline: str = Field(json_schema_extra={"maxLength": 40})
+    points: list[str] = Field(
+        json_schema_extra={"items": {"type": "string", "maxLength": 60}, "maxItems": 5}
+    )
 
 
 class OCRClient:
@@ -89,18 +105,27 @@ class OCRClient:
                                 "summary. Keep the title to 공백 포함 25자 안팎 (about 25 "
                                 "characters including spaces) and name only the 핵심 대상 "
                                 "(the core subject). "
-                                "Write the summary in a consistent, concise Korean "
-                                "informational style using short noun-ending sentences "
-                                "(명사형 종결). Use endings such as 소개, 안내, 정리, or 제공 "
-                                "only when appropriate to the actual content. "
+                                "Split the summary into headline (핵심 한 줄) and points (요점). "
+                                "The headline is one sentence of at most 40 characters stating "
+                                "what the screenshot is about. Points are the key facts, numbers, "
+                                "and conditions listed under the headline, at most 60 characters "
+                                "each. Write 0–5 points, only as many as the visible text "
+                                "supports: usually 3–5, 1–2 when the evidence is thin, and none "
+                                "when the headline already covers a short text; never invent "
+                                "points or repeat the headline. "
+                                "Write the headline and points in a concise Korean informational "
+                                "noun-ending memo style (정보형·명사형 메모체) with no trailing "
+                                "period, and add no bullets, numbering, or markdown. "
                                 "Do not use 합니다체, 해요체, greetings, exclamations, "
                                 "recommendations to the reader, or promotional language. "
                                 "Preserve key facts, names, numbers, and conditions visible "
-                                "in the image; do not invent missing information. "
-                                "Style example only: 성수동 카페 소개. 대표 메뉴와 영업시간 안내. "
+                                "in the image; do not guess anything that is not visible. "
+                                'Style example only: headline "성수동 카페 소개", points '
+                                '["대표 메뉴와 가격", "영업시간과 휴무일"]. '
                                 "Do not copy facts from this example into the summary. "
                                 "If there is no meaningful visible text, return empty "
-                                "strings for text, title, and summary."
+                                "strings for text, title, and headline and an empty list "
+                                "for points."
                             ),
                         },
                         {
@@ -118,7 +143,7 @@ class OCRClient:
                             ],
                         },
                     ],
-                    text_format=ScreenshotOCRResult,
+                    text_format=ScreenshotOCROutput,
                     reasoning={"effort": "none"},
                     max_output_tokens=self.config.ocr_max_output_tokens,
                     store=False,
@@ -150,7 +175,7 @@ class OCRClient:
         except (AttributeError, TypeError, ValueError) as exc:
             raise OCRClientInvalidResponseError from exc
 
-        if response.status != "completed" or not isinstance(parsed, ScreenshotOCRResult):
+        if response.status != "completed" or not isinstance(parsed, ScreenshotOCROutput):
             raise OCRClientInvalidResponseError
 
         text = self._normalize_ocr_text(parsed.text)
@@ -159,7 +184,9 @@ class OCRClient:
         return ScreenshotOCRResult(
             text=text,
             title=self._normalize_inline_text(parsed.title, MAX_OCR_TITLE_LENGTH),
-            summary=self._normalize_inline_text(parsed.summary, MAX_OCR_SUMMARY_LENGTH),
+            summary=join_headline_and_points(parsed.headline, parsed.points)[
+                :MAX_OCR_SUMMARY_LENGTH
+            ],
         )
 
     async def close(self) -> None:

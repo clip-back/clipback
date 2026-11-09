@@ -65,17 +65,27 @@ def _joined_summary(headline, points) -> str:
     """Clean the model's headline and points and join them as one plain-text summary.
 
     The steps run in the fixed order of spec #203 "공통 정리 규칙과 결과 판정" (ADR 0005);
-    changing the order changes results.
+    changing the order changes results. A link summary fails without a headline or a point.
     """
     if not isinstance(headline, str):
         raise SummaryError("invalid_response")
-    headline = _one_line(headline).strip()
-    if not headline:
-        raise SummaryError("invalid_response")
     if not isinstance(points, list) or not all(isinstance(point, str) for point in points):
         raise SummaryError("invalid_response")
+    summary = join_headline_and_points(headline, points)
+    # The cleaned headline is one line, so a line break means at least one point is left.
+    if "\n" not in summary:
+        raise SummaryError("invalid_response")
+    return summary
+
+
+def join_headline_and_points(headline: str, points: list[str]) -> str:
+    """Run the shared cleaning rules without judging: link summaries and photo OCR (#315).
+
+    An empty headline gives an empty summary and no points left give the headline alone.
+    """
+    headline = _one_line(headline).strip()
+    if not headline:
+        return ""
     points = [_LEADING_MARK.sub("", _one_line(point).lstrip(), count=1).strip() for point in points]
     points = [point for point in points if point]
-    if not points:
-        raise SummaryError("invalid_response")
     return "\n".join([headline, *(f"• {point}" for point in points[:5])])
