@@ -89,7 +89,6 @@ class MyScreen extends StatelessWidget {
     required this.onAddScreenshot,
     required this.onOpenAccount,
     required this.onTab,
-    this.onOpenNotices,
     this.statsMessage,
     this.onRetryStats,
     super.key,
@@ -102,7 +101,6 @@ class MyScreen extends StatelessWidget {
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
-  final VoidCallback? onOpenNotices;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -197,17 +195,6 @@ class MyScreen extends StatelessWidget {
                     const MySectionHeader(title: '고객지원'),
                     MyListGroup(
                       children: [
-                        MyListTile(
-                          title: '공지사항',
-                          onTap:
-                              onOpenNotices ??
-                              () => showModalBottomSheet<void>(
-                                context: context,
-                                useSafeArea: true,
-                                backgroundColor: Colors.transparent,
-                                builder: (context) => const NoticeSheet(),
-                              ),
-                        ),
                         MyListTile(
                           title: '문의하기',
                           onTap: () => showModalBottomSheet<void>(
@@ -576,6 +563,11 @@ class MyListTile extends StatelessWidget {
         ),
       ),
     );
-    return onTap == null ? content : InkWell(onTap: onTap, child: content);
+    // Each row stays its own accessibility node even when only one row in the
+    // group is tappable; otherwise the version text merges into 문의하기.
+    return Semantics(
+      container: true,
+      child: onTap == null ? content : InkWell(onTap: onTap, child: content),
+    );
   }
 }

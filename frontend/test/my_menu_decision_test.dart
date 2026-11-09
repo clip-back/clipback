@@ -53,7 +53,7 @@ void main() {
     await fonts.load();
   });
   testWidgets(
-    'approved management and support groups omit category and terms',
+    'approved management and support groups omit category, terms and notices',
     (tester) async {
       await _my(tester);
       final groups = tester
@@ -70,11 +70,12 @@ void main() {
             .toList(),
         [
           ['알림 설정', '앱 권한'],
-          ['공지사항', '문의하기', '앱 버전'],
+          ['문의하기', '앱 버전'],
         ],
       );
       expect(find.text('카테고리 관리'), findsNothing);
       expect(find.text('이용약관 및 개인정보'), findsNothing);
+      expect(find.text('공지사항'), findsNothing);
     },
   );
   for (final info in [fixture.myAppInfo, null]) {

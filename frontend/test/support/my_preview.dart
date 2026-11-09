@@ -435,7 +435,7 @@ Map<String, Object?> myJudgment(Map<String, Object?> m) {
       }
     }
   }
-  if (names.join('|') != '알림 설정|앱 권한|공지사항|문의하기|앱 버전') {
+  if (names.join('|') != '알림 설정|앱 권한|문의하기|앱 버전') {
     style.add('approved menu order: $names');
   }
   final header = b['header'] as Map,
@@ -940,30 +940,6 @@ Future<void> _showTile(String title, String type) async {
   await _visible(tile);
   final before = _position(_my)!.pixels;
   await _tap(tile);
-  if (type == 'NoticeSheet') {
-    // K01's root route replaces only this sheet. Keep the frozen helper runnable
-    // on the baseline, which still opens the legacy modal.
-    await _wait(
-      () => _runtime('NoticeListScreen') != null || _runtime(type) != null,
-      'Notice entry did not open',
-    );
-    final notices = _runtime('NoticeListScreen');
-    if (notices != null) {
-      _record('notice_list_opened', {'offsetBefore': before});
-      await _tap(_key(notices, 'notice-back-hit')!);
-      await _wait(() => _route() == 'my', 'Notices did not return to My');
-      _require(
-        (_position(_my)!.pixels - before).abs() < .18,
-        'Notice round trip changed My scroll',
-      );
-      _record('notice_list_closed', {
-        'offsetBefore': before,
-        'offsetAfter': _position(_my)!.pixels,
-        'noScroll': _position(_my)!.maxScrollExtent == 0,
-      });
-      return;
-    }
-  }
   final sheet = await _modal(type), r = _box(sheet);
   _record('sheet_${type}_opened', {
     'modalType': type,
@@ -1035,7 +1011,6 @@ Future<void> _run() async {
   for (final item in const {
     '알림 설정': 'ReminderSheet',
     '앱 권한': 'PermissionSheet',
-    '공지사항': 'NoticeSheet',
     '문의하기': 'ContactSheet',
   }.entries) {
     await _showTile(item.key, item.value);

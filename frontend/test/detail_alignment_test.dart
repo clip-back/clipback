@@ -65,13 +65,17 @@ class _Scene {
   final String name;
   final ContentItem current;
   final List<ContentItem> contents;
-  List<ContentItem> get related => contents
-      .where(
-        (item) =>
-            item.id != current.id &&
-            item.category.name == current.category.name,
-      )
-      .toList();
+  List<ContentItem> get related {
+    final ids = current.categories.map((category) => category.id).toSet();
+    return contents
+        .where(
+          (item) =>
+              item.id != current.id &&
+              item.categories.any((category) => ids.contains(category.id)),
+        )
+        .take(3)
+        .toList();
+  }
 }
 
 List<_Scene> _scenes() {
@@ -89,12 +93,12 @@ List<_Scene> _scenes() {
   );
   final unrelated = _content(
     'unrelated',
-    title: '태그만 같아서 제외할 항목',
+    title: '두 번째 분류로 겹치는 항목',
     categories: const [_secondary],
   );
   final secondaryOnly = _content(
     'secondary-only',
-    title: '두 번째 분류만 같아서 제외할 항목',
+    title: '세 개를 넘어 제외할 항목',
     categories: const [_secondary, _primary],
   );
   final long = _content(
@@ -828,7 +832,7 @@ void main() {
         });
       }
       testWidgets(
-        'detail callbacks and loaded-order membership $platform width $width',
+        'detail callbacks and capped loaded-order overlap $platform width $width',
         (tester) async {
           final scene = _scenes().singleWhere(
             (s) => s.name == 'multiple-categories',
@@ -857,8 +861,8 @@ void main() {
           }
           expect(positions[0], lessThan(positions[1]));
           expect(calls.opened, orderedEquals(scene.related));
-          expect(find.text('태그만 같아서 제외할 항목'), findsNothing);
-          expect(find.text('두 번째 분류만 같아서 제외할 항목'), findsNothing);
+          expect(find.text('두 번째 분류로 겹치는 항목'), findsOneWidget);
+          expect(find.text('세 개를 넘어 제외할 항목'), findsNothing);
           final back = _role(
             'detail-back',
             find.descendant(

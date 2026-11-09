@@ -162,7 +162,7 @@ void main() {
   }
 
   testWidgets(
-    'Account callbacks, four sheets, display-only version, tabs and save',
+    'Account callbacks, three sheets, display-only version, tabs and save',
     (tester) async {
       final calls = await _pump(tester);
       final settings = find.byKey(const ValueKey('my-header-settings'));
@@ -180,7 +180,6 @@ void main() {
       for (final entry in <String, Type>{
         '알림 설정': ReminderSheet,
         '앱 권한': PermissionSheet,
-        '공지사항': NoticeSheet,
         '문의하기': ContactSheet,
       }.entries) {
         final target = find.text(entry.key);
