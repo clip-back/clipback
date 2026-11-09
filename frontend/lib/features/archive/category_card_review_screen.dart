@@ -137,6 +137,8 @@ class _CategoryCardReviewScreenState extends State<CategoryCardReviewScreen> {
         _dragOffset = Offset.zero;
         _isAdvancing = false;
       });
+      // #309: 마지막 카드까지 넘기면 나가기와 같은 목록으로 돌아간다.
+      if (_isComplete) widget.onExit();
     });
   }
 

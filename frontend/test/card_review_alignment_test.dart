@@ -167,18 +167,23 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  for (final count in [0, 1, 5]) {
+  testWidgets('count 0 drag callback completion and existing empty state', (
+    tester,
+  ) async {
+    final c = await _pump(tester, count: 0);
+    expect(find.byType(EmptyStatePanel), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(c.exits, 0);
+    await tester.tap(find.text('나가기'));
+    expect(c.exits, 1);
+    expect(tester.takeException(), isNull);
+  });
+  // #309: 마지막 카드의 넘김 전환이 끝나면 나가기와 같은 복귀를 한 번만 한다.
+  for (final count in [1, 2, 3, 4, 5]) {
     testWidgets(
-      'count $count drag callback completion and existing empty state',
+      'count $count drag callback completion auto exits once after last card',
       (tester) async {
         final c = await _pump(tester, count: count);
-        if (count == 0) {
-          expect(find.byType(EmptyStatePanel), findsOneWidget);
-          await tester.tap(find.text('나가기'));
-          expect(c.exits, 1);
-          expect(tester.takeException(), isNull);
-          return;
-        }
         expect(
           tester
               .widget<CardPagerProgress>(find.byType(CardPagerProgress))
@@ -221,29 +226,54 @@ void main() {
               .activeIndex,
           0,
         );
-        for (var i = 0; i < count; i++) {
+        expect(c.exits, 0);
+        for (var i = 0; i < count - 1; i++) {
           await _advance(tester);
-          if (i < count - 1) {
-            expect(
-              tester
-                  .widget<CardPagerProgress>(find.byType(CardPagerProgress))
-                  .activeIndex,
-              i + 1,
-            );
-          }
+          expect(
+            tester
+                .widget<CardPagerProgress>(find.byType(CardPagerProgress))
+                .activeIndex,
+            i + 1,
+          );
+          expect(c.exits, 0);
         }
-        expect(find.byType(CategoryReviewCard), findsNothing);
-        expect(find.byType(CardPagerProgress), findsNothing);
-        expect(find.text('딱 5개만 다시 확인해볼까요?'), findsOneWidget);
-        expect(find.text('일상'), findsOneWidget);
-        final j = fixture.reviewJudgment(_m(tester));
-        expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
-        await tester.tap(find.text('나가기'));
+        await tester.drag(_active, const Offset(0, -130));
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(c.exits, 0);
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(c.exits, 1);
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(seconds: 1));
         expect(c.exits, 1);
         expect(tester.takeException(), isNull);
       },
     );
   }
+  testWidgets('drag during the last transition still auto exits once', (
+    tester,
+  ) async {
+    final c = await _pump(tester, count: 1);
+    await tester.drag(_active, const Offset(0, -130));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.drag(_active, const Offset(-200, 0), warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(c.exits, 0);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    expect(c.exits, 1);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('removing the screen before the last transition ends is quiet', (
+    tester,
+  ) async {
+    final c = await _pump(tester, count: 1);
+    await tester.drag(_active, const Offset(0, -130));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+    expect(c.exits, 0);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('shared progress default remains original24 and circles', (
     tester,
   ) async {
