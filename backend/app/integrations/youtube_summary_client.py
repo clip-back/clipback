@@ -118,6 +118,7 @@ class YouTubeSummaryClient:
             raise SummaryError("invalid_response") from exc
         prompt = (
             "공개 영상 전체의 실제 내용을 분석하여 한국어 제목과 요약을 작성하라. "
+            "제목은 공백 포함 25자 안팎으로, 핵심 대상만 담는다. "
             f"제목은 {MAX_TITLE_LENGTH}자 이내. "
             "요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "
             "headline은 영상이 무엇을 다루는지 밝힌 40자 이내 한 문장. "

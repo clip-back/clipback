@@ -127,7 +127,7 @@ async def test_gemini_is_asked_for_a_headline_and_points():
     prompt = bodies[0]["systemInstruction"]["parts"][0]["text"]
     for phrase in [
         "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–5개", "되풀이",
-        "추측하지", "신뢰하지 않는",
+        "추측하지", "신뢰하지 않는", "공백 포함 25자 안팎", "핵심 대상", "제목은 120자 이내.",
     ]:
         assert phrase in prompt
 
