@@ -132,7 +132,7 @@ public class ShareActivity extends Activity implements ShareService.Listener {
         submitting = active;
         save.setEnabled(false);
         save.setText(active ? "전송 중 ..." : "저장하기");
-        save.setContentDescription(active ? "전송 중 ..." : "저장하기");
+        save.setContentDescription(active ? "전송 중" : "저장하기");
         save.setTextSize(active ? 17 : 16);
         save.setTextColor(active ? SUBTLE : TEXT);
         save.setBackground(shape(active ? SUBTLER : MAIN, 8));
