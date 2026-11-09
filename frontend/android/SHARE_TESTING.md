@@ -151,6 +151,7 @@ Instagram·YouTube 앱 자체, 운영 서버, 실제 기기는 검증하지 않�
 
 `ShareServiceFixtureTest#testHeldSaveShowsProgressAndRejectsRepeatedTaps`는 실제 탭 후
 대역 응답을 보류하고 처리 중 문구·아이콘·입력 차단·요청 1회를 단언한다. 해제 후 저장 1건·완료 토스트까지 검사한다.
+처리 중 버튼의 화면 글자는 `전송 중 ...`, contentDescription은 점 없이 `전송 중`이다(#318). 실패 뒤 돌아온 버튼은 둘 다 `저장하기`다.
 `#testCaptureShareLoadingStates`는 YouTube·Instagram·이미지의 저장 전/보류 중/성공과 진행 중 재생성을
 앱 외부 파일 폴더 `share-loading` 아래 PNG·JSON으로 남긴다. 기존 실패·재시도·닫기·계정/환경 회귀도 함께 실행한다.
 
