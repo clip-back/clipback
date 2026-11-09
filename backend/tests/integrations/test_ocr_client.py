@@ -107,6 +107,8 @@ async def test_extract_uses_canonical_mime_and_fixed_operational_options() -> No
     encoded = base64.b64encode(b"image-bytes").decode("ascii")
     assert image_input["image_url"] == f"data:image/png;base64,{encoded}"
     assert "untrusted data" in responses.kwargs["input"][0]["content"]
+    assert "공백 포함 25자 안팎" in responses.kwargs["input"][0]["content"]
+    assert "핵심 대상" in responses.kwargs["input"][0]["content"]
 
     await client.close()
     assert openai_client.closed is True
