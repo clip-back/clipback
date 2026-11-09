@@ -66,7 +66,7 @@
   앱 테스트 `+3481: All tests passed!`, pytest `2341 passed, 47 skipped, 3 warnings`.
   - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
   - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
-- 이후 바뀐 것은 로컬 촬영 도구(저장소 밖 `.utmp`)와 이 문서뿐이라 전체 검증을 다시 돌리지 않았다.
+- 이후 바뀐 것은 로컬 촬영 도구(워크트리 안의 추적하지 않는 `.utmp`)와 관련 문서 4개(이 이력, 이력 목차, `frontend/README.md`, `docs/figma-ui-alignment-plan.md`)뿐이라 전체 검증을 다시 돌리지 않았다.
 
 ## 화면 확인
 
@@ -87,7 +87,7 @@
   LT-05 실제 화면 키보드·토스트·저장 버튼이 함께 보임. 모든 상태의 `unexpected`는 빈 목록. 감독이 양 플랫폼 원본 PNG를 눈으로 확인했다.
   LT-05는 두 플랫폼 모두 이슈 순서대로 LT-02(토스트) 뒤에 입력란을 포커스했다. Android 마지막 PNG에서 토스트·키보드·저장 버튼이 모두 보였다.
 - 변경 후 첫 POST 기준 시각(ms, iOS / Android): LT-01 2913 / 682, LT-02 21231 / 20260, LT-03 29412 / 23178, LT-04 20858 / 20356, LT-05 22189 / 22611.
-  이 값과 영상 길이는 첫 POST 도착 기준이며 "저장 탭부터 정확히 20초"의 증명이 아니다. 저장 탭부터 20초는 L1·L4 위젯 테스트가 근거다.
+  이 값은 첫 POST 도착 기준이고 영상 길이는 실제 경과 시간과 다를 수 있어, 둘 다 "저장 탭부터 정확히 20초"의 증명이 아니다. 저장 탭부터 20초는 L1·L4 위젯 테스트가 근거다.
 - 비교 출력 차이(시작 조건 변경 아님): LT-03 스크롤 목록 5 → 2, LT-05 최대 스크롤 iOS 245 → 0 / Android 148.095 → 0(처리 중 내용이 사라진 결과).
 - Figma: D04 `111:5006`(LT-01 비교), D09 `111:4865`(LT-03 비교, 사진 저장 결과 노드를 참고로 쓴 것이며 링크 결과 디자인 확정이 아님),
   둘 다 375×812 프레임(파일 `svNWsTFh8Ws1Mpt8XQIcrN`, 2026-11-09 섹션 `111:3379` 재조회). 기기 화면(393×852·411.43×914.29)·OS 안전 영역과 프레임 크기 차이는 보정하지 않았다.
