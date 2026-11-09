@@ -45,4 +45,17 @@
 - Android Medium_Phone / API 36: 부팅 후 테스트 APK와 앱 APK를 재설치하고 본앱·송신 앱을 열었다. System UI 응답 없음은 Wait로 닫았고 스크린샷 공유 → 허투루로 이동했다. 접근성 조회가 일시적으로 null root node를 반환했으며, 실제 화면은 `로그인이 필요해요` 알림이었다. 공유 자격 준비가 완료됐다는 증거는 확보하지 못했다. 촬영 예산(상태 1개 × 3분)을 넘겨 추가 시도를 멈췄다. 실패 화면 `.utmp/ticket-318/screens/android-current.png`는 처리 중 화면 증거가 아니다.
 - Android 처리 중 접근성 이름과 최종 처리 중 스크린샷은 미검증이다. 앞선 네이티브 테스트 통과로 이 항목을 대신하지 않는다. 양 플랫폼 기기와 대역 서버는 종료했다.
 - 범위 밖: iPhone 13 VoiceOver 실제 음성은 다음 TestFlight 빌드(0.5.2 이후)로 사용자가 확인한다. 개발 빌드를 설치하지 않았다. Android 실기기 TalkBack도 범위 밖이다. 원격 CI는 PR 뒤 확인한다.
-- 현재는 Android 확인 재개 결정 대기이며 PR 초안·push·PR 생성은 하지 않았다. 이 기록은 문서만 바꾸므로 전체 검증을 다시 실행하지 않았다.
+- 당시에는 Android 확인 재개 결정 대기였으며 PR 초안·push·PR 생성은 하지 않았다. 이 기록은 문서만 바꾸므로 전체 검증을 다시 실행하지 않았다.
+
+## 승인된 Android 재시도와 PR 초안 준비
+
+2026-11-09 사용자 결정 "추천대로 해줘": 대역 공유 자격 준비부터 촬영까지 최대 20분 안에서 한 번 재시도하고, 또 막히면 이유를 기록한 뒤 PR 초안으로 넘어간다.
+
+- 기기 차례 대기는 23:22–23:33 KST, 실제 준비·촬영은 23:34:02–23:36:36 KST(2분 34초)였다. `busy.sh`와 `device-lock.sh`로 차례를 지켰으며 Medium_Phone / Android 16(API 36), 1080×2400에서 실행했다.
+- `SHARE_TESTING.md`의 대역 본앱 진입 절차대로 `test/support/share_preview.dart`로 빌드한 APK를 설치했다. 로컬 메모리 세션을 복원한 본앱이 `/api/v1/users/me`와 `/api/v1/auth/share-credential`에서 HTTP 200을 받은 사실을 확인한 뒤 송신 앱으로 이동했다. 대역 로그에는 경로·응답 코드만 남겼다.
+- 송신 앱의 스크린샷 공유 → 시스템 공유 목록의 허투루 → 저장하기로 진입하고 `hold_save`로 응답을 보류했다. `uiautomator dump`에서 처리 중 버튼 1개의 `content-desc="전송 중"`, `text="전송 중 ..."`, `enabled="false"`를 확인했다. 원본 PNG에서도 화면 글자·회색 버튼·종이비행기·안내 글이 그대로 보였다.
+- 증거: `.utmp/ticket-318/screens/android-processing.xml`, `android-processing.png`, `.utmp/ticket-318/capture-fixture.log`. 첫 시도의 Android 미검증 항목은 이 재시도로 해소했다. TalkBack 음성은 확인하지 않았으며 접근성 속성 확인으로 음성 결과를 대신하지 않는다.
+- 응답 보류 해제 후 에뮬레이터·대역 프로세스 종료 결과를 회수하고 잠금을 해제했다. 실기기에는 설치하지 않았다.
+- 최종 fetch에서 main 전진이 없어 병합할 변경은 없었다. 단일 이슈의 기존 티켓 리뷰(지적 0건)를 최종 리뷰로 사용한다. 제품·테스트 코드는 검증 커밋 `bcf49d8`과 같고 이후 변경은 이력 문서뿐이므로 전체 검증을 중복 실행하지 않았다. `verify-progress.json`의 `head=bcf49d8`, `dirty=false`와 최종 `VERIFY result=PASS scope=all checks=11 failed=0`를 대조했다.
+- 남은 범위: 사용자 화면 판정·PR 초안 승인, 승인 후 push·PR 및 원격 CI. iPhone VoiceOver 청취는 다음 TestFlight(0.5.2 이후)에서 사용자 확인, Android TalkBack 실기기는 범위 밖이다. 이슈는 PR의 `Closes #318` 대상으로 열어 둔다.
+- 회고 필요: 예. 첫 Android 촬영에서 공유 자격 준비 완료를 확인하지 않았고, iOS 회귀 초기 실패 원인은 일부 미확정이었다.
