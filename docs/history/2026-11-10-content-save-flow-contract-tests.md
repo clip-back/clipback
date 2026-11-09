@@ -28,14 +28,16 @@
 
 ## 추가한 테스트
 
-파일: `backend/tests/integration/test_content_save_flow_contract.py` (156개, 보조 파일 없음).
+파일: `backend/tests/integration/test_content_save_flow_contract.py` (162개, 보조 파일 없음).
 
 | 테스트 | 대상 | 사례 |
 | --- | --- | --- |
 | `test_upload_failure_branches_keep_original_cleanup_contract` | R18b·R18c·R18d·R16, 정리 DB/원본 DELETE 실패 | 15 실패 × 키 유무 × local/S3 = 60 |
 | `test_pre_write_rejection_never_reaches_storage_or_cleanup` | R18a, R09·R10·R12 본문 | 손상·빈·과대 파일, 중단, 한도 × 키 유무 × local/S3 = 20 |
 | `test_rejected_commit_ends_original_transaction_before_verification` | 원 트랜잭션 종료 → 재확인 → 정리 순서, R13 | 1 |
-| `test_commit_failure_outside_normal_rollback_keeps_observed_branch` | R24 rollback 실패·연결 종료·서버 task 취소 | 6 |
+| `test_commit_failure_outside_normal_rollback_keeps_observed_branch` | R24 rollback 실패·연결 종료·서버 task 취소 | 7 |
+| `test_rollback_failure_keeping_transaction_open_does_not_finish_within_time_limit` | R24 rollback이 서버 트랜잭션을 끝내지 못함(키 있음) | 1 |
+| `test_client_timeout_against_real_server_keeps_save_and_replays_same_content` | 클라이언트 HTTP 대기 시간 초과(실제 uvicorn 서버) | 링크·스크린샷 × 재요청 시점 2 = 4 |
 | `test_replay_returns_current_content_and_keeps_conflict_and_deleted_bodies` | R03·R04·R05 경로별 | 3 |
 | `test_receipts_are_written_only_for_keyed_saves` | 키 유무별 처리 기록 수, R07 | 3 |
 | `test_fingerprint_input_variants_keep_replay_or_conflict` | fingerprint 변형 입력 | 25 |
@@ -76,7 +78,7 @@
 | R21 | 기존 | `test_content_save_contract`의 모든 CASES |
 | R22 | 기존 + 보강 | `test_mobile_share`; 인증 실패와 다른 오류가 겹치면 401(`P01`·`P03`·`P04`·`P07`) |
 | R23 | 기존 | `test_pause_waits_for_admitted_save_then_retry_after_resume_has_one_original`, `test_main_and_native_concurrent_writes_cannot_overrun_remaining_space` |
-| R24 | 보강 + 미확인 2 | 아래 R24 절 |
+| R24 | 보강 | 아래 R24 절과 클라이언트 대기 시간 초과 절 |
 
 ## 원본 쓰기 실패 관측값 (R18b–R18d, R16)
 
@@ -114,16 +116,32 @@
 | --- | --- |
 | rollback이 실제 rollback 뒤 예외(키 있음) | 같은 순서로 재확인·정리, 500(RuntimeError), 정리 작업 1 완료, 재시도 201 |
 | 같은 사례 키 없음 | 재확인 없이 helper 정리, 500 |
-| commit 직전 원 backend 종료(키 있음/없음) | rollback은 예외 없이 끝나고 잠금 해제, 키 있으면 재확인 뒤 정리, 500(InternalError) |
+| commit 직전 원 backend 종료(키 있음/없음) | rollback은 예외 없이 끝나고 잠금 해제, 키 있으면 재확인 뒤 정리, 500(SQLAlchemy `DBAPIError` 계열. 종료 시점에 따라 `InternalError`·`DBAPIError`가 모두 관측되어 계열 이름으로 단언) |
 | 서버 task 안 CancelledError(키 있음/없음) | rollback·재확인·helper 없음, 원본 잔존(정리 작업 0), 세션 종료로 잠금 해제, 재시도 201·원본 2 |
+| rollback이 실제 rollback 없이 예외(키 없음) | 재확인 없이 helper가 다시 rollback해 정리, 500(RuntimeError), 정리 작업 1 완료, 재시도 201 |
+| rollback이 실제 rollback 없이 예외(키 있음) | 아래 |
 
-미확인 2건:
+rollback이 서버 트랜잭션을 끝내지 못한 채 예외를 내는 경우(키 있음, 인위 주입)는 2026-11-10 사용자 결정 "둘 다 추천대로"에 따라
+지금 동작을 "시험 제한 시간 안에 끝나지 않음"으로 동결했다. 고치는 일은 #320 뒤 별도 버그 이슈로 한다.
 
-- rollback이 서버 트랜잭션을 끝내지 못한 채 예외를 내는 경우: 임시 탐색에서 재확인이 원 연결의 제출 잠금을 기다려 요청이 10초 안에 끝나지 않았다
-  (`commit_attempted:lock_held` → `original_rollback_raised:RuntimeError` → `verification_lock_requested`에서 멈춤).
-  인위 주입으로만 재현되며, 새 복구 동작이나 기대값을 정하지 않고 동결을 보류했다.
-- 클라이언트 HTTP 대기 시간 초과: 시험 transport(`httpx.ASGITransport`)는 요청을 같은 task에서 실행해 클라이언트 취소가 곧 서버 취소가 된다.
-  서버 task 취소와 같다고 가정하지 않고 미확인으로 남긴다.
+- 10초 시험 제한 시점까지 요청이 끝나지 않는다. 사건은 `commit_attempted:lock_held` → `original_rollback_failed_without_server_rollback` →
+  `verification_lock_requested`에서 멈추고, 그 시점에 제출 잠금은 원 연결이 쥐고 있으며 잠금을 기다리는 backend가 1개다.
+  정리 helper 호출·정리 작업·콘텐츠 행은 없고 쓰기 끝난 원본은 남아 있다.
+- 10초 뒤 결과는 관측하지 않았다. 이 관측은 무한 대기를 증명하지 않는다.
+- 시험은 끝날 때 요청 task를 취소하고 원 세션을 rollback·종료한 뒤 잠금 해제, 연결 풀 반환, 이 DB의 idle이 아닌 backend 0, advisory 잠금 0을 단언한다.
+
+## 클라이언트 HTTP 대기 시간 초과(실제 서버)
+
+`httpx.ASGITransport`는 요청을 같은 task에서 실행해 클라이언트 취소가 곧 서버 취소가 되므로 근거로 쓰지 않았다.
+같은 테스트 프로세스에서 uvicorn 서버를 127.0.0.1 임의 포트로 띄워 서버 task를 클라이언트와 분리하고(로컬 DB·외부 공급자 대역만),
+실제 TCP로 요청했다. 클라이언트 읽기 시간 제한은 0.5초이고, 서버의 메타데이터(링크)·OCR(스크린샷) 대역은 시험이 풀어 줄 때까지 기다린다.
+
+| 사례 | 관측 |
+| --- | --- |
+| 링크·스크린샷, 서버 완료 뒤 같은 키 재요청 | 클라이언트 `ReadTimeout`; 그 시점 서버 미완료·행 0; 서버는 끊긴 뒤에도 201까지 진행해 콘텐츠·이벤트·기록(스크린샷은 원본) 각 1; 재요청 201이 서버가 저장한 콘텐츠 |
+| 링크·스크린샷, 서버 진행 중 같은 키 재요청 | 재요청은 첫 요청이 끝날 때까지 기다린 뒤 201로 같은 콘텐츠; 서버 응답 두 번 모두 201; 외부 처리 1회, 행 각 1 |
+
+시험이 끝나면 서버를 종료하고 포트가 닫혔는지, 연결 풀 반환·idle이 아닌 backend 0·advisory 잠금 0을 단언한다.
 
 ## 순서 조합과 fingerprint 변형
 
@@ -163,7 +181,7 @@ fingerprint 변형(같은 키로 두 번째 요청):
 
 | 파일 | SHA-256 | 허용 수정 |
 | --- | --- | --- |
-| `backend/tests/integration/test_content_save_flow_contract.py` | `b6494e75993dad1352fd2e27038f438acb6f3d26a1db5298814717264e06a7ba` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
+| `backend/tests/integration/test_content_save_flow_contract.py` | `be38f46ed8ea067e4d66e3a29a09c3ce5f88bcecc807e3b7181d0d189749cea3` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
 | `backend/tests/integration/test_content_save_contract.py` | `87fddf6d1b6742a88984f512db97923fe63b0f1050da69151daee638822e2d75` | 없음(#278 제한 유지) |
 | `backend/tests/services/test_content_save_baseline.py` | `79bf908b886ee1ac9e7f5dfec4dcedd12ababa47c5db6da55a70c3a24829f6e0` | 위 절의 import·`build_service`·호출 줄 |
 | `backend/tests/integration/test_content_create_idempotency.py` | `328e769bb2e2852a01e3414f6f0fd88679ddc0ba5c915d9d6bbada5e41bca628` | 없음 |
@@ -179,6 +197,12 @@ fingerprint 변형(같은 키로 두 번째 요청):
 - 저장 요청은 `get_db` 세션 하나에서 진행하고, 콘텐츠 저장 commit이 그 세션의 첫 commit이다.
 - 커밋 실패 재확인은 새 `AsyncSession`에서 `AsyncSession.execute`로 `pg_advisory_xact_lock(...)`을 같은 잠금 id로 실행한다(잠금 키 계산 불변).
 - 정리 helper는 `app.services.image_deletion_service.cleanup_failed_upload` 함수 객체를 module 이름으로 불러 쓴다.
+- 저장 실패 뒤 원 세션 rollback은 `AsyncSession.rollback`으로 부른다(rollback 실패 주입 위치).
+- 실제 서버 시험은 `flow`가 만드는 앱(`create_app`)을 그대로 띄운다. 링크 저장은 `MetadataClient.extract_from_url`, 스크린샷은 `OCRClient.extract`를
+  거친다(대기 주입 위치).
+
+이 파일에서 후속 #322가 바꿀 수 있는 fault 바인딩 위치는 없다. 위 조건이 깨지거나, rollback이 서버 트랜잭션을 끝내지 못하는 사례가
+10초 안에 끝나게 되면(기대값 불일치) 테스트를 고치지 않고 결정을 요청한다.
 
 ## 변형 실험
 
@@ -199,6 +223,8 @@ fingerprint 변형(같은 키로 두 번째 요청):
 | V11 콘텐츠와 처리 기록을 다른 트랜잭션으로 | 기록 추가 전 commit | 원자성 3개 |
 | V12 원 rollback 전에 별도 연결 재확인 | 저장 실패 시 rollback 생략 | 순서 검사: `commit_attempted:lock_held` → `verification_lock_requested`에서 10초 제한 초과 |
 | V13 최종 commit 누락 | 저장 commit 삭제 | `test_content_save_baseline`의 commit 단언 2개 |
+| V14 rollback 실패 뒤 재확인 전에 원 세션 종료 | 업로드 실패 처리에서 재확인 전 세션 close | rollback 미완료 동결 검사: 10초 안에 끝나 실패 |
+| V15 제출 잠금 제거 | 처리 기록 확인 전 advisory 잠금 생략 | 실제 서버 `content-while_server_running`·`screenshot-while_server_running`: 재요청이 기다리지 않고 외부 처리 2회·`IntegrityError` |
 
 V01·V07 실행 때 fingerprint 사례 id는 번호(`[19]`–`[24]`)였고, 같은 사례를 이후 `FP01`–`FP06` 이름으로 바꿨다(입력·기대값 동일).
 변형 뒤 매번 `git diff --quiet -- backend/app`이 깨끗했다.

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from types import SimpleNamespace
@@ -21,7 +22,9 @@ from uuid import uuid4
 import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 from sqlalchemy import delete, event, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -99,6 +102,7 @@ async def flow(external_responses, monkeypatch, tmp_path, s3_storage):
             raise
 
     app.dependency_overrides[get_db] = db
+    state.asgi = recording_app
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=recording_app, raise_app_exceptions=False),
@@ -133,6 +137,30 @@ async def lock_free_elsewhere(state, lock: int) -> bool:
         )
         await connection.rollback()
     return bool(acquired)
+
+
+async def lock_waiting_backends(state) -> int:
+    """이 DB에서 잠금을 기다리는 backend 수."""
+    async with state.checker.connect() as connection:
+        return await connection.scalar(text(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+            "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'"
+        ))
+
+
+async def connection_leaks(state) -> dict[str, int]:
+    """시험 뒤 남은 연결·트랜잭션·advisory 잠금을 센다."""
+    async with state.checker.connect() as connection:
+        busy = await connection.scalar(text(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+            "AND pid <> pg_backend_pid() AND state <> 'idle'"
+        ))
+        advisory = await connection.scalar(text(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = "
+            "(SELECT oid FROM pg_database WHERE datname = current_database())"
+        ))
+    return {"pool_checked_out": state.engine.pool.checkedout(),
+            "non_idle_backends": busy, "advisory_locks": advisory}
 
 
 def patch_function_everywhere(monkeypatch, original, replacement) -> list[str]:
@@ -1037,12 +1065,15 @@ async def test_pre_write_rejection_never_reaches_storage_or_cleanup(
 
 
 async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollback_mode="normal",
-                             keyed=True) -> dict:
+                             keyed=True, expect_unfinished=False) -> dict:
     """스크린샷 저장의 첫 콘텐츠 commit에 실패를 넣고 사건 순서와 결과를 기록한다.
 
     commit_mode: rejected(commit 호출 없이 거절) / terminated(원 backend 종료 뒤 commit) /
-    cancelled(서버 task 안에서 CancelledError). rollback_mode: normal / raise_after(실제 rollback 뒤
-    예외).
+    cancelled(서버 task 안에서 CancelledError).
+    rollback_mode: normal / raise_after(실제 rollback 뒤 예외) /
+    raise_before(실제 rollback 없이 예외).
+    expect_unfinished면 시험 제한 시간까지 끝나지 않은 상태를 관측한 뒤
+    요청 task 취소·원 세션 rollback·연결 반환을 하고 정리 결과를 함께 돌려준다.
     """
     key = uuid4()
     lock = submission_lock_id(flow.user_id, key)
@@ -1071,14 +1102,17 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
     async def rollback(self):
         if self is not state.session:
             return await REAL_ROLLBACK(self)
-        raise_after, state.rollback_armed = state.rollback_armed, False
+        armed, state.rollback_armed = state.rollback_armed, False
+        if armed and rollback_mode == "raise_before":
+            events.append("original_rollback_failed_without_server_rollback")
+            raise RuntimeError("injected rollback failure before server rollback")
         try:
             await REAL_ROLLBACK(self)
         except BaseException as exc:
             events.append(f"original_rollback_raised:{type(exc).__name__}")
             raise
         events.append(f"original_rollback_done:{await where_lock()}")
-        if raise_after:
+        if armed:
             raise RuntimeError("injected rollback acknowledgement failure")
 
     async def execute(self, statement, params=None, **kwargs):
@@ -1104,6 +1138,30 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
     try:
         done, _ = await asyncio.wait({task}, timeout=TIME_LIMIT)
         failed_elapsed = loop.time() - started
+        if expect_unfinished:
+            assert not done, f"request finished within {TIME_LIMIT}s: {events}"
+            objects = stored_objects(flow)
+            observed = {
+                "events": list(events),
+                "finished_within_time_limit": False,
+                "lock_at_time_limit": await where_lock(),
+                "lock_waiting_backends": await lock_waiting_backends(flow),
+                "cleanup_helper": [event for event, _ in cleanups],
+                "original": describe_object(objects, "local", saves[0][1], png_bytes),
+                "objects": len(objects),
+                "image_deletions": await deletion_rows(flow),
+                "rows": await user_rows(flow),
+            }
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.wait_for(REAL_ROLLBACK(state.session), TIME_LIMIT)
+            await state.session.close()
+            observed["after_cleanup"] = {
+                "request_task_cancelled": task.cancelled(),
+                "lock": await where_lock(),
+                **await connection_leaks(flow),
+            }
+            return observed
         assert done, f"failed request did not finish within {TIME_LIMIT}s: {events}"
         if task.cancelled():
             outcome = "cancelled"
@@ -1116,7 +1174,10 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
         observed = {
             "events": list(events),
             "outcome": outcome,
-            "errors": [type(error).__name__ for error in flow.errors],
+            # 연결 종료 오류의 하위 class(InternalError 등)는 종료 시점에 따라 달라
+            # 계열 이름으로 본다.
+            "errors": ["DBAPIError" if isinstance(error, DBAPIError) else type(error).__name__
+                       for error in flow.errors],
             "cleanup_helper": [event for event, _ in cleanups],
             "original": describe_object(objects, "local", storage_key, png_bytes),
             "objects": len(objects),
@@ -1157,7 +1218,7 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
 
 EXPECTED_COMMIT_FAILURES: dict = {
     "connection_terminated_at_commit": {
-        "cleanup_helper": ["returned"], "errors": ["InternalError"],
+        "cleanup_helper": ["returned"], "errors": ["DBAPIError"],
         "events": [
             "commit_attempted:lock_held", "original_rollback_done:lock_free",
             "verification_lock_requested", "verification_lock_acquired", "cleanup_entered",
@@ -1178,7 +1239,7 @@ EXPECTED_COMMIT_FAILURES: dict = {
         "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
     },
     "connection_terminated_at_commit_nokey": {
-        "cleanup_helper": ["returned"], "errors": ["InternalError"],
+        "cleanup_helper": ["returned"], "errors": ["DBAPIError"],
         "events": [
             "commit_attempted:lock_free", "original_rollback_done:lock_free", "cleanup_entered",
             "original_rollback_done:lock_free",
@@ -1259,6 +1320,41 @@ EXPECTED_COMMIT_FAILURES: dict = {
         },
         "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
     },
+    "rollback_raises_before_release": {
+        "after_cleanup": {
+            "advisory_locks": 0, "lock": "lock_free", "non_idle_backends": 0, "pool_checked_out": 0,
+            "request_task_cancelled": True,
+        },
+        "cleanup_helper": [],
+        "events": [
+            "commit_attempted:lock_held", "original_rollback_failed_without_server_rollback",
+            "verification_lock_requested",
+        ],
+        "finished_within_time_limit": False, "image_deletions": [],
+        "lock_at_time_limit": "lock_held", "lock_waiting_backends": 1, "objects": 1,
+        "original": "png",
+        "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+    },
+    "rollback_raises_before_release_nokey": {
+        "cleanup_helper": ["returned"], "errors": ["RuntimeError"],
+        "events": [
+            "commit_attempted:lock_free", "original_rollback_failed_without_server_rollback",
+            "cleanup_entered", "original_rollback_done:lock_free",
+        ],
+        "image_deletions": [
+            {
+                "attempts": 1, "completed": True, "content_id": 0, "keys": ["<request>"],
+                "last_error": None,
+            },
+        ],
+        "lock_after_request": "lock_free", "objects": 0, "original": "absent", "outcome": 500,
+        "retry": {
+            "failed_attempt_original": "absent", "image_deletions": 1, "objects": 1,
+            "rows": {"assets": 1, "contents": 1, "events": 1, "receipts": 0, "summary_jobs": 0},
+            "status": 201,
+        },
+        "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+    },
     "server_task_cancelled_at_commit": {
         "cleanup_helper": [], "errors": ["CancelledError"],
         "events": ["commit_attempted:lock_held"], "image_deletions": [],
@@ -1301,18 +1397,255 @@ async def test_rejected_commit_ends_original_transaction_before_verification(
     ("connection_terminated_at_commit_nokey", "terminated", "normal", False),
     ("server_task_cancelled_at_commit", "cancelled", "normal", True),
     ("server_task_cancelled_at_commit_nokey", "cancelled", "normal", False),
+    ("rollback_raises_before_release_nokey", "rejected", "raise_before", False),
 ])
 async def test_commit_failure_outside_normal_rollback_keeps_observed_branch(
     flow, png_bytes, monkeypatch, case_id, commit_mode, rollback_mode, keyed,
 ):
     """R24: rollback 자체 실패·연결 종료·서버 task 취소를 정상 rollback과 따로 관측해 동결한다.
-    ASGITransport는 요청을 같은 task에서 돌리므로 클라이언트 대기 시간 초과는
-    여기서 재현하지 않는다."""
+    ASGITransport는 요청을 같은 task에서 돌리므로 클라이언트 대기 시간 초과는 여기서 보지 않고
+    실제 서버 시험에서 따로 본다."""
     observed = await run_commit_failure(
         flow, png_bytes, monkeypatch, commit_mode=commit_mode, rollback_mode=rollback_mode,
         keyed=keyed,
     )
     assert_frozen(EXPECTED_COMMIT_FAILURES, case_id, observed)
+
+
+async def test_rollback_failure_keeping_transaction_open_does_not_finish_within_time_limit(
+    flow, png_bytes, monkeypatch,
+):
+    """R24(키 있음): rollback이 서버 트랜잭션을 끝내지 못한 채 예외를 내면,
+    별도 연결 재확인이 원 연결의 제출 잠금을 기다려 요청이 시험 제한 시간 안에 끝나지 않는다
+    (2026-11-10 사용자 결정으로 기존 관측 동결). 제한 시간 뒤의 결과는 관측하지 않는다.
+    끝나면 요청 task 취소·원 세션 rollback·연결 반환으로 잠금·트랜잭션이 남지 않음을 확인한다."""
+    observed = await run_commit_failure(
+        flow, png_bytes, monkeypatch, commit_mode="rejected", rollback_mode="raise_before",
+        expect_unfinished=True,
+    )
+    assert_frozen(EXPECTED_COMMIT_FAILURES, "rollback_raises_before_release", observed)
+
+
+# ---------------------------------------------------------------------------
+# 클라이언트 HTTP 대기 시간 초과: 실제 uvicorn 서버(127.0.0.1 임의 포트)에서 서버 task를 분리해 관측
+# ---------------------------------------------------------------------------
+
+REAL_ASYNC_HANDLE = httpx.AsyncHTTPTransport.handle_async_request
+CLIENT_TIMEOUT = 0.5
+
+
+class LoopbackTransport(httpx.AsyncHTTPTransport):
+    """`external_responses`의 외부 HTTP 차단과 별도로 127.0.0.1 시험 서버에만 보낸다."""
+
+    async def handle_async_request(self, request):
+        assert request.url.host == "127.0.0.1", request.url
+        return await REAL_ASYNC_HANDLE(self, request)
+
+
+@asynccontextmanager
+async def running_server(app):
+    server = uvicorn.Server(uvicorn.Config(
+        app, host="127.0.0.1", port=0, lifespan="off", log_config=None, log_level="warning",
+        timeout_graceful_shutdown=1,
+    ))
+    task = asyncio.create_task(server.serve())
+    try:
+        async with asyncio.timeout(TIME_LIMIT):
+            while not server.started:
+                assert not task.done(), "test server stopped before start"
+                await asyncio.sleep(0.01)
+        yield server.servers[0].sockets[0].getsockname()[1]
+    finally:
+        server.should_exit = True
+        await asyncio.wait_for(task, TIME_LIMIT)
+
+
+async def port_closed(port: int) -> bool:
+    try:
+        _, writer = await asyncio.open_connection("127.0.0.1", port)
+    except OSError:
+        return True
+    writer.close()
+    await writer.wait_closed()
+    return False
+
+
+SERVER_TIMEOUT_CASES = [
+    ("content", "after_server_finished"),
+    ("content", "while_server_running"),
+    ("screenshot", "after_server_finished"),
+    ("screenshot", "while_server_running"),
+]
+EXPECTED_SERVER_TIMEOUT: dict = {
+    "content-after_server_finished": {
+        "after_cleanup": {
+            "advisory_locks": 0, "non_idle_backends": 0, "pool_checked_out": 0, "port_closed": True,
+        },
+        "after_server_finished": {
+            "rows": {"assets": 0, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+            "server_statuses": [201],
+        },
+        "at_client_timeout": {
+            "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+            "server_finished": 0,
+        },
+        "errors": [], "external_calls": ["metadata"], "first_client": "ReadTimeout", "objects": 0,
+        "retry": {"is_server_saved_content": True, "status": 201},
+        "rows": {"assets": 0, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+        "server_entered_external_work": True, "server_statuses": [201],
+    },
+    "content-while_server_running": {
+        "after_cleanup": {
+            "advisory_locks": 0, "non_idle_backends": 0, "pool_checked_out": 0, "port_closed": True,
+        },
+        "at_client_timeout": {
+            "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+            "server_finished": 0,
+        },
+        "errors": [], "external_calls": ["metadata"], "first_client": "ReadTimeout", "objects": 0,
+        "retry": {"is_server_saved_content": True, "status": 201}, "retry_waits_for_first": True,
+        "rows": {"assets": 0, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+        "server_entered_external_work": True, "server_statuses": [201, 201],
+    },
+    "screenshot-after_server_finished": {
+        "after_cleanup": {
+            "advisory_locks": 0, "non_idle_backends": 0, "pool_checked_out": 0, "port_closed": True,
+        },
+        "after_server_finished": {
+            "rows": {"assets": 1, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+            "server_statuses": [201],
+        },
+        "at_client_timeout": {
+            "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+            "server_finished": 0,
+        },
+        "errors": [], "external_calls": ["ocr"], "first_client": "ReadTimeout", "objects": 1,
+        "retry": {"is_server_saved_content": True, "status": 201},
+        "rows": {"assets": 1, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+        "server_entered_external_work": True, "server_statuses": [201],
+    },
+    "screenshot-while_server_running": {
+        "after_cleanup": {
+            "advisory_locks": 0, "non_idle_backends": 0, "pool_checked_out": 0, "port_closed": True,
+        },
+        "at_client_timeout": {
+            "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
+            "server_finished": 0,
+        },
+        "errors": [], "external_calls": ["ocr"], "first_client": "ReadTimeout", "objects": 1,
+        "retry": {"is_server_saved_content": True, "status": 201}, "retry_waits_for_first": True,
+        "rows": {"assets": 1, "contents": 1, "events": 1, "receipts": 1, "summary_jobs": 0},
+        "server_entered_external_work": True, "server_statuses": [201, 201],
+    },
+}
+
+
+@pytest.mark.parametrize(("path_kind", "retry_timing"), SERVER_TIMEOUT_CASES,
+                         ids=[f"{kind}-{timing}" for kind, timing in SERVER_TIMEOUT_CASES])
+async def test_client_timeout_against_real_server_keeps_save_and_replays_same_content(
+    flow, png_bytes, monkeypatch, path_kind, retry_timing,
+):
+    """클라이언트가 응답 전에 HTTP 대기 시간 초과로 끊어도 서버 task는 따로 진행한다.
+    서버 저장 완료 여부와 같은 키 재요청의 응답을 실제 서버에서 관측해 동결한다."""
+    path, payload = SAVE_PATHS[path_kind]
+    entered, release, external = asyncio.Event(), asyncio.Event(), []
+    if path_kind == "screenshot":
+        real_external = OCRClient.extract
+
+        async def slow_external(self, **kwargs):
+            external.append("ocr")
+            entered.set()
+            await asyncio.wait_for(release.wait(), TIME_LIMIT)
+            return await real_external(self, **kwargs)
+
+        monkeypatch.setattr(OCRClient, "extract", slow_external)
+    else:
+        real_external = MetadataClient.extract_from_url
+
+        async def slow_external(self, url):
+            external.append("metadata")
+            entered.set()
+            await asyncio.wait_for(release.wait(), TIME_LIMIT)
+            return await real_external(self, url)
+
+        monkeypatch.setattr(MetadataClient, "extract_from_url", slow_external)
+    server_statuses = []
+
+    async def served(scope, receive, send):
+        status = []
+
+        async def capture(message):
+            if message["type"] == "http.response.start":
+                status.append(message["status"])
+            await send(message)
+
+        try:
+            await flow.asgi(scope, receive, capture)
+        finally:
+            if scope["type"] == "http":
+                server_statuses.append(status[0] if status else None)
+
+    async def wait_for_server(count: int) -> None:
+        async with asyncio.timeout(TIME_LIMIT):
+            while len(server_statuses) < count:
+                await asyncio.sleep(0.01)
+
+    headers = {**flow.headers, "Idempotency-Key": str(uuid4())}
+    url = f"/api/v1/{path}"
+    observed = {}
+    retry_task = None
+    try:
+        async with running_server(served) as port, httpx.AsyncClient(
+            transport=LoopbackTransport(), base_url=f"http://127.0.0.1:{port}",
+            timeout=httpx.Timeout(TIME_LIMIT),
+        ) as client:
+            try:
+                await client.post(url, headers=headers,
+                                  timeout=httpx.Timeout(TIME_LIMIT, read=CLIENT_TIMEOUT),
+                                  **payload(png_bytes))
+            except httpx.TimeoutException as exc:
+                observed["first_client"] = type(exc).__name__
+            else:
+                observed["first_client"] = "response"
+            observed["server_entered_external_work"] = entered.is_set()
+            observed["at_client_timeout"] = {
+                "server_finished": len(server_statuses), "rows": await user_rows(flow),
+            }
+            if retry_timing == "while_server_running":
+                retry_task = asyncio.create_task(client.post(url, headers=headers,
+                                                             **payload(png_bytes)))
+                await asyncio.sleep(CLIENT_TIMEOUT)
+                observed["retry_waits_for_first"] = not retry_task.done()
+                release.set()
+                retry = await asyncio.wait_for(retry_task, TIME_LIMIT)
+                await wait_for_server(2)
+            else:
+                release.set()
+                await wait_for_server(1)
+                observed["after_server_finished"] = {
+                    "server_statuses": list(server_statuses), "rows": await user_rows(flow),
+                }
+                retry = await client.post(url, headers=headers, **payload(png_bytes))
+            async with flow.engine.connect() as connection:
+                saved_ids = (await connection.execute(
+                    select(Content.id).where(Content.user_id == flow.user_id)
+                )).scalars().all()
+            observed["retry"] = {
+                "status": retry.status_code,
+                "is_server_saved_content": [retry.json()["id"]] == saved_ids,
+            }
+            observed["server_statuses"] = list(server_statuses)
+            observed["external_calls"] = list(external)
+            observed["errors"] = [type(error).__name__ for error in flow.errors]
+            observed["rows"] = await user_rows(flow)
+            observed["objects"] = len(stored_objects(flow))
+    finally:
+        release.set()
+        if retry_task is not None:
+            await asyncio.gather(retry_task, return_exceptions=True)
+    observed["after_cleanup"] = {"port_closed": await port_closed(port),
+                                 **await connection_leaks(flow)}
+    assert_frozen(EXPECTED_SERVER_TIMEOUT, f"{path_kind}-{retry_timing}", observed)
 
 
 # ---------------------------------------------------------------------------
