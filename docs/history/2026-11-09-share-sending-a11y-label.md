@@ -36,4 +36,13 @@
     - 서버를 다시 띄워 실패한 4개만 다시 돌렸고 모두 통과했다. 19개를 한 번에 통과한 결과는 없다.
     - 처리 중 화면 첨부(`SL-04-held-retry-progress`)에서 화면 글자 "전송 중 ..."·종이비행기·회색 버튼·안내 글이 그대로임을 눈으로 확인했다.
   - Android: Medium_Phone Emulator, Android 16(API 36). `ShareActivityTest`·`ShareServiceFixtureTest` 54개 통과.
-- 미검증: 시뮬레이터·에뮬레이터에서 접근성 검사 도구로 처리 중 이름을 보는 확인과 플랫폼별 처리 중 화면 촬영(다음 단계). 실기기 VoiceOver 음성은 다음 TestFlight(0.5.2 이후)에서 사용자가 확인한다. Android TalkBack 실기기와 원격 CI는 이번 기록에 없다.
+
+## 감독의 최종 기기 확인
+
+2026-11-09 23:16–23:21 KST, HEAD `bfae647`(제품 코드는 전체 검증을 통과한 `bcf49d8`과 같음). 촬영 직전 fetch에서 main 전진은 없었다.
+
+- iOS iPhone 16 Pro Simulator / iOS 18.6: 대역 본앱을 열고 송신 앱의 스크린샷 공유 → 시스템 공유 목록의 허투루 → 저장하기를 눌렀다. `hold_save` 중 Orca의 iOS AX 조회에서 버튼 이름 `전송 중`, `enabled=false`를 확인했다. Accessibility Inspector GUI 대신 같은 실행 화면의 AX 트리를 사용했으며 음성 청취는 하지 않았다. 원본 스크린샷에서 화면 글자 `전송 중 ...`, 종이비행기·회색 버튼·기존 안내 글을 직접 확인했다. 증거는 `.utmp/ticket-318/screens/ios-processing-ax.json`, `ios-processing.png`다.
+- Android Medium_Phone / API 36: 부팅 후 테스트 APK와 앱 APK를 재설치하고 본앱·송신 앱을 열었다. System UI 응답 없음은 Wait로 닫았고 스크린샷 공유 → 허투루로 이동했다. 접근성 조회가 일시적으로 null root node를 반환했으며, 실제 화면은 `로그인이 필요해요` 알림이었다. 공유 자격 준비가 완료됐다는 증거는 확보하지 못했다. 촬영 예산(상태 1개 × 3분)을 넘겨 추가 시도를 멈췄다. 실패 화면 `.utmp/ticket-318/screens/android-current.png`는 처리 중 화면 증거가 아니다.
+- Android 처리 중 접근성 이름과 최종 처리 중 스크린샷은 미검증이다. 앞선 네이티브 테스트 통과로 이 항목을 대신하지 않는다. 양 플랫폼 기기와 대역 서버는 종료했다.
+- 범위 밖: iPhone 13 VoiceOver 실제 음성은 다음 TestFlight 빌드(0.5.2 이후)로 사용자가 확인한다. 개발 빌드를 설치하지 않았다. Android 실기기 TalkBack도 범위 밖이다. 원격 CI는 PR 뒤 확인한다.
+- 현재는 Android 확인 재개 결정 대기이며 PR 초안·push·PR 생성은 하지 않았다. 이 기록은 문서만 바꾸므로 전체 검증을 다시 실행하지 않았다.
