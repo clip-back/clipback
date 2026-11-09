@@ -246,3 +246,22 @@ V01·V07 실행 때 fingerprint 사례 id는 번호(`[19]`–`[24]`)였고, 같�
 - 바꾼 파일은 `backend/tests/integration/test_content_save_flow_contract.py`(새 파일)와 이 문서·이력 목차다.
   `backend-validation.yml`의 `deployment` 필터(`backend/**`) 대상이고 `operator_recovery` 필터 목록에는 해당하지 않는다.
   Docker deployment 검사는 CI에서만 돈다.
+
+## 검증
+
+2026-11-10, 기준 코드 `e972dc2`(로컬, 전용 임시 DB와 대역 데이터, 작업 트리 깨끗). 이 절을 더한 커밋은 문서만 바꾸며 코드가 `e972dc2`와 같다.
+
+- 전체 검증 `python3 ~/.heoturu-agents/verify.py`: `VERIFY result=PASS scope=all checks=11 failed=0`.
+  백엔드 `pytest: 2503 passed, 47 skipped, 3 warnings in 280.60s (0:04:40)`(Python 3.12.7). 앱 테스트 3469개 통과.
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+  - 새 고정 테스트 파일에는 skip이 없다.
+- 이슈의 CI 명령과의 대조:
+  - `ruff check app scripts alembic tests`, `python -m compileall app scripts alembic tests`: verify의 `backend:ruff`·`backend:compileall` 단계로 확인.
+  - 일반/maintenance 검사 DB 각각의 `alembic upgrade head`·`alembic check`: verify의 네 alembic 단계로 확인.
+  - `pytest -q`, `pytest -q tests/repositories tests/integration`: verify가 로컬 PostgreSQL 검사 DB로 DB 테스트까지 포함한 전체 pytest로 확인.
+  - `deptry .`(backend, 0.25.1): verify에 없어 따로 실행해 통과(`Success! No dependency issues found.`, 154파일).
+  - 앱 `flutter pub get --enforce-lockfile`·`dart format`·`flutter analyze --no-pub`·`flutter test --no-pub`: verify의 app 네 단계로 확인. 앱 코드 변경은 없다.
+- 범위 확인: `backend/app`은 `906d253`과 같고, 기존 고정 테스트 9개 파일은 `bd9047e`과 같다. `git diff --check bd9047e e972dc2` 통과.
+- 미검증: Python 3.11 실행과 Docker가 필요한 deployment 검사(`backend/**` 변경이라 대상)는 원격 CI 범위로, 승인 뒤 PR에서 확인한다.
+  바뀐 파일은 `operator_recovery` 필터 대상이 아니다. 운영 서버·실기기 검증은 하지 않았다. 화면 변경이 없어 시뮬레이터·에뮬레이터는 실행하지 않았다.
