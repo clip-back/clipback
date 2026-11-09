@@ -116,10 +116,16 @@
 | --- | --- |
 | rollback이 실제 rollback 뒤 예외(키 있음) | 같은 순서로 재확인·정리, 500(RuntimeError), 정리 작업 1 완료, 재시도 201 |
 | 같은 사례 키 없음 | 재확인 없이 helper 정리, 500 |
-| commit 직전 원 backend 종료(키 있음/없음) | rollback은 예외 없이 끝나고 잠금 해제, 키 있으면 재확인 뒤 정리, 500(SQLAlchemy `DBAPIError` 계열. 종료 시점에 따라 `InternalError`·`DBAPIError`가 모두 관측되어 계열 이름으로 단언) |
+| commit 직전 원 backend 종료(키 있음/없음) | rollback은 예외 없이 끝나고 잠금 해제, 키 있으면 재확인 뒤 정리, 500. 예외 class는 아래 |
 | 서버 task 안 CancelledError(키 있음/없음) | rollback·재확인·helper 없음, 원본 잔존(정리 작업 0), 세션 종료로 잠금 해제, 재시도 201·원본 2 |
 | rollback이 실제 rollback 없이 예외(키 없음) | 재확인 없이 helper가 다시 rollback해 정리, 500(RuntimeError), 정리 작업 1 완료, 재시도 201 |
 | rollback이 실제 rollback 없이 예외(키 있음) | 아래 |
+
+commit 직전 원 backend 종료 두 사례(`connection_terminated_at_commit`·`_nokey`)는 종료와 commit 전송의 경쟁에 따라 SQLAlchemy가 감싸는 예외 class가 달라진다.
+정규화 없이 정확한 class를 반복 관측한 결과(키 있음 / 키 없음, 각 300회): `sqlalchemy.exc.InternalError`(원인 asyncpg `InternalClientError`) 286 / 276,
+`sqlalchemy.exc.InterfaceError`(원인 `InterfaceError`) 5 / 23, `sqlalchemy.exc.DBAPIError`(원인 asyncpg `Error`) 9 / 1이다.
+2026-11-10 사용자 결정 "320은 추천대로 해줘"에 따라 이 두 사례에만 이 세 정확한 class를 허용하고(계열로 넓히지 않음),
+기대값 표의 `errors`(`InternalError`)와 나머지 관측값, 다른 사례의 기대값은 그대로 단언한다.
 
 rollback이 서버 트랜잭션을 끝내지 못한 채 예외를 내는 경우(키 있음, 인위 주입)는 2026-11-10 사용자 결정 "둘 다 추천대로"에 따라
 지금 동작을 "시험 제한 시간 안에 끝나지 않음"으로 동결했다. 고치는 일은 #320 뒤 별도 버그 이슈로 한다.
@@ -181,7 +187,7 @@ fingerprint 변형(같은 키로 두 번째 요청):
 
 | 파일 | SHA-256 | 허용 수정 |
 | --- | --- | --- |
-| `backend/tests/integration/test_content_save_flow_contract.py` | `be38f46ed8ea067e4d66e3a29a09c3ce5f88bcecc807e3b7181d0d189749cea3` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
+| `backend/tests/integration/test_content_save_flow_contract.py` | `8969c9d48506e41dc2bbae5c672552fee6f7c4f7416b5cff68e9b4518891bf88` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
 | `backend/tests/integration/test_content_save_contract.py` | `87fddf6d1b6742a88984f512db97923fe63b0f1050da69151daee638822e2d75` | 없음(#278 제한 유지) |
 | `backend/tests/services/test_content_save_baseline.py` | `79bf908b886ee1ac9e7f5dfec4dcedd12ababa47c5db6da55a70c3a24829f6e0` | 위 절의 import·`build_service`·호출 줄 |
 | `backend/tests/integration/test_content_create_idempotency.py` | `328e769bb2e2852a01e3414f6f0fd88679ddc0ba5c915d9d6bbada5e41bca628` | 없음 |

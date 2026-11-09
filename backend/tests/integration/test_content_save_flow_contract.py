@@ -24,7 +24,6 @@ import pytest
 import pytest_asyncio
 import uvicorn
 from sqlalchemy import delete, event, func, select, text, update
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -1174,10 +1173,7 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
         observed = {
             "events": list(events),
             "outcome": outcome,
-            # 연결 종료 오류의 하위 class(InternalError 등)는 종료 시점에 따라 달라
-            # 계열 이름으로 본다.
-            "errors": ["DBAPIError" if isinstance(error, DBAPIError) else type(error).__name__
-                       for error in flow.errors],
+            "errors": [type(error).__name__ for error in flow.errors],
             "cleanup_helper": [event for event, _ in cleanups],
             "original": describe_object(objects, "local", storage_key, png_bytes),
             "objects": len(objects),
@@ -1218,7 +1214,7 @@ async def run_commit_failure(flow, png_bytes, monkeypatch, *, commit_mode, rollb
 
 EXPECTED_COMMIT_FAILURES: dict = {
     "connection_terminated_at_commit": {
-        "cleanup_helper": ["returned"], "errors": ["DBAPIError"],
+        "cleanup_helper": ["returned"], "errors": ["InternalError"],
         "events": [
             "commit_attempted:lock_held", "original_rollback_done:lock_free",
             "verification_lock_requested", "verification_lock_acquired", "cleanup_entered",
@@ -1239,7 +1235,7 @@ EXPECTED_COMMIT_FAILURES: dict = {
         "rows": {"assets": 0, "contents": 0, "events": 0, "receipts": 0, "summary_jobs": 0},
     },
     "connection_terminated_at_commit_nokey": {
-        "cleanup_helper": ["returned"], "errors": ["DBAPIError"],
+        "cleanup_helper": ["returned"], "errors": ["InternalError"],
         "events": [
             "commit_attempted:lock_free", "original_rollback_done:lock_free", "cleanup_entered",
             "original_rollback_done:lock_free",
@@ -1409,6 +1405,28 @@ async def test_commit_failure_outside_normal_rollback_keeps_observed_branch(
         flow, png_bytes, monkeypatch, commit_mode=commit_mode, rollback_mode=rollback_mode,
         keyed=keyed,
     )
+    assert_commit_failure_frozen(flow, case_id, observed)
+
+
+# 원 backend 종료와 commit 전송의 경쟁에 따라 SQLAlchemy가 감싸는 예외 class가 달라진다.
+# 2026-11-10 사용자 결정으로 이 두 사례에만 실제 관측한 정확한 class를 허용한다
+# (관측 근거는 #321 이력).
+# 계열(isinstance)로 넓히지 않고, 다른 사례와 나머지 관측값은 기대값 그대로 단언한다.
+TERMINATED_CONNECTION_ERRORS = {
+    case_id: (
+        ["sqlalchemy.exc.InternalError"],
+        ["sqlalchemy.exc.InterfaceError"],
+        ["sqlalchemy.exc.DBAPIError"],
+    )
+    for case_id in ("connection_terminated_at_commit", "connection_terminated_at_commit_nokey")
+}
+
+
+def assert_commit_failure_frozen(flow, case_id: str, observed: dict) -> None:
+    if case_id in TERMINATED_CONNECTION_ERRORS:
+        exact = [f"{type(error).__module__}.{type(error).__qualname__}" for error in flow.errors]
+        assert exact in TERMINATED_CONNECTION_ERRORS[case_id], exact
+        observed = {**observed, "errors": EXPECTED_COMMIT_FAILURES[case_id]["errors"]}
     assert_frozen(EXPECTED_COMMIT_FAILURES, case_id, observed)
 
 
