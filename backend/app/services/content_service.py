@@ -23,7 +23,6 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.recommendation_repository import RecommendationRepository
-from app.repositories.share_receipt_repository import PendingShareReceipt
 from app.repositories.tag_repository import TagRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
@@ -101,6 +100,16 @@ def content_to_read(content: Content) -> ContentRead:
 
 
 @dataclass(frozen=True)
+class PreparedContent:
+    user_id: int
+    payload: ContentCreate
+    categories: list[Category]
+    metadata_json: str
+    summary_typed: tuple[bool, bool] | None
+    asset: PendingContentAsset | None
+
+
+@dataclass(frozen=True)
 class SharedLinkContext:
     shared_text: str | None
     source_app: str | None
@@ -146,14 +155,13 @@ class ContentService:
         )
         self.extraction_service = extraction_service or ExtractionService()
 
-    async def save_link(
+    async def prepare_link(
         self,
         *,
         user_id: int,
         payload: ContentCreate,
         share: SharedLinkContext | None = None,
-        share_receipt: PendingShareReceipt | None = None,
-    ) -> ContentRead:
+    ) -> PreparedContent:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
             raise HTTPException(
                 status_code=422,
@@ -185,7 +193,7 @@ class ContentService:
                 "after normalization",
             )
 
-        return await self._save(
+        return await self._prepare(
             user_id=user_id,
             payload=payload,
             recommend=payload.content_type == ContentType.LINK and video_id is None,
@@ -197,10 +205,9 @@ class ContentService:
             ),
             base_metadata_json=base_metadata_json,
             asset=None,
-            share_receipt=share_receipt,
         )
 
-    async def save_screenshot(
+    async def prepare_screenshot(
         self,
         *,
         user_id: int,
@@ -209,10 +216,9 @@ class ContentService:
         ocr: ScreenshotOCRResult,
         ocr_metadata: dict[str, str | None],
         asset: PendingContentAsset,
-        share_receipt: PendingShareReceipt | None = None,
-    ) -> ContentRead:
+    ) -> PreparedContent:
         shared_text = ocr.text or None
-        return await self._save(
+        return await self._prepare(
             user_id=user_id,
             payload=ContentCreate(
                 content_type=ContentType.SCREENSHOT,
@@ -227,10 +233,9 @@ class ContentService:
             summary_typed=None,
             base_metadata_json=json.dumps(ocr_metadata, ensure_ascii=False, separators=(",", ":")),
             asset=asset,
-            share_receipt=share_receipt,
         )
 
-    async def _save(
+    async def _prepare(
         self,
         *,
         user_id: int,
@@ -240,8 +245,7 @@ class ContentService:
         summary_typed: tuple[bool, bool] | None,
         base_metadata_json: str | None,
         asset: PendingContentAsset | None,
-        share_receipt: PendingShareReceipt | None,
-    ) -> ContentRead:
+    ) -> PreparedContent:
         categories, recommendation = await self._decide_categories(
             user_id=user_id,
             category_ids=payload.category_ids,
@@ -258,65 +262,68 @@ class ContentService:
         if asset is not None and self.content_asset_repository is None:
             raise SystemConfigurationError("Content asset repository is not configured")
 
-        try:
-            tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
-            content = await self.content_repository.create(
-                user_id=user_id,
-                content_type=ModelContentType(payload.content_type.value),
-                source=ModelContentSource(payload.source.value),
-                title=self._normalize_text(payload.title, DEFAULT_CONTENT_TITLE),
-                summary=self._normalize_text(payload.summary, DEFAULT_CONTENT_SUMMARY),
-                original_url=str(payload.original_url) if payload.original_url else None,
-                is_favorite=payload.is_favorite,
-                categories=categories,
-                tags=tags,
-            )
-            if summary_typed is not None:
-                typed_title, typed_summary = summary_typed
-                job = new_summary_job(
-                    content_id=content.id,
-                    url=str(payload.original_url),
-                    apply_title=not typed_title,
-                    apply_summary=not typed_summary,
-                    apply_category=not bool(payload.category_ids),
-                    config=settings,
-                )
-                if job is not None:
-                    self.content_repository.session.add(job)
-            if asset is not None:
-                await self.content_asset_repository.create(
-                    content_id=content.id,
-                    asset_type=asset.asset_type,
-                    storage_key=asset.storage_key,
-                    mime_type=asset.mime_type,
-                    storage_backend=asset.storage_backend,
-                    size_bytes=asset.size_bytes,
-                    sha256=asset.sha256,
-                )
-            await self.event_repository.create(
-                user_id=user_id,
-                content_id=content.id,
-                event_type=ContentEventType.CONTENT_CREATED,
-                metadata_json=metadata_json,
-                category_ids_at_event=sorted({category.id for category in content.categories}),
-            )
-            created_content = await self.content_repository.get_owned(
-                user_id=user_id,
-                content_id=content.id,
-            )
-            if created_content is None:
-                raise NotFoundError("Content not found")
-            response = content_to_read(created_content)
-            if share_receipt is not None:
-                self.content_repository.session.add(share_receipt.for_content(content.id))
-                await self.content_repository.session.flush()
-                share_receipt.commit_attempted = True
-            await self.content_repository.session.commit()
-        except Exception:
-            await self.content_repository.session.rollback()
-            raise
+        return PreparedContent(
+            user_id=user_id,
+            payload=payload,
+            categories=categories,
+            metadata_json=metadata_json,
+            summary_typed=summary_typed,
+            asset=asset,
+        )
 
-        return response
+    async def write(self, prepared: PreparedContent) -> ContentRead:
+        """준비한 새 콘텐츠를 현재 트랜잭션에 반영한다. 확정은 저장 흐름이 한다."""
+        user_id = prepared.user_id
+        payload = prepared.payload
+        asset = prepared.asset
+        tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
+        content = await self.content_repository.create(
+            user_id=user_id,
+            content_type=ModelContentType(payload.content_type.value),
+            source=ModelContentSource(payload.source.value),
+            title=self._normalize_text(payload.title, DEFAULT_CONTENT_TITLE),
+            summary=self._normalize_text(payload.summary, DEFAULT_CONTENT_SUMMARY),
+            original_url=str(payload.original_url) if payload.original_url else None,
+            is_favorite=payload.is_favorite,
+            categories=prepared.categories,
+            tags=tags,
+        )
+        if prepared.summary_typed is not None:
+            typed_title, typed_summary = prepared.summary_typed
+            job = new_summary_job(
+                content_id=content.id,
+                url=str(payload.original_url),
+                apply_title=not typed_title,
+                apply_summary=not typed_summary,
+                apply_category=not bool(payload.category_ids),
+                config=settings,
+            )
+            if job is not None:
+                self.content_repository.session.add(job)
+        if asset is not None:
+            await self.content_asset_repository.create(
+                content_id=content.id,
+                asset_type=asset.asset_type,
+                storage_key=asset.storage_key,
+                mime_type=asset.mime_type,
+                storage_backend=asset.storage_backend,
+                size_bytes=asset.size_bytes,
+                sha256=asset.sha256,
+            )
+        await self.event_repository.create(
+            user_id=user_id,
+            content_id=content.id,
+            event_type=ContentEventType.CONTENT_CREATED,
+            metadata_json=prepared.metadata_json,
+            category_ids_at_event=sorted({category.id for category in content.categories}),
+        )
+        created_content = await self.content_repository.get_owned(
+            user_id=user_id,
+            content_id=content.id,
+        )
+        if created_content is None:
+            raise NotFoundError("Content not found")
+        return content_to_read(created_content)
 
     async def _decide_categories(
         self,

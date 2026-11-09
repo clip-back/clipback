@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from urllib.parse import urlparse
-from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -11,46 +10,26 @@ from app.integrations.metadata_client import UnsafeUrlError
 from app.schemas.content import (
     MAX_CONTENT_URL_LENGTH,
     ContentCreate,
-    ContentRead,
     ContentShareCreate,
     ContentSource,
     ContentType,
 )
-from app.services.content_service import ContentService, SharedLinkContext
+from app.services.content_service import SharedLinkContext
 from app.services.extraction_service import ExtractionService
 from app.services.link_url import INSTAGRAM_HOSTS, URL_TRAILING_CHARS, normalize_instagram_url
-from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
 
 
 class ShareIntakeService:
-    def __init__(
-        self,
-        content_service: ContentService,
-        extraction_service: ExtractionService,
-    ) -> None:
-        self.content_service = content_service
+    def __init__(self, extraction_service: ExtractionService) -> None:
         self.extraction_service = extraction_service
 
-    async def create_instagram_content(
-        self,
-        *,
-        user_id: int,
-        payload: ContentShareCreate,
-        idempotency_key: UUID | None = None,
-    ) -> ContentRead:
-        receipt_args = {}
-        if idempotency_key is not None:
-            pending, replay = await prepare_share_write(
-                self.content_service.content_repository.session, user_id=user_id,
-                key=idempotency_key, kind="link",
-                fingerprint=share_fingerprint(payload.model_dump(mode="json")),
-            )
-            if replay is not None:
-                return replay
-            receipt_args["share_receipt"] = pending
+    async def prepare_link(
+        self, payload: ContentShareCreate,
+    ) -> tuple[ContentCreate, SharedLinkContext]:
+        """공유 입력의 URL을 해석해 저장할 링크 입력과 공유 맥락을 만든다."""
         url, url_source = self._select_url(payload)
         youtube_url = is_youtube_url(url)
         if youtube_url:
@@ -88,19 +67,14 @@ class ShareIntakeService:
                     f"{MAX_CONTENT_URL_LENGTH} characters after normalization",
                 ) from exc
             raise
-        return await self.content_service.save_link(
-            **receipt_args,
-            user_id=user_id,
-            payload=content_payload,
-            share=SharedLinkContext(
-                shared_text=payload.raw_text,
-                source_app=payload.source_app,
-                platform=payload.platform,
-                mime_type=payload.mime_type,
-                attachment_count=len(payload.attachments),
-                extracted_url=normalized_url,
-                url_source=url_source,
-            ),
+        return content_payload, SharedLinkContext(
+            shared_text=payload.raw_text,
+            source_app=payload.source_app,
+            platform=payload.platform,
+            mime_type=payload.mime_type,
+            attachment_count=len(payload.attachments),
+            extracted_url=normalized_url,
+            url_source=url_source,
         )
 
     def _select_url(self, payload: ContentShareCreate) -> tuple[str, str]:

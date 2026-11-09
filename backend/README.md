@@ -103,6 +103,14 @@ scripts          Deployment checks and operator-only backup/recovery commands.
 Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQL 18 default).
 ```
 
+## 콘텐츠 저장
+
+`POST /api/v1/contents`, `POST /api/v1/contents/share`, `POST /api/v1/uploads/screenshots`는 `app/services/content_save_flow.py`의 `ContentSaveFlow`를 부른다.
+흐름이 `Idempotency-Key`의 계정·키 잠금과 기존 결과 확인(현재 콘텐츠 재조회, 다른 입력 409, 삭제된 콘텐츠 410), 저장 트랜잭션의 commit/rollback, 실패한 스크린샷 원본의 정리 판단을 맡는다([ADR 0010](../docs/adr/0010-content-save-transaction-ownership.md)).
+공유 URL 해석은 `share_intake_service.py`, 파일 읽기·형식·저장 중단/한도·OCR·원본 쓰기는 `upload_service.py`, 저장할 내용의 준비와 DB 반영은 `content_service.py`가 하며 이들은 저장을 확정하지 않는다.
+이미 준비된 링크·스크린샷 입력은 `save_prepared_link`·`save_prepared_screenshot`이 다시 검증하지 않고 받아 확정한다. 콘텐츠 조회·수정·삭제·열람 기록의 트랜잭션은 `content_service.py`에 있다.
+재시도·실패 흐름의 고정 테스트는 `tests/integration/test_content_save_flow_contract.py`다.
+
 ## 회원 탈퇴
 
 `DELETE /api/v1/users/me`는 계정과 그 계정의 서비스 데이터를 그 자리에서 지운다.

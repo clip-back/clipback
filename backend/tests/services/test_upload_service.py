@@ -23,6 +23,7 @@ from app.schemas.content import (
     ContentSource,
     ContentType,
 )
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.upload_service import UploadService
 
 
@@ -58,11 +59,26 @@ class FakeStorageClient:
         self.files.pop(storage_key, None)
 
 
+class FakeSession:
+    def add(self, item) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
+
 class FakeContentService:
     def __init__(self) -> None:
+        self.content_repository = SimpleNamespace(session=FakeSession())
         self.calls: list[dict[str, object]] = []
 
-    async def save_screenshot(
+    async def prepare_screenshot(
         self,
         *,
         user_id: int,
@@ -71,7 +87,7 @@ class FakeContentService:
         ocr: ScreenshotOCRResult,
         ocr_metadata: dict[str, str | None],
         asset,
-    ) -> ContentRead:
+    ) -> tuple[ContentCreate, object]:
         # 스크린샷 저장이 만드는 저장 요청·이벤트 metadata·추천 입력과 같은 값을 남긴다.
         payload = ContentCreate(
             content_type=ContentType.SCREENSHOT,
@@ -92,6 +108,10 @@ class FakeContentService:
                 "asset": asset,
             }
         )
+        return payload, asset
+
+    async def write(self, prepared: tuple[ContentCreate, object]) -> ContentRead:
+        payload, asset = prepared
         return ContentRead(
             id=1,
             categories=[],
@@ -162,7 +182,6 @@ def build_service(
     ocr_client = ocr_client or FakeOCRClient()
     return (
         UploadService(
-            content_service=content_service,
             content_asset_repository=asset_repository or FakeContentAssetRepository(),
             storage_client=storage,
             ocr_client=ocr_client,
@@ -192,7 +211,7 @@ async def test_upload_screenshot_stores_supported_image_using_detected_format(
     service, storage, content_service, ocr_client = build_service(max_bytes=10_000)
     file = FakeUploadFile(make_image(image_format))
 
-    result = await service.upload_screenshot(
+    result = await ContentSaveFlow(content_service, uploads=service).save_screenshot(
         user_id=3,
         file=file,
         category_ids=[2],
@@ -225,7 +244,9 @@ async def test_upload_screenshot_rejects_empty_file() -> None:
     service, storage, content_service, ocr_client = build_service()
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.upload_screenshot(user_id=1, file=FakeUploadFile(b""), category_ids=[])
+        await ContentSaveFlow(content_service, uploads=service).save_screenshot(
+            user_id=1, file=FakeUploadFile(b""), category_ids=[],
+        )
 
     assert exc_info.value.status_code == 422
     assert storage.files == {}
@@ -238,7 +259,9 @@ async def test_upload_screenshot_rejects_file_over_limit() -> None:
     service, storage, content_service, ocr_client = build_service(max_bytes=3)
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.upload_screenshot(user_id=1, file=FakeUploadFile(b"1234"), category_ids=[])
+        await ContentSaveFlow(content_service, uploads=service).save_screenshot(
+            user_id=1, file=FakeUploadFile(b"1234"), category_ids=[],
+        )
 
     assert exc_info.value.status_code == 413
     assert storage.files == {}
@@ -252,7 +275,9 @@ async def test_upload_screenshot_rejects_invalid_or_unsupported_image(content: b
     service, storage, content_service, ocr_client = build_service(max_bytes=10_000)
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.upload_screenshot(user_id=1, file=FakeUploadFile(content), category_ids=[])
+        await ContentSaveFlow(content_service, uploads=service).save_screenshot(
+            user_id=1, file=FakeUploadFile(content), category_ids=[],
+        )
 
     assert exc_info.value.status_code == 415
     assert storage.files == {}
@@ -275,7 +300,7 @@ async def test_upload_screenshot_applies_ocr_enrichment_without_persisting_raw_t
         max_bytes=10_000,
     )
 
-    result = await service.upload_screenshot(
+    result = await ContentSaveFlow(content_service, uploads=service).save_screenshot(
         user_id=1,
         file=FakeUploadFile(make_image("PNG")),
         category_ids=[],
@@ -315,7 +340,7 @@ async def test_upload_screenshot_falls_back_when_ocr_fails(
         max_bytes=10_000,
     )
 
-    result = await service.upload_screenshot(
+    result = await ContentSaveFlow(content_service, uploads=service).save_screenshot(
         user_id=1,
         file=FakeUploadFile(make_image("PNG")),
         category_ids=[],
@@ -341,7 +366,7 @@ async def test_upload_screenshot_does_not_create_content_when_storage_fails() ->
     service, _, content_service, _ = build_service(storage=storage, max_bytes=10_000)
 
     with pytest.raises(OSError, match="storage unavailable"):
-        await service.upload_screenshot(
+        await ContentSaveFlow(content_service, uploads=service).save_screenshot(
             user_id=1,
             file=FakeUploadFile(make_image("PNG")),
             category_ids=[],

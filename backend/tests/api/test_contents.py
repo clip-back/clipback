@@ -34,27 +34,44 @@ class FakeMetadataClient:
         )
 
 
+class FakeSession:
+    def add(self, item) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
+
 class FakeContentService:
     def __init__(self, extraction_service: ExtractionService | None = None) -> None:
         self.extraction_service = extraction_service
+        self.content_repository = SimpleNamespace(session=FakeSession())
         self.requests: list[tuple[ContentCreate, SharedLinkContext | None]] = []
         self.category_update_requests: list[tuple[int, int, ContentCategoryUpdate]] = []
         self.tag_update_requests: list[tuple[int, int, ContentTagUpdate]] = []
         self.favorite_update_requests: list[tuple[int, int, ContentFavoriteUpdate]] = []
         self.delete_requests: list[tuple[int, int]] = []
 
-    async def save_link(
+    async def prepare_link(
         self,
         *,
         user_id: int,
         payload: ContentCreate,
         share: SharedLinkContext | None = None,
-        share_receipt=None,
-    ) -> ContentRead:
+    ) -> ContentCreate:
         # 링크 저장처럼 같은 추출 서비스로 값을 보강한다.
         extraction = await self.extraction_service.enrich_link(payload)
         payload = self.extraction_service.apply_to_payload(payload, extraction)
         self.requests.append((payload, share))
+        return payload
+
+    async def write(self, payload: ContentCreate) -> ContentRead:
         return ContentRead(
             id=len(self.requests),
             categories=[],

@@ -23,6 +23,7 @@ from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
     CategoryRecommendationResult,
 )
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService, SharedLinkContext
 
 pytestmark = pytest.mark.asyncio
@@ -120,13 +121,13 @@ def build_service(recommendation_service=None):
     contents = FakeContentRepository()
     events = FakeEventRepository()
     tags = FakeTagRepository()
-    service = ContentService(
+    service = ContentSaveFlow(ContentService(
         content_repository=contents,
         category_repository=FakeCategoryRepository(),
         event_repository=events,
         category_recommendation_service=recommendation_service,
         tag_repository=tags,
-    )
+    ))
     return service, contents, events, tags
 
 
@@ -136,7 +137,7 @@ async def test_link_without_recommendation_service_is_uncategorized(metadata_cal
         original_url="https://example.com/a", title="내 제목", summary="내 요약", source="web",
     )
 
-    created = await service.save_link(user_id=1, payload=payload)
+    created = await service.save_prepared_link(user_id=1, payload=payload)
 
     assert [category.name for category in created.categories] == ["미분류"]
     assert [event["metadata_json"] for event in events.events] == [
@@ -154,7 +155,7 @@ async def test_shared_link_without_recommendation_service_is_uncategorized(metad
         source="instagram",
     )
 
-    created = await service.save_link(user_id=1, payload=payload, share=SharedLinkContext(shared_text="공유 글 https://www.instagram.com/reel/XYZ789/", source_app="com.instagram", platform="ios", mime_type="text/plain", attachment_count=0, extracted_url="https://www.instagram.com/reel/XYZ789/", url_source="url"))  # noqa: E501
+    created = await service.save_prepared_link(user_id=1, payload=payload, share=SharedLinkContext(shared_text="공유 글 https://www.instagram.com/reel/XYZ789/", source_app="com.instagram", platform="ios", mime_type="text/plain", attachment_count=0, extracted_url="https://www.instagram.com/reel/XYZ789/", url_source="url"))  # noqa: E501
 
     assert [category.name for category in created.categories] == ["미분류"]
     assert [event["metadata_json"] for event in events.events] == [
@@ -176,7 +177,7 @@ async def test_url_from_unvalidated_copy_is_rechecked_after_normalization(metada
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.save_link(user_id=1, payload=payload)
+        await service.save_prepared_link(user_id=1, payload=payload)
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (

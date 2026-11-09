@@ -23,7 +23,7 @@ class FakeUploadService:
     def __init__(self) -> None:
         self.uploads: list[tuple[int, list[int], list[str]]] = []
 
-    async def upload_screenshot(
+    async def save_screenshot(
         self,
         *,
         user_id: int,
@@ -75,7 +75,7 @@ def test_upload_screenshot_returns_content_with_private_asset_url(
     monkeypatch,
 ) -> None:
     service = FakeUploadService()
-    monkeypatch.setattr(upload_endpoints, "_build_upload_service", lambda db: service)
+    monkeypatch.setattr(upload_endpoints, "_build_save_flow", lambda db: service)
 
     response = client.post(
         "/api/v1/uploads/screenshots",
@@ -104,7 +104,7 @@ def test_upload_screenshot_rejects_invalid_tag_names_before_service_call(
     monkeypatch,
 ) -> None:
     service = FakeUploadService()
-    monkeypatch.setattr(upload_endpoints, "_build_upload_service", lambda db: service)
+    monkeypatch.setattr(upload_endpoints, "_build_save_flow", lambda db: service)
 
     response = client.post(
         "/api/v1/uploads/screenshots",
