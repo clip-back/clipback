@@ -103,3 +103,20 @@ SDK 자동 재시도는 끄고(`max_retries=0`) 요청 직전에 호출 수를 �
 - P2 원문 판정 완료를 다른 사진의 사용자 의미 판정으로 확대하지 않는다. 다른 사진의 길이·형식·빈 결과 관측은 위 표본 결과와 같다.
 - 운영 OCR_TIMEOUT_SECONDS는 조율이 확인한 기존 15초 그대로이며 운영 설정을 변경하지 않았다. 로컬 `.env`만 15초로 맞췄고 커밋하지 않았다.
 - 로컬 코드·대역 검증, 실제 모델 표본, 사용자 판정을 구분한다. 운영 배포 뒤 실기기 확인은 별도 사용자 범위이고 원격 CI는 PR 승인 뒤 확인한다.
+
+## 최종 통합 리뷰·전체 검증
+
+2026-11-09, main `b191e43`부터 `ed9df7b`까지 #314·#315 전체 변경을 최신 이슈 기준으로 최종 검수했다.
+Standards 0건 / Spec 0건이며 추가 수정 요청은 없었다. 최종 리뷰 전과 PR 초안 작성 전에 `git fetch origin`으로 확인한 main은 이미 HEAD에 포함되어 추가 병합은 필요하지 않았다.
+CHANGELOG의 main 대비 차이는 미배포 개선 두 줄뿐이다.
+
+- 전체 검증 기준 HEAD `ed9df7b`, `dirty=false`, 원 실행 종료 코드 0.
+- `VERIFY result=PASS scope=all checks=11 failed=0`.
+- 백엔드: `2341 passed, 47 skipped, 3 warnings in 214.18s (0:03:34)`.
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+- 링크 판정 전후 180개 입력 동일, OCR 손상·누락 JSON 20개 거절 및 요점 0개 허용을 검수자가 별도 확인했다.
+- deptry는 앞선 별도 통과와 이후 제품 코드·의존성 무변경을 확인했으며 이번에 다시 실행하지 않았다.
+- 최종 결과를 추가한 후속 커밋은 문서만 바꾸므로 `ed9df7b`의 전체 검증을 근거로 한다.
+- Docker·S3 skip은 통과로 세지 않는다. 원격 CI는 PR 생성 승인 뒤 확인하며 운영 배포·기기 확인은 아직 수행하지 않았다.
+- PR 초안에서 멈추며 push·PR 생성·이슈 종료는 하지 않는다. 회고 필요: 예 — 표본 키 준비 누락, 기존 기준 미달, OCR timeout 및 판정 자료 재호출, 검사 대기 중 작업자 재개가 있었다.
