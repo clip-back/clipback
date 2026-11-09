@@ -1478,6 +1478,19 @@ async def running_server(app):
         await asyncio.wait_for(task, TIME_LIMIT)
 
 
+async def submission_lock_state(state, lock: int) -> dict[str, int]:
+    """이 DB에서 제출 advisory 잠금(bigint 키)을 보유한·기다리는 backend 수."""
+    unsigned = lock & 0xFFFFFFFFFFFFFFFF
+    async with state.checker.connect() as connection:
+        rows = (await connection.execute(text(
+            "SELECT granted, count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = "
+            "(SELECT oid FROM pg_database WHERE datname = current_database()) "
+            "AND classid = :high AND objid = :low AND objsubid = 1 GROUP BY granted"
+        ), {"high": unsigned >> 32, "low": unsigned & 0xFFFFFFFF})).all()
+    counts = dict(rows)
+    return {"held": counts.get(True, 0), "waiting": counts.get(False, 0)}
+
+
 async def port_closed(port: int) -> bool:
     try:
         _, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -1587,10 +1600,12 @@ async def test_client_timeout_against_real_server_keeps_save_and_replays_same_co
             return await real_external(self, url)
 
         monkeypatch.setattr(MetadataClient, "extract_from_url", slow_external)
-    server_statuses = []
+    server_statuses, server_entries = [], []
 
     async def served(scope, receive, send):
         status = []
+        if scope["type"] == "http":
+            server_entries.append(scope["path"])
 
         async def capture(message):
             if message["type"] == "http.response.start":
@@ -1630,13 +1645,39 @@ async def test_client_timeout_against_real_server_keeps_save_and_replays_same_co
                 "server_finished": len(server_statuses), "rows": await user_rows(flow),
             }
             if retry_timing == "while_server_running":
+                lock = submission_lock_id(flow.user_id, headers["Idempotency-Key"])
+                # 재요청 전: 서버에는 첫 요청만 들어와 있고 그 요청이 제출 잠금을 쥐고 있다.
+                assert len(server_entries) == 1 and not server_statuses
+                assert await submission_lock_state(flow, lock) == {"held": 1, "waiting": 0}
                 retry_task = asyncio.create_task(client.post(url, headers=headers,
                                                              **payload(png_bytes)))
-                await asyncio.sleep(CLIENT_TIMEOUT)
-                observed["retry_waits_for_first"] = not retry_task.done()
-                release.set()
-                retry = await asyncio.wait_for(retry_task, TIME_LIMIT)
-                await wait_for_server(2)
+                try:
+                    # 첫 요청의 외부 작업을 풀기 전에 재요청이 서버에 들어와
+                    # 같은 잠금을 기다려야 한다.
+                    try:
+                        async with asyncio.timeout(TIME_LIMIT):
+                            while (len(server_entries) < 2
+                                   or await submission_lock_state(flow, lock)
+                                   != {"held": 1, "waiting": 1}):
+                                await asyncio.sleep(0.01)
+                    except TimeoutError:
+                        pytest.fail(
+                            "retry did not enter the server and wait on the held submission lock: "
+                            f"entries={len(server_entries)} "
+                            f"lock={await submission_lock_state(flow, lock)}"
+                        )
+                    assert not server_statuses
+                    observed["retry_waits_for_first"] = not retry_task.done()
+                    release.set()
+                    retry = await asyncio.wait_for(retry_task, TIME_LIMIT)
+                    await wait_for_server(2)
+                finally:
+                    # 실패해도 서버를 닫기 전에 첫 요청을 풀고 재요청 task를 회수한다.
+                    release.set()
+                    await asyncio.wait({retry_task}, timeout=TIME_LIMIT)
+                    if not retry_task.done():
+                        retry_task.cancel()
+                    await asyncio.gather(retry_task, return_exceptions=True)
             else:
                 release.set()
                 await wait_for_server(1)

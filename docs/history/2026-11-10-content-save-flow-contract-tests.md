@@ -145,9 +145,14 @@ rollback이 서버 트랜잭션을 끝내지 못한 채 예외를 내는 경우(
 | 사례 | 관측 |
 | --- | --- |
 | 링크·스크린샷, 서버 완료 뒤 같은 키 재요청 | 클라이언트 `ReadTimeout`; 그 시점 서버 미완료·행 0; 서버는 끊긴 뒤에도 201까지 진행해 콘텐츠·이벤트·기록(스크린샷은 원본) 각 1; 재요청 201이 서버가 저장한 콘텐츠 |
-| 링크·스크린샷, 서버 진행 중 같은 키 재요청 | 재요청은 첫 요청이 끝날 때까지 기다린 뒤 201로 같은 콘텐츠; 서버 응답 두 번 모두 201; 외부 처리 1회, 행 각 1 |
+| 링크·스크린샷, 서버 진행 중 같은 키 재요청 | 재요청 전 서버에는 첫 요청만 있고 그 요청이 제출 advisory 잠금을 보유(보유 1·대기 0). 첫 요청의 외부 작업을 풀기 전에 재요청이 서버에 들어와 같은 잠금을 기다림(서버 진입 2, `pg_locks` 보유 1·대기 1)을 10초 안에 단언. 풀어 준 뒤 재요청은 201로 같은 콘텐츠; 서버 응답 두 번 모두 201; 외부 처리 1회, 행 각 1 |
 
 시험이 끝나면 서버를 종료하고 포트가 닫혔는지, 연결 풀 반환·idle이 아닌 backend 0·advisory 잠금 0을 단언한다.
+진행 중 사례는 단언이 실패해도 서버를 닫기 전에 첫 요청의 외부 작업을 풀고 재요청 task를 회수한다.
+
+티켓 검수(Spec 중간 1건)에서 처음 판정(재요청 task를 만든 뒤 0.5초 대기 + 미완료)은 재요청 전송을 첫 요청 종료 뒤로 미뤄도 통과함이 재현되어
+위처럼 서버 진입과 잠금 대기를 직접 관측하도록 보강했다. 같은 전송 보류 plugin을 적용하면 두 진행 중 사례가 이 단언에서 실패하고,
+뒤이은 같은 세션 확인에서 연결 풀·idle이 아닌 backend·advisory 잠금·수신 소켓이 모두 0이었다. 응답·DB·원본 기대값은 바꾸지 않았다.
 
 ## 순서 조합과 fingerprint 변형
 
@@ -187,7 +192,7 @@ fingerprint 변형(같은 키로 두 번째 요청):
 
 | 파일 | SHA-256 | 허용 수정 |
 | --- | --- | --- |
-| `backend/tests/integration/test_content_save_flow_contract.py` | `8969c9d48506e41dc2bbae5c672552fee6f7c4f7416b5cff68e9b4518891bf88` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
+| `backend/tests/integration/test_content_save_flow_contract.py` | `e4ad74d72088e8cbdf897725a8893a3edc255b4b155dab255d1e0267339dd4b5` | 없음. 아래 결합 조건이 깨지면 고치지 말고 보고 |
 | `backend/tests/integration/test_content_save_contract.py` | `87fddf6d1b6742a88984f512db97923fe63b0f1050da69151daee638822e2d75` | 없음(#278 제한 유지) |
 | `backend/tests/services/test_content_save_baseline.py` | `79bf908b886ee1ac9e7f5dfec4dcedd12ababa47c5db6da55a70c3a24829f6e0` | 위 절의 import·`build_service`·호출 줄 |
 | `backend/tests/integration/test_content_create_idempotency.py` | `328e769bb2e2852a01e3414f6f0fd88679ddc0ba5c915d9d6bbada5e41bca628` | 없음 |
@@ -204,6 +209,7 @@ fingerprint 변형(같은 키로 두 번째 요청):
 - 커밋 실패 재확인은 새 `AsyncSession`에서 `AsyncSession.execute`로 `pg_advisory_xact_lock(...)`을 같은 잠금 id로 실행한다(잠금 키 계산 불변).
 - 정리 helper는 `app.services.image_deletion_service.cleanup_failed_upload` 함수 객체를 module 이름으로 불러 쓴다.
 - 저장 실패 뒤 원 세션 rollback은 `AsyncSession.rollback`으로 부른다(rollback 실패 주입 위치).
+- 진행 중 재요청 관측은 `pg_locks`에서 같은 제출 잠금 id(위 잠금 키 계산)의 advisory 잠금 보유·대기 수를 읽는다.
 - 실제 서버 시험은 `flow`가 만드는 앱(`create_app`)을 그대로 띄운다. 링크 저장은 `MetadataClient.extract_from_url`, 스크린샷은 `OCRClient.extract`를
   거친다(대기 주입 위치).
 
