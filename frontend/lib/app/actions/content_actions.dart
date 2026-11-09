@@ -361,6 +361,10 @@ class ContentActions {
     }
   }
 
+  /// A link save ends 20 seconds after the save tap, a 401 refresh and its
+  /// resend included (#319). A later answer is neither listed nor opened.
+  static const linkSaveTimeout = Duration(seconds: 20);
+
   Future<ApiContent> saveLink({
     required String url,
     String? submissionKey,
@@ -368,16 +372,30 @@ class ContentActions {
     required void Function(ApiContent) onSaved,
     required ContentFeedback feedback,
   }) async {
-    await _requireSession();
-    if (_disposed) {
-      throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+    final request = ApiRequestScope(timeout: linkSaveTimeout);
+    final int generation;
+    final ApiContent item;
+    try {
+      await _requireSession();
+      if (_disposed) {
+        throw const ClipbackApiException('계정이 변경되어 저장 결과를 표시하지 못했어요.');
+      }
+      generation = content.accountVersion;
+      item = await request.run(
+        () => request.wait(
+          content.saveLink(
+            url: url,
+            submissionKey: submissionKey,
+            categoryId: categoryId,
+          ),
+        ),
+      );
+    } on TimeoutException {
+      throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      // Only the request is limited; the follow-up refresh is not.
+      request.cancel();
     }
-    final generation = content.accountVersion;
-    final item = await content.saveLink(
-      url: url,
-      submissionKey: submissionKey,
-      categoryId: categoryId,
-    );
     if (!_current(generation)) return item;
     content.insertSavedContent(item);
     if (!_current(generation)) return item;

@@ -1,4 +1,5 @@
-// Behavior pins for the save sheet's submission state (G1–G9 of #288).
+// Behavior pins for the save sheet's submission state (G1–G9 of #288) and
+// the link save time limit (L1–L6 of #319).
 // Assertions use only the screen, the save callbacks and server requests.
 import 'dart:async';
 import 'dart:convert';
@@ -16,6 +17,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -389,6 +391,53 @@ void _expectPhotoAbsentFromHome(WidgetTester tester) {
   expect(find.byType(HomeScreen), findsOneWidget);
   expect(_home(tester).contents.where((item) => item.apiId == 8), isEmpty);
   expect(find.text('사진 저장 결과'), findsNothing);
+}
+
+// #319 link save time limit helpers.
+const _delayError = '서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.';
+
+bool _isLinkPost(http.Request request) =>
+    request.url.path == _contents && request.method == 'POST';
+
+Future<http.Response?> _never() => Completer<http.Response?>().future;
+
+http.Response _savedFeed() => _json({
+  'items': [_linkContent()],
+  'next_cursor': null,
+});
+
+// A successful save opens its detail behind the sheet: close both, then read
+// the home list.
+Future<List<ContentItem>> _homeAfterResult(WidgetTester tester) async {
+  await tester.tap(find.text('저장 완료'));
+  await tester.pumpAndSettle();
+  tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+  await tester.pumpAndSettle();
+  return _home(tester).contents;
+}
+
+void _expectProcessing(WidgetTester tester) {
+  expect(find.text('허투루가 정보를 추출 중입니다...'), findsOneWidget);
+  final button = tester.widget<SaveFlowButton>(find.byType(SaveFlowButton));
+  expect(button.label, '닫기');
+  expect(button.enabled, isFalse);
+  expect(find.byType(SaveErrorToast), findsNothing);
+}
+
+void _expectDelayFailure(WidgetTester tester) {
+  expect(find.text('허투루가 정보를 추출 중입니다...'), findsNothing);
+  expect(
+    tester.widget<SaveErrorToast>(find.byType(SaveErrorToast)).message,
+    _delayError,
+  );
+  expect(
+    tester.widget<LinkSaveBody>(find.byType(LinkSaveBody)).controller.text,
+    'https://example.com/g-link',
+  );
+  final button = tester.widget<SaveFlowButton>(find.byType(SaveFlowButton));
+  expect(button.label, '허투루에 저장하기');
+  expect(button.enabled, isTrue);
+  expect(find.byType(SavedContentConfirmation), findsNothing);
 }
 
 void main() {
@@ -807,4 +856,291 @@ void main() {
       });
     },
   );
+
+  // -------------------------------------------------------------------------
+  // #319 link save time limit: 20 seconds from the save tap, refresh and
+  // resend after a 401 included. Decided toast text and no automatic retry.
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'L1 link save with no response ends at 20s with the delay toast',
+    (tester) async {
+      final server = _Server(
+        respond: (request) async => _isLinkPost(request) ? _never() : null,
+      );
+      await _withApp(tester, server, () async {
+        await _submitAppLink(tester);
+        await tester.pump(const Duration(milliseconds: 19900));
+        _expectProcessing(tester);
+
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump();
+
+        _expectDelayFailure(tester);
+        expect(server.calls(_contents), hasLength(1));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'L2 saving again after the limit sends the same key and shows the first save once',
+    (tester) async {
+      var posts = 0;
+      final server = _Server(
+        respond: (request) async {
+          // The server saved the first request, so its feed lists it.
+          if (request.url.path == '/api/v1/feed' && posts > 0) {
+            return _savedFeed();
+          }
+          if (!_isLinkPost(request)) return null;
+          // The first answer never arrives; the same key answers with the
+          // content saved by the first request.
+          return ++posts == 1 ? _never() : _json(_linkContent(), 201);
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _submitAppLink(tester);
+        await tester.pump(const Duration(seconds: 20));
+        await tester.pump();
+        _expectDelayFailure(tester);
+
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+
+        final keys = server
+            .calls(_contents)
+            .map((request) => request.headers['Idempotency-Key'])
+            .toList();
+        expect(keys, hasLength(2));
+        expect(keys.first, matches(_uuid));
+        expect(keys.last, keys.first);
+        expect(_result(tester).content.apiId, 7);
+        expect(find.text('저장 완료'), findsOneWidget);
+        expect(
+          (await _homeAfterResult(tester)).where((item) => item.apiId == 7),
+          hasLength(1),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets('L3a a response arriving after the limit changes nothing', (
+    tester,
+  ) async {
+    final response = Completer<http.Response?>();
+    final server = _Server(
+      respond: (request) async => _isLinkPost(request) ? response.future : null,
+    );
+    await _withApp(tester, server, () async {
+      await _submitAppLink(tester);
+      await tester.pump(const Duration(seconds: 20));
+      await tester.pump();
+      _expectDelayFailure(tester);
+
+      response.complete(_json(_linkContent(), 201));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SavedContentConfirmation), findsNothing);
+      expect(find.byType(DetailScreen), findsNothing);
+      expect(
+        tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).label,
+        '허투루에 저장하기',
+      );
+      expect(_home(tester).contents.where((item) => item.apiId == 7), isEmpty);
+      expect(server.calls(_contents), hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets(
+    'L3b a closed pending link save answered after the limit opens nothing',
+    (tester) async {
+      final response = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request) async =>
+            _isLinkPost(request) ? response.future : null,
+      );
+      await _withApp(tester, server, () async {
+        await _submitAppLink(tester);
+        await _closeAppSheet(tester);
+        await tester.pump(const Duration(seconds: 20));
+
+        response.complete(_json(_linkContent(), 201));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AddContentSheet), findsNothing);
+        expect(find.byType(DetailScreen), findsNothing);
+        expect(
+          _home(tester).contents.where((item) => item.apiId == 7),
+          isEmpty,
+        );
+        expect(server.calls(_contents), hasLength(1));
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'L4 a 401 refresh and resend past the limit ends with the delay toast',
+    (tester) async {
+      final refresh = Completer<http.Response?>();
+      var posts = 0;
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == '/api/v1/auth/refresh') return refresh.future;
+          if (!_isLinkPost(request)) return null;
+          return switch (++posts) {
+            1 => _json({'detail': '만료'}, 401),
+            2 => _never(),
+            _ => _json(_linkContent(), 201),
+          };
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _submitAppLink(tester);
+        expect(server.calls('/api/v1/auth/refresh'), hasLength(1));
+        // The refresh takes 8s (under its own 10s limit), then the resent
+        // request gets no answer.
+        await tester.pump(const Duration(seconds: 8));
+        refresh.complete(
+          _json({
+            'access_token': 'refreshed-access',
+            'refresh_token': 'refreshed-refresh',
+            'expires_in': 3600,
+            'refresh_expires_in': 86400,
+          }, 201),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(server.calls(_contents), hasLength(2));
+        await tester.pump(const Duration(milliseconds: 11900));
+        _expectProcessing(tester);
+
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump();
+        _expectDelayFailure(tester);
+
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+        final keys = server
+            .calls(_contents)
+            .map((request) => request.headers['Idempotency-Key'])
+            .toList();
+        expect(keys, hasLength(3));
+        expect(keys.first, matches(_uuid));
+        expect(keys.toSet(), {keys.first});
+        expect(_result(tester).content.apiId, 7);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  for (final outcome in ['success', 'server error', 'disconnect']) {
+    testWidgets('L5 $outcome just before the limit keeps its current result', (
+      tester,
+    ) async {
+      final response = Completer<http.Response?>();
+      final server = _Server(
+        respond: (request) async {
+          if (request.url.path == '/api/v1/feed' && outcome == 'success') {
+            return response.isCompleted ? _savedFeed() : null;
+          }
+          return _isLinkPost(request) ? response.future : null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _submitAppLink(tester);
+        await tester.pump(const Duration(milliseconds: 19900));
+        switch (outcome) {
+          case 'success':
+            response.complete(_json(_linkContent(), 201));
+          case 'server error':
+            response.complete(_json({'detail': '서버 오류'}, 503));
+          default:
+            response.completeError(http.ClientException('connection lost'));
+        }
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+
+        expect(find.text(_delayError), findsNothing);
+        if (outcome == 'success') {
+          expect(_result(tester).content.apiId, 7);
+          expect(
+            (await _homeAfterResult(tester)).where((item) => item.apiId == 7),
+            hasLength(1),
+          );
+        } else {
+          expect(find.byType(SavedContentConfirmation), findsNothing);
+          expect(
+            tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).label,
+            '허투루에 저장하기',
+          );
+        }
+        expect(server.calls(_contents), hasLength(1));
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  // Each text scale gets its own test: Flutter reports one overflow per
+  // widget, so measuring two scales in one test can hide the second.
+  for (final photo in [false, true]) {
+    final kind = photo ? 'photo' : 'link';
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('L6 $kind delay toast fits 320pt at text scale $scale', (
+        tester,
+      ) async {
+        final server = _Server(
+          respond: (request) async =>
+              _isLinkPost(request) || request.url.path == _upload
+              ? _never()
+              : null,
+        );
+        await _withApp(tester, server, () async {
+          tester.view.physicalSize = const Size(320, 640);
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await tester.pumpAndSettle();
+          if (photo) {
+            await _submitAppPhoto(tester);
+            // The photo request keeps its own 10s wait for the answer.
+            await tester.pump(const Duration(seconds: 10));
+          } else {
+            await _submitAppLink(tester);
+            await tester.pump(const Duration(seconds: 20));
+          }
+          await tester.pump();
+
+          if (!photo) _expectDelayFailure(tester);
+          final text = find.descendant(
+            of: find.byType(SaveErrorToast),
+            matching: find.text(_delayError),
+          );
+          final paragraph = tester.renderObject<RenderParagraph>(
+            find.descendant(of: text, matching: find.byType(RichText)),
+          );
+          expect(paragraph.textScaler.scale(1), scale);
+          expect(paragraph.didExceedMaxLines, isFalse);
+          final screen = tester.getRect(find.byType(AddContentSheet));
+          for (final finder in [
+            find.byType(SaveErrorToast),
+            find.byType(SaveFlowButton),
+          ]) {
+            final rect = tester.getRect(finder);
+            expect(rect.left, greaterThanOrEqualTo(screen.left));
+            expect(rect.right, lessThanOrEqualTo(screen.right));
+          }
+          expect(
+            tester.getRect(find.byType(SaveErrorToast)).bottom,
+            lessThanOrEqualTo(tester.getRect(find.byType(SaveFlowButton)).top),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      });
+    }
+  }
 }
