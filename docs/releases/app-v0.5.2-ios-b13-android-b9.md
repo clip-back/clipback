@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 랜덤 보기 마지막 카드 뒤 카테고리 목록 자동 복귀 (#309, CHANGELOG 앱 0.5.2 수정); [앱] 함께 보면 좋은 콘텐츠 카테고리 겹치는 콘텐츠 최대 3개 (#310, CHANGELOG 앱 0.5.2 수정); [앱] 마이 공지사항 메뉴 숨김 (#311, CHANGELOG 앱 0.5.2 개선); [앱] 공유 저장 시트 처리 중 버튼 읽는 이름 "전송 중" (#318, CHANGELOG 앱 0.5.2 수정); [앱] 링크 저장 응답 20초 제한·같은 화면 재시도 (#319, CHANGELOG 앱 0.5.2 수정)
 - 관련 PR·작업 링크: [랜덤보기 마지막 카드 뒤 카테고리 목록 자동 복귀 #312](https://github.com/clip-back/clipback/pull/312)(#309), [함께 보면 좋은 콘텐츠 최대 3개, 마이 공지사항 메뉴 숨김 #313](https://github.com/clip-back/clipback/pull/313)(#310, #311), [공유 처리 중 버튼의 읽는 이름을 전송 중으로 #323](https://github.com/clip-back/clipback/pull/323)(#318), [링크 저장 응답 20초 제한·같은 화면 재시도 #324](https://github.com/clip-back/clipback/pull/324)(#319)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.5.1(12)·Android 0.5.1(8)](app-v0.5.1-ios-b12-android-b8.md)
-- 후보 준비 상태·미확인 사유: iOS 0.5.2(13) 아카이브·IPA와 Android 0.5.2(9) AAB 빌드 완료(2026-11-11). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 후보 태그 생성·푸시(2026-11-11). iOS 13은 배포 세션이 App Store Connect에 업로드(2026-11-11 03:27 KST, Upload succeeded). Android 9는 사용자가 Play Console 내부 테스트에 올릴 예정(미확인). App Store Connect 처리·테스터 제공·실기기 확인은 미확인. 정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.5.2(13) 아카이브·IPA와 Android 0.5.2(9) AAB 빌드 완료(2026-11-11). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 후보 태그 생성·푸시(2026-11-11). iOS 13은 배포 세션이 App Store Connect에 업로드(2026-11-11 03:27 KST, Upload succeeded). Android 9는 사용자가 Play Console 내부 테스트에 업로드(시각 미확인). iOS 13은 TestFlight 테스터에게, Android 9는 내부 테스트로 제공(사용자 보고, 2026-11-11, 시각·그룹·트랙 이름 미보고). 외부 베타 심사·실기기 확인 미확인, 정식 공개 미실행
 
 사용자 결정(2026-11-11, 조율 전달): 사용자 버전 0.5.2, iOS 13·Android 9. 스토어 최대 업로드 번호는 iOS 12(App Store Connect)·Android 8(Play Console versionCode)이며 사용자가 2026-11-11에 확인했습니다.
 포함 변경은 CHANGELOG `미배포`의 `개선` 1개(#311)와 `수정` 4개(#309, #310, #318, #319) 전부입니다(`추가`와 `[iOS]`·`[Android]`·`[서버]` 항목은 없었음). 새 기능 없이 기존 흐름을 유지하는 개선·수정만 들어가 PATCH 규칙에 따라 0.5.1에서 0.5.2로 올렸습니다.
@@ -45,9 +45,9 @@
 | 후보 태그·실제 생성 여부 | app-ios-v0.5.2-b13 (2026-11-11 생성·푸시, annotated) | app-android-v0.5.2-b9 (2026-11-11 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 업로드·실기기 확인 전 | 미결정 — 업로드·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.5.2-ios-b13/Runner.xcarchive`(생성 2026-11-11 03:15 KST), IPA `frontend/build/release-candidates/app-v0.5.2-ios-b13/ipa/clipback_frontend.ipa` 42,843,544바이트, SHA-256 `212eb4166f1bba1be187fedc4855a21bb079e56fbe84dd26981ec691fd906079` — 본앱 `com.huturu.app` 0.5.2(13), 공유 확장 `com.huturu.app.ShareExtension` 0.5.2(13), 팀 `8X6N747PQM`, 권한 설명 3종 존재. 업로드 대상 후보(업로드 금지 아님) | Release AAB 성공. `frontend/build/release-candidates/app-v0.5.2-android-b9/app-release.aab`, 74,534,951바이트, SHA-256 `34240f584b207968b80bbb9fc7efd68938021b5d7ad551be8ad7c81301419cdc`. versionName 0.5.2·versionCode 9 확인. 업로드 대상 후보(업로드 금지 아님) |
-| 업로드·처리 상태 | 업로드 성공(2026-11-11 03:27 KST, `Upload succeeded`). App Store Connect 처리 결과 미확인 | 미확인 — 사용자가 Play Console 내부 테스트에 올릴 예정 |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 — 처리 뒤 TestFlight 제공 예정 | 미확인 — 내부 테스트 제공 예정(사용자 진행) |
-| 심사 상태 | 미확인 | 미확인 |
+| 업로드·처리 상태 | 후보 아카이브 `app-v0.5.2-ios-b13/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-11 03:27 KST). App Store Connect 처리 완료 — TestFlight 테스터 제공이 이뤄졌다는 사용자 보고(2026-11-11)로 판단 | 사용자가 Play Console 내부 테스트에 업로드(사용자 보고, 2026-11-11 수신, 업로드 시각 미확인). 올린 파일이 `app-v0.5.2-android-b9/app-release.aab`인지는 사용자 보고 없음. Play 처리 완료 — 내부 테스트 제공이 이뤄졌다는 사용자 보고(2026-11-11)로 판단 |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | TestFlight 테스터에게 제공(사용자 보고, 2026-11-11). 내부·외부 그룹과 그룹 이름은 사용자 보고 없음, 제공 시각 미확인 | 내부 테스트로 제공(사용자 보고, 2026-11-11). 트랙 이름은 사용자 보고 없음, 제공 시각 미확인 |
+| 심사 상태 | 미확인 — 외부 베타 심사 여부는 사용자 보고 없음 | 미확인 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
 | 실제 공개일·시각 | 해당 없음 — 공개 전 | 해당 없음 — 공개 전 |
 
@@ -81,9 +81,9 @@
 | 원격 CI | `6f650d8`의 App Validation (push), `42480b3`의 Backend Validation (push) | 모두 success | [App Validation run 42652660050](https://github.com/clip-back/clipback/actions/runs/42652660050)(`6f650d8`, 이후 `42480b3`까지 `frontend/` 변경 없음 — App Validation은 `frontend/` 변경 때만 실행), [Backend Validation run 42773256594](https://github.com/clip-back/clipback/actions/runs/42773256594)(`42480b3`). 이번 후보 준비에서 새로 실행한 결과 아님 |
 | iOS Simulator | 미실행 | 미실행 | 배포 작업 범위를 빌드·기록으로 정함(메모리 8GB). 변경별 시뮬레이터 확인은 각 PR 작업 기록에 있으며 이번 산출물 검증으로 쓰지 않음 |
 | Android Emulator | 미실행 | 미실행 | iOS Simulator와 같은 이유 |
-| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 테스터 제공 전 |
+| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 테스터 제공 뒤 사용자 확인 결과 보고 없음 |
 | 운영 서버 | Railway production 배포 목록, `/api/v1/health/ready` (2026-11-11 03:12–03:13 KST) | `42480b3` SUCCESS, health 200 | 이 앱 후보와 운영 API의 연동 검증은 미실행 |
-| 실기기 | 미실행 | 미실행 | 테스터 제공 전. 제공 뒤 iPhone 13에서 확인할 것: #319 링크 저장 20초 지연 안내 뒤 같은 화면 재저장이 한 콘텐츠로 남는지(0.5.1의 #298 확인에서 방법 미확인으로 남은 재시도 확인 포함), #318 VoiceOver가 처리 중 버튼을 "전송 중"으로 읽는지, #309 랜덤 보기 마지막 카드 뒤 목록 복귀, #310 함께 보면 좋은 콘텐츠 최대 3개, #311 공지사항 메뉴 없음 |
+| 실기기 | 미실행 | 미실행 | 테스터 제공 뒤 사용자 확인 결과 보고 없음. TestFlight 설치 뒤 iPhone 13에서 확인할 것: #319 링크 저장 20초 지연 안내 뒤 같은 화면 재저장이 한 콘텐츠로 남는지(0.5.1의 #298 확인에서 방법 미확인으로 남은 재시도 확인 포함), #318 VoiceOver가 처리 중 버튼을 "전송 중"으로 읽는지, #309 랜덤 보기 마지막 카드 뒤 목록 복귀, #310 함께 보면 좋은 콘텐츠 최대 3개, #311 공지사항 메뉴 없음 |
 
 ## 진행 기록과 중단·복구
 
@@ -99,3 +99,4 @@
 | 2026-11-11 03:16–03:19 | Android AAB | iOS 빌드 종료 후 차례 확인 뒤 실행. 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.5.2 --build-number=9`, 운영 API·공개 SDK 설정 지정. 빌드 뒤 단독 `:app:validateReleaseSigning` BUILD SUCCESSFUL | 117초 성공, 0.5.2(9) 확인. 본체 후보 폴더로 복사(SHA-256 일치), `./gradlew --stop`으로 데몬 정지. 업로드 미실행 |
 | 2026-11-11 03:25 | 태그 생성·푸시 | 사용자 승인(2026-11-11, 조율 전달 원문 "진행해줘": 태그 생성·push, iOS 13 업로드, 기록 브랜치 push·PR. Android 9 업로드는 사용자가 직접). 만들기 전 로컬·origin에 같은 태그 없음 확인. annotated 태그 `app-ios-v0.5.2-b13`·`app-android-v0.5.2-b9`를 `42480b36989883836e1f0698bedff68bf415b648`에 만들어 origin에 푸시 | origin `ls-remote`로 두 태그가 `42480b3`을 가리킴을 확인 |
 | 2026-11-11 03:25–03:27 | iOS 업로드 | 같은 승인. 빌드 차례 확인(비어 있음) 뒤 실행. 올리기 전 보존 아카이브가 빌드 직후 아카이브와 같음(`diff -r`)을, 본앱 `com.huturu.app`·공유 확장 `com.huturu.app.ShareExtension` 모두 0.5.2(13)임을 확인. 새로 빌드하지 않고 보존 아카이브를 `xcodebuild -exportArchive -allowProvisioningUpdates`로 업로드. 내보내기 설정은 IPA 내보내기와 같은 자동 서명·팀 `8X6N747PQM`·method `app-store-connect`에서 destination만 upload로, 빌드 번호 자동 변경(`manageAppVersionAndBuildNumber`)은 끔. Xcode에 로그인된 계정 사용 | 118초, `Upload succeeded`(03:27:17 KST)·`EXPORT SUCCEEDED`, 한 번 시도. 로그에 Xcode에 등록된 다른 계정 하나의 자격 증명 로드 실패 경고가 있었으나(0.5.1 때와 같음) 업로드에 영향 없음. App Store Connect 처리·TestFlight 제공은 미확인. Android 9 업로드는 사용자 진행 예정, 미확인 |
+| 2026-11-11 (시각 미확인) | 테스터 제공 보고 수신 | 사용자 보고(조율 경유) 원문 "제공 완료": iOS 13 TestFlight 테스터 제공, Android 9 Play Console 내부 테스트 업로드·제공 | 사용자 보고, 화면 증거 받지 않음. Android에 올린 파일이 후보 AAB인지는 따로 확인받지 않음. iOS 테스트 그룹(내부·외부)·이름, Android 트랙 이름, 업로드·제공 시각은 사용자 보고 없음. 외부 베타 심사·실기기 확인 미확인, 정식 배포 대상 지정은 미결정 |
