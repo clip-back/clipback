@@ -119,4 +119,36 @@ V18에서 함께 돌린 `test_concurrent_shares_serialize_before_external_work`(
 
 - 바꾼 파일은 `backend/app`의 서비스 5개(새 파일 1개·삭제 1개 포함)·라우트 2개·`share_receipt_repository.py`, 위 테스트 6개, `backend/README.md`, 이 문서와 이력 목차다.
   `backend-validation.yml`의 `deployment` 필터(`backend/**`) 대상이며 `operator_recovery` 필터 목록에 해당하는 파일은 없다.
-- 위 결과는 부분 검사다. 저장소 전체 검사·`deptry`·원격 CI는 리뷰 반영 뒤 수행한다.
+- Docker가 필요한 deployment 검사와 Python 3.11 실행은 원격 CI 범위다(아래 검증 절).
+
+## 범위 밖 발견(원인 미확인, 동결 기대값은 바꾸지 않음)
+
+아래 세 가지는 #322 마무리 중 관측했다. 제품 코드와 동결 테스트의 입력·기대값·timeout은 바꾸지 않았고, 세 건 모두 원인을 확인하지 못했다.
+
+- readiness 첫 호출 503(`test_upload_and_isolation.py::test_bucket_readiness_checks_selected_store_without_writing_local_volume`):
+  기준 `906d253` 21회 중 3회, 변경 후 8회 중 0회. 기준 21회에는 비교 근거로 채택하지 않은 `git archive` 사본 실행 2회가 들어 있다.
+  이후 변경 후 묶음 실행에서도 재발하지 않았다. 진단은 재현 루프를 만들지 못해 중단했다.
+- 실제 서버 시간 초과 검사 `content-after_server_finished`의 `server_entered_external_work`가 기대 True·관측 False:
+  변경 후 1회(13:56, 직전까지 다른 작업의 Android 에뮬레이터 사용). 조용한 조건 재시도 59회에서는 0회였다. 부하 때문이라는 인과는 확인하지 않았다.
+- `after_cleanup.non_idle_backends`가 기대 0·관측 1: 변경 후 2회. 두 번 모두 진단 plugin(`dbg_to`)을 붙이고 같은 DB로 연속 실행한 때였다.
+  `dbg_to` 없이 기준·변경 후를 번갈아 돌린 비교에서는 기준 0/3·변경 후 0/3이었다. 이 비교에도 readiness 캡처 plugin은 붙어 있었다.
+
+## 검증
+
+2026-11-10, 코드 기준 `cac9f2f`(로컬, 전용 임시 DB와 대역 데이터). 이 절을 더한 커밋은 문서만 바꾸며 코드가 `cac9f2f`와 같다.
+
+- 전체 검증 `python3 ~/.heoturu-agents/verify.py`(진단 plugin 없음, `PYTEST_ADDOPTS`·`PYTHONPATH` 미설정): `VERIFY result=PASS scope=all checks=11 failed=0`.
+  진행 기록 24건 모두 HEAD `cac9f2f9785560f08abeb6f38d4dc5c28279de5e`, `dirty=false`.
+  백엔드 `pytest: 2503 passed, 47 skipped, 3 warnings in 280.67s (0:04:40)`(Python 3.12.7).
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+  - 동결 고정 테스트 파일에는 skip이 없다.
+- 이슈의 CI 명령과의 대조:
+  - `ruff check app scripts alembic tests`, `python -m compileall app scripts alembic tests`: verify의 `backend:ruff`·`backend:compileall` 단계로 확인.
+  - 일반·maintenance 검사 DB 각각의 `alembic upgrade head`·`alembic check`: verify의 네 alembic 단계로 확인.
+  - `pytest -q`, `pytest -q tests/repositories tests/integration`: verify가 로컬 PostgreSQL 검사 DB로 DB 테스트까지 포함한 전체 pytest로 확인.
+  - `deptry .`(backend, 0.25.1): verify에 없어 따로 실행해 통과(`Success! No dependency issues found.`, 154파일).
+  - 앱 `flutter pub get --enforce-lockfile`·`dart format`·`flutter analyze --no-pub`·`flutter test --no-pub`: verify의 app 네 단계로 확인. 앱 코드 변경은 없다.
+- 범위 확인: 동결 파일 9개는 #321 기록 SHA-256과 같고, `test_content_save_baseline.py`는 허용된 줄만 바뀌었다(정적 점검: 6개 테스트 파일의 이름·assert·docstring 불변).
+- 미검증: Python 3.11 실행과 Docker가 필요한 deployment 검사(`backend/**` 변경이라 대상)는 원격 CI 범위로, 승인 뒤 PR에서 확인한다.
+  바뀐 파일은 `operator_recovery` 필터 대상이 아니다. 운영 서버·실기기 검증은 하지 않았다. 화면 변경이 없어 시뮬레이터·에뮬레이터는 실행하지 않았다.
