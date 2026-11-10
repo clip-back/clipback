@@ -14,7 +14,6 @@ class PendingShareReceipt:
     key: UUID
     kind: str
     fingerprint: str
-    commit_attempted: bool = False
     content_id: int | None = None
 
     def for_content(self, content_id: int) -> ShareReceipt:

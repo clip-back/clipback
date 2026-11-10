@@ -22,10 +22,10 @@ from app.schemas.content import (
     ContentViewEvent,
 )
 from app.services.category_recommendation_service import CategoryRecommendationService
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
-from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 router = APIRouter()
 
@@ -37,19 +37,10 @@ async def create_content(
     current_user_id: CurrentUserId,
     idempotency_key: UUID | None = Header(default=None),
 ) -> ContentRead:
-    receipt_args = {}
-    if idempotency_key is not None:
-        pending, replay = await prepare_share_write(
-            db, user_id=current_user_id, key=idempotency_key, kind="content",
-            fingerprint=share_fingerprint(payload.model_dump(mode="json")),
-        )
-        if replay is not None:
-            return replay
-        receipt_args["share_receipt"] = pending
-    return await _build_content_service(db).save_link(
-        **receipt_args,
+    return await ContentSaveFlow(_build_content_service(db)).save_link(
         user_id=current_user_id,
         payload=payload,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -60,13 +51,13 @@ async def create_content_from_share(
     current_user_id: ShareWriteUserId,
     idempotency_key: UUID | None = Header(default=None),
 ) -> ContentRead:
-    return await ShareIntakeService(
-        content_service=_build_content_service(db),
-        extraction_service=ExtractionService(),
-    ).create_instagram_content(
-        **({"idempotency_key": idempotency_key} if idempotency_key else {}),
+    return await ContentSaveFlow(
+        _build_content_service(db),
+        share_intake=ShareIntakeService(ExtractionService()),
+    ).save_shared_link(
         user_id=current_user_id,
         payload=payload,
+        idempotency_key=idempotency_key,
     )
 
 

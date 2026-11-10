@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -14,27 +15,42 @@ from app.schemas.content import (
     ContentType,
     ShareAttachment,
 )
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import SharedLinkContext
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
 
 
+class FakeSession:
+    def add(self, item) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
+
 class FakeContentService:
     def __init__(self, extraction_service: ExtractionService | None = None) -> None:
         self.extraction_service = extraction_service
+        self.content_repository = SimpleNamespace(session=FakeSession())
         self.user_id: int | None = None
         self.payload: ContentCreate | None = None
         self.metadata_json: str | None = None
         self.shared_text: str | None = None
 
-    async def save_link(
+    async def prepare_link(
         self,
         *,
         user_id: int,
         payload: ContentCreate,
         share: SharedLinkContext | None = None,
-        share_receipt=None,
-    ) -> ContentRead:
+    ) -> ContentCreate:
         if self.extraction_service is not None and share is not None:
             # 링크 저장처럼 추출 값과 공유 metadata를 붙인다.
             extraction = await self.extraction_service.enrich_link(payload)
@@ -45,7 +61,9 @@ class FakeContentService:
             self.shared_text = share.shared_text
         self.user_id = user_id
         self.payload = payload
+        return payload
 
+    async def write(self, payload: ContentCreate) -> ContentRead:
         return ContentRead(
             id=1,
             categories=[],
@@ -69,13 +87,13 @@ class FakeMetadataClient:
         )
 
 
-def build_service() -> tuple[ShareIntakeService, FakeContentService]:
+def build_service() -> tuple[ContentSaveFlow, FakeContentService]:
     extraction_service = ExtractionService(metadata_client=FakeMetadataClient())
     content_service = FakeContentService(extraction_service)
     return (
-        ShareIntakeService(
-            content_service=content_service,
-            extraction_service=extraction_service,
+        ContentSaveFlow(
+            content_service,
+            share_intake=ShareIntakeService(extraction_service=extraction_service),
         ),
         content_service,
     )
@@ -85,7 +103,7 @@ def build_service() -> tuple[ShareIntakeService, FakeContentService]:
 async def test_create_instagram_content_normalizes_url_field_and_metadata() -> None:
     service, content_service = build_service()
 
-    result = await service.create_instagram_content(
+    result = await service.save_shared_link(
         user_id=1,
         payload=ContentShareCreate(
             url="https://www.instagram.com/reel/SHORTCODE/?igsh=abc#fragment",
@@ -134,7 +152,7 @@ async def test_create_instagram_content_normalizes_url_field_and_metadata() -> N
 async def test_create_instagram_content_extracts_url_from_raw_text() -> None:
     service, content_service = build_service()
 
-    await service.create_instagram_content(
+    await service.save_shared_link(
         user_id=1,
         payload=ContentShareCreate(
             raw_text="나중에 보기 https://instagram.com/p/ABC123/?igsh=abc.",
@@ -151,7 +169,7 @@ async def test_create_instagram_content_extracts_url_from_raw_text() -> None:
 async def test_create_instagram_content_normalizes_http_and_host() -> None:
     service, content_service = build_service()
 
-    await service.create_instagram_content(
+    await service.save_shared_link(
         user_id=1,
         payload=ContentShareCreate(url="http://instagram.com/p/ABC123"),
     )
@@ -165,7 +183,7 @@ async def test_create_instagram_content_rejects_missing_url() -> None:
     service, _ = build_service()
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_instagram_content(user_id=1, payload=ContentShareCreate())
+        await service.save_shared_link(user_id=1, payload=ContentShareCreate())
 
     assert exc_info.value.status_code == 422
 
@@ -175,7 +193,7 @@ async def test_create_instagram_content_rejects_non_instagram_url() -> None:
     service, _ = build_service()
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_instagram_content(
+        await service.save_shared_link(
             user_id=1,
             payload=ContentShareCreate(url="https://youtube.com/watch?v=abc"),
         )
@@ -188,7 +206,7 @@ async def test_create_instagram_content_rejects_unsupported_instagram_path() -> 
     service, _ = build_service()
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.create_instagram_content(
+        await service.save_shared_link(
             user_id=1,
             payload=ContentShareCreate(url="https://www.instagram.com/accounts/login/"),
         )
@@ -204,7 +222,7 @@ async def test_share_does_not_hide_non_url_validation_errors():
     )
 
     with pytest.raises(ValidationError):
-        await service.create_instagram_content(user_id=1, payload=payload)
+        await service.save_shared_link(user_id=1, payload=payload)
 
     assert content_service.payload is None
 
@@ -228,14 +246,14 @@ async def test_instagram_share_url_requires_resolved_supported_post(destination,
 
     metadata = ResolvingMetadata()
     content = FakeContentService()
-    service = ShareIntakeService(content, ExtractionService(metadata))
+    service = ContentSaveFlow(content, share_intake=ShareIntakeService(ExtractionService(metadata)))
     payload = ContentShareCreate(url="https://www.instagram.com/share/abcd/?igsh=example")
     if accepted:
-        result = await service.create_instagram_content(user_id=1, payload=payload)
+        result = await service.save_shared_link(user_id=1, payload=payload)
         assert result.original_url == "https://www.instagram.com/reel/SHARED/"
     else:
         with pytest.raises(HTTPException) as error:
-            await service.create_instagram_content(user_id=1, payload=payload)
+            await service.save_shared_link(user_id=1, payload=payload)
         assert error.value.status_code == 422
         assert content.payload is None
     assert metadata.urls[0] == payload.url
@@ -260,9 +278,9 @@ async def test_instagram_share_redirect_uses_existing_pinned_transport_and_block
 
     metadata = MetadataClient(http_transport=httpx.MockTransport(handler), resolver=resolver)
     content = FakeContentService()
-    service = ShareIntakeService(content, ExtractionService(metadata))
+    service = ContentSaveFlow(content, share_intake=ShareIntakeService(ExtractionService(metadata)))
     with pytest.raises(HTTPException) as error:
-        await service.create_instagram_content(
+        await service.save_shared_link(
             user_id=1, payload=ContentShareCreate(url="https://www.instagram.com/share/short/"),
         )
     assert error.value.status_code == 422

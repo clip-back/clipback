@@ -17,6 +17,7 @@ from app.repositories.tag_repository import TagRepository
 from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
@@ -38,7 +39,7 @@ async def upload_screenshot(
         normalized_tag_names = TagNamesPayload(tag_names=tag_names).tag_names
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
-    return await _build_upload_service(db).upload_screenshot(
+    return await _build_save_flow(db).save_screenshot(
         **({"idempotency_key": idempotency_key} if idempotency_key else {}),
         user_id=current_user_id,
         file=file,
@@ -93,24 +94,30 @@ async def asset_access(
 
 
 def _build_upload_service(db: AsyncSession) -> UploadService:
-    content_asset_repository = ContentAssetRepository(db)
-    category_repository = CategoryRepository(db)
     storage = get_storage_client()
     return UploadService(
-        content_service=ContentService(
+        content_asset_repository=ContentAssetRepository(db),
+        storage_client=storage,
+        ocr_client=get_ocr_client(),
+        image_storage_control=ImageUploadControl(db),
+        image_upload_policy=ImageUploadPolicy(db, storage),
+    )
+
+
+def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
+    uploads = _build_upload_service(db)
+    category_repository = CategoryRepository(db)
+    return ContentSaveFlow(
+        ContentService(
             content_repository=ContentRepository(db),
             category_repository=category_repository,
             event_repository=EventRepository(db),
-            content_asset_repository=content_asset_repository,
+            content_asset_repository=uploads.content_asset_repository,
             category_recommendation_service=CategoryRecommendationService(
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
             ),
             tag_repository=TagRepository(db),
         ),
-        content_asset_repository=content_asset_repository,
-        storage_client=storage,
-        ocr_client=get_ocr_client(),
-        image_storage_control=ImageUploadControl(db),
-        image_upload_policy=ImageUploadPolicy(db, storage),
+        uploads=uploads,
     )

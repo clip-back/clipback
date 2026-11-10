@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import BytesIO
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
@@ -23,16 +23,10 @@ from app.integrations.ocr_client import (
 from app.integrations.storage_client import S3StorageClient, StorageRouter, StorageUnavailableError
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
-from app.repositories.share_receipt_repository import ShareReceiptRepository
-from app.schemas.content import (
-    ContentAssetAccess,
-    ContentRead,
-)
-from app.services.content_service import ContentService, PendingContentAsset
-from app.services.image_deletion_service import cleanup_failed_upload
+from app.schemas.content import ContentAssetAccess
+from app.services.content_service import PendingContentAsset
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
-from app.services.share_receipt_service import prepare_share_write, share_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +41,15 @@ SUPPORTED_IMAGE_FORMATS = {
 class StoredAssetFile:
     content: bytes
     mime_type: str
+
+
+@dataclass(frozen=True)
+class ScreenshotOriginal:
+    content: bytes
+    storage_key: str
+    mime_type: str
+    ocr: ScreenshotOCRResult
+    ocr_metadata: dict[str, str | None]
 
 
 class ScreenshotOCRStatus(StrEnum):
@@ -66,7 +69,6 @@ class UploadService:
     def __init__(
         self,
         *,
-        content_service: ContentService,
         content_asset_repository: ContentAssetRepository,
         storage_client: StorageRouter,
         ocr_client: OCRClient,
@@ -74,7 +76,6 @@ class UploadService:
         image_storage_control: ImageUploadControl | None = None,
         max_bytes: int = settings.screenshot_max_bytes,
     ) -> None:
-        self.content_service = content_service
         self.content_asset_repository = content_asset_repository
         self.storage_client = storage_client
         self.ocr_client = ocr_client
@@ -82,15 +83,7 @@ class UploadService:
         self.max_bytes = max_bytes
         self.image_storage_control = image_storage_control
 
-    async def upload_screenshot(
-        self,
-        *,
-        user_id: int,
-        file: UploadFile,
-        category_ids: list[int],
-        tag_names: list[str] | None = None,
-        idempotency_key: UUID | None = None,
-    ) -> ContentRead:
+    async def read_screenshot(self, file: UploadFile) -> bytes:
         content = await file.read(self.max_bytes + 1)
         if not content:
             raise HTTPException(
@@ -102,21 +95,9 @@ class UploadService:
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail={"code": "image_file_too_large", "limit_bytes": self.max_bytes},
             )
+        return content
 
-        pending = None
-        receipt_args = {}
-        if idempotency_key is not None:
-            pending, replay = await prepare_share_write(
-                self.content_service.content_repository.session, user_id=user_id,
-                key=idempotency_key, kind="screenshot",
-                fingerprint=share_fingerprint(
-                    {"category_ids": category_ids, "tag_names": tag_names or []}, content,
-                ),
-            )
-            if replay is not None:
-                return replay
-            receipt_args["share_receipt"] = pending
-
+    async def prepare_original(self, *, user_id: int, content: bytes) -> ScreenshotOriginal:
         mime_type, extension = self._validate_image(content)
         if self.image_storage_control is not None:
             await self.image_storage_control.authorize()
@@ -125,61 +106,32 @@ class UploadService:
             content=content,
             mime_type=mime_type,
         )
-        storage_key = f"screenshots/{user_id}/{uuid4().hex}.{extension}"
-        try:
-            await self.storage_client.save_file(storage_key, content)
-        except StorageUnavailableError as exc:
-            await self._cleanup_failed_original(user_id, storage_key, content)
-            raise ServiceUnavailableError("Image storage is temporarily unavailable") from exc
+        return ScreenshotOriginal(
+            content=content,
+            storage_key=f"screenshots/{user_id}/{uuid4().hex}.{extension}",
+            mime_type=mime_type,
+            ocr=ocr_result,
+            ocr_metadata=ocr_metadata,
+        )
 
-        try:
-            if self.image_storage_control is not None:
-                await self.image_storage_control.observe(
-                    f"original_upload_{self.storage_client.backend}", len(content),
-                )
-            return await self.content_service.save_screenshot(
-                **receipt_args,
-                user_id=user_id,
-                category_ids=category_ids,
-                tag_names=tag_names or [],
-                ocr=ocr_result,
-                ocr_metadata=ocr_metadata,
-                asset=PendingContentAsset(
-                    asset_type=AssetType.SCREENSHOT,
-                    storage_key=storage_key,
-                    mime_type=mime_type,
-                    storage_backend=self.storage_client.backend,
-                    size_bytes=len(content),
-                    sha256=hashlib.sha256(content).hexdigest(),
-                ),
-            )
-        except Exception:
-            if pending is not None and pending.commit_attempted:
-                try:
-                    committed = await ShareReceiptRepository(
-                        self.content_service.content_repository.session,
-                    ).committed_after_failure(pending)
-                except Exception:
-                    # Retain an uncertain file rather than delete a committed asset.
-                    logger.exception("Unable to verify screenshot commit; retaining file")
-                    raise
-                if committed:
-                    raise
-            await self._cleanup_failed_original(user_id, storage_key, content)
-            raise
+    async def save_original(self, original: ScreenshotOriginal) -> None:
+        await self.storage_client.save_file(original.storage_key, original.content)
 
-    async def _cleanup_failed_original(
-        self, user_id: int, storage_key: str, content: bytes,
-    ) -> None:
-        try:
-            await cleanup_failed_upload(
-                self.content_asset_repository.session, self.storage_client,
-                user_id=user_id, storage_key=storage_key, size_bytes=len(content),
-                sha256=hashlib.sha256(content).hexdigest(),
+    async def observe_saved_original(self, original: ScreenshotOriginal) -> None:
+        if self.image_storage_control is not None:
+            await self.image_storage_control.observe(
+                f"original_upload_{self.storage_client.backend}", len(original.content),
             )
-        except Exception:
-            # Combined DB+object-store failure cannot queue here. The upload still fails.
-            logger.warning("Failed upload original cleanup could not be confirmed")
+
+    def asset_for(self, original: ScreenshotOriginal) -> PendingContentAsset:
+        return PendingContentAsset(
+            asset_type=AssetType.SCREENSHOT,
+            storage_key=original.storage_key,
+            mime_type=original.mime_type,
+            storage_backend=self.storage_client.backend,
+            size_bytes=len(original.content),
+            sha256=hashlib.sha256(original.content).hexdigest(),
+        )
 
     async def _extract_ocr(
         self,

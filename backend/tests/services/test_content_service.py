@@ -25,6 +25,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationFailureReason,
     CategoryRecommendationResult,
 )
+from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService, PendingContentAsset, SharedLinkContext
 from app.services.extraction_service import ExtractionService
 
@@ -370,7 +371,7 @@ async def test_save_link_links_available_categories_and_records_event() -> None:
         categories=[category(1, "취업", is_default=True), category(2, "여행")]
     )
 
-    result = await service.save_link(
+    result = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -407,7 +408,7 @@ async def test_save_screenshot_rejects_uncategorized_with_other_categories(categ
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.save_screenshot(
+        await ContentSaveFlow(service).save_prepared_screenshot(
             user_id=1,
             category_ids=category_ids,
             tag_names=["저장되면 안 되는 태그"],
@@ -442,7 +443,7 @@ async def test_content_categories_accept_uncategorized_alone(operation, category
     )
 
     if operation == "create":
-        result = await service.save_link(
+        result = await ContentSaveFlow(service).save_prepared_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post", category_ids=category_ids,
@@ -466,7 +467,7 @@ async def test_save_link_creates_normalized_tags_in_same_transaction() -> None:
         categories=[category(1, "취업", is_default=True)]
     )
 
-    result = await service.save_link(
+    result = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -484,7 +485,7 @@ async def test_save_link_creates_normalized_tags_in_same_transaction() -> None:
 async def test_save_link_scopes_same_tag_name_to_each_user() -> None:
     service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
 
-    first = await service.save_link(
+    first = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/first",
@@ -492,7 +493,7 @@ async def test_save_link_scopes_same_tag_name_to_each_user() -> None:
             tag_names=["Flutter"],
         ),
     )
-    second = await service.save_link(
+    second = await ContentSaveFlow(service).save_prepared_link(
         user_id=2,
         payload=ContentCreate(
             original_url="https://example.com/second",
@@ -510,7 +511,7 @@ async def test_save_link_scopes_same_tag_name_to_each_user() -> None:
 async def test_save_link_reuses_existing_tag_and_preserves_its_name() -> None:
     service, _, _ = build_service(categories=[category(1, "취업", is_default=True)])
 
-    first = await service.save_link(
+    first = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/first",
@@ -518,7 +519,7 @@ async def test_save_link_reuses_existing_tag_and_preserves_its_name() -> None:
             tag_names=["Flutter"],
         ),
     )
-    second = await service.save_link(
+    second = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/second",
@@ -536,7 +537,7 @@ async def test_save_link_uses_uncategorized_when_category_ids_are_empty() -> Non
     uncategorized = category(9, "미분류", is_default=True)
     service, content_repository, event_repository = build_service(uncategorized=uncategorized)
 
-    result = await service.save_link(
+    result = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", category_ids=[]),
     )
@@ -553,7 +554,7 @@ async def test_save_link_records_share_and_extraction_event_metadata() -> None:
         categories=[category(1, "취업", is_default=True)]
     )
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -602,7 +603,7 @@ async def test_save_link_uses_ai_recommendation_and_revalidates_category() -> No
         recommendation_service=recommendation_service,
     )
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -638,7 +639,7 @@ async def test_save_link_falls_back_when_recommended_category_disappears() -> No
         recommendation_service=recommendation_service,
     )
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", title="제목"),
     )
@@ -666,7 +667,7 @@ async def test_save_link_uses_uncategorized_when_ai_recommendation_fails() -> No
         recommendation_service=recommendation_service,
     )
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", title="제목"),
     )
@@ -684,7 +685,7 @@ async def test_save_link_without_recommendation_service_uses_uncategorized() -> 
     uncategorized = category(9, "미분류", is_default=True)
     service, content_repository, event_repository = build_service(uncategorized=uncategorized)
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(original_url="https://example.com/post", title="제목"),
     )
@@ -712,7 +713,7 @@ async def test_save_link_skips_ai_and_extraction_for_youtube() -> None:
         recommendation_service=recommendation_service,
     )
 
-    result = await service.save_link(
+    result = await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(original_url="https://youtu.be/dQw4w9WgXcQ?t=30"),
     )
@@ -743,7 +744,7 @@ async def test_save_link_skips_ai_for_user_categories() -> None:
         recommendation_service=recommendation_service,
     )
 
-    await service.save_link(
+    await ContentSaveFlow(service).save_prepared_link(
         user_id=1,
         payload=ContentCreate(
             original_url="https://example.com/post",
@@ -770,7 +771,7 @@ async def test_save_screenshot_skips_ai_and_uses_uncategorized() -> None:
         recommendation_service=recommendation_service,
     )
 
-    await service.save_screenshot(
+    await ContentSaveFlow(service).save_prepared_screenshot(
         user_id=1,
         category_ids=[],
         tag_names=[],
@@ -806,7 +807,7 @@ async def test_save_screenshot_uses_ai_recommendation_when_ocr_text_is_available
         recommendation_service=recommendation_service,
     )
 
-    await service.save_screenshot(
+    await ContentSaveFlow(service).save_prepared_screenshot(
         user_id=1,
         category_ids=[],
         tag_names=[],
@@ -849,7 +850,7 @@ async def test_save_screenshot_user_category_wins_over_ocr_recommendation() -> N
         recommendation_service=recommendation_service,
     )
 
-    await service.save_screenshot(
+    await ContentSaveFlow(service).save_prepared_screenshot(
         user_id=1,
         category_ids=[3],
         tag_names=[],
@@ -872,7 +873,7 @@ async def test_save_screenshot_persists_asset_in_same_transaction() -> None:
         categories=[category(2, "여행")]
     )
 
-    result = await service.save_screenshot(
+    result = await ContentSaveFlow(service).save_prepared_screenshot(
         user_id=1,
         category_ids=[2],
         tag_names=[],
@@ -898,7 +899,7 @@ async def test_save_link_fails_when_uncategorized_is_missing() -> None:
     service, content_repository, _ = build_service()
 
     with pytest.raises(SystemConfigurationError) as exc_info:
-        await service.save_link(
+        await ContentSaveFlow(service).save_prepared_link(
             user_id=1,
             payload=ContentCreate(original_url="https://example.com/post"),
         )
@@ -915,7 +916,7 @@ async def test_save_link_rejects_inaccessible_categories(category_ids) -> None:
     )
 
     with pytest.raises(NotFoundError):
-        await service.save_link(
+        await ContentSaveFlow(service).save_prepared_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
@@ -931,7 +932,7 @@ async def test_save_link_requires_original_url() -> None:
     service, _, _ = build_service(uncategorized=category(9, "미분류", is_default=True))
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.save_link(
+        await ContentSaveFlow(service).save_prepared_link(
             user_id=1,
             payload=ContentCreate(content_type=ContentType.LINK, category_ids=[]),
         )
@@ -1241,7 +1242,7 @@ async def test_save_link_rolls_back_when_write_fails_after_resolving_tags() -> N
     content_repository.create = fail_create
 
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await service.save_link(
+        await ContentSaveFlow(service).save_prepared_link(
             user_id=1,
             payload=ContentCreate(
                 original_url="https://example.com/post",
@@ -1435,7 +1436,7 @@ async def test_save_link_rechecks_url_from_unvalidated_model_copy():
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await service.save_link(user_id=1, payload=payload)
+        await ContentSaveFlow(service).save_prepared_link(user_id=1, payload=payload)
 
     assert exc_info.value.status_code == 422
     assert "2048" in exc_info.value.detail
