@@ -26,7 +26,7 @@
 
 ## 앱 0.5.2
 
-[iOS 0.5.2(13)·Android 0.5.2(9) 후보 기록](docs/releases/app-v0.5.2-ios-b13-android-b9.md): 양 플랫폼 산출물을 만들었습니다. 후보 태그 생성·업로드·테스터 제공·실기기 확인은 미실행입니다. 정식 공개는 미실행입니다.
+[iOS 0.5.2(13)·Android 0.5.2(9) 후보 기록](docs/releases/app-v0.5.2-ios-b13-android-b9.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 13은 App Store Connect에 올렸고, Android 9 업로드와 테스터 제공·실기기 확인은 미확인입니다. 정식 공개는 미실행입니다.
 
 ### 개선
 
