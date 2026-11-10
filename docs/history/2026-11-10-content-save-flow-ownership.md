@@ -152,3 +152,20 @@ V18에서 함께 돌린 `test_concurrent_shares_serialize_before_external_work`(
 - 범위 확인: 동결 파일 9개는 #321 기록 SHA-256과 같고, `test_content_save_baseline.py`는 허용된 줄만 바뀌었다(정적 점검: 6개 테스트 파일의 이름·assert·docstring 불변).
 - 미검증: Python 3.11 실행과 Docker가 필요한 deployment 검사(`backend/**` 변경이라 대상)는 원격 CI 범위로, 승인 뒤 PR에서 확인한다.
   바뀐 파일은 `operator_recovery` 필터 대상이 아니다. 운영 서버·실기기 검증은 하지 않았다. 화면 변경이 없어 시뮬레이터·에뮬레이터는 실행하지 않았다.
+
+## 최종 통합 검사 (#320)
+
+위 검증 절은 #322 자체 코드(`cac9f2f`) 결과다. 이 절은 main `6f650d8`(#318·#319)을 충돌 없이 합친 통합 HEAD의 결과이며, 앞의 결과를 차용하지 않았다.
+
+- 기준: 2026-11-10, HEAD `9489a33b1820f29b056328ea7ee9d019c44f063f`(로컬, 전용 임시 DB와 대역 데이터). verify 진행 기록 24건 모두 이 HEAD, `dirty=false`.
+  이 절을 더한 커밋은 문서만 바꾸며 코드가 `9489a33`과 같다.
+- 합쳐진 앱 저장 동작 확인(전체 검사 전): `flutter test --no-pub test/save_submission_behavior_test.dart` 24개 통과, `flutter analyze --no-pub` 문제 없음.
+  #320은 백엔드 응답 계약을 바꾸지 않았다. 기기·화면 확인은 하지 않았다.
+- 정적 점검(작업자 실행): 변경 테스트 6개 파일의 이름·docstring·assert·decorator가 main과 같고, 동결 9개 파일이 #321 동결본(`e972dc2`)과 같으며, `git diff --check 6f650d8..9489a33`이 통과했다.
+- 전체 검증 `python3 ~/.heoturu-agents/verify.py`(진단 plugin 없음, `PYTEST_ADDOPTS`·`PYTHONPATH` 미설정): `VERIFY result=PASS scope=all checks=11 failed=0`.
+  백엔드 `pytest: 2503 passed, 47 skipped, 3 warnings in 278.22s (0:04:38)`. 앱 테스트 3481개 통과.
+  - pytest skip: 46 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+  - pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+- `deptry .`(backend, 0.25.1): 따로 실행해 통과(`Success! No dependency issues found.`, 154파일).
+- 범위 밖 발견의 세 불안정 관측은 이 실행에서 재발하지 않았다(수치는 위 절 그대로, 원인 미확인).
+- 미검증: Python 3.11 실행과 Docker가 필요한 deployment 검사는 원격 CI 범위로, PR에서 확인한다. 운영 서버·실기기 검증은 하지 않았다.
