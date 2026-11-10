@@ -1269,7 +1269,8 @@ class SaveErrorToast extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                maxLines: 2,
+                // The delay message needs three lines at 320pt and 1.3x (#319).
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppColors.surface,
