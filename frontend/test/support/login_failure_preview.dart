@@ -37,7 +37,7 @@ Element get _root => _capture.currentContext! as Element;
 
 /// Records the form request without leaving this preview, so `/run` can keep
 /// checking the same failure screen. The real browser hand-off is captured
-/// with OS taps on the product build.
+/// with an OS tap after `/scene`.
 class _ContactLauncher extends UrlLauncherPlatform {
   @override
   LinkDelegate? get linkDelegate => null;
@@ -415,7 +415,6 @@ Future<void> _run() async {
 
 Future<void> main() => http.runWithClient(() async {
   isolated.ArchiveAllFixtureBinding();
-  UrlLauncherPlatform.instance = _launcher;
   _output = await Directory.systemTemp.createTemp('clipback-login-failure-');
   final old = FlutterError.onError;
   FlutterError.onError = (d) {
@@ -446,7 +445,15 @@ Future<void> main() => http.runWithClient(() async {
             request.uri.queryParameters['kind'] == 'sdk' ? 'sdk' : 'http',
           );
         case '/run':
-          await _run();
+          // Only the automatic run stays in the app; /scene keeps the real
+          // launcher so an OS tap opens the browser.
+          final platform = UrlLauncherPlatform.instance;
+          UrlLauncherPlatform.instance = _launcher;
+          try {
+            await _run();
+          } finally {
+            UrlLauncherPlatform.instance = platform;
+          }
         case '/status':
         case '/state':
         case '/ready':
