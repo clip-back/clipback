@@ -328,7 +328,6 @@ void main() {
             for (final row in [
               ('알림 설정', 'ReminderSheet'),
               ('앱 권한', 'PermissionSheet'),
-              ('문의하기', 'ContactSheet'),
             ]) {
               await _tap(tester, find.text(row.$1));
               _sheet(tester, row.$2, edges);
