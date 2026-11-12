@@ -348,7 +348,7 @@ plus the recent reopened content count:
   types never count. The window is fixed by the server; there is no request parameter.
 - Deleting content preserves `saved_count` and `reopened_count`: its events remain with a
   null `content_id`.
-- No recorded events returns `0` for both fields. Other event types do not count.
+- No recorded events returns `0` for all three fields. Other event types do not count.
 - Reading content detail does not record a view. A successful
   `POST /api/v1/contents/{id}/view` records one. Requests with the same client event
   ID count once; legacy requests without a body count on every call.
