@@ -86,7 +86,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case '/api/v1/users/me/stats':
-        return _json({'saved_count': 0, 'reopened_count': 0});
+        return _json({
+          'saved_count': 0,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       case '/api/v1/recommendations/weekly':
         return _json({
           'period_start': '2026-10-19T00:00:00Z',

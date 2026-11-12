@@ -206,6 +206,7 @@ class _Server {
         return _json({
           'saved_count': saved ? contents.length : 0,
           'reopened_count': 0,
+          'recent_reopened_count': 0,
         });
       case '/api/v1/metrics/events':
         return _json(<String, Object>{}, 201);

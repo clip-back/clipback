@@ -44,6 +44,7 @@ ContentItem _content(
   String summary = _summary,
   List<CategoryItem> categories = const [_primary],
   List<String> tags = const ['첫태그', '다른태그', '마지막태그'],
+  bool isScreenshot = false,
 }) => ContentItem(
   id: id,
   apiId: id.hashCode,
@@ -58,6 +59,7 @@ ContentItem _content(
   source: '웹 링크',
   originalUrl: 'https://example.invalid/detail/$id',
   originalText: _original,
+  isScreenshot: isScreenshot,
 );
 
 class _Scene {
@@ -137,8 +139,9 @@ Future<_Calls> _pump(
   WidgetTester tester,
   _Scene scene,
   TargetPlatform platform,
-  double width,
-) async {
+  double width, {
+  double scale = 1,
+}) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 812);
   final top = platform == TargetPlatform.iOS ? 59.0 : 24.0;
@@ -160,7 +163,9 @@ Future<_Calls> _pump(
         ),
       ),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1)),
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
         child: child!,
       ),
       home: DetailScreen(
@@ -262,6 +267,7 @@ void _style(
   required Color color,
   double? height,
   String family = 'Pretendard',
+  double scale = 1,
 }) {
   if (finder.evaluate().length != 1) {
     failures.add('$role actual text role missing');
@@ -279,7 +285,7 @@ void _style(
     failures,
     '$role actual text scale',
     paragraph.textScaler.scale(size),
-    size,
+    size * scale,
   );
 }
 
@@ -446,9 +452,9 @@ Future<void> _checkScreen(
     failures,
     'summary heading',
     find.text('요약'),
-    size: 16,
+    size: 17,
     weight: FontWeight.w600,
-    tracking: -.4,
+    tracking: -.425,
     color: AppColors.text,
   );
   final summary = _textRole('detail-summary', scene.current.summary);
@@ -458,9 +464,9 @@ Future<void> _checkScreen(
     failures,
     'summary',
     summary,
-    size: 15,
+    size: 16,
     weight: FontWeight.w400,
-    tracking: -.375,
+    tracking: -.4,
     color: AppColors.text,
     height: 1.6,
   );
@@ -537,9 +543,9 @@ Future<void> _checkScreen(
     failures,
     'related heading',
     relatedHeading,
-    size: 16,
+    size: 17,
     weight: FontWeight.w600,
-    tracking: -.4,
+    tracking: -.425,
     color: AppColors.text,
   );
   final headingTap = find
@@ -879,5 +885,106 @@ void main() {
         },
       );
     }
+  }
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    // Figma F02 '전문 보기' row 111:3864 is 24 high; it grows only with text.
+    for (final (scale, rowHeight) in [
+      (1.0, 24.0),
+      (1.1, 24.0),
+      (1.2, 24.0),
+      (1.3, 26.0),
+    ]) {
+      testWidgets('photo original row ${scale}x $platform keeps 17px text', (
+        tester,
+      ) async {
+        final photo = _content('photo', isScreenshot: true);
+        await _pump(
+          tester,
+          _Scene('photo', photo, [photo]),
+          platform,
+          375,
+          scale: scale,
+        );
+        final failures = <String>[];
+        final label = find.text('원본 이미지 보기');
+        await _show(tester, label);
+        _style(
+          tester,
+          failures,
+          'original heading',
+          label,
+          size: 17,
+          weight: FontWeight.w600,
+          tracking: -.425,
+          color: AppColors.text,
+          scale: scale,
+        );
+        final row = find.ancestor(of: label, matching: find.byType(InkWell));
+        final rowRect = tester.getRect(row.first);
+        final textRect = tester.getRect(label);
+        final natural = tester
+            .renderObject<RenderParagraph>(label)
+            .getMinIntrinsicHeight(double.infinity);
+        _near(failures, 'original row height', rowRect.height, rowHeight);
+        _near(failures, 'original text box height', textRect.height, natural);
+        if (textRect.top < rowRect.top - .1 ||
+            textRect.bottom > rowRect.bottom + .1) {
+          failures.add('original text box $textRect outside row $rowRect');
+        }
+        final image = find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_ScreenshotAssetView',
+        );
+        expect(image, findsNothing);
+        await tester.tap(row.first);
+        await tester.pumpAndSettle();
+        expect(image, findsOneWidget);
+        _near(
+          failures,
+          'expanded row height',
+          tester.getRect(row.first).height,
+          rowHeight,
+        );
+        await tester.tap(row.first);
+        await tester.pumpAndSettle();
+        expect(image, findsNothing);
+        expect(tester.takeException(), isNull);
+        expect(failures, isEmpty, reason: failures.join('\n'));
+      });
+    }
+    testWidgets('long summary 1.3x $platform width 320 shows every line', (
+      tester,
+    ) async {
+      final scene = _scenes().singleWhere(
+        (s) => s.name == 'empty-related-long-content',
+      );
+      await _pump(tester, scene, platform, 320, scale: 1.3);
+      final failures = <String>[];
+      final summary = _textRole('detail-summary', scene.current.summary);
+      await _show(tester, summary);
+      _style(
+        tester,
+        failures,
+        'summary',
+        summary,
+        size: 16,
+        weight: FontWeight.w400,
+        tracking: -.4,
+        color: AppColors.text,
+        height: 1.6,
+        scale: 1.3,
+      );
+      _fullParagraph(tester, failures, 'summary', summary);
+      final paragraph = tester.renderObject<RenderParagraph>(summary);
+      _near(failures, 'summary width', paragraph.size.width, 320 - 48);
+      _near(
+        failures,
+        'summary full height',
+        paragraph.size.height,
+        paragraph.getMinIntrinsicHeight(paragraph.size.width),
+      );
+      expect(tester.takeException(), isNull);
+      expect(failures, isEmpty, reason: failures.join('\n'));
+    });
   }
 }

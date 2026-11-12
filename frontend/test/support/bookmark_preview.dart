@@ -136,7 +136,11 @@ class BookmarkServer {
       });
     }
     if (path == '/api/v1/users/me/stats') {
-      return json({'saved_count': 999, 'reopened_count': 0});
+      return json({
+        'saved_count': 999,
+        'reopened_count': 0,
+        'recent_reopened_count': 0,
+      });
     }
     if (path == '/api/v1/categories') return json(bookmarkCategoryMaps());
     if (path == '/api/v1/feed') {

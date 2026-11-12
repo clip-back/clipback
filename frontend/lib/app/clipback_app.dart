@@ -4,6 +4,7 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
+import 'package:clipback_frontend/features/account/contact_form.dart';
 import 'package:clipback_frontend/features/account/account_deleted_screen.dart';
 import 'package:clipback_frontend/features/account/account_deletion_screen.dart';
 import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
@@ -424,7 +425,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             ),
           );
         },
-        onContact: () => unawaited(_showLoginFailureContact(failure)),
+        onContact: () => unawaited(_openLoginFailureContact(failure)),
       );
     }
     return LoginScreen(
@@ -514,18 +515,15 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       _canUseLoginFailure(expected) &&
       _d.app.dismissOrdinaryLoginFailure(expected);
 
-  Future<void> _showLoginFailureContact(OrdinaryLoginFailure expected) async {
+  Future<void> _openLoginFailureContact(OrdinaryLoginFailure expected) async {
     if (_loginFailureContactOpen || !_canUseLoginFailure(expected)) return;
-    final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
+    // Other failure actions wait until the OS answers the form request.
     _loginFailureContactOpen = true;
     try {
-      await showModalBottomSheet<void>(
-        context: context,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => const ContactSheet(),
-      );
+      final opened = await openContactForm();
+      if (opened == false && _canUseLoginFailure(expected)) {
+        _handleEffect(const MessageEffect(contactFormFailureMessage));
+      }
     } finally {
       _loginFailureContactOpen = false;
     }

@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -22,6 +22,8 @@ from app.models.user import User
 from app.repositories.event_repository import EventRepository
 
 TODAY = date(2026, 9, 24)
+
+NOW = datetime.now(UTC)
 
 
 @pytest_asyncio.fixture
@@ -342,8 +344,8 @@ async def test_target_deletion_retains_recommendation_history_and_lifetime_stats
     session.add_all([*events, *exposures])
     await session.flush()
     original_content_id, original_category_id = data.content.id, data.category.id
-    stats = dict(await EventRepository(session).read_user_stats(data.user.id))
-    assert stats == {"saved_count": 1, "reopened_count": 1}
+    stats = dict(await EventRepository(session).read_user_stats(user_id=data.user.id, now=NOW))
+    assert stats == {"saved_count": 1, "reopened_count": 1, "recent_reopened_count": 1}
 
     await session.execute(delete(Content).where(Content.id == original_content_id))
     await session.execute(delete(Category).where(Category.id == original_category_id))
@@ -367,7 +369,10 @@ async def test_target_deletion_retains_recommendation_history_and_lifetime_stats
         assert await session.scalar(
             select(RecommendationBatch.id).where(RecommendationBatch.id == batch.id)
         ) == batch.id
-    assert dict(await EventRepository(session).read_user_stats(data.user.id)) == stats
+    assert dict(await EventRepository(session).read_user_stats(user_id=data.user.id, now=NOW)) == {
+        **stats,
+        "recent_reopened_count": 0,
+    }
 
 
 @pytest.mark.asyncio

@@ -44,7 +44,7 @@ const myMember = AppUser(
   providerLabel: 'kakao, apple 계정 연동 중',
   joinedAt: '2026.10.18',
   savedContentCount: 150,
-  revisitedContentCount: 231,
+  revisitedContentCount: 12,
 );
 const myGuest = AppUser(
   name: '게스트',
@@ -246,7 +246,7 @@ Map<String, Object?> myMeasure(Element root) {
   final metrics = <Map<String, Object?>>[];
   for (final (label, value) in [
     ('저장한 콘텐츠', user.savedContentCount?.toString() ?? '—'),
-    ('다시 본 콘텐츠', user.revisitedContentCount?.toString() ?? '—'),
+    ('최근 다시 본 콘텐츠', user.revisitedContentCount?.toString() ?? '—'),
   ]) {
     final labelElement = _text(stats, label)!;
     final values =
@@ -643,6 +643,7 @@ class MyServer {
       return json({
         'saved_count': expected.savedContentCount,
         'reopened_count': expected.revisitedContentCount,
+        'recent_reopened_count': expected.revisitedContentCount,
       });
     }
     if (path == '/api/v1/categories') return json(e01.archiveAllCategoryMaps);
@@ -987,8 +988,9 @@ Future<void> _run() async {
   final initial = (_my.widget as MyScreen).user;
   _require(
     initial.providerLabel == myMember.providerLabel &&
-        initial.revisitedContentCount! > initial.savedContentCount!,
-    'Actual raw mapper/cumulative stats replaced',
+        initial.revisitedContentCount == myMember.revisitedContentCount &&
+        initial.revisitedContentCount! <= initial.savedContentCount!,
+    'Actual raw mapper/recent reopened stats replaced',
   );
   final header = _find<MyPageTopBar>(_my)!;
   await _tap(
@@ -1011,7 +1013,6 @@ Future<void> _run() async {
   for (final item in const {
     '알림 설정': 'ReminderSheet',
     '앱 권한': 'PermissionSheet',
-    '문의하기': 'ContactSheet',
   }.entries) {
     await _showTile(item.key, item.value);
   }

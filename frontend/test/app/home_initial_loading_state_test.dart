@@ -165,7 +165,11 @@ class _Fixture {
       });
     }
     if (path == _stats) {
-      return _json({'saved_count': 0, 'reopened_count': 0});
+      return _json({
+        'saved_count': 0,
+        'reopened_count': 0,
+        'recent_reopened_count': 0,
+      });
     }
     if (path == '/api/v1/auth/logout') return http.Response('', 204);
     if (path.startsWith('/api/v1/auth/social/') ||

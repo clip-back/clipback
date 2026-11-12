@@ -17,6 +17,7 @@ from app.integrations.deletion_ledger import (
     canonical_json,
     get_deletion_ledger,
 )
+from app.integrations.operator_source import SOURCE_ID, SourceError, SourceReader
 from app.integrations.storage_client import StorageRouter
 from app.models.content_asset import ContentAsset
 from app.models.image_deletion import ImageDeletion
@@ -166,6 +167,20 @@ async def delete_image_content(
         logger.warning("Image cleanup deferred: operation_id=%s", operation_id)
 
 
+def original_volume_identified(config: Settings) -> bool:
+    """A service without the API Volume must not report a missing Volume original as deleted."""
+    if config.operator_source_id is None:
+        return True
+    # A blank or malformed ID is a broken setting, never a match for any marker.
+    if not SOURCE_ID.fullmatch(config.operator_source_id):
+        return False
+    try:
+        with SourceReader(config).identified_root():
+            return True
+    except SourceError:
+        return False
+
+
 async def cleanup_image_deletion(
     session: AsyncSession,
     operation_id: str,
@@ -202,6 +217,11 @@ async def cleanup_image_deletion(
             )
             if referenced is not None:
                 job.last_error = "original_still_referenced"
+                break
+            if asset["storage_backend"] == "local" and not original_volume_identified(
+                storage.config
+            ):
+                job.last_error = "original_volume_unavailable"
                 break
             await storage.delete_file(asset["storage_key"], backend=asset["storage_backend"])
         else:

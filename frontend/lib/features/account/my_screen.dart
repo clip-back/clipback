@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:clipback_frontend/features/account/contact_form.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
@@ -79,6 +82,14 @@ abstract final class _MyAssets {
   static const profileArrow = Assets.chevronRight;
   static const statsDivider = 'assets/icons/my-stats-divider.svg';
   static const menuArrow = 'assets/icons/my-menu-chevron.svg';
+}
+
+Future<void> _openContact(BuildContext context) async {
+  if (await openContactForm() == false && context.mounted) {
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(const SnackBar(content: Text(contactFormFailureMessage)));
+  }
 }
 
 class MyScreen extends StatelessWidget {
@@ -197,12 +208,7 @@ class MyScreen extends StatelessWidget {
                       children: [
                         MyListTile(
                           title: '문의하기',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ContactSheet(),
-                          ),
+                          onTap: () => unawaited(_openContact(context)),
                         ),
                         MyListTile(
                           title: '앱 버전',
@@ -446,7 +452,7 @@ class MyStatsStrip extends StatelessWidget {
                     children: [
                       _metricText('저장한 콘텐츠', _MyText.metricLabel),
                       const SizedBox.shrink(),
-                      _metricText('다시 본 콘텐츠', _MyText.metricLabel),
+                      _metricText('최근 다시 본 콘텐츠', _MyText.metricLabel),
                     ],
                   ),
                   const TableRow(

@@ -64,7 +64,6 @@ String _route() {
   if (f.noticeFind<NoticeSheet>(_root) != null) return 'noticeSheet';
   if (f.noticeFind<ReminderSheet>(_root) != null) return 'reminderSheet';
   if (f.noticeFind<PermissionSheet>(_root) != null) return 'permissionSheet';
-  if (f.noticeFind<ContactSheet>(_root) != null) return 'contactSheet';
   if (f.noticeFind<AccountManagementScreen>(_root) != null) return 'account';
   if (f.noticeFind<CategoryManagementScreen>(_root) != null) {
     return 'categoryManagement';
@@ -406,7 +405,6 @@ Future<void> _run() async {
   for (final pair in const {
     '알림 설정': 'reminderSheet',
     '앱 권한': 'permissionSheet',
-    '문의하기': 'contactSheet',
   }.entries) {
     final text = f.noticeText(_my, pair.key)!;
     await _show(text);

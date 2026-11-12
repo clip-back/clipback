@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import RowMapping, func, select
@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content_event import ContentEvent, ContentEventType
 
+RECENT_REOPENED_WINDOW = timedelta(days=7)
+
 
 class EventRepository:
     """Data access for product metric events."""
@@ -14,7 +16,7 @@ class EventRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def read_user_stats(self, user_id: int) -> RowMapping:
+    async def read_user_stats(self, *, user_id: int, now: datetime) -> RowMapping:
         result = await self.session.execute(
             select(
                 func.count(ContentEvent.id)
@@ -23,6 +25,12 @@ class EventRepository:
                 func.count(ContentEvent.id)
                 .filter(ContentEvent.event_type == ContentEventType.CONTENT_REOPENED)
                 .label("reopened_count"),
+                func.count(ContentEvent.content_id.distinct())
+                .filter(
+                    ContentEvent.event_type == ContentEventType.CONTENT_REOPENED,
+                    ContentEvent.created_at >= now - RECENT_REOPENED_WINDOW,
+                )
+                .label("recent_reopened_count"),
             ).where(ContentEvent.user_id == user_id)
         )
         return result.mappings().one()

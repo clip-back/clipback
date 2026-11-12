@@ -2,8 +2,9 @@
 
 상태: **2026-10-26 실제 운영 백업·격리 복원·명시적 서비스 재개 완료**.
 신규 이미지 Bucket 저장 전환과 일일 백업 일정 설정, 해당 정기 명령의 수동 실행도 확인했다.
-예약 시각의 자동 실행은 아직 미확인이고, `maintain` 보존 정리 서비스는 사용자 요청으로 보류했다.
-따라서 **7일 보존·삭제 사본 정리가 자동 운영 중인 것은 아니다**.
+예약 시각의 자동 실행은 아직 미확인이다. `maintain` 보존 정리와 원본 삭제 재시도(`retry`)의 정기 서비스는
+설정 절차를 [아래](#일일-백업과-보존-정리-cli-개선-이미지-배포-후)에 적었고, 운영 적용은 병합 뒤 순서표(GitHub #339)로 확인하기 전이다.
+따라서 **7일 보존·삭제 사본 정리와 원본 삭제 재시도가 자동 운영 중인 것은 아니다**.
 
 상세 실행 식별자·시각·검증 범위는 [2026-10-26 운영 실행 기록](../history/2026-10-26-image-operator-production.md)에 보존한다.
 운영 현황은 이 문서를 기준으로 읽고 과거 실행 계획은 당시 설계 자료로만 사용한다.
@@ -20,8 +21,9 @@
 - [x] `clipback-backup`의 Cron을 `0 0 * * *`(매일 09:00 KST), 재시작 정책을 `Never`로 설정했다.
 - [x] `daily` 명령을 예약 외 수동 실행해 DB·이미지 백업과 정상 종료를 확인했다.
 - [ ] 예약 시각에 자동 실행되는지 확인한다. 기록 시점의 다음 예약은 2026-10-27 09:00 KST다.
-- [ ] `maintain` 정기 서비스: **보류**. 재개할 때 백업 사본 삭제 범위와 첫 실행 결과를 확인한다.
-- [ ] 원본 물리 삭제 재처리의 정기 실행 및 기존 Volume 이미지 이관: 후속 작업이다.
+- [ ] `maintain` 정기 서비스: 설정 절차는 아래에 있고, 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+- [ ] 원본 삭제 재시도(`retry`) 정기 서비스: 설정 절차는 아래에 있고, 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+- [ ] 기존 Volume 이미지 이관: 후속 작업이다.
 
 아래 1~4절의 체크박스는 **다음 실행에도 사용할 절차 양식**이며, 위 완료 상태와 구분한다.
 실패·연결 상실 대응 항목은 이번 성공 실행에서 장애를 발생시켜 검증했다는 뜻이 아니다.
@@ -75,8 +77,10 @@ python -m scripts.image_source register --root /data/screenshots \
 수동 실행의 종료 코드와 결과를 확인한다. 실패한 작업을 자동 재시작으로 숨기지 않는다.
 실제 검증한 Railway 설정은 Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile.operator`다.
 API의 pre-deploy migration·HTTP start command·healthcheck를 운영자에 복사하지 않는다. DB migration은
-먼저 API 배포에서 완료한다. 운영자 서비스의 자동 Git 배포도 비활성화해 코드 push가 백업 실행을
-유발하지 않도록 하고, 검증한 버전의 수동 실행만 시작한다.
+먼저 API 배포에서 완료한다. 백업(`clipback-backup`)·보존 정리(`maintain`)·원본 삭제 재시도 서비스는
+API처럼 main 자동 배포를 켜고 CI 통과를 기다리게 한다(Wait for CI). 자동 배포가 꺼져 있던 백업 서비스의
+옛 이미지가 2026-11-08 탈퇴 기록을 읽지 못해 11-09부터 백업이 실패했기 때문이다. 배포 때 명령이
+한 번 더 돌아도 같은 날짜 백업은 다시 만들지 않고(`backup_created=false`), 실행 잠금으로 겹쳐 돌지 않아 안전하다.
 
 | 운영자 설정 | 공급 내용 |
 | --- | --- |
@@ -194,7 +198,8 @@ S3 대역·CI 성공만으로 실제 운영 완료를 체크하지 않는다. �
 
 현재 운영 중인 `clipback-backup`의 Cron은 `0 0 * * *` (UTC 00:00 / KST 09:00),
 Restart Policy는 `Never`다. 새 이미지 배포를 확인한 뒤 다음 명령으로 교체할 수 있다.
-이 문서 변경만으로 운영 명령을 교체하지 않는다.
+이 문서 변경만으로 운영 명령을 교체하지 않는다. 시작 명령과 `IMAGE_BACKUP_APP_COMMIT`은 그대로 두고
+main 자동 배포와 CI 통과 대기를 켠다.
 
 ```sh
 python -m scripts.image_backup_jobs daily
@@ -207,14 +212,18 @@ python -m scripts.image_backup_jobs daily
 - `restore_verified=false`는 생성만 수행했다는 뜻이다. 별도 격리 복원 성공으로 바꾸지 않는다.
 - 예약 외 실행과 예약 시각 자동 실행을 구분한다. 첫 자동 실행의 완료 지점과 종료를 확인한다.
 
-`maintain`은 **보류** 상태다. 재개 승인과 개선 이미지 배포 후 별도 서비스에서 다음 명령과
-매시간 15분 Cron `15 * * * *`, Restart Policy `Never`를 사용한다.
+`maintain`은 별도 Railway Cron 서비스로 돌린다. 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+
+- 이미지: 운영자 이미지(Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile.operator`)
+- 시작 명령: `clipback-backup`과 같은 방식으로 아래 `maintain` 명령
+- Cron `15 * * * *`(매시간 15분), Restart Policy `Never`, 공개 도메인 없음
+- main 자동 배포와 CI 통과 대기를 켠다.
 
 ```sh
 python -m scripts.image_backup_jobs maintain
 ```
 
-필요한 변수는 다음뿐이다. 기존 API·백업 서비스의 동일한 DB·삭제 기록·백업 Bucket을 참조한다.
+필요한 변수는 다음뿐이다. `clipback-backup`의 값을 참조해 같은 DB·삭제 기록·백업 Bucket을 쓴다.
 
 ```text
 APP_ENVIRONMENT=production
@@ -231,12 +240,44 @@ DELETION_LEDGER_S3_SECRET_ACCESS_KEY
 
 개선 `maintain`에는 `STORAGE_*`, 원본 `S3_*`, `OPERATOR_*`, `IMAGE_BACKUP_*`, AI·로그인 키가
 필요 없다. DB는 점검 상태와 중복 실행 잠금에 사용한다. 백업 생성의 원본 검증은 그대로 유지한다.
-첫 실행은 `passed=true`, `freshness_met=true`, `retention_overdue=0`,
-`deletion_records_pruned=0`과 종료를 확인한다.
+첫 실행은 오래된 백업을 지우는 단계로 보고 `passed`만 확인한다. `passed=true`이거나,
+JSON에 `error`가 없고 `freshness_met=true`이며 `passed=false`의 원인이 `retention_overdue>0`뿐이면
+정상이다. 정리가 한 번도 돌지 않아 7일 전에 지운 사진의 사본이 남아 있었기 때문이다. 이때 Railway 실패 메일이
+한 번 온다. `retention_overdue`, `expired_points`, `retained_points`는 기록만 한다.
+`retention_requires_v2`·`invalid_manifest`이면 지우기 전 전체 검증에서 멈춘 것이라 아무것도 지우지 않았다.
+Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해당 지점을 읽기 전용으로 찾는다.
+다음 정시 15분 자동 실행에서 `retention_overdue=0`, `passed=true`, `deletion_records_pruned=0`과 정상 종료를 확인한다.
 
-이 작업은 7일 이상 된 복구 지점과 참조되지 않는 백업 사본을 실제로 삭제한다. 사용자 삭제 후
+이 작업은 만들어진 지 **7일 − 1시간** 이상 된 복구 지점과 참조되지 않는 백업 사본을 실제로 삭제한다.
+매시간 15분에 돌아도 복구 지점이 7일을 넘기지 않게 하려고 1시간을 뺐다. 사용자 삭제 후 7일이 지난 사본이
+발견되면 지금처럼 기한 미충족(`retention_overdue`)으로 보고한다. 사용자 삭제 후
 6일이 지난 이미지를 포함한 복구 지점은 7일 기한 전에 정리 여유를 확보하려고 전체가 조기 제거될 수 있다.
-삭제 기록 자체와 운영 원본의 물리 삭제 재처리는 대상이 아니다. 보류 중에는 7일 자동 정리가 보장되지 않는다.
+삭제 기록 자체와 운영 원본의 물리 삭제 재처리는 대상이 아니다. 서비스가 켜지기 전에는 7일 자동 정리가 보장되지 않는다.
+
+### 원본 삭제 재시도 서비스
+
+탈퇴·콘텐츠 삭제 때 지우지 못한 원본(정리 작업)은 별도 Railway Cron 서비스가 매시간 다시 지운다.
+운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+
+- 이미지: API 이미지(Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile`)
+- 시작 명령: `python -m scripts.image_deletions retry`
+- Cron `45 * * * *`(00:00 백업·15분 정리와 겹치지 않게), Restart Policy `Never`, 공개 도메인 없음,
+  pre-deploy migration 없음
+- 변수: API 변수를 Railway 참조 변수(`${{clipback.X}}`)로 잇는다. `OPERATOR_SOURCE_ID`도 반드시 잇는다.
+- main 자동 배포와 CI 통과 대기를 켠다.
+
+이 서비스에는 API의 Volume이 붙어 있지 않다. 그래서 `OPERATOR_SOURCE_ID`가 설정돼 있으면 Volume 원본(`local`,
+이관된 원본의 Volume 사본 포함)을 지우기 전에 `STORAGE_ROOT`의 `.clipback-source-id`가 그 값과 맞는지 확인한다.
+맞지 않거나 없으면 지우지 않고 작업을 `last_error=original_volume_unavailable`로 남긴다. 이관된 원본은
+Bucket 쪽을 먼저 지우므로 Bucket 사본은 이미 지워져 있을 수 있다. 다음 재시도의 Bucket 삭제는 없는 객체 삭제라
+오류 없이 끝난다. `pending>0`이면 종료 코드 1이라 Railway 실패 메일이 매시간 온다.
+이때 API 컨테이너 안에서 한 번 실행해 마저 지운다(`railway ssh`가 이 요금제에서 되는지는 미확인).
+
+```sh
+railway ssh --service clipback --environment production -- python -m scripts.image_deletions retry
+```
+
+`retry`는 점검 작업 `deletion_retry`로 돈다. 도중에 비정상 종료하면 `maintenance_operations`에 행이 남을 수 있다.
 
 ## 읽기 전용 결과 확인과 기록
 

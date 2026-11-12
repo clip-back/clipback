@@ -579,3 +579,167 @@ async def test_new_deletion_uses_bounded_ledger_reads_as_historical_deletions_gr
     # not make a foreground deletion walk all prior receipts.
     assert max(reads) <= 20
     assert reads[-1] <= reads[0] + 4
+
+
+async def cleanup_job(database_connection, content_id):
+    from sqlalchemy import select
+
+    async with AsyncSession(
+        bind=database_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    ) as session:
+        return await session.scalar(
+            select(ImageDeletion).where(ImageDeletion.content_id == content_id)
+        )
+
+
+def identify_volume(root, value):
+    marker = root / ".clipback-source-id"
+    if value == "directory":
+        marker.mkdir()
+    elif value is not None:
+        marker.write_text(value)
+
+
+@pytest.mark.parametrize(("source_id", "marker"), [
+    ("volume339", None),
+    ("volume339", "other339\n"),
+    ("volume339", "directory"),
+    ("", "\n"),
+])
+async def test_unidentified_original_volume_keeps_local_original_for_retry(
+    api,
+    png_bytes,
+    monkeypatch,
+    tmp_path,
+    database_connection,
+    source_id,
+    marker,
+):
+    """A service without the API Volume must not mark a Volume original as deleted."""
+    from app.services.image_deletion_service import retry_image_deletions
+
+    headers, _, _ = await guest(api)
+    content = await upload(api, headers, png_bytes)
+    monkeypatch.setattr(settings, "operator_source_id", source_id)
+    identify_volume(tmp_path, marker)
+    await request(api, "DELETE", f"contents/{content['id']}", headers=headers, status=204)
+    job = await cleanup_job(database_connection, content["id"])
+    assert job.completed is False
+    assert job.last_error == "original_volume_unavailable"
+    assert len(list(tmp_path.rglob("*.png"))) == 1
+    async with AsyncSession(
+        bind=database_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    ) as session:
+        assert (await retry_image_deletions(session))["pending"] == 1
+    assert len(list(tmp_path.rglob("*.png"))) == 1
+
+    # The same retry inside the identified API Volume finishes the cleanup.
+    monkeypatch.setattr(settings, "operator_source_id", "volume339")
+    marker_path = tmp_path / ".clipback-source-id"
+    if marker_path.is_dir():
+        marker_path.rmdir()
+    marker_path.write_text("volume339\n")
+    async with AsyncSession(
+        bind=database_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    ) as session:
+        assert (await retry_image_deletions(session))["pending"] == 0
+    assert not list(tmp_path.rglob("*.png"))
+    job = await cleanup_job(database_connection, content["id"])
+    assert job.completed is True and job.last_error is None
+
+
+@pytest.mark.parametrize(("source_id", "marker"), [(None, None), ("volume339", "volume339\n")])
+async def test_identified_or_unconfigured_volume_deletes_local_original_as_before(
+    api,
+    png_bytes,
+    monkeypatch,
+    tmp_path,
+    database_connection,
+    source_id,
+    marker,
+):
+    headers, _, _ = await guest(api)
+    content = await upload(api, headers, png_bytes)
+    monkeypatch.setattr(settings, "operator_source_id", source_id)
+    identify_volume(tmp_path, marker)
+    await request(api, "DELETE", f"contents/{content['id']}", headers=headers, status=204)
+    assert not list(tmp_path.rglob("*.png"))
+    job = await cleanup_job(database_connection, content["id"])
+    assert job.completed is True and job.last_error is None
+
+
+async def test_unidentified_volume_keeps_migrated_alias_after_bucket_original_is_deleted(
+    database_connection,
+    s3_storage,
+    monkeypatch,
+    tmp_path,
+):
+    """The Bucket original goes first; the next retry's Bucket delete is a missing object."""
+    from datetime import UTC, datetime
+
+    from botocore.client import BaseClient
+
+    from app.integrations.storage_client import StorageRouter
+    from app.services.image_deletion_service import (
+        cleanup_image_deletion,
+        migration_operation_id,
+    )
+
+    monkeypatch.setattr(settings, "storage_root", tmp_path)
+    monkeypatch.setattr(settings, "operator_source_id", "volume339")
+    key = "screenshots/339/alias.png"
+    (tmp_path / key).parent.mkdir(parents=True)
+    (tmp_path / key).write_bytes(b"volume copy")
+    s3_storage.put_object(Bucket="original-images", Key=key, Body=b"volume copy")
+    saved_at = "2026-10-01T00:00:00+00:00"
+    asset = {"storage_key": key, "sha256": None, "size_bytes": None}
+    operation_id = "00000000-0000-4000-8000-000000000339"
+    calls = []
+    original_call = BaseClient._make_api_call
+
+    def record(client, name, parameters):
+        if name == "DeleteObject":
+            calls.append(parameters["Key"])
+        return original_call(client, name, parameters)
+
+    monkeypatch.setattr(BaseClient, "_make_api_call", record)
+    async with AsyncSession(
+        bind=database_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    ) as session:
+        session.add(ImageDeletion(
+            operation_id=migration_operation_id(key), user_id=339, content_id=0,
+            deleted_at=datetime.now(UTC), completed=True,
+            intent={"source_identity": {"user_id": 339, "content_id": 3390,
+                                        "saved_at": saved_at, "assets": [asset]}},
+        ))
+        session.add(ImageDeletion(
+            operation_id=operation_id, user_id=339, content_id=3390,
+            deleted_at=datetime.now(UTC),
+            intent={"user_id": 339, "content_id": 3390, "saved_at": saved_at,
+                    "assets": [{**asset, "storage_backend": "s3"}]},
+        ))
+        await session.commit()
+
+        await cleanup_image_deletion(session, operation_id, StorageRouter(settings))
+        job = await session.get(ImageDeletion, operation_id)
+        await session.refresh(job)
+        assert job.completed is False
+        assert job.last_error == "original_volume_unavailable"
+        assert calls == [key]
+        assert not s3_storage.list_objects_v2(Bucket="original-images").get("Contents")
+        assert (tmp_path / key).read_bytes() == b"volume copy"
+
+        identify_volume(tmp_path, "volume339\n")
+        await cleanup_image_deletion(session, operation_id, StorageRouter(settings))
+        await session.refresh(job)
+        assert job.completed is True and job.last_error is None
+        assert calls == [key, key]
+        assert not (tmp_path / key).exists()

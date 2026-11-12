@@ -156,7 +156,11 @@ class _Fixture {
         });
       }
       if (path == '/api/v1/users/me/stats') {
-        return _json({'saved_count': 0, 'reopened_count': 0});
+        return _json({
+          'saved_count': 0,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       }
       throw StateError('Unexpected fixture request: $path');
     });

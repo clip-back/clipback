@@ -415,6 +415,7 @@ class NoticeServer {
           ? json({
               'saved_count': expected.savedContentCount,
               'reopened_count': expected.revisitedContentCount,
+              'recent_reopened_count': expected.revisitedContentCount,
             })
           : json({
               'id': currentUserId,

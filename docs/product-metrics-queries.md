@@ -9,7 +9,9 @@ Clipback의 제품 이벤트는 `content_events`에 append-only로 저장한다.
 전송하지 않는다. `category_changed`도 콘텐츠 분류 변경·카테고리 삭제 시 서버가 기록한다.
 
 2026-09-25 로컬 코드 기준 이벤트 저장과 사용자별 누적 통계 API는 구현되어 있다.
-`GET /api/v1/users/me/stats`는 기간 제한 없이 저장·반복 열람 이벤트를 세며, 상세 GET은
+`GET /api/v1/users/me/stats`의 `saved_count`·`reopened_count`는 기간 제한 없이 저장·반복 열람 이벤트를 센다.
+`recent_reopened_count`는 서버가 요청을 처리하는 시각(UTC)에서 7×24시간 안(경계 포함)의 열람 이벤트 가운데
+지금 보관 중인 서로 다른 콘텐츠 수다. 상세 GET은
 열람을 기록하지 않는다. view POST에 UUID를 보내면 같은 사용자의 동일 요청 재시도는
 한 번만 센다. 새 상세 진입에는 새 UUID를 사용한다. 본문 없음 또는 JSON `null`로 호출하는
 기존 요청은 매번 기록하므로 재시도도 포함될 수 있다. 이미 저장된 과거 이벤트는 제거하지 않는다.

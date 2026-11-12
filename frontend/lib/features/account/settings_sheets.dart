@@ -1,4 +1,3 @@
-import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 
@@ -48,23 +47,6 @@ class NoticeSheet extends StatelessWidget {
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
           ),
-      ],
-    );
-  }
-}
-
-class ContactSheet extends StatelessWidget {
-  const ContactSheet({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '문의하기',
-      children: const [
-        Text(
-          '문의는 help@hutureu.app 으로 보내주세요. 목데이터 기준 응답 시간은 평일 24시간 이내입니다.',
-          style: TextStyle(color: AppColors.subtle, fontSize: 14, height: 1.5),
-        ),
       ],
     );
   }

@@ -95,7 +95,11 @@ class _Fixture {
             'linked_providers': <String>[],
           });
         case '/api/v1/users/me/stats':
-          return _json({'saved_count': 42, 'reopened_count': 17});
+          return _json({
+            'saved_count': 42,
+            'reopened_count': 17,
+            'recent_reopened_count': 17,
+          });
         case '/api/v1/metrics/events':
           return _json({});
       }
@@ -569,7 +573,13 @@ void main() {
       expect(fixture.detail.content?.mutationLabel, isNull);
       await fixture.detail.toggleBookmark(fixture.detail.content!);
       expect(writes, 1);
-      stats.complete(_json({'saved_count': 42, 'reopened_count': 17}));
+      stats.complete(
+        _json({
+          'saved_count': 42,
+          'reopened_count': 17,
+          'recent_reopened_count': 17,
+        }),
+      );
       await mutation;
 
       expect(fixture.home.page.items.single.isMutating, isFalse);
