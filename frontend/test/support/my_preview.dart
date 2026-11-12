@@ -1011,7 +1011,6 @@ Future<void> _run() async {
   for (final item in const {
     '알림 설정': 'ReminderSheet',
     '앱 권한': 'PermissionSheet',
-    '문의하기': 'ContactSheet',
   }.entries) {
     await _showTile(item.key, item.value);
   }

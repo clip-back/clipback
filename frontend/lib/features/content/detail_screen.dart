@@ -37,9 +37,9 @@ class _DetailText {
     inherit: false,
     fontFamily: 'Pretendard',
     color: AppColors.text,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: FontWeight.w600,
-    letterSpacing: -0.4,
+    letterSpacing: -0.425,
   );
   static const date = TextStyle(
     inherit: false,
@@ -53,10 +53,10 @@ class _DetailText {
     inherit: false,
     fontFamily: 'Pretendard',
     color: AppColors.text,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: FontWeight.w400,
     height: 1.6,
-    letterSpacing: -0.375,
+    letterSpacing: -0.4,
   );
   static const badge = TextStyle(
     inherit: false,
@@ -401,8 +401,9 @@ class _DetailScreenState extends State<DetailScreen> {
                       const SizedBox(height: 16),
                       InkWell(
                         onTap: _showOriginal,
-                        child: SizedBox(
-                          height: 24,
+                        // Figma height 24; larger text grows the row.
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 24),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 24),
                             child: Row(
