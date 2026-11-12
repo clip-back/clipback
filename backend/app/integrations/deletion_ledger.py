@@ -20,6 +20,7 @@ LEDGER_WRITE_LOCK = 74264002
 IMAGE_CLEANUP_LOCK = 74264001
 EMPTY_DIGEST = "0" * 64
 ACCOUNT_DELETION = "account_deletion"
+OPERATOR_READ_ATTEMPTS = 4
 
 
 class LedgerUnavailableError(Exception):
@@ -123,8 +124,10 @@ class LocalLedgerStore:
 
 class S3LedgerStore:
     def __init__(self, config: DeletionLedgerSettings, *, operator_reads: bool = False):
-        # Backup/retention jobs may wait and retry; API deletion keeps one short attempt (#342).
-        connect_timeout, read_timeout, attempts = (3, 10, 4) if operator_reads else (1, 2, 1)
+        # Backup/retention jobs wait longer and retry request and body together in read();
+        # the SDK itself never retries. API deletion keeps one short attempt (#342).
+        connect_timeout, read_timeout = (3, 10) if operator_reads else (1, 2)
+        self.operator_reads = operator_reads
         self.bucket = config.deletion_ledger_s3_bucket
         self.client = boto3.client(
             "s3",
@@ -136,12 +139,14 @@ class S3LedgerStore:
                 signature_version="s3v4",
                 connect_timeout=connect_timeout,
                 read_timeout=read_timeout,
-                retries={"total_max_attempts": attempts},
+                retries={"total_max_attempts": 1},
                 s3={"addressing_style": config.deletion_ledger_s3_addressing_style},
             ),
         )
 
     def read(self, key: str) -> bytes:
+        if self.operator_reads:
+            return self._read_with_retries(key)
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
             with response["Body"] as stream:
@@ -150,6 +155,24 @@ class S3LedgerStore:
             if exc.response["Error"]["Code"] in {"NoSuchKey", "404", "NotFound"}:
                 raise FileNotFoundError(key) from exc
             raise
+
+    def _read_with_retries(self, key: str) -> bytes:
+        """One attempt is the GET and its whole body; at most OPERATOR_READ_ATTEMPTS in total."""
+        for attempt in range(1, OPERATOR_READ_ATTEMPTS + 1):
+            try:
+                body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
+                try:
+                    # StreamingBody.read reports body timeouts and drops as BotoCoreError.
+                    return body.read()
+                finally:
+                    body.close()
+            except (BotoCoreError, ClientError) as exc:
+                if isinstance(exc, ClientError) and (
+                    exc.response["Error"]["Code"] in {"NoSuchKey", "404", "NotFound"}
+                ):
+                    raise FileNotFoundError(key) from exc
+                if attempt == OPERATOR_READ_ATTEMPTS:
+                    raise
 
     def write(self, key: str, value: bytes) -> None:
         self.client.put_object(
