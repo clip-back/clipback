@@ -30,7 +30,10 @@ from scripts.recovery_point import (
 )
 
 BACKUP_JOB_LOCK = 74264003
-POINT_RETENTION = timedelta(days=7)
+# Hourly maintenance removes a point before it reaches the seven-day limit.
+POINT_RETENTION = timedelta(days=7) - timedelta(hours=1)
+# Reporting a missed deletion keeps the contractual seven-day limit.
+DELETION_DEADLINE = timedelta(days=7)
 # Hourly maintenance gets a full day to retry before the contractual seven-day limit.
 DELETED_COPY_RETENTION = timedelta(days=6)
 
@@ -93,7 +96,7 @@ def maintain_backups(store, ledger, *, now=None):
                 for deleted in content["assets"]
             ):
                 expire = True
-                if now - aware(event["deleted_at"]) >= POINT_RETENTION:
+                if now - aware(event["deleted_at"]) >= DELETION_DEADLINE:
                     overdue.add(event["operation_id"])
         points.append((identifier, manifest, captured, expire))
     retained = [p for p in points if not p[3]]

@@ -186,3 +186,15 @@ def test_operator_default_entrypoint_remains_backup_jobs():
     assert result.returncode == 0, result.stderr
     assert "daily" in result.stdout and "maintain" in result.stdout
     assert "restore-check" in result.stdout
+
+
+def test_api_image_includes_original_deletion_retry_command():
+    """The hourly retry Cron service runs `scripts.image_deletions retry` on the API image."""
+    image = os.environ.get("CLIPBACK_HANDOFF_API_IMAGE", "clipback-backend:check")
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--network", "none", "-e", "APP_ENVIRONMENT=test",
+         "--entrypoint", "python", image, "-m", "scripts.image_deletions", "--help"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "retry" in result.stdout
