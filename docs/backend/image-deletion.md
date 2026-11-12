@@ -99,6 +99,15 @@ python scripts/image_deletions.py retry --limit 100
 한 번의 명령은 최신 독립 기록을 검증하고, DB에 반영되지 않은 삭제 의도를 최대 지정 개수만큼
 반영한 뒤 영속 정리 작업을 최대 지정 개수만큼 시도한다. 결과의 `reconciled`, `attempted`,
 `pending`은 작업 수다. `pending > 0` 또는 작업 실패는 종료 코드 1이며 다음 실행에서 재시도한다.
+
+운영에서는 API 이미지로 만든 별도 Railway Cron 서비스가 매시간 45분에 `python -m scripts.image_deletions retry`를
+실행하고, 종료 코드 1이면 Railway "Deploy Crashed" 메일이 온다. 설정은
+[운영 실행 체크리스트](image-operator-first-run.md#원본-삭제-재시도-서비스)를 따르며, 운영 적용은 병합 뒤 확인하기 전이다.
+`OPERATOR_SOURCE_ID`가 설정돼 있으면 Volume 원본(`local`, 이관된 원본의 Volume 사본 포함)은 `STORAGE_ROOT`의
+`.clipback-source-id`가 그 값과 맞을 때만 지운다. 값이 비었거나 형식이 틀려도 지우지 않는다. Volume이 없는 이 서비스에서는 지우지 않고
+`last_error=original_volume_unavailable`로 남긴다. 이관된 원본은 Bucket 쪽을 먼저 지우므로, 다음 재시도의
+Bucket 삭제는 없는 객체 삭제로 오류 없이 끝난다. 남은 Volume 원본은 API 컨테이너 안에서 같은 명령을 한 번
+실행해 마저 지운다. `OPERATOR_SOURCE_ID`가 없는 로컬 개발·테스트 환경은 확인 없이 지운다.
 계정 탈퇴 기록(아래 계약 절)은 확정된 탈퇴 요청이다. 기록의 계정 번호와 계정 생성 시각이 둘 다 맞는
 계정이 아직 남아 있으면(기록 뒤 DB 삭제 실패) 이 명령이 마저 지우고, 지운 계정 수를 `deleted_accounts`로
 보고한다. 번호만 같고 생성 시각이 다른 계정은 지우지 않는다. 반영한 삭제 의도와 지운 계정을 합쳐

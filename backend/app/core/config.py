@@ -54,6 +54,8 @@ class Settings(DeletionLedgerSettings):
     social_auth_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_root: Path = Path("storage")
     storage_backend: Literal["local", "s3"] = "local"
+    # Set where Volume originals live; cleanup then deletes them only in the identified Volume.
+    operator_source_id: str | None = None
     s3_endpoint_url: str | None = None
     s3_bucket: str | None = None
     s3_region: str = "auto"

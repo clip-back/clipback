@@ -86,19 +86,41 @@ def test_deleted_copies_expire_with_margin_but_live_shared_bytes_survive(stores)
     assert ledger.read_verified_checkpoint()["sequence"] == 1
 
 
-def test_seven_day_boundary_removes_old_points_and_unreferenced_bytes(stores):
+def test_retention_boundary_removes_old_points_and_unreferenced_bytes(stores):
+    """Points leave at seven days minus an hour, so hourly maintenance never keeps them past 7."""
+    from scripts.image_backup_jobs import maintain_backups
+
+    store, ledger = stores
+    now = datetime(2026, 10, 23, tzinfo=UTC)
+    boundary = now - (timedelta(days=7) - timedelta(hours=1))
+    asset = original(store)
+    kept = original(store, "kept.png", 2, b"kept")
+    point(store, "expired", boundary, [asset])
+    point(store, "just-inside", boundary + timedelta(seconds=1), [kept])
+    point(store, "current-empty", now, [])
+    report = maintain_backups(store, ledger, now=now)
+    assert report["passed"] is True
+    assert completed_points(store) == ["current-empty", "just-inside"]
+    assert store.read(kept["backup_key"]) == b"kept"
+    with pytest.raises(FileNotFoundError):
+        store.read(asset["backup_key"])
+
+
+def test_copy_removed_before_seven_days_is_not_reported_overdue(stores):
+    """Only point retention is shortened; the missed-deletion report keeps seven days."""
     from scripts.image_backup_jobs import maintain_backups
 
     store, ledger = stores
     now = datetime(2026, 10, 23, tzinfo=UTC)
     asset = original(store)
-    point(store, "expired", now - timedelta(days=7), [asset])
-    point(store, "current-empty", now, [])
+    point(store, "before", now - timedelta(days=6, hours=23, minutes=45), [asset])
+    point(store, "current", now, [])
+    deleted(ledger, asset, now - timedelta(days=6, hours=23, minutes=30))
     report = maintain_backups(store, ledger, now=now)
     assert report["passed"] is True
-    assert completed_points(store) == ["current-empty"]
-    with pytest.raises(FileNotFoundError):
-        store.read(asset["backup_key"])
+    assert report["retention_overdue"] == 0
+    assert completed_points(store) == ["current"]
+    assert store.list_objects("originals/") == []
 
 
 def test_restore_refuses_missing_regressed_or_different_live_ledger(stores):
@@ -304,7 +326,7 @@ def test_account_deletion_original_past_seven_days_is_reported_overdue(stores):
     assert report["retention_overdue"] == 1
 
 
-def test_original_missing_from_account_record_leaves_with_seven_day_retention(stores):
+def test_original_missing_from_account_record_leaves_with_point_retention(stores):
     """An image saved between the record and a retried DB deletion is not in the record."""
     from scripts.image_backup_jobs import maintain_backups
 
@@ -312,7 +334,7 @@ def test_original_missing_from_account_record_leaves_with_seven_day_retention(st
     now = datetime(2026, 10, 23, tzinfo=UTC)
     listed = original(store, "listed.png", 1, b"listed")
     added = original(store, "added.png", 2, b"added")
-    captured = now - timedelta(days=6, hours=23)
+    captured = now - timedelta(days=6, hours=22)
     point(store, "with-added", captured, [added])
     point(store, "current", now, [])
     account_deleted(ledger, [listed], now - timedelta(days=6, hours=12))
