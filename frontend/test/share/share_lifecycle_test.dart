@@ -85,8 +85,16 @@ void main() {
         };
       } else if (path.endsWith('/stats')) {
         body = ++statsReads == 1
-            ? {'saved_count': 0, 'reopened_count': 0}
-            : {'saved_count': 7, 'reopened_count': 3};
+            ? {
+                'saved_count': 0,
+                'reopened_count': 0,
+                'recent_reopened_count': 0,
+              }
+            : {
+                'saved_count': 7,
+                'reopened_count': 3,
+                'recent_reopened_count': 3,
+              };
       } else {
         throw StateError('Unexpected request: $path');
       }
@@ -193,7 +201,11 @@ void main() {
           'linked_providers': <String>[],
         };
       } else if (path.endsWith('/stats')) {
-        body = {'saved_count': 0, 'reopened_count': 0};
+        body = {
+          'saved_count': 0,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        };
       } else {
         throw StateError('Unexpected request: $path');
       }

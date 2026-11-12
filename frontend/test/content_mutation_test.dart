@@ -172,7 +172,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case '/api/v1/users/me/stats':
-        return _json({'saved_count': 999, 'reopened_count': 0});
+        return _json({
+          'saved_count': 999,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       case '/api/v1/auth/refresh':
       case '/api/v1/auth/guest':
         final guest = request.url.path.endsWith('/guest');
@@ -460,7 +464,11 @@ void main() {
         respond: (request, _) {
           if (request.url.path != '/api/v1/users/me/stats') return null;
           return switch (++statsReads) {
-            1 => _json({'saved_count': 218, 'reopened_count': 72}),
+            1 => _json({
+              'saved_count': 218,
+              'reopened_count': 72,
+              'recent_reopened_count': 72,
+            }),
             2 => _failure('503'),
             _ => pending.future,
           };
@@ -494,7 +502,13 @@ void main() {
         expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
         expect(find.text('218'), findsOneWidget);
         expect(find.text('72'), findsOneWidget);
-        pending.complete(_json({'saved_count': 1, 'reopened_count': 1}));
+        pending.complete(
+          _json({
+            'saved_count': 1,
+            'reopened_count': 1,
+            'recent_reopened_count': 1,
+          }),
+        );
         await tester.pumpAndSettle();
       });
     });
@@ -512,7 +526,11 @@ void main() {
       respond: (request, _) {
         if (request.url.path != '/api/v1/users/me/stats') return null;
         return switch (++statsReads) {
-          1 => _json({'saved_count': 218, 'reopened_count': 72}),
+          1 => _json({
+            'saved_count': 218,
+            'reopened_count': 72,
+            'recent_reopened_count': 72,
+          }),
           2 => _failure('503'),
           _ => pending.future,
         };
@@ -535,7 +553,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       final unintendedSheet = find.byType(ReminderSheet).evaluate().isNotEmpty;
       expect(server.calls('/api/v1/users/me/stats'), hasLength(3));
-      pending.complete(_json({'saved_count': 320, 'reopened_count': 89}));
+      pending.complete(
+        _json({
+          'saved_count': 320,
+          'reopened_count': 89,
+          'recent_reopened_count': 89,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(unintendedSheet, isFalse);
       expect(find.byType(ReminderSheet), findsNothing);
@@ -586,6 +610,7 @@ void main() {
           return _json({
             'saved_count': 70,
             'reopened_count': ++statsReads == 1 ? 30 : 31,
+            'recent_reopened_count': statsReads == 1 ? 30 : 31,
           });
         }
         return null;
@@ -631,7 +656,13 @@ void main() {
       expect(find.text('—'), findsNWidgets(2));
       expect(find.text('999'), findsNothing);
       expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
-      pending.complete(_json({'saved_count': 77, 'reopened_count': 3}));
+      pending.complete(
+        _json({
+          'saved_count': 77,
+          'reopened_count': 3,
+          'recent_reopened_count': 3,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('77'), findsOneWidget);
       expect(find.text('3'), findsOneWidget);
@@ -646,7 +677,11 @@ void main() {
       respond: (request, _) {
         if (request.url.path != '/api/v1/users/me/stats') return null;
         return switch (++statsReads) {
-          1 => _json({'saved_count': 0, 'reopened_count': 0}),
+          1 => _json({
+            'saved_count': 0,
+            'reopened_count': 0,
+            'recent_reopened_count': 0,
+          }),
           2 => pending.future,
           _ => recovered.future,
         };
@@ -669,9 +704,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 9999));
       expect(find.text('0'), findsNWidgets(2));
       expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
-      recovered.complete(_json({'saved_count': 23, 'reopened_count': 9}));
+      recovered.complete(
+        _json({
+          'saved_count': 23,
+          'reopened_count': 9,
+          'recent_reopened_count': 9,
+        }),
+      );
       await tester.pumpAndSettle();
-      pending.complete(_json({'saved_count': 9999, 'reopened_count': 9999}));
+      pending.complete(
+        _json({
+          'saved_count': 9999,
+          'reopened_count': 9999,
+          'recent_reopened_count': 9999,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('23'), findsOneWidget);
       expect(find.text('9'), findsOneWidget);
@@ -691,7 +738,11 @@ void main() {
       respond: (request, _) {
         if (request.url.path == '/api/v1/users/me/stats') {
           return switch (++statsReads) {
-            1 => _json({'saved_count': 70, 'reopened_count': 30}),
+            1 => _json({
+              'saved_count': 70,
+              'reopened_count': 30,
+              'recent_reopened_count': 30,
+            }),
             2 => oldStats.future,
             _ => _failure('503'),
           };
@@ -715,7 +766,13 @@ void main() {
       final retained = tester.widget<MyScreen>(find.byType(MyScreen)).user;
       holdFeed = false;
       newFeed.complete(_failure('503'));
-      oldStats.complete(_json({'saved_count': 1, 'reopened_count': 1}));
+      oldStats.complete(
+        _json({
+          'saved_count': 1,
+          'reopened_count': 1,
+          'recent_reopened_count': 1,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(ended, isTrue);
       expect(retained.savedContentCount, 70);
@@ -780,9 +837,17 @@ void main() {
           }
           if (request.url.path == '/api/v1/users/me/stats') {
             return switch (++statsReads) {
-              1 => _json({'saved_count': 70, 'reopened_count': 30}),
+              1 => _json({
+                'saved_count': 70,
+                'reopened_count': 30,
+                'recent_reopened_count': 30,
+              }),
               2 => oldStats.future,
-              _ => _json({'saved_count': 210, 'reopened_count': 100}),
+              _ => _json({
+                'saved_count': 210,
+                'reopened_count': 100,
+                'recent_reopened_count': 100,
+              }),
             };
           }
           if (request.url.path == _feed && holdFeed) return newFeed.future;
@@ -839,7 +904,11 @@ void main() {
       respond: (request, _) {
         if (request.url.path != '/api/v1/users/me/stats') return null;
         return switch (++statsReads) {
-          1 => _json({'saved_count': 70, 'reopened_count': 30}),
+          1 => _json({
+            'saved_count': 70,
+            'reopened_count': 30,
+            'recent_reopened_count': 30,
+          }),
           2 => pending.future,
           _ => recovered.future,
         };
@@ -870,7 +939,13 @@ void main() {
       expect(find.text('30'), findsOneWidget);
       expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
       expect(find.text('다시 시도'), findsNothing);
-      recovered.complete(_json({'saved_count': 100, 'reopened_count': 40}));
+      recovered.complete(
+        _json({
+          'saved_count': 100,
+          'reopened_count': 40,
+          'recent_reopened_count': 40,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('100'), findsOneWidget);
       expect(find.text('40'), findsOneWidget);
@@ -2488,6 +2563,7 @@ void main() {
             return _json({
               'saved_count': server.records.length,
               'reopened_count': 0,
+              'recent_reopened_count': 0,
             });
           }
           return null;
@@ -2513,7 +2589,13 @@ void main() {
           tester.widget<MyScreen>(find.byType(MyScreen)).user.savedContentCount,
           2,
         );
-        stats.complete(_json({'saved_count': 3, 'reopened_count': 0}));
+        stats.complete(
+          _json({
+            'saved_count': 3,
+            'reopened_count': 0,
+            'recent_reopened_count': 0,
+          }),
+        );
         await tester.pumpAndSettle();
         expect(
           tester.widget<MyScreen>(find.byType(MyScreen)).user.savedContentCount,

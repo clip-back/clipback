@@ -6,7 +6,10 @@ import pytest
 
 from app.core.exceptions import AuthenticationError
 from app.models.social_identity import SocialProvider
+from app.services import user_service
 from app.services.user_service import UserService
+
+NOW = datetime(2026, 11, 12, 3, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -54,12 +57,17 @@ async def test_missing_user_is_authentication_error() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("counts", [(0, 0), (1, 3)])
-async def test_stats_preserves_cumulative_counts_and_user_scope(counts) -> None:
+@pytest.mark.parametrize("counts", [(0, 0, 0), (1, 3, 1)])
+async def test_stats_preserves_cumulative_counts_and_user_scope(counts, monkeypatch) -> None:
+    monkeypatch.setattr(user_service, "utc_now", lambda: NOW)
     events = AsyncMock()
-    events.read_user_stats.return_value = {"saved_count": counts[0], "reopened_count": counts[1]}
+    events.read_user_stats.return_value = {
+        "saved_count": counts[0],
+        "reopened_count": counts[1],
+        "recent_reopened_count": counts[2],
+    }
 
     result = await UserService(AsyncMock(), AsyncMock(), events).read_stats(user_id=7)
 
     assert result.model_dump() == events.read_user_stats.return_value
-    events.read_user_stats.assert_awaited_once_with(user_id=7)
+    events.read_user_stats.assert_awaited_once_with(user_id=7, now=NOW)

@@ -82,6 +82,7 @@ async def test_complete_flow(api, worker, shared, database_connection, external_
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     page = await request(api, "GET", "feed", headers=headers)
     assert page["items"][0]["summary_status"] == "completed"
@@ -162,6 +163,7 @@ async def test_content_deleted_during_processing(api, worker, database_connectio
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
 
 

@@ -187,7 +187,11 @@ class LoginServer {
           'created_at': '2026-10-18T00:00:00Z',
         });
       case '/api/v1/users/me/stats':
-        return json({'saved_count': 0, 'reopened_count': 0});
+        return json({
+          'saved_count': 0,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       case '/api/v1/categories':
         return json(<Object>[]);
       case '/api/v1/feed':

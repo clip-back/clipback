@@ -167,7 +167,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case _stats:
-        return _json({'saved_count': 1, 'reopened_count': 0});
+        return _json({
+          'saved_count': 1,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       default:
         throw StateError(
           'Unexpected request: ${request.method} ${request.url}',
@@ -701,7 +705,11 @@ void main() {
     var attempts = 0;
     final server = _Server(
       respond: (request) async => request.url.path == _stats
-          ? _json({'saved_count': ++attempts, 'reopened_count': 0})
+          ? _json({
+              'saved_count': ++attempts,
+              'reopened_count': 0,
+              'recent_reopened_count': 0,
+            })
           : null,
     );
     await _runApp(tester, server, (storage) async {
@@ -789,8 +797,20 @@ void main() {
       tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
       await tester.pump();
       expect(server.calls(_stats), hasLength(2));
-      pending.complete(_json({'saved_count': 90, 'reopened_count': 60}));
-      retry.complete(_json({'saved_count': 8, 'reopened_count': 4}));
+      pending.complete(
+        _json({
+          'saved_count': 90,
+          'reopened_count': 60,
+          'recent_reopened_count': 60,
+        }),
+      );
+      retry.complete(
+        _json({
+          'saved_count': 8,
+          'reopened_count': 4,
+          'recent_reopened_count': 4,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('8'), findsOneWidget);
       expect(find.text('4'), findsOneWidget);
@@ -811,7 +831,11 @@ void main() {
         return switch (++attempts) {
           2 => away.future,
           3 => returned.future,
-          _ => _json({'saved_count': attempts, 'reopened_count': 0}),
+          _ => _json({
+            'saved_count': attempts,
+            'reopened_count': 0,
+            'recent_reopened_count': 0,
+          }),
         };
       },
     );
@@ -821,7 +845,13 @@ void main() {
       expect(server.calls(_stats), hasLength(2));
       tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
       await tester.pumpAndSettle();
-      away.complete(_json({'saved_count': 12, 'reopened_count': 6}));
+      away.complete(
+        _json({
+          'saved_count': 12,
+          'reopened_count': 6,
+          'recent_reopened_count': 6,
+        }),
+      );
       await tester.pumpAndSettle();
       _expectLoaded(tester);
       expect(server.calls(_stats), hasLength(2));
@@ -837,7 +867,13 @@ void main() {
           .onBack();
       await tester.pump();
       expect(server.calls(_stats), hasLength(3));
-      returned.complete(_json({'saved_count': 13, 'reopened_count': 7}));
+      returned.complete(
+        _json({
+          'saved_count': 13,
+          'reopened_count': 7,
+          'recent_reopened_count': 7,
+        }),
+      );
       await tester.pumpAndSettle();
       expect(find.text('13'), findsOneWidget);
       expect(find.text('7'), findsOneWidget);
@@ -924,7 +960,13 @@ void main() {
         expect(find.text('다시 시도'), findsNothing);
         expect(server.calls(_stats), hasLength(3));
         expect(server.calls(_me), hasLength(profileRequests));
-        retried.complete(_json({'saved_count': 0, 'reopened_count': 0}));
+        retried.complete(
+          _json({
+            'saved_count': 0,
+            'reopened_count': 0,
+            'recent_reopened_count': 0,
+          }),
+        );
         await tester.pumpAndSettle();
         expect(find.text('0'), findsNWidgets(2));
         expect(find.text('—'), findsNothing);
@@ -936,6 +978,105 @@ void main() {
       });
     });
   }
+
+  testWidgets('마이 통계 오른쪽 칸은 누적 열람 수가 아니라 최근 다시 본 콘텐츠 수를 보인다', (tester) async {
+    final server = _Server(
+      respond: (request) async => request.url.path == _stats
+          ? _json({
+              'saved_count': 150,
+              'reopened_count': 231,
+              'recent_reopened_count': 12,
+            })
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('최근 다시 본 콘텐츠'), findsOneWidget);
+      expect(find.text('다시 본 콘텐츠'), findsNothing);
+      expect(find.text('150'), findsOneWidget);
+      expect(find.text('12'), findsOneWidget);
+      expect(find.text('231'), findsNothing);
+      expect(find.text('통계를 불러오지 못했어요'), findsNothing);
+    });
+  });
+
+  testWidgets('옛 서버 통계 응답은 누적 열람 수 대신 최초 마이 통계 실패를 보인다', (tester) async {
+    final server = _Server(
+      respond: (request) async => request.url.path == _stats
+          ? _json({'saved_count': 150, 'reopened_count': 231})
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      _expectLoaded(tester);
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('최근 다시 본 콘텐츠'), findsOneWidget);
+      expect(find.text('—'), findsNWidgets(2));
+      expect(find.text('통계를 불러오지 못했어요'), findsOneWidget);
+      expect(find.text('다시 시도'), findsOneWidget);
+      expect(find.text('150'), findsNothing);
+      expect(find.text('231'), findsNothing);
+      expect(storage.clears, 0);
+      expect(server.calls(_guest), isEmpty);
+    });
+  });
+
+  testWidgets('마이에 머문 채 앱 복귀는 통계를 새로 조회하지 않고 숫자를 유지한다', (tester) async {
+    final server = _Server(
+      respond: (request) async => request.url.path == _stats
+          ? _json({
+              'saved_count': 40,
+              'reopened_count': 9,
+              'recent_reopened_count': 3,
+            })
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      final requests = server.calls(_stats).length;
+      expect(find.text('3'), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 30));
+      expect(server.calls(_stats), hasLength(requests));
+      expect(find.byType(MyScreen), findsOneWidget);
+      expect(find.text('40'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+    });
+  });
+
+  testWidgets('다른 화면에서 마이로 다시 들어오면 한 번 새로 조회해 줄어든 최근 다시 본 수를 보인다', (
+    tester,
+  ) async {
+    var recent = 3;
+    final server = _Server(
+      respond: (request) async => request.url.path == _stats
+          ? _json({
+              'saved_count': 40,
+              'reopened_count': 9,
+              'recent_reopened_count': recent,
+            })
+          : null,
+    );
+    await _runApp(tester, server, (storage) async {
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(find.text('3'), findsOneWidget);
+      tester.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+      await tester.pumpAndSettle();
+      final requests = server.calls(_stats).length;
+      recent = 2;
+      tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      expect(server.calls(_stats), hasLength(requests + 1));
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('3'), findsNothing);
+      expect(find.text('40'), findsOneWidget);
+    });
+  });
 
   for (final completeRefresh in [false, true]) {
     testWidgets(
@@ -996,7 +1137,13 @@ void main() {
           await tester.pump(const Duration(milliseconds: 300));
           await tester.pump(const Duration(milliseconds: 9999));
           expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
-          recovered.complete(_json({'saved_count': 8, 'reopened_count': 4}));
+          recovered.complete(
+            _json({
+              'saved_count': 8,
+              'reopened_count': 4,
+              'recent_reopened_count': 4,
+            }),
+          );
           await tester.pumpAndSettle();
           expect(find.text('8'), findsOneWidget);
           expect(find.text('4'), findsOneWidget);
@@ -1015,7 +1162,11 @@ void main() {
       respond: (request) async {
         if (request.url.path == _stats) {
           return ++attempts == 1
-              ? _json({'saved_count': 81, 'reopened_count': 22})
+              ? _json({
+                  'saved_count': 81,
+                  'reopened_count': 22,
+                  'recent_reopened_count': 22,
+                })
               : pending.future;
         }
         if (request.url.path == '/api/v1/auth/logout') {
@@ -1087,7 +1238,11 @@ void main() {
           if (request.url.path == _refresh) return refresh.future;
           if (request.url.path == _stats) {
             return ++attempts == 1
-                ? _json({'saved_count': 81, 'reopened_count': 22})
+                ? _json({
+                    'saved_count': 81,
+                    'reopened_count': 22,
+                    'recent_reopened_count': 22,
+                  })
                 : _failure('401');
           }
           return null;
@@ -1128,9 +1283,17 @@ void main() {
         if (request.url.path == _refresh) return refresh.future;
         if (request.url.path == _stats) {
           return ++attempts == 1
-              ? _json({'saved_count': 81, 'reopened_count': 22})
+              ? _json({
+                  'saved_count': 81,
+                  'reopened_count': 22,
+                  'recent_reopened_count': 22,
+                })
               : request.headers['Authorization'] == 'Bearer shared-access'
-              ? _json({'saved_count': 95, 'reopened_count': 26})
+              ? _json({
+                  'saved_count': 95,
+                  'reopened_count': 26,
+                  'recent_reopened_count': 26,
+                })
               : unauthorized.future;
         }
         if (request.url.path == _feed &&
@@ -1193,7 +1356,11 @@ void main() {
             if (request.url.path == _stats &&
                 request.headers['Authorization'] != 'Bearer guest-access') {
               return switch (++attempts) {
-                1 => _json({'saved_count': 81, 'reopened_count': 22}),
+                1 => _json({
+                  'saved_count': 81,
+                  'reopened_count': 22,
+                  'recent_reopened_count': 22,
+                }),
                 2 => _failure('503'),
                 3 => unauthorized.future,
                 _ => _failure('401'),
@@ -1250,7 +1417,11 @@ void main() {
       respond: (request) async {
         if (request.url.path == _me) return profile.future;
         if (request.url.path == _stats) {
-          return _json({'saved_count': 9, 'reopened_count': 3});
+          return _json({
+            'saved_count': 9,
+            'reopened_count': 3,
+            'recent_reopened_count': 3,
+          });
         }
         return null;
       },
@@ -1298,7 +1469,13 @@ void main() {
           expect(find.text('통계를 불러오는 중이에요'), findsOneWidget);
         }
         metadata.complete(
-          path == _me ? null : _json({'saved_count': 9, 'reopened_count': 3}),
+          path == _me
+              ? null
+              : _json({
+                  'saved_count': 9,
+                  'reopened_count': 3,
+                  'recent_reopened_count': 3,
+                }),
         );
         await tester.pumpAndSettle();
         final after = tester.widget<MyScreen>(find.byType(MyScreen)).user;
@@ -1365,7 +1542,11 @@ void main() {
             if (bootstrapPath == _stats && ++statsReads == 1) {
               return bootstrapResponse.future;
             }
-            return _json({'saved_count': 9, 'reopened_count': 3});
+            return _json({
+              'saved_count': 9,
+              'reopened_count': 3,
+              'recent_reopened_count': 3,
+            });
           }
           if (request.url.path == '/api/v1/contents/7/favorite') {
             changed = true;
@@ -1424,7 +1605,11 @@ void main() {
                     'created_at': '2026-10-05T00:00:00Z',
                     'linked_providers': <String>[],
                   }
-                : {'saved_count': 1, 'reopened_count': 0},
+                : {
+                    'saved_count': 1,
+                    'reopened_count': 0,
+                    'recent_reopened_count': 0,
+                  },
           ),
         );
         await tester.pumpAndSettle();

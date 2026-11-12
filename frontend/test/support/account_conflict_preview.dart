@@ -78,7 +78,11 @@ class ConflictServer extends login.LoginServer {
       return this.json({'detail': '계정 전환 대역 실패'}, 503);
     }
     if (path == '/api/v1/users/me/stats') {
-      return this.json({'saved_count': 17, 'reopened_count': 29});
+      return this.json({
+        'saved_count': 17,
+        'reopened_count': 29,
+        'recent_reopened_count': 29,
+      });
     }
     if (path == '/api/v1/feed') {
       return this.json({'items': records, 'next_cursor': null});

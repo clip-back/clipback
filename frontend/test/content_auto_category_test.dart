@@ -165,6 +165,7 @@ class _Server {
         response = _json({
           'saved_count': saved == null ? 0 : 1,
           'reopened_count': 0,
+          'recent_reopened_count': 0,
         });
       case '/api/v1/contents/7':
         response = _json(saved!);

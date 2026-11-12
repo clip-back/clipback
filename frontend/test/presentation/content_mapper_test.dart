@@ -217,7 +217,7 @@ void main() {
           createdAt: DateTime.utc(2026, 1, 2),
           linkedProviders: providers,
         ),
-        const ApiUserStats(savedCount: 42, reopenedCount: 17),
+        const ApiUserStats(savedCount: 42, recentReopenedCount: 17),
       );
 
       expect(user.name, '사용자');

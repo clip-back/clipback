@@ -242,7 +242,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case '/api/v1/users/me/stats':
-        return _json({'saved_count': 999, 'reopened_count': 0});
+        return _json({
+          'saved_count': 999,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       case '/api/v1/auth/refresh':
       case '/api/v1/auth/guest':
         final guest = request.url.path.endsWith('/guest');

@@ -10,6 +10,9 @@ from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
+from app.services import user_service
+
+NOW = datetime(2026, 11, 12, 3, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -25,7 +28,10 @@ def repositories(monkeypatch):
     )
     sessions = AsyncMock(return_value=SimpleNamespace(id=3, user_id=7))
     providers = AsyncMock(return_value=[SocialProvider.GOOGLE, SocialProvider.KAKAO])
-    stats = AsyncMock(return_value={"saved_count": 1, "reopened_count": 3})
+    stats = AsyncMock(
+        return_value={"saved_count": 1, "reopened_count": 3, "recent_reopened_count": 1}
+    )
+    monkeypatch.setattr(user_service, "utc_now", lambda: NOW)
     monkeypatch.setattr(UserRepository, "get", users)
     monkeypatch.setattr(AuthSessionRepository, "get_active", sessions)
     monkeypatch.setattr(SocialIdentityRepository, "list_providers", providers)
@@ -52,15 +58,19 @@ def test_account_response(client, repositories) -> None:
     repositories.providers.assert_awaited_once_with(user_id=7)
 
 
-@pytest.mark.parametrize("counts", [(0, 0), (1, 3)])
+@pytest.mark.parametrize("counts", [(0, 0, 0), (1, 3, 1)])
 def test_stats_response_and_user_scope(client, repositories, counts) -> None:
-    repositories.stats.return_value = {"saved_count": counts[0], "reopened_count": counts[1]}
+    repositories.stats.return_value = {
+        "saved_count": counts[0],
+        "reopened_count": counts[1],
+        "recent_reopened_count": counts[2],
+    }
 
     response = client.get("/api/v1/users/me/stats", headers=headers())
 
     assert response.status_code == 200
     assert response.json() == repositories.stats.return_value
-    repositories.stats.assert_awaited_once_with(user_id=7)
+    repositories.stats.assert_awaited_once_with(user_id=7, now=NOW)
 
 
 @pytest.mark.parametrize("path", ["/api/v1/users/me", "/api/v1/users/me/stats"])
@@ -96,7 +106,11 @@ def test_user_openapi_contract(client) -> None:
         "created_at",
         "linked_providers",
     }
-    assert set(schemas["UserStatsRead"]["required"]) == {"saved_count", "reopened_count"}
+    assert set(schemas["UserStatsRead"]["required"]) == {
+        "saved_count",
+        "reopened_count",
+        "recent_reopened_count",
+    }
     response = specification["paths"]["/api/v1/users/me/stats"]["get"]["responses"]["200"]
     assert response["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/UserStatsRead",

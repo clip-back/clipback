@@ -185,7 +185,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case '/api/v1/users/me/stats':
-        return _json({'saved_count': 0, 'reopened_count': 0});
+        return _json({
+          'saved_count': 0,
+          'reopened_count': 0,
+          'recent_reopened_count': 0,
+        });
       default:
         throw StateError(
           'Unexpected request: ${request.method} ${request.url}',

@@ -326,14 +326,17 @@ class ApiUser {
 }
 
 class ApiUserStats {
-  const ApiUserStats({required this.savedCount, required this.reopenedCount});
+  const ApiUserStats({
+    required this.savedCount,
+    required this.recentReopenedCount,
+  });
 
   final int savedCount;
-  final int reopenedCount;
+  final int recentReopenedCount;
 
   factory ApiUserStats.fromJson(Map<String, dynamic> json) => ApiUserStats(
     savedCount: json['saved_count'] as int,
-    reopenedCount: json['reopened_count'] as int,
+    recentReopenedCount: json['recent_reopened_count'] as int,
   );
 }
 
