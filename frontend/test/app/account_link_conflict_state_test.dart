@@ -175,6 +175,7 @@ class _Fixture {
         return _json({
           'saved_count': isGuest ? 73 : 21,
           'reopened_count': isGuest ? 201 : 55,
+          'recent_reopened_count': isGuest ? 201 : 55,
         });
       }
       throw StateError('Unexpected fixture request: $path');
@@ -246,7 +247,7 @@ class _Fixture {
     expect(storage.value?.accessToken, _guest.accessToken);
     expect(content.feed(FeedKey.home).items.map((c) => c.id), [7]);
     expect(users.stats?.savedCount, 73);
-    expect(users.stats?.reopenedCount, 201);
+    expect(users.stats?.recentReopenedCount, 201);
     expect(app.authenticatedUser?.isGuest, isTrue);
   }
 

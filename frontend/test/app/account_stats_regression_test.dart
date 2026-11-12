@@ -77,7 +77,11 @@ void main() {
           }
           if (request.url.path.endsWith('/stats')) {
             statsRequests++;
-            return _json({'saved_count': 70, 'reopened_count': 30});
+            return _json({
+              'saved_count': 70,
+              'reopened_count': 30,
+              'recent_reopened_count': 30,
+            });
           }
           if (request.url.path.endsWith('/users/me')) {
             profileRequests++;

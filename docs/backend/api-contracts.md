@@ -66,7 +66,7 @@
 | `POST` | `/api/v1/auth/social/{provider}` | 소셜 가입·로그인 | 구현 |
 | `POST` | `/api/v1/auth/social/{provider}/upgrade` | 게스트 데이터 유지 소셜 전환 | 구현 |
 | `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자 조회 | 구현 |
-| `GET` | `/api/v1/users/me/stats` | 이벤트 기준 누적 저장·열람 횟수, 콘텐츠 삭제 후에도 유지 | 구현 |
+| `GET` | `/api/v1/users/me/stats` | 이벤트 기준 누적 저장·열람 횟수(삭제 후에도 유지)와 최근 7×24시간 다시 본 보관 중 콘텐츠 수 | 구현 |
 | `DELETE` | `/api/v1/users/me` | 회원 탈퇴: 계정과 그 계정의 서비스 데이터 즉시 삭제, 탈퇴 사유 기록 | 구현 |
 | `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
 | `GET` | `/api/v1/categories/recent` | 내 콘텐츠 저장순 최근 카테고리, 미분류·빈 카테고리 제외 | 구현 |
@@ -325,19 +325,29 @@ frontend formats the displayed date. `linked_providers` contains only provider n
 Provider subjects and authentication tokens are never included; this endpoint reads
 the database without contacting social providers.
 
-`GET /api/v1/users/me/stats` uses the same authentication and returns lifetime event counts:
+`GET /api/v1/users/me/stats` uses the same authentication and returns lifetime event counts
+plus the recent reopened content count:
 
 ```json
 {
   "saved_count": 218,
-  "reopened_count": 72
+  "reopened_count": 72,
+  "recent_reopened_count": 9
 }
 ```
 
 - `saved_count` counts the current user's recorded `content_created` events.
 - `reopened_count` counts their recorded `content_reopened` events, including repeat
-  views of the same content. It can exceed the save count.
-- Deleting content preserves these counts: its events remain with a null `content_id`.
+  views of the same content. It can exceed the save count. It is kept unchanged for
+  already released apps (0.5.2 and earlier); current apps do not read it
+  ([ADR 0012](../adr/0012-my-stats-recent-reopened-count.md)).
+- `recent_reopened_count` counts distinct contents among the current user's
+  `content_reopened` events whose content still exists and whose event time is at or after
+  the server's request time (UTC) minus 7×24 hours (the boundary counts). Repeat views of
+  the same content count once, deleted contents drop out, and other accounts and event
+  types never count. The window is fixed by the server; there is no request parameter.
+- Deleting content preserves `saved_count` and `reopened_count`: its events remain with a
+  null `content_id`.
 - No recorded events returns `0` for both fields. Other event types do not count.
 - Reading content detail does not record a view. A successful
   `POST /api/v1/contents/{id}/view` records one. Requests with the same client event
@@ -345,9 +355,9 @@ the database without contacting social providers.
 - Historical content without recorded events is not backfilled or estimated. There
   are no period, category, favorite, or pagination parameters.
 
-Frontend integration should label these values **누적 저장 / 누적 열람**. They are event
-counts, not counts of distinct or currently retained content. Reading either My Page
-endpoint does not create events.
+The current app labels `saved_count` / `recent_reopened_count` as **저장한 콘텐츠 / 최근 다시 본
+콘텐츠**. `saved_count` and `reopened_count` are event counts, not counts of distinct or
+currently retained content. Reading either My Page endpoint does not create events.
 
 Existing guest accounts and authentication endpoints remain supported. Social-only
 sign-up is a separate follow-up; this change does not remove guest data or require a

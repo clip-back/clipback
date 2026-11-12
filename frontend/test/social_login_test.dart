@@ -151,6 +151,7 @@ class _Server {
       '/api/v1/users/me/stats' => _json({
         'saved_count': 0,
         'reopened_count': 0,
+        'recent_reopened_count': 0,
       }),
       _ => throw StateError('Unexpected ${request.method} $path'),
     };
@@ -356,14 +357,22 @@ void main() {
           if (!request.url.path.endsWith('/stats')) return null;
           if (request.headers['Authorization'] == 'Bearer guest-access') {
             return switch (++guestStats) {
-              1 => _json({'saved_count': 81, 'reopened_count': 22}),
+              1 => _json({
+                'saved_count': 81,
+                'reopened_count': 22,
+                'recent_reopened_count': 22,
+              }),
               2 => _json({'detail': 'temporary failure'}, 503),
               _ => oldStats.future,
             };
           }
           return ++memberStats == 2
               ? _json({'detail': 'temporary failure'}, 503)
-              : _json({'saved_count': 5, 'reopened_count': 2});
+              : _json({
+                  'saved_count': 5,
+                  'reopened_count': 2,
+                  'recent_reopened_count': 2,
+                });
         };
       final storage = _Storage();
       await _app(
@@ -407,7 +416,11 @@ void main() {
           expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsOneWidget);
           oldStats.complete(
             lateStatus == 200
-                ? _json({'saved_count': 999, 'reopened_count': 999})
+                ? _json({
+                    'saved_count': 999,
+                    'reopened_count': 999,
+                    'recent_reopened_count': 999,
+                  })
                 : _json({'detail': 'old account response'}, lateStatus),
           );
           await tester.pumpAndSettle();
@@ -446,7 +459,11 @@ void main() {
           ..respond = (request) async {
             if (request.url.path.endsWith('/stats')) {
               return ++statsReads == 1
-                  ? _json({'saved_count': 81, 'reopened_count': 22})
+                  ? _json({
+                      'saved_count': 81,
+                      'reopened_count': 22,
+                      'recent_reopened_count': 22,
+                    })
                   : pending.future;
             }
             if (request.url.path.endsWith('/upgrade')) {
@@ -484,7 +501,13 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
           expect(statsReads, 2);
-          pending.complete(_json({'saved_count': 90, 'reopened_count': 27}));
+          pending.complete(
+            _json({
+              'saved_count': 90,
+              'reopened_count': 27,
+              'recent_reopened_count': 27,
+            }),
+          );
           await tester.pumpAndSettle();
           expect(find.text('90'), findsOneWidget);
           expect(find.text('27'), findsOneWidget);
@@ -514,10 +537,18 @@ void main() {
           if (!request.url.path.endsWith('/stats')) return null;
           if (request.headers['Authorization'] == 'Bearer guest-access') {
             return ++guestStats == 1
-                ? _json({'saved_count': 81, 'reopened_count': 22})
+                ? _json({
+                    'saved_count': 81,
+                    'reopened_count': 22,
+                    'recent_reopened_count': 22,
+                  })
                 : _json({'detail': 'old access expired'}, 401);
           }
-          return _json({'saved_count': 5, 'reopened_count': 2});
+          return _json({
+            'saved_count': 5,
+            'reopened_count': 2,
+            'recent_reopened_count': 2,
+          });
         };
       final storage = _Storage();
       await _app(
@@ -768,7 +799,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 900));
         await tester.pumpAndSettle();
         expect(find.byType(HomeScreen), findsOneWidget);
-        oldStats.complete(_json({'saved_count': 999, 'reopened_count': 999}));
+        oldStats.complete(
+          _json({
+            'saved_count': 999,
+            'reopened_count': 999,
+            'recent_reopened_count': 999,
+          }),
+        );
         oldCheck.complete(AppleCredentialStatus.notFound);
         await tester.pumpAndSettle();
         tester.widget<HomeScreen>(find.byType(HomeScreen)).onTab(AppRoute.my);

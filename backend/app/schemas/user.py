@@ -18,6 +18,7 @@ class UserRead(BaseModel):
 class UserStatsRead(BaseModel):
     saved_count: int
     reopened_count: int
+    recent_reopened_count: int
 
 
 AccountDeletionReasonValue = Literal["rejoin", "low_usage", "privacy_security", "other"]

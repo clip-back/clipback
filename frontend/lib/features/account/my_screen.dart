@@ -446,7 +446,7 @@ class MyStatsStrip extends StatelessWidget {
                     children: [
                       _metricText('저장한 콘텐츠', _MyText.metricLabel),
                       const SizedBox.shrink(),
-                      _metricText('다시 본 콘텐츠', _MyText.metricLabel),
+                      _metricText('최근 다시 본 콘텐츠', _MyText.metricLabel),
                     ],
                   ),
                   const TableRow(

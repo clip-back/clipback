@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import delete, event, select
 
@@ -5,6 +7,8 @@ from app.models.content import Content, ContentSource, ContentType
 from app.models.content_event import ContentEvent, ContentEventType
 from app.models.user import User
 from app.repositories.event_repository import EventRepository
+
+NOW = datetime.now(UTC)
 
 
 @pytest.mark.asyncio
@@ -24,9 +28,10 @@ async def test_lifetime_counts_survive_deletion_and_exclude_other_users(database
     session.add(content)
     await session.flush()
     repository = EventRepository(session)
-    assert dict(await repository.read_user_stats(user.id)) == {
+    assert dict(await repository.read_user_stats(user_id=user.id, now=NOW)) == {
         "saved_count": 0,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     for kind in [ContentEventType.CONTENT_CREATED] + [ContentEventType.CONTENT_REOPENED] * 3:
         await repository.create(user_id=user.id, event_type=kind, content_id=content.id)
@@ -35,13 +40,15 @@ async def test_lifetime_counts_survive_deletion_and_exclude_other_users(database
             await repository.create(user_id=user.id, event_type=kind, content_id=content.id)
     await repository.create(user_id=other.id, event_type=ContentEventType.CONTENT_CREATED)
 
-    assert dict(await repository.read_user_stats(user.id)) == {
+    assert dict(await repository.read_user_stats(user_id=user.id, now=NOW)) == {
         "saved_count": 1,
         "reopened_count": 3,
+        "recent_reopened_count": 1,
     }
-    assert dict(await repository.read_user_stats(other.id)) == {
+    assert dict(await repository.read_user_stats(user_id=other.id, now=NOW)) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
 
     await session.execute(delete(Content).where(Content.id == content.id))
@@ -51,9 +58,10 @@ async def test_lifetime_counts_survive_deletion_and_exclude_other_users(database
         )
     ).all()
     assert content_ids and all(content_id is None for content_id in content_ids)
-    assert dict(await repository.read_user_stats(user.id)) == {
+    assert dict(await repository.read_user_stats(user_id=user.id, now=NOW)) == {
         "saved_count": 1,
         "reopened_count": 3,
+        "recent_reopened_count": 0,
     }
 
 
@@ -66,17 +74,19 @@ async def test_stats_reflect_new_events_and_rollback(database_session) -> None:
     repository = EventRepository(session)
     async with session.begin_nested() as transaction:
         await repository.create(user_id=user.id, event_type=ContentEventType.CONTENT_CREATED)
-        assert (await repository.read_user_stats(user.id))["saved_count"] == 1
+        assert (await repository.read_user_stats(user_id=user.id, now=NOW))["saved_count"] == 1
         await transaction.rollback()
 
-    assert dict(await repository.read_user_stats(user.id)) == {
+    assert dict(await repository.read_user_stats(user_id=user.id, now=NOW)) == {
         "saved_count": 0,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     await repository.create(user_id=user.id, event_type=ContentEventType.CONTENT_REOPENED)
-    assert dict(await repository.read_user_stats(user.id)) == {
+    assert dict(await repository.read_user_stats(user_id=user.id, now=NOW)) == {
         "saved_count": 0,
         "reopened_count": 1,
+        "recent_reopened_count": 0,
     }
 
 
@@ -93,7 +103,7 @@ async def test_stats_uses_one_query(database_session) -> None:
 
     event.listen(connection.sync_connection, "before_cursor_execute", record_query)
     try:
-        await EventRepository(database_session).read_user_stats(user.id)
+        await EventRepository(database_session).read_user_stats(user_id=user.id, now=NOW)
         assert len(statements) == 1
     finally:
         event.remove(connection.sync_connection, "before_cursor_execute", record_query)

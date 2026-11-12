@@ -79,7 +79,7 @@ AppUser userFromApi(ApiUser? user, ApiUserStats? stats) {
         ? defaultUser.joinedAt
         : _formatJoinedAt(user.createdAt),
     savedContentCount: stats?.savedCount,
-    revisitedContentCount: stats?.reopenedCount,
+    revisitedContentCount: stats?.recentReopenedCount,
   );
 }
 

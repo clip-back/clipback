@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,6 +14,9 @@ from app.repositories.event_repository import EventRepository
 PREVIOUS_REVISION = "202609220011"
 RECOMMENDATION_REVISION = "202609240012"
 MIGRATIONS = Path(__file__).resolve().parents[2] / "alembic"
+
+# Legacy events are seeded at 2026-09-20 12:00 KST, inside this window.
+LEGACY_NOW = datetime(2026, 9, 21, tzinfo=UTC)
 
 
 def _create_legacy_schema(connection, schema: str) -> None:
@@ -126,7 +130,10 @@ async def _legacy_snapshot(connection) -> dict:
         snapshot[key] = (await connection.execute(text(query))).mappings().all()
     async with AsyncSession(bind=connection, join_transaction_mode="create_savepoint") as session:
         repository = EventRepository(session)
-        snapshot["stats"] = [dict(await repository.read_user_stats(user_id)) for user_id in (1, 2)]
+        snapshot["stats"] = [
+            dict(await repository.read_user_stats(user_id=user_id, now=LEGACY_NOW))
+            for user_id in (1, 2)
+        ]
     return snapshot
 
 
@@ -160,8 +167,8 @@ async def test_legacy_upgrade_backfills_counts_and_preserves_history(database_co
     await _seed_legacy_history(connection)
     before = await _legacy_snapshot(connection)
     assert before["stats"] == [
-        {"saved_count": 3, "reopened_count": 5},
-        {"saved_count": 0, "reopened_count": 3},
+        {"saved_count": 3, "reopened_count": 5, "recent_reopened_count": 2},
+        {"saved_count": 0, "reopened_count": 3, "recent_reopened_count": 2},
     ]
     assert len(before["events"]) == 13
     assert sum(event["content_id"] is None for event in before["events"]) == 3

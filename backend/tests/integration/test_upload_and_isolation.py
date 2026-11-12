@@ -114,12 +114,14 @@ async def test_two_users_cannot_access_or_change_each_others_data(api, png_bytes
     assert await request(api, "GET", "users/me/stats", headers=outsider) == {
         "saved_count": 0,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     detail = await request(api, "GET", f"contents/{cid}", headers=owner)
     assert detail == content
     assert await request(api, "GET", "users/me/stats", headers=owner) == {
         "saved_count": 2,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
 
 
@@ -157,6 +159,7 @@ async def test_event_insert_failure_rolls_back_database_and_removes_image(
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 0,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     # A subsequent request uses a new session and still succeeds after rollback.
     await link(api, headers)

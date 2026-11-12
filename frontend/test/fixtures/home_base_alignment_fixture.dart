@@ -739,7 +739,11 @@ class HomeBaseServer {
       });
     }
     if (path == '/api/v1/users/me/stats') {
-      return json({'saved_count': 999, 'reopened_count': 231});
+      return json({
+        'saved_count': 999,
+        'reopened_count': 231,
+        'recent_reopened_count': 231,
+      });
     }
     if (path == '/api/v1/categories') {
       return json(archive.archiveAllCategoryMaps);

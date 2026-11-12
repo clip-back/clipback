@@ -70,7 +70,13 @@ void main() {
       final request = repository.refresh(isCurrent: () => true);
       await statsRequested.future;
       repository.resetAccount(1);
-      statsResponse.complete(_json({'saved_count': 20, 'reopened_count': 10}));
+      statsResponse.complete(
+        _json({
+          'saved_count': 20,
+          'reopened_count': 10,
+          'recent_reopened_count': 10,
+        }),
+      );
       await request;
       expect(profileRequests, 0);
       expect(repository.user, isNull);
@@ -103,7 +109,11 @@ void main() {
       final api = _api(
         MockClient((request) async {
           if (request.url.path.endsWith('/stats')) {
-            return _json({'saved_count': 700, 'reopened_count': 900});
+            return _json({
+              'saved_count': 700,
+              'reopened_count': 900,
+              'recent_reopened_count': 900,
+            });
           }
           userRequested.complete();
           return userResponse.future;
@@ -115,12 +125,12 @@ void main() {
       await userRequested.future;
       expect(repository.user, isNull);
       expect(repository.stats?.savedCount, 700);
-      expect(repository.stats?.reopenedCount, 900);
+      expect(repository.stats?.recentReopenedCount, 900);
       userResponse.complete(_json(_user('server user')));
       await request;
       expect(repository.user?.displayName, 'server user');
       expect(repository.stats?.savedCount, 700);
-      expect(repository.stats?.reopenedCount, 900);
+      expect(repository.stats?.recentReopenedCount, 900);
     },
   );
 
@@ -129,7 +139,11 @@ void main() {
     final api = _api(
       MockClient(
         (request) async => request.url.path.endsWith('/stats')
-            ? _json({'saved_count': 20, 'reopened_count': 10})
+            ? _json({
+                'saved_count': 20,
+                'reopened_count': 10,
+                'recent_reopened_count': 10,
+              })
             : response.future,
       ),
     );
@@ -154,7 +168,11 @@ void main() {
           MockClient((request) async {
             if (request.url.path.endsWith('/stats')) {
               statsRequests++;
-              return _json({'saved_count': 70, 'reopened_count': 30});
+              return _json({
+                'saved_count': 70,
+                'reopened_count': 30,
+                'recent_reopened_count': 30,
+              });
             }
             return _json(_user(profileName));
           }),
@@ -168,7 +186,7 @@ void main() {
 
       expect(repository.user?.displayName, 'updated name');
       expect(repository.stats?.savedCount, 70);
-      expect(repository.stats?.reopenedCount, 30);
+      expect(repository.stats?.recentReopenedCount, 30);
       expect(statsRequests, 1);
     },
   );
@@ -181,7 +199,11 @@ void main() {
         api: _api(
           MockClient(
             (request) async => request.url.path.endsWith('/stats')
-                ? _json({'saved_count': 70, 'reopened_count': 30})
+                ? _json({
+                    'saved_count': 70,
+                    'reopened_count': 30,
+                    'recent_reopened_count': 30,
+                  })
                 : _json(_user(profileName)),
           ),
         ),

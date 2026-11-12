@@ -75,7 +75,11 @@ class CategoryContentServer {
       });
     }
     if (p == '/api/v1/users/me/stats') {
-      return json({'saved_count': 999, 'reopened_count': 17});
+      return json({
+        'saved_count': 999,
+        'reopened_count': 17,
+        'recent_reopened_count': 17,
+      });
     }
     if (p == '/api/v1/categories') return json(categoryContentCategories());
     if (p == '/api/v1/feed') {

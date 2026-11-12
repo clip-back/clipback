@@ -145,7 +145,7 @@ async def test_content_exposure_retries_are_stable_and_new_ids_count_separately(
     assert records[1]["recommended_at"] == latest["last_recommended_at"]
     assert await _events(database_connection, user["id"]) == old_events
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
-        "saved_count": 1, "reopened_count": 0
+        "saved_count": 1, "reopened_count": 0, "recent_reopened_count": 0
     }
 
 

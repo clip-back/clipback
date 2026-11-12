@@ -30,7 +30,7 @@
 
 ## 마이 통계 조회와 복구
 
-- 통계는 서버가 반환하는 누적 저장·재열람 기록 수다. 현재 보관량이나 페이지 길이로 대체하지 않으며, 삭제를 이유로 화면에서 임의로 차감하지 않는다.
+- 통계는 서버가 반환하는 누적 저장 기록 수(‘저장한 콘텐츠’)와 최근 다시 본 콘텐츠 수(‘최근 다시 본 콘텐츠’, `recent_reopened_count`)다. 현재 보관량이나 페이지 길이로 대체하지 않으며, 삭제를 이유로 화면에서 임의로 차감하지 않는다. 최근 기간에서 빠진 열람은 다음 통계 조회 때 반영된다. 응답에 `recent_reopened_count`가 없거나 정수가 아니면 누적 `reopened_count`로 대신 보이지 않고 조회 실패로 표시한다.
 - 최초 대기·실패는 `—`로 표시하며, 실제0은 정상 응답 후0으로 표시한다. 이름·계정 정보 조회가 늦거나 실패해도 성공한 통계는 독립적으로 표시한다.
 - 탭·계정·공지·시스템 뒤로가기 등 다른 화면에서 실제 마이 진입 시 한 번 갱신한다. 재빌드·탭 재선택·앱 복귀·시간 경과만으로 자동 재조회하지 않는다. 실패하면 통계 아래 ‘다시 시도’를 사용한다.
 - 유효한 진행 중 조회는 같은 요청과 남은 시간을 공유한다. 인증 갱신·재요청 포함 전체10초이며, 새 수동 재시도에만 새10초를 부여한다. 마이 이탈만으로 요청을 취소하거나 다른 화면에 통계 오류를 띄우지 않는다.
@@ -344,7 +344,7 @@ Android는 Google·카카오, iOS는 Google·카카오·Apple을 지원합니다
 Use the backend public HTTPS domain and `/api/v1` exactly once in request URLs.
 Protected APIs require the backend-issued Bearer access token. Account data and
 statistics should come from `/users/me` and `/users/me/stats`; display statistics as
-누적 저장 / 누적 열람, not current content totals.
+누적 저장 (`saved_count`) / 최근 다시 본 콘텐츠 (`recent_reopened_count`), not current content totals.
 
 Today uses the server recommendation response and opens the recommended detail sequence.
 Weekly loads server cards, opens the selected category, and records actual visible-card exposures.
