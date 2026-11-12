@@ -1,7 +1,7 @@
 # 백업 보존 정리·원본 삭제 재시도 정기 실행 준비 (#339)
 
 2026-11-12, 브랜치 `feat/backup-deletion-ops`. 시작 커밋 `1c8bf47`(이슈 B 결정 기록 ADR 0013·GLOSSARY "삭제 장부"),
-구현 커밋 `21621eb`(전체 검증 기준). 이 기록을 더한 커밋은 문서만 바꾼다.
+구현 커밋 `21621eb`, main의 #338(`885d05a`)을 합친 커밋 `9295e5e`(최종 전체 검증 기준). 이 기록을 더하고 고친 커밋은 문서만 바꾼다.
 
 ## 문제
 
@@ -53,16 +53,18 @@
 
 ## 검증
 
-`21621eb`에서 2026-11-12 17:08–17:17 로컬 전체 검증:
+main의 #338(`885d05a`, 마이 통계 응답·앱 소비자 변경)을 합친 `9295e5e`에서 2026-11-12 17:19–17:28 로컬 전체 검증:
 
 ```text
-pytest: 2511 passed, 48 skipped, 3 warnings in 291.96s (0:04:51)
+pytest: 2517 passed, 48 skipped, 3 warnings in 288.12s (0:04:48)
 pytest skip: 47 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
 pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 VERIFY result=PASS scope=all checks=11 failed=0
 ```
 
 - verify에 없는 `deptry .`는 같은 커밋에서 따로 실행해 통과했다(`Success! No dependency issues found.`).
+- 전체 검증 전에 같은 `9295e5e`에서 양쪽 관련 테스트(서버 통계·#339 삭제·보존, 앱 `user_repository_test`·`account_stats_regression_test`·`my_stats_label_layout_test`)와 `flutter analyze --no-pub`를 먼저 돌려 통과했다. 두 변경이 함께 바꾼 파일은 `CHANGELOG.md`와 이 목차뿐이다.
+- 합치기 전 `21621eb`의 전체 검증(17:08–17:17)도 PASS였다. 위 수치가 최종 기준이다.
 - **미검증**: Docker가 필요한 `deployment`·`operator-recovery` job(새 API 이미지 검사 포함)은 로컬에서 돌리지 않았다. PR CI로 확인한다.
 - 운영 Railway·운영 DB에는 접속하지 않았다. Volume 분리는 저장소 구성과 로컬 대역(임시 폴더)으로만 확인했다.
 - 병합 뒤 운영 설정과 첫 실행 확인은 이 작업의 완료 조건이 아니며, #339 본문의 "병합 뒤 운영 순서표"로 따로 기록한다.
