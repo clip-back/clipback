@@ -181,7 +181,7 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
     except ValidationError as exc:
         raise CheckError("operator_configuration_invalid") from exc
     try:
-        ledger = get_deletion_ledger(runtime.config)
+        ledger = get_deletion_ledger(runtime.config, operator_reads=True)
         from app.services.maintenance import MaintenanceGate
         async with MaintenanceGate(runtime.sessions).operation("backup_" + command), \
                 source_lock(BACKUP_JOB_LOCK, try_only=True, engine=runtime.engine):
@@ -275,9 +275,14 @@ def main():
             report = asyncio.run(run_job(store, command=args.command, **kwargs))
         print(json.dumps(report, sort_keys=True))
         return 0 if report["passed"] else 1
+    except CheckError as exc:
+        print(json.dumps({"passed": False, "error": str(exc)}, sort_keys=True))
+        return 1
     except Exception as exc:
-        code = str(exc) if isinstance(exc, CheckError) else "backup_job_failed"
-        print(json.dumps({"passed": False, "error": code}, sort_keys=True))
+        # Class names only: messages may carry endpoints, bucket names or keys.
+        cause = type(exc.__cause__).__name__ if exc.__cause__ is not None else None
+        print(json.dumps({"passed": False, "error": "backup_job_failed",
+                          "exception": type(exc).__name__, "cause": cause}, sort_keys=True))
         return 1
 
 

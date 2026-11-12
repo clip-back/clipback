@@ -24,6 +24,8 @@ from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeou
 from moto import mock_aws
 from pydantic import SecretStr
 
+from app.integrations.deletion_ledger import get_deletion_ledger as build_deletion_ledger
+
 BUCKET = "private-backup"
 DUMP = b"synthetic dump"
 LOCAL_BYTES = b"local original"
@@ -193,7 +195,8 @@ def maintenance_runtime(monkeypatch, tmp_path):
         yield
 
     monkeypatch.setattr(operator_runtime, "MaintenanceRuntime", Runtime)
-    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger", lambda config=None: ledger)
+    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger",
+                        lambda config=None, **kwargs: ledger)
     monkeypatch.setattr(maintenance, "MaintenanceGate", lambda sessions: OpenUnitGate())
     monkeypatch.setattr(jobs, "source_lock", unlocked)
 
@@ -241,6 +244,10 @@ def corrupted_target(bucket, case, age, *, receipt=False):
 
 def failure(code):
     return 1, {"passed": False, "error": code}
+
+
+def job_failure(exception, cause):
+    return 1, {"passed": False, "error": JOB, "exception": exception, "cause": cause}
 
 
 ALL_FILES = ["database.dump", "images.tar", "manifest.json"]
@@ -770,7 +777,7 @@ def test_publishing_fixed_input_writes_fixed_keys_and_bytes(
             "Resource": f"arn:aws:s3:::{BUCKET}/points/first/*",
         }],
     }))
-    assert maintain(monkeypatch, capsys) == failure(JOB)
+    assert maintain(monkeypatch, capsys) == job_failure("ClientError", None)
 
     def body(key):
         return bucket.client.get_object(Bucket=BUCKET, Key=key)["Body"].read()
@@ -854,3 +861,68 @@ def test_publishing_object_failure_publishes_no_manifest(case, bucket, tmp_path)
     except Exception as exc:
         raised = (type(exc).__name__, None)
     assert (raised, bucket.keys()) == PUBLISH_FAILURE_OUTPUTS[case]
+
+
+LEDGER_KEY_ID, LEDGER_SECRET = "LEDGERKEYID342", "ledger-secret-342"
+
+
+def ledger_settings(endpoint, bucket):
+    from app.core.deletion_ledger_config import DeletionLedgerSettings
+
+    return DeletionLedgerSettings(
+        app_environment="test", deletion_ledger_backend="s3",
+        deletion_ledger_s3_endpoint_url=endpoint, deletion_ledger_s3_bucket=bucket,
+        deletion_ledger_s3_region="us-east-1",
+        deletion_ledger_s3_access_key_id=SecretStr(LEDGER_KEY_ID),
+        deletion_ledger_s3_secret_access_key=SecretStr(LEDGER_SECRET),
+    )
+
+
+def wire_s3_ledger(monkeypatch, settings, timeouts):
+    """The real ledger built with run_job's arguments; its first `timeouts` GETs time out."""
+    import app.integrations.deletion_ledger as deletion_ledger
+
+    def wiring(config=None, **kwargs):
+        ledger = build_deletion_ledger(settings, **kwargs)
+        sent = []
+
+        def time_out(request, **_):
+            sent.append(request)
+            if len(sent) <= timeouts:
+                raise ReadTimeoutError(endpoint_url=settings.deletion_ledger_s3_endpoint_url)
+
+        ledger.store.client.meta.events.register("before-send.s3.GetObject", time_out)
+        return ledger
+
+    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger", wiring)
+
+
+def test_maintain_survives_one_ledger_read_timeout(
+    bucket, maintenance_runtime, monkeypatch, capsys
+):
+    """#342: backup and retention jobs retry a ledger GET that timed out once."""
+    settings = ledger_settings("https://s3.amazonaws.com", "ledger-342")
+    bucket.client.create_bucket(Bucket="ledger-342")
+    build_deletion_ledger(settings).initialize()
+    wire_s3_ledger(monkeypatch, settings, timeouts=1)
+    now = datetime.now(UTC)
+    bucket.point("anchor", manifest("anchor", (now - timedelta(hours=1)).isoformat()))
+    bucket.point("target", manifest("target", (now - FRESH).isoformat()))
+    assert maintain(monkeypatch, capsys) == (0, KEPT)
+
+
+def test_maintain_reports_exception_class_names_only(
+    bucket, maintenance_runtime, monkeypatch, capsys
+):
+    """#342: an unreachable ledger fails with class names; no message, URL, bucket or key."""
+    from scripts.image_backup_jobs import main
+
+    endpoint, ledger_bucket = "https://ledger-342.invalid", "ledger-bucket-342"
+    wire_s3_ledger(monkeypatch, ledger_settings(endpoint, ledger_bucket), timeouts=float("inf"))
+    monkeypatch.setattr(sys, "argv", ["image_backup_jobs", "maintain"])
+    code = main()
+    out = capsys.readouterr().out
+    assert (code, json.loads(out)) == job_failure("LedgerUnavailableError", "ReadTimeoutError")
+    for secret in (endpoint, "ledger-342.invalid", ledger_bucket, LEDGER_KEY_ID, LEDGER_SECRET,
+                   "Deletion ledger cannot be verified", "Read timeout"):
+        assert secret not in out

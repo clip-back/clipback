@@ -122,7 +122,9 @@ class LocalLedgerStore:
 
 
 class S3LedgerStore:
-    def __init__(self, config: DeletionLedgerSettings):
+    def __init__(self, config: DeletionLedgerSettings, *, operator_reads: bool = False):
+        # Backup/retention jobs may wait and retry; API deletion keeps one short attempt (#342).
+        connect_timeout, read_timeout, attempts = (3, 10, 4) if operator_reads else (1, 2, 1)
         self.bucket = config.deletion_ledger_s3_bucket
         self.client = boto3.client(
             "s3",
@@ -132,9 +134,9 @@ class S3LedgerStore:
             aws_secret_access_key=config.deletion_ledger_s3_secret_access_key.get_secret_value(),
             config=Config(
                 signature_version="s3v4",
-                connect_timeout=1,
-                read_timeout=2,
-                retries={"total_max_attempts": 1},
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                retries={"total_max_attempts": attempts},
                 s3={"addressing_style": config.deletion_ledger_s3_addressing_style},
             ),
         )
@@ -358,14 +360,16 @@ class DeletionLedger:
         )
 
 
-def get_deletion_ledger(config: DeletionLedgerSettings | None = None) -> DeletionLedger:
+def get_deletion_ledger(
+    config: DeletionLedgerSettings | None = None, *, operator_reads: bool = False
+) -> DeletionLedger:
     if config is None:
         # API callers retain full settings validation; standalone operators supply ledger settings.
         from app.core.config import settings
 
         config = settings
     store = (
-        S3LedgerStore(config)
+        S3LedgerStore(config, operator_reads=operator_reads)
         if config.deletion_ledger_backend == "s3"
         else LocalLedgerStore(config.deletion_ledger_root)
     )
