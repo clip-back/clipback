@@ -12,7 +12,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import 'fixtures/original_link_launcher.dart';
 import 'support/my_preview.dart' as fixture;
 
 class _Calls {
@@ -162,8 +164,12 @@ void main() {
   }
 
   testWidgets(
-    'Account callbacks, three sheets, display-only version, tabs and save',
+    'Account callbacks, two sheets, contact form, display-only version, tabs and save',
     (tester) async {
+      final launcher = RecordingUrlLauncher(),
+          oldLauncher = UrlLauncherPlatform.instance;
+      UrlLauncherPlatform.instance = launcher;
+      addTearDown(() => UrlLauncherPlatform.instance = oldLauncher);
       final calls = await _pump(tester);
       final settings = find.byKey(const ValueKey('my-header-settings'));
       await tester.tap(
@@ -180,7 +186,6 @@ void main() {
       for (final entry in <String, Type>{
         '알림 설정': ReminderSheet,
         '앱 권한': PermissionSheet,
-        '문의하기': ContactSheet,
       }.entries) {
         final target = find.text(entry.key);
         await tester.ensureVisible(target);
@@ -191,6 +196,15 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(entry.value), findsNothing);
       }
+      await tester.ensureVisible(find.text('문의하기'));
+      await tester.tap(find.text('문의하기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(launcher.calls.single.url, 'https://forms.gle/dGjWJc643ZwrXTrF7');
+      expect(
+        launcher.calls.single.options.mode,
+        PreferredLaunchMode.externalApplication,
+      );
       for (final label in ['홈', '아카이브', '즐겨찾기', '마이']) {
         await tester.tap(
           find.descendant(

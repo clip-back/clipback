@@ -78,7 +78,6 @@ String _route() {
   if (f.notificationFind<PermissionSheet>(_root) != null) {
     return 'permissionSheet';
   }
-  if (f.notificationFind<ContactSheet>(_root) != null) return 'contactSheet';
   if (f.notificationFind<AccountManagementScreen>(_root) != null) {
     return 'account';
   }

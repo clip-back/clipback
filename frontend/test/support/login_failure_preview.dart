@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
@@ -14,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:url_launcher_platform_interface/link.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import '../fixtures/login_failure_fixture.dart' as f;
 import '../fixtures/splash_alignment_fixture.dart' as splash;
 import 'archive_all_preview.dart' as isolated;
@@ -33,6 +34,23 @@ final _kindJudgments = <String, Map<String, Object?>>{};
 var _epoch = 0, _pointer = 800, _busy = false, _done = false;
 String _kind = 'http';
 Element get _root => _capture.currentContext! as Element;
+
+/// Records the form request without leaving this preview, so `/run` can keep
+/// checking the same failure screen. The real browser hand-off is captured
+/// with an OS tap after `/scene`.
+class _ContactLauncher extends UrlLauncherPlatform {
+  @override
+  LinkDelegate? get linkDelegate => null;
+  final calls = <({String url, LaunchOptions options})>[];
+
+  @override
+  Future<bool> launchUrl(String url, LaunchOptions options) async {
+    calls.add((url: url, options: options));
+    return true;
+  }
+}
+
+final _launcher = _ContactLauncher();
 
 class FailureServer extends login.LoginServer {
   bool failHttp = true;
@@ -295,34 +313,27 @@ Future<void> _run() async {
         '${kind}_actual_status_matches_source',
         _text(kind == 'http' ? '응답 상태 : HTTP 503' : '응답 상태를 확인할 수 없어요') != null,
       );
+      final launches = _launcher.calls.length;
       await _tap(f.failureKey(_root, 'login-failure-contact-hit')!);
       await _wait(
-        () => f.failureFind<ContactSheet>(_root) != null,
-        'Existing contact sheet missing',
+        () => _launcher.calls.length > launches,
+        'Contact form open request missing',
       );
       await _settle(8);
+      final opened = _launcher.calls.skip(launches).toList();
       _record(
-        '${kind}_contact_opens_existing_sheet_no_auth',
-        f.failureFind<ContactSheet>(_root) != null &&
+        '${kind}_contact_opens_form_once_no_auth',
+        opened.length == 1 &&
+            opened.single.url == 'https://forms.gle/dGjWJc643ZwrXTrF7' &&
+            opened.single.options.mode ==
+                PreferredLaunchMode.externalApplication &&
+            f.failureFind<BottomSheet>(_root) == null &&
             _social.calls.length == calls &&
             _server.socialIssuances == issues,
       );
       await _hold();
-      await _tapPoint(
-        Offset(
-          View.of(_root).physicalSize.width /
-              View.of(_root).devicePixelRatio /
-              2,
-          View.of(_root).viewPadding.top / View.of(_root).devicePixelRatio + 80,
-        ),
-      );
-      await _wait(
-        () => f.failureFind<ContactSheet>(_root) == null,
-        'Contact barrier close failed',
-      );
-      await _settle(8);
       _record(
-        '${kind}_contact_close_preserves_failure',
+        '${kind}_contact_return_preserves_failure',
         _route() == 'failure' &&
             _text(kind == 'http' ? '응답 상태 : HTTP 503' : '응답 상태를 확인할 수 없어요') !=
                 null,
@@ -434,7 +445,15 @@ Future<void> main() => http.runWithClient(() async {
             request.uri.queryParameters['kind'] == 'sdk' ? 'sdk' : 'http',
           );
         case '/run':
-          await _run();
+          // Only the automatic run stays in the app; /scene keeps the real
+          // launcher so an OS tap opens the browser.
+          final platform = UrlLauncherPlatform.instance;
+          UrlLauncherPlatform.instance = _launcher;
+          try {
+            await _run();
+          } finally {
+            UrlLauncherPlatform.instance = platform;
+          }
         case '/status':
         case '/state':
         case '/ready':

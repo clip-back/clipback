@@ -1,5 +1,6 @@
+import 'dart:async';
+
 import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
@@ -9,7 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import 'fixtures/original_link_launcher.dart';
 import 'support/app_startup.dart';
 import 'support/login_alignment_preview.dart' as fixture;
 
@@ -20,6 +23,24 @@ LoginScreen _login(WidgetTester tester) =>
     tester.widget<LoginScreen>(find.byType(LoginScreen));
 LoginFailureScreen _failure(WidgetTester tester) =>
     tester.widget<LoginFailureScreen>(find.byType(LoginFailureScreen));
+
+const _form = 'https://forms.gle/dGjWJc643ZwrXTrF7';
+const _contactError = '문의하기를 열지 못했어요. 다시 시도해 주세요.';
+
+RecordingUrlLauncher _launcher() {
+  final old = UrlLauncherPlatform.instance, launcher = RecordingUrlLauncher();
+  UrlLauncherPlatform.instance = launcher;
+  addTearDown(() => UrlLauncherPlatform.instance = old);
+  return launcher;
+}
+
+void _expectFormOpens(RecordingUrlLauncher launcher, int times) {
+  expect(launcher.calls, hasLength(times));
+  for (final call in launcher.calls) {
+    expect(call.url, _form);
+    expect(call.options.mode, PreferredLaunchMode.externalApplication);
+  }
+}
 
 Future<void> _root(
   WidgetTester tester,
@@ -142,9 +163,10 @@ void main() {
     },
   );
 
-  testWidgets('contact opens once and preserves same failure on closing', (
+  testWidgets('contact opens form once and preserves same failure', (
     tester,
   ) async {
+    final launcher = _launcher()..pending = Completer<bool>();
     await _root(tester, (server, social) async {
       social.fail = true;
       await _choose(tester, SocialLoginProvider.google, guide: true);
@@ -152,21 +174,59 @@ void main() {
       final requests = server.requests.length;
       failure.onContact();
       failure.onContact();
-      await tester.pumpAndSettle();
-      expect(find.byType(ContactSheet), findsOneWidget);
+      await tester.pump();
+      _expectFormOpens(launcher, 1);
+      expect(find.byType(BottomSheet), findsNothing);
       // Background/stale actions do not dismiss failure or start guest auth.
       failure.onChooseMethods();
       failure.onContinueAsGuest();
       await tester.pump();
       expect(server.guestIssuances, 0);
-      await tester.binding.handlePopRoute();
+      launcher.pending!.complete(true);
       await tester.pumpAndSettle();
-      expect(find.byType(ContactSheet), findsNothing);
+      expect(find.byType(LoginFailureScreen), findsOneWidget);
       expect(_failure(tester).statusCode, isNull);
+      expect(find.byType(SnackBar), findsNothing);
       expect(server.requests, hasLength(requests));
       expect(social.calls, ['google']);
+      _expectFormOpens(launcher, 1);
     });
   });
+
+  for (final refusal in ['os-false', 'exception']) {
+    testWidgets('contact $refusal shows message and retries on next tap', (
+      tester,
+    ) async {
+      final launcher = _launcher();
+      if (refusal == 'os-false') {
+        launcher.accepted = false;
+      } else {
+        launcher.failure = PlatformException(code: 'launch_failed');
+      }
+      await _root(tester, (server, social) async {
+        social.fail = true;
+        await _choose(tester, SocialLoginProvider.google, guide: true);
+        final requests = server.requests.length;
+        await tester.tap(find.text('문의하기'));
+        await tester.pumpAndSettle();
+        expect(find.text(_contactError), findsOneWidget);
+        expect(find.byType(LoginFailureScreen), findsOneWidget);
+        launcher
+          ..accepted = true
+          ..failure = null;
+        // The message sits over the bottom contact button until it hides.
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        await tester.tap(find.text('문의하기'));
+        await tester.pumpAndSettle();
+        _expectFormOpens(launcher, 2);
+        expect(find.byType(LoginFailureScreen), findsOneWidget);
+        expect(server.requests, hasLength(requests));
+        expect(server.guestIssuances, 0);
+      });
+    });
+  }
 
   testWidgets(
     'failure guest reuses confirmed guide and duplicate action issues once',
@@ -188,6 +248,7 @@ void main() {
   testWidgets(
     'OS back and stale failure callbacks cannot dismiss a newer failure',
     (tester) async {
+      final launcher = _launcher();
       await _root(tester, (server, social) async {
         social.fail = true;
         await _choose(tester, SocialLoginProvider.google, guide: true);
@@ -202,7 +263,7 @@ void main() {
         oldFailure.onContact();
         await tester.pumpAndSettle();
         expect(find.byType(LoginFailureScreen), findsOneWidget);
-        expect(find.byType(ContactSheet), findsNothing);
+        expect(launcher.calls, isEmpty);
         expect(server.guestIssuances, 0);
         expect(server.requests, hasLength(requests));
         expect(social.calls, ['google', 'kakao']);
