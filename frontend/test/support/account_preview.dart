@@ -589,6 +589,7 @@ class AccountServer {
       return json({
         'saved_count': expected.savedContentCount,
         'reopened_count': expected.revisitedContentCount,
+        'recent_reopened_count': expected.revisitedContentCount,
       });
     }
     if (path == '/api/v1/categories') return json(e01.archiveAllCategoryMaps);

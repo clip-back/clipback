@@ -92,7 +92,11 @@ class _Server {
           'linked_providers': <String>[],
         });
       case '/api/v1/users/me/stats':
-        return _json({'saved_count': 7, 'reopened_count': 3});
+        return _json({
+          'saved_count': 7,
+          'reopened_count': 3,
+          'recent_reopened_count': 3,
+        });
       case _refresh:
         return _tokens('rotated');
       case '/api/v1/auth/social/google/upgrade':

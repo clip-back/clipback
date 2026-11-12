@@ -354,6 +354,7 @@ async def test_referral_retry_survives_category_changes_but_new_event_is_revalid
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,
         "reopened_count": 1,
+        "recent_reopened_count": 0,
     }
     remaining = await _views(database_connection, user["id"])
     assert len(remaining) == 1 and remaining[0]["content_id"] is None

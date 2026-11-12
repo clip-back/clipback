@@ -124,7 +124,11 @@ class _Server {
       });
     }
     if (path == '/api/v1/users/me/stats') {
-      return json({'saved_count': 0, 'reopened_count': 0});
+      return json({
+        'saved_count': 0,
+        'reopened_count': 0,
+        'recent_reopened_count': 0,
+      });
     }
     if (path == '/api/v1/auth/logout') return http.Response('', 204);
     throw StateError('Unexpected fixture request: $path');

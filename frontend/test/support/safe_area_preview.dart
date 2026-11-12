@@ -260,6 +260,7 @@ class _PreviewServer {
       return _json({
         'saved_count': records.length,
         'reopened_count': viewedIds.length,
+        'recent_reopened_count': viewedIds.length,
       });
     }
     if (method == 'GET' && path == '/api/v1/feed') return _feed(request);

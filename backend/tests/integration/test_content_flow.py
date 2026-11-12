@@ -173,6 +173,7 @@ async def test_category_changes_keep_summaries_and_events_consistent(api, databa
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
 
 
@@ -183,6 +184,7 @@ async def test_repeated_views_and_deletion_preserve_cumulative_stats(api, databa
     assert await request(api, "GET", "users/me/stats", headers=headers) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     for _ in range(3):
         await request(api, "POST", f"contents/{content['id']}/view", headers=headers, status=201)
@@ -193,6 +195,7 @@ async def test_repeated_views_and_deletion_preserve_cumulative_stats(api, databa
         assert await request(api, "GET", "users/me/stats", headers=headers) == {
             "saved_count": 1,
             "reopened_count": 3,
+            "recent_reopened_count": 0 if deleted else 1,
         }
     references = (
         (

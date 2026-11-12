@@ -1,5 +1,6 @@
 import json
 import runpy
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,8 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.category import CategoryCreate, CategoryUpdate
 from app.services.category_service import CategoryService
+
+NOW = datetime.now(UTC)
 
 
 @pytest_asyncio.fixture
@@ -135,9 +138,10 @@ async def test_delete_preserves_content_and_history(database_session, owned_cate
         "before_category_ids": sorted([target_id, remaining.id] if multiple else [target_id]),
         "after_category_ids": after,
     }
-    assert dict(await EventRepository(session).read_user_stats(uid)) == {
+    assert dict(await EventRepository(session).read_user_stats(user_id=uid, now=NOW)) == {
         "saved_count": 1,
         "reopened_count": 0,
+        "recent_reopened_count": 0,
     }
     summaries = await CategoryRepository(session).list_summaries(uid)
     assert target_id not in [row["id"] for row in summaries]

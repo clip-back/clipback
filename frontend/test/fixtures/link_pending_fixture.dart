@@ -70,6 +70,7 @@ class LinkPendingServer extends login.LoginServer {
       return this.json({
         'saved_count': saved == null ? 0 : 1,
         'reopened_count': 0,
+        'recent_reopened_count': 0,
       });
     }
     final copy = http.Request(r.method, r.url)

@@ -1,8 +1,14 @@
+from datetime import UTC, datetime
+
 from app.core.exceptions import AuthenticationError
 from app.repositories.event_repository import EventRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.user import UserRead, UserStatsRead
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class UserService:
@@ -31,5 +37,5 @@ class UserService:
         )
 
     async def read_stats(self, user_id: int) -> UserStatsRead:
-        stats = await self.event_repository.read_user_stats(user_id=user_id)
+        stats = await self.event_repository.read_user_stats(user_id=user_id, now=utc_now())
         return UserStatsRead.model_validate(stats)
