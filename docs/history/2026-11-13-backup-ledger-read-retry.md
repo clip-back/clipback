@@ -16,11 +16,12 @@ main의 배포 기록(`d5e12d5`)을 합친 커밋 `c3fef4d`(최종 전체 검증
   - S1 "요청+본문 합쳐 총 4번 (Recommended)" 뒤 방식 "A: SDK 1번+바깥 4번 (Recommended)": SDK 설정은 연결 3초·응답 10초·`total_max_attempts=1`로 둔다. 저장 코드가 GET과 본문 수신을 한 시도로 쳐서 총 4번 시도한다.
   - S2·S3 "둘 다 권고대로 (Recommended)": 52초 전체 상한 문장을 지우고 "시도마다 연결 3초·응답 10초, 총 4번"으로 설명한다. 확정 제한값을 공개 SDK Config로 단언하는 테스트를 둔다.
 
-이슈 #342 본문은 고치지 않았다. 본문과 다른 점은 세 가지다:
+이슈 #342 본문은 고치지 않았다. 본문과 다른 점은 네 가지다:
 
 - 재시도 범위가 본문 수신 포함이다.
 - SDK `total_max_attempts`가 4가 아니라 1이다.
 - 52초 상한 문장이 없다.
+- 확정 제한값을 공개 SDK Config로 단언하는 테스트를 허용한다. 본문의 테스트 원칙은 "출력·종료 코드·장부 읽기 결과만 본다"이다.
 
 ## 착수 전 확인 (`8192a2b`)
 
@@ -81,9 +82,13 @@ VERIFY result=PASS scope=all checks=11 failed=0
 
 - 위 검증에 `ruff check app scripts alembic tests`, `python -m compileall -q app scripts alembic tests`, `pytest -q`가 들어 있다.
 - verify에 없는 `deptry .`는 같은 커밋에서 따로 실행해 통과했다(`Success! No dependency issues found.`).
-- **미검증**: Docker가 필요한 `deployment`·`operator-recovery` job은 로컬에서 돌리지 않았다.
+- Docker가 필요한 `deployment`·`operator-recovery` job은 로컬에서 돌리지 않았고 원격 CI로만 확인했다.
   - 이전 수동 CI 43287389040은 `811da32` 대상이라 리뷰 반영 뒤 코드의 근거가 아니다.
-  - 리뷰 반영 뒤 CI로 확인한다.
+  - 리뷰 반영 뒤 원격 CI: Backend Validation 수동 실행(workflow_dispatch) [43294414444](https://github.com/clip-back/clipback/actions/runs/43294414444).
+    대상은 `84747db`이고 `c3fef4d`에 이 기록만 더한 커밋이라 코드가 같다.
+    2026-11-12T19:51:24Z–20:01:20Z(UTC)에 `success`로 끝났다.
+    `changes`·`lint`·`test (3.11)`·`test (3.12)`·`migration`·`deployment`·`operator-recovery`가 모두 성공했다.
+  - **미검증**: PR 이벤트의 경로 필터로 Docker job이 도는지는 PR을 만들기 전이라 확인하지 않았다.
 - 운영 Railway·운영 DB에는 접속하지 않았다. 병합 뒤 배포·백업 수동 실행은 이 작업의 완료 조건이 아니다. #342 본문의 "병합 뒤 운영 순서표"로 따로 기록한다.
 
 ## 범위 밖 발견
