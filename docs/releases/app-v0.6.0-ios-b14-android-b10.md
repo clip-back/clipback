@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 마이 고객지원 이용약관 및 개인정보·오픈소스 라이선스 (#349, CHANGELOG 앱 0.6.0 추가); [앱] 문의하기 구글 폼 (#336, CHANGELOG 앱 0.6.0 개선); [앱] 콘텐츠 상세 제목·요약 글씨 1px 키움 (#336, CHANGELOG 앱 0.6.0 개선); [앱] 링크 저장 결과 예시 썸네일 제거 (#350, CHANGELOG 앱 0.6.0 수정); [iOS] [Android] 마이 최근 다시 본 콘텐츠 (#338, CHANGELOG 앱 0.6.0 수정)
 - 관련 PR·작업 링크: [상세 제목·요약 글씨 1px 키우고 문의하기를 구글 폼으로 열기 #337](https://github.com/clip-back/clipback/pull/337)(#336), [마이 통계를 최근 7일 다시 본 콘텐츠 수로 변경 #340](https://github.com/clip-back/clipback/pull/340)(#338), [마이 고객지원에 처리방침·약관 링크와 오픈소스 라이선스 화면 추가 #351](https://github.com/clip-back/clipback/pull/351)(#349), [저장 화면의 고정 예시 그림 제거 #352](https://github.com/clip-back/clipback/pull/352)(#350)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.5.2(13)·Android 0.5.2(9)](app-v0.5.2-ios-b13-android-b9.md)
-- 후보 준비 상태·미확인 사유: iOS 0.6.0(14) 아카이브·IPA와 Android 0.6.0(10) AAB 빌드 완료(2026-11-14). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 사용자 승인(2026-11-14 "진행해줘", 조율 전달) 뒤 후보 태그 생성·푸시, iOS 14는 App Store Connect에 업로드(2026-11-14 03:15 KST, Upload succeeded, 처리 완료 미확인). Android 10은 Play 비공개 테스트(Alpha) 트랙에 초안으로 업로드(2026-11-14 03:03 KST, 이 앱에서 Alpha에 처음 올린 빌드, 사용자 결정 "B로 하자": 0.5.2는 Alpha에 올리지 않음). Alpha 출시·검토 제출은 Play Console에서 사람이 할 일로 남음. 테스터 제공·심사·실기기 확인·정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.6.0(14) 아카이브·IPA와 Android 0.6.0(10) AAB 빌드 완료(2026-11-14). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 사용자 승인(2026-11-14 "진행해줘", 조율 전달) 뒤 후보 태그 생성·푸시, iOS 14는 App Store Connect에 업로드(2026-11-14 03:15 KST, Upload succeeded). Android 10은 Play 비공개 테스트(Alpha) 트랙에 초안으로 업로드(2026-11-14 03:03 KST, 이 앱에서 Alpha에 처음 올린 빌드, 사용자 결정 "B로 하자": 0.5.2는 Alpha에 올리지 않음). iOS 14는 TestFlight 테스터에게, Android 10은 사용자가 Play Console에서 Alpha 출시(출시 노트 사용자 입력)·검토 통과 뒤 테스터에게 제공(사용자 보고, 2026-11-14, 시각·그룹 이름 미보고). iOS 외부 베타 심사 미확인. 실기기 확인·정식 공개 미실행
 
 사용자 결정(2026-11-14, 조율 전달): iOS 14·Android 10, 소스 main `84ff8b0`, 포함 변경은 CHANGELOG `미배포`의 앱 항목 전부. 처음 지시는 사용자 버전 0.5.3이었으나, 미배포에 `[앱]` `추가`(#349)가 있어 [버전 결정](../release-process.md#버전-결정)의 "기능 추가는 가운데 숫자"와 맞지 않아 배포 세션이 멈추고 물었고, 사용자가 0.6.0을 골랐습니다(2026-11-14 "0.6.0 (Recommended)"). 스토어 최대 업로드 번호는 iOS 13(App Store Connect)·Android 9(Play Console)이며 사용자가 2026-11-14에 확인했습니다.
 포함 변경은 `추가` 1개(#349), `개선` 2개(#336), `수정` 2개(#350, #338)입니다. 같은 `미배포`의 `[서버]` 항목 넷(#346, #339, #338, #342)은 [backend-2026-11-14-1](backend-2026-11-14-1.md)로 옮겼습니다.
@@ -45,9 +45,9 @@
 | 후보 태그·실제 생성 여부 | app-ios-v0.6.0-b14 (2026-11-14 생성·푸시, annotated) | app-android-v0.6.0-b10 (2026-11-14 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 업로드·실기기 확인 전 | 미결정 — 업로드·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.6.0-ios-b14/Runner.xcarchive`(생성 2026-11-14 02:42 KST), IPA `frontend/build/release-candidates/app-v0.6.0-ios-b14/ipa/clipback_frontend.ipa` 42,381,180바이트, SHA-256 `7780dd0eec31c7504867d47978c6e11cb0868e741d859d3554206388ee3a22a0` — 본앱 `com.huturu.app` 0.6.0(14), 공유 확장 `com.huturu.app.ShareExtension` 0.6.0(14), 팀 `8X6N747PQM`, 권한 설명 3종 존재. 업로드 대상 후보(업로드 금지 아님) | Release AAB 성공. `frontend/build/release-candidates/app-v0.6.0-android-b10/app-release.aab`, 74,554,915바이트, SHA-256 `d5511efea5ea0f147ba27274862e9c96ff371e5a02e057acff77415baca94176`. versionName 0.6.0·versionCode 10 확인. 업로드 대상 후보(업로드 금지 아님) |
-| 업로드·처리 상태 | 후보 아카이브 `app-v0.6.0-ios-b14/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-14 03:15 KST). 업로드 직후 상태 "Uploaded package is processing". App Store Connect 처리 완료는 미확인 | 배포 세션이 Play Developer API로 후보 AAB(`app-v0.6.0-android-b10/app-release.aab`, SHA-256 같음)를 업로드(2026-11-14 03:03 KST, `UPLOAD result=UPLOADED`), versionCode 10. Play 쪽 번들 처리 결과는 API 업로드 완료 응답까지만 확인 |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 — 처리 완료 뒤 TestFlight 테스터 제공은 사용자 진행 | 비공개 테스트(Alpha) 트랙에 릴리스 "0.6.0 (10)"을 초안(draft)으로 지정하고 edit 커밋. 트랙 조회(03:04 KST)에서 `alpha: 0.6.0 (10)[draft]`. 출시·검토 제출은 안 됨 — Play Console에서 사람이 출시해야 테스터에게 제공됨. 이 앱에서 Alpha에 처음 올린 빌드 |
-| 심사 상태 | 미확인 — 외부 베타 심사 제출 여부 미확인 | 미제출 — 초안 상태라 검토에 제출되지 않음 |
+| 업로드·처리 상태 | 후보 아카이브 `app-v0.6.0-ios-b14/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-14 03:15 KST). 업로드 직후 상태 "Uploaded package is processing". App Store Connect 처리 완료 — TestFlight 테스터 제공이 이뤄졌다는 사용자 보고(2026-11-14)로 판단 | 배포 세션이 Play Developer API로 후보 AAB(`app-v0.6.0-android-b10/app-release.aab`, SHA-256 같음)를 업로드(2026-11-14 03:03 KST, `UPLOAD result=UPLOADED`), versionCode 10. Play 처리 완료 — Alpha 검토 통과·테스터 제공 사용자 보고(2026-11-14)로 판단 |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | TestFlight 테스터에게 제공(사용자 보고, 2026-11-14). 내부·외부 그룹과 그룹 이름은 사용자 보고 없음, 제공 시각 미확인 | 비공개 테스트(Alpha) 트랙으로 테스터에게 제공(사용자 보고, 2026-11-14). 배포 세션이 초안(draft)으로 올린 릴리스 "0.6.0 (10)"을 사용자가 Play Console에서 출시 노트를 입력해 출시, 검토 통과 뒤 제공. 출시·제공 시각 미확인. 이 앱에서 Alpha에 처음 올린 빌드 |
+| 심사 상태 | 미확인 — 외부 베타 심사 여부는 사용자 보고 없음 | Alpha 트랙 검토 통과(사용자 보고, 2026-11-14, 시각 미확인) |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
 | 실제 공개일·시각 | 해당 없음 — 공개 전 | 해당 없음 — 공개 전 |
 
@@ -81,9 +81,9 @@
 | 원격 CI | `84ff8b0`의 App Validation (push)·Backend Validation (push) | 모두 success(Backend의 operator-recovery·deployment job은 skipped) | [App Validation run 43474259214](https://github.com/clip-back/clipback/actions/runs/43474259214), [Backend Validation run 43474259320](https://github.com/clip-back/clipback/actions/runs/43474259320). 빌드 시작(02:40 KST) 때는 진행 중이었고 02:47 KST 확인에서 완료. 이번 후보 준비에서 새로 실행한 결과 아님 |
 | iOS Simulator | 미실행 | 미실행 | 배포 작업 범위를 빌드·기록으로 정함(메모리 8GB). 변경별 시뮬레이터 확인은 각 PR 작업 기록에 있으며 이번 산출물 검증으로 쓰지 않음 |
 | Android Emulator | 미실행 | 미실행 | iOS Simulator와 같은 이유 |
-| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 업로드·테스터 제공 전. #336 문의 구글 폼·#349 처리방침 웹 페이지 열기도 미확인 |
+| 실제 OAuth·외부 공급자 | 미실행 | 미실행 | 테스터 제공 뒤 사용자 확인 결과 보고 없음. #336 문의 구글 폼·#349 처리방침 웹 페이지 열기도 미확인 |
 | 운영 서버 | Railway production 배포 목록, `/api/v1/health/ready` (2026-11-14 02:38–02:47 KST) | `84ff8b0` SUCCESS, health 200 | 이 앱 후보와 운영 API의 연동(#338 최근 다시 본 콘텐츠 숫자)은 미실행 |
-| 실기기 | 미실행 | 미실행 | 업로드·테스터 제공 전 |
+| 실기기 | 미실행 | 미실행 | 테스터 제공 뒤 실기기 확인 결과 보고 없음 |
 
 ## 진행 기록과 중단·복구
 
@@ -101,3 +101,4 @@
 | 2026-11-14 03:00 | 태그 생성·푸시 | 사용자 승인(2026-11-14, 조율 전달 원문 "진행해줘": 태그 생성·push, iOS 14 업로드, Android 10 Alpha 업로드, 기록 브랜치 push·PR). 만들기 전 로컬·origin에 같은 태그 없음 확인. annotated 태그 `app-ios-v0.6.0-b14`·`app-android-v0.6.0-b10`을 `84ff8b07edcffd9a421845ff5758a2ddc099f929`에 만들어 origin에 푸시 | origin `ls-remote`로 두 태그가 `84ff8b0`을 가리킴을 확인 |
 | 2026-11-14 03:02–03:03 | Android 업로드 | 같은 승인. `~/.heoturu-agents/play/upload.py`(`.venv-play`)로 보존 AAB `app-v0.6.0-android-b10/app-release.aab`를 먼저 dry-run(Play 최대 versionCode 9, 10은 새 번호) 뒤 `--track alpha --release-name "0.6.0 (10)" --confirm-upload`. 상태는 도구 기본값 draft, 출시 노트는 도구가 지원하지 않아 넣지 않음 | `UPLOAD result=UPLOADED`, AAB SHA-256 `d5511efe…ca94176` 일치, edit 커밋. `check.py` 트랙 조회(03:04 KST): `alpha: 0.6.0 (10)[draft]`, `internal: 9 (0.5.2)[completed]`. 검토 제출·테스터 제공은 안 됨 — Play Console에서 출시해야 함 |
 | 2026-11-14 03:13–03:15 | iOS 업로드 | 같은 승인. 다른 작업자의 기기 잠금이 풀리기를 빌드 차례 확인으로 기다린 뒤 실행. 올리기 전 보존 아카이브가 빌드 직후 아카이브와 같음(`diff -r`)을, 본앱·공유 확장 모두 0.6.0(14)임을 확인. 새로 빌드하지 않고 보존 아카이브를 `xcodebuild -exportArchive -allowProvisioningUpdates`로 업로드. 내보내기 설정은 IPA 내보내기 설정에서 destination만 upload로, 빌드 번호 자동 변경(`manageAppVersionAndBuildNumber`)은 끔. Xcode에 로그인된 계정 사용 | 124초, `Upload succeeded`(03:15:38 KST)·`EXPORT SUCCEEDED`, 한 번 시도. 로그에 Xcode에 등록된 다른 계정 하나의 자격 증명 로드 실패 경고가 있었으나(0.5.2 때와 같음) 업로드에 영향 없음. App Store Connect 처리·TestFlight 제공은 미확인 |
+| 2026-11-14 (시각 미확인) | 테스터 제공 보고 수신 | 사용자 보고(조율 경유): iOS 14 TestFlight 테스터 제공, Android 10은 사용자가 Play Console에서 Alpha 릴리스에 출시 노트를 입력해 출시하고 검토 통과 뒤 테스터 제공 | 사용자 보고, 화면 증거 받지 않음. iOS 테스트 그룹(내부·외부)·이름, 출시 노트 문구, 출시·검토 통과·제공 시각은 보고 없음. iOS 외부 베타 심사·실기기 확인 미확인, 정식 배포 대상 지정은 미결정 |
