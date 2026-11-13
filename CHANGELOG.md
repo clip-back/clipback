@@ -20,7 +20,7 @@
 
 ## 앱 0.6.0
 
-[iOS 0.6.0(14)·Android 0.6.0(10) 후보 기록](docs/releases/app-v0.6.0-ios-b14-android-b10.md): 양 플랫폼 산출물을 만들었습니다. 후보 태그·업로드·테스터 제공·정식 공개는 미실행입니다. 최근 다시 본 콘텐츠는 [backend-2026-11-14-1](docs/releases/backend-2026-11-14-1.md)의 서버 변경에 의존합니다.
+[iOS 0.6.0(14)·Android 0.6.0(10) 후보 기록](docs/releases/app-v0.6.0-ios-b14-android-b10.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 14는 App Store Connect에 올렸고, Android 10은 Play 비공개 테스트(Alpha) 트랙에 초안으로 올렸습니다(2026-11-14). 테스터 제공과 정식 공개는 미실행입니다. 최근 다시 본 콘텐츠는 [backend-2026-11-14-1](docs/releases/backend-2026-11-14-1.md)의 서버 변경에 의존합니다.
 
 ### 추가
 
