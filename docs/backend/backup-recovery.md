@@ -157,6 +157,13 @@ Railway Cron 서비스에서 **매일 UTC 00:00에 daily**, **매시간 15분에
 같은 날짜에 재시도할 수 있습니다. 실패는 종료 코드 1이며, Railway가 "Deploy Crashed" 메일을 보냅니다.
 운영자는 Railway Notifications에서 이 메일이 켜져 있는지 확인합니다. 명령이 Railway Cron이나 알림을
 자동 생성하지 않습니다. 정기 작업이 아예 돌지 않을 때(Cron 꺼짐 등)는 메일이 오지 않습니다.
+고정 오류 코드(`invalid_manifest` 등)로 끝나면 출력은 지금처럼 `passed`·`error` 두 키입니다. 그 밖의
+예외로 끝나면 `error`는 `backup_job_failed`이고, `exception`(예외 클래스 이름)과 `cause`(직접 원인의
+클래스 이름, 없으면 `null`)를 함께 출력합니다. 예: `{"cause": "ReadTimeoutError", "error": "backup_job_failed",
+"exception": "LedgerUnavailableError", "passed": false}`. 메시지·URL·키·Bucket 이름은 출력하지 않습니다.
+`daily`·`manual`·`maintain`은 삭제 기록 객체를 읽을 때 시도마다 연결 3초·응답 10초 제한을 두고, 요청과
+본문 수신을 합쳐 총 4번(첫 시도와 재시도 3번) 시도합니다. 4번 모두 실패하면 그 실행 전체가 실패합니다. API의 삭제
+처리와 다른 운영 명령(`restore-check`·`image_backup create` 등)은 연결 1초·응답 2초, 1번 시도 그대로입니다.
 서비스 설정과 첫 실행 확인은 [운영 실행 체크리스트](image-operator-first-run.md#일일-백업과-보존-정리-cli-개선-이미지-배포-후)를 따릅니다. 성공 시 최근 완료 snapshot 이후 최대 하루치 손실을 목표로 합니다.
 최근 지점이 24시간보다 오래되면 `freshness_met: false`, 전체 `passed: false`입니다.
 

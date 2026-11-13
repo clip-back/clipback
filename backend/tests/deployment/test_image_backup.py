@@ -382,7 +382,8 @@ async def test_daily_job_skips_only_a_completed_point_for_today(
         return {"assets": []}
 
     monkeypatch.setattr(operator_runtime, "OperatorRuntime", Runtime)
-    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger", lambda config=None: None)
+    monkeypatch.setattr(deletion_ledger, "get_deletion_ledger",
+                        lambda config=None, **kwargs: None)
     monkeypatch.setattr(maintenance, "MaintenanceGate", lambda sessions: OpenUnitGate())
     monkeypatch.setattr(jobs, "source_lock", unlocked)
     monkeypatch.setattr(jobs, "create_backup", create_backup)
