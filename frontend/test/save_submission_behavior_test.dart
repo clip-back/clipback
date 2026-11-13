@@ -464,7 +464,7 @@ void main() {
       'assets/figma/search-empty-original.png',
     )).buffer.asUint8List();
     secondBytes = (await rootBundle.load(
-      'assets/figma/hutureu-character-1.png',
+      'assets/figma/huturu-character-1.png',
     )).buffer.asUint8List();
     originalPicker = FilePicker.platform;
   });

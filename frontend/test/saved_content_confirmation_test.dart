@@ -165,7 +165,7 @@ void main() {
     )).buffer.asUint8List();
     firstBytes = Uint8List.fromList(bytes);
     secondBytes = (await rootBundle.load(
-      'assets/figma/hutureu-character-1.png',
+      'assets/figma/huturu-character-1.png',
     )).buffer.asUint8List();
     picker = _Picker([
       _Photo('first-photo.png', firstBytes),
