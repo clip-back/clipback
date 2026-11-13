@@ -1,4 +1,7 @@
-"""Independent deletion receipts. Callers serialize writers with advisory lock 74264002."""
+"""Independent deletion receipts. Callers serialize writers with advisory lock 74264002.
+
+The start point (`start.json`, ADR 0013) is the last disposed record: verification begins after it.
+"""
 
 import hashlib
 import json
@@ -20,6 +23,7 @@ LEDGER_WRITE_LOCK = 74264002
 IMAGE_CLEANUP_LOCK = 74264001
 EMPTY_DIGEST = "0" * 64
 ACCOUNT_DELETION = "account_deletion"
+START_KEY = "start.json"
 OPERATOR_READ_ATTEMPTS = 4
 
 
@@ -115,6 +119,14 @@ class LocalLedgerStore:
         finally:
             if temporary_path is not None:
                 Path(temporary_path).unlink(missing_ok=True)
+        self._sync_root()
+
+    def delete(self, key: str) -> None:
+        """Deleting a missing object succeeds."""
+        (self.root / key).unlink(missing_ok=True)
+        self._sync_root()
+
+    def _sync_root(self) -> None:
         descriptor = os.open(self.root, os.O_RDONLY)
         try:
             os.fsync(descriptor)
@@ -179,6 +191,10 @@ class S3LedgerStore:
             Bucket=self.bucket, Key=key, Body=value, ContentType="application/json"
         )
 
+    def delete(self, key: str) -> None:
+        """One SDK attempt and no outer retry (Q-B6); S3 reports success for a missing object."""
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
 
 class DeletionLedger:
     """Small append-only receipt chain; immutable events are verified against the current head.
@@ -230,6 +246,14 @@ class DeletionLedger:
         try:
             namespace = self._read("namespace.json")["namespace"]
             UUID(namespace)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+        self._validate_checkpoint(checkpoint, namespace)
+        return namespace
+
+    @staticmethod
+    def _validate_checkpoint(checkpoint: dict, namespace: str) -> None:
+        try:
             if set(checkpoint) != {"namespace", "sequence", "digest"}:
                 raise ValueError("Invalid checkpoint")
             if (
@@ -239,9 +263,16 @@ class DeletionLedger:
                 or len(bytes.fromhex(checkpoint["digest"])) != 32
             ):
                 raise ValueError("Invalid checkpoint")
-            return namespace
         except (KeyError, TypeError, ValueError) as exc:
             raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+
+    def _read_start(self, namespace: str) -> dict:
+        """Only a missing object means nothing was disposed; any other failure stops."""
+        start = self._read(START_KEY, missing_ok=True)
+        if start is None:
+            return {"namespace": namespace, "sequence": 0, "digest": EMPTY_DIGEST}
+        self._validate_checkpoint(start, namespace)
+        return start
 
     def _validate_record(self, record: dict, checkpoint: dict, sequence: int) -> dict:
         try:
@@ -261,14 +292,23 @@ class DeletionLedger:
             raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
 
     def _read_tip(self) -> dict:
-        """Foreground writes validate the head/tip only; recovery verifies the entire prefix."""
+        """Foreground writes validate the head/tip only; recovery verifies the entire prefix.
+
+        Only when the last record file is missing does the start point stand in for it (R1).
+        """
         checkpoint = self._read("head.json")
-        self._validate_head(checkpoint)
+        namespace = self._validate_head(checkpoint)
         if checkpoint["sequence"] == 0:
             if checkpoint["digest"] != EMPTY_DIGEST:
                 raise LedgerUnavailableError("Invalid empty deletion ledger")
         else:
-            record = self._read(f"event-{checkpoint['sequence']:020d}.json")
+            record = self._read(f"event-{checkpoint['sequence']:020d}.json", missing_ok=True)
+            if record is None:
+                start = self._read(START_KEY)
+                self._validate_checkpoint(start, namespace)
+                if start != checkpoint:
+                    raise LedgerUnavailableError("Invalid deletion ledger tip")
+                return checkpoint
             self._validate_record(record, checkpoint, checkpoint["sequence"])
             if hashlib.sha256(canonical_json(record)).hexdigest() != checkpoint["digest"]:
                 raise LedgerUnavailableError("Invalid deletion ledger tip")
@@ -284,24 +324,88 @@ class DeletionLedger:
         return self._read_tip()
 
     def read_verified_events(self, checkpoint: dict | None = None) -> list[dict]:
+        """Records after the start point, verified up to the checkpoint (default: head)."""
+        return [event for event, _ in self._verified_records(checkpoint)[1]]
+
+    def _verified_records(self, checkpoint: dict | None) -> tuple[dict, list[tuple[dict, str]]]:
+        """The start point and each later (event, record digest) through the checkpoint."""
         checkpoint = checkpoint if checkpoint is not None else self._read("head.json")
         try:
-            self._validate_head(checkpoint)
+            start = self._read_start(self._validate_head(checkpoint))
             sequence = checkpoint["sequence"]
-            previous = EMPTY_DIGEST
-            events = []
-            for number in range(1, sequence + 1):
+            if start["sequence"] > sequence:
+                raise ValueError("Checkpoint precedes the start point")
+            previous = start["digest"]
+            records = []
+            for number in range(start["sequence"] + 1, sequence + 1):
                 record = self._read(f"event-{number:020d}.json")
                 event = self._validate_record(record, checkpoint, number)
                 if record["previous_digest"] != previous:
                     raise ValueError("Invalid event sequence")
                 previous = hashlib.sha256(canonical_json(record)).hexdigest()
-                events.append(event)
+                records.append((event, previous))
             if previous != checkpoint["digest"]:
                 raise ValueError("Invalid checkpoint digest")
-            return events
+            return start, records
         except (KeyError, TypeError, ValueError) as exc:
             raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+
+    def advance_start(self, sequence: int) -> dict:
+        """Write the start point at a verified record and confirm it by reading it back.
+
+        Caller holds the ledger write lock. Disposed files are removed by delete_disposed().
+        """
+        head = self._read("head.json")
+        start, records = self._verified_records(head)
+        if not start["sequence"] <= sequence <= head["sequence"]:
+            raise ValueError("Start point must stay between the current start and head")
+        if sequence == start["sequence"]:
+            return start
+        target = {
+            "namespace": head["namespace"],
+            "sequence": sequence,
+            "digest": records[sequence - start["sequence"] - 1][1],
+        }
+        try:
+            self.store.write(START_KEY, canonical_json(target))
+        except (OSError, BotoCoreError, ClientError):
+            # A PUT acknowledgement can be lost after storage committed it. Verify directly.
+            pass
+        if self._read(START_KEY, missing_ok=True) != target:
+            raise LedgerUnavailableError("Deletion ledger start write is unconfirmed")
+        return target
+
+    def delete_disposed(self) -> int:
+        """Remove remaining receipts and records up to the start, oldest first, receipt first.
+
+        Deletion goes in ascending order, so the remaining disposed files are the records
+        counted back from the start until the first missing one; no listing is needed.
+        Returns the number of records whose files were removed.
+        """
+        try:
+            namespace = self._read("namespace.json")["namespace"]
+        except (KeyError, TypeError) as exc:
+            raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+        start = self._read_start(namespace)
+        pending = []
+        for number in range(start["sequence"], 0, -1):
+            record = self._read(f"event-{number:020d}.json", missing_ok=True)
+            if record is None:
+                break
+            try:
+                pending.append((number, UUID(record["event"]["operation_id"])))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+        for number, operation_id in reversed(pending):
+            self.store.delete(f"operation-{operation_id}.json")
+            self.store.delete(f"event-{number:020d}.json")
+        return len(pending)
+
+    def dispose_through(self, sequence: int) -> dict:
+        """Dispose records up to `sequence`: advance_start, then delete_disposed."""
+        start = self.advance_start(sequence)
+        self.delete_disposed()
+        return start
 
     def _publish_record(self, record: dict) -> dict:
         target = {
