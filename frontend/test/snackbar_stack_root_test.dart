@@ -147,9 +147,20 @@ void main() {
       s.mode = 'stage0';
       _home(t).onOpenToday();
       final seen = await _watch(t, const Duration(seconds: 1));
+      final first = seen.last;
+      expect(first.text, _stage0);
       s.mode = 'empty';
       _home(t).onOpenToday();
       seen.addAll(await _watch(t, const Duration(milliseconds: 100)));
+      // The middle notice was answered and, being new, sent the first bar
+      // into its exit: it waits in the queue while the first bar leaves.
+      expect(
+        s.calls.where((c) => c['path'] == '/api/v1/recommendations/today'),
+        hasLength(2),
+      );
+      final leaving = t.widget<SnackBar>(find.byType(SnackBar));
+      expect(leaving.key, first.key);
+      expect(leaving.animation!.status, AnimationStatus.reverse);
       s.mode = 'stage0';
       _home(t).onOpenToday();
       seen.addAll(await _watch(t, const Duration(seconds: 30)));
