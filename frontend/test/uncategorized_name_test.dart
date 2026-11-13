@@ -13,7 +13,9 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -280,6 +282,69 @@ void main() {
       expect(find.text('여행'), findsOneWidget);
       _expectNoOldName();
       expect(tester.takeException(), isNull);
+    });
+  }
+
+  // The tile inherits the merged app body font (not Pretendard), as in the app.
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('category change tile (#6) app body font at 1.3 $platform', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 900);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(
+              useMaterial3: true,
+              platform: platform,
+              fontFamily: 'Pretendard',
+              textTheme: ThemeData.fallback().textTheme.apply(),
+            ),
+            home: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(320, 900),
+                textScaler: TextScaler.linear(1.3),
+              ),
+              child: Scaffold(
+                body: Column(
+                  children: [
+                    for (final category in [_classified, _uncategorized])
+                      CategoryChangeTile(
+                        category: category,
+                        selected: category == _uncategorized,
+                        onTap: () {},
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final label = find.text('미분류');
+        expect(
+          tester.renderObject<RenderParagraph>(label).text.style?.fontFamily,
+          platform == TargetPlatform.iOS ? 'CupertinoSystemText' : 'Roboto',
+        );
+        final tile = find.ancestor(
+          of: label,
+          matching: find.byType(CategoryChangeTile),
+        );
+        final box = tester.getRect(tile), text = tester.getRect(label);
+        expect(text.top, greaterThanOrEqualTo(box.top));
+        expect(text.bottom, lessThanOrEqualTo(box.bottom));
+        expect(text.right, lessThanOrEqualTo(box.right));
+        expect(
+          tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
+          isFalse,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
   }
 
