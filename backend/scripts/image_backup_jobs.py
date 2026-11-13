@@ -210,8 +210,11 @@ async def prune_cleanup_rows(ledger, engine, *, now):
     """Delete completed cleanup rows 29 days past deletion that no remaining record binds (Q-B3).
 
     The remainder is read after the files are gone and every condition is in the DELETE, so a
-    row bound or reopened after the decision stays. Migration rows are kept: a later user
-    deletion needs their source identity to remove the retained Volume original.
+    row bound before that re-read, or reopened before the DELETE, stays. A record with the same
+    operation_id appearing between the re-read and the DELETE can lose its row; the record
+    stays, and the retry recreates the row or the record shows as overdue (#346). Migration
+    rows are kept: a later user deletion needs their source identity to remove the retained
+    Volume original.
     """
     from app.integrations.deletion_ledger import ACCOUNT_DELETION
     from app.models.image_deletion import ImageDeletion

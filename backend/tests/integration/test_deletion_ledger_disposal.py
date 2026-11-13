@@ -336,6 +336,89 @@ async def test_row_changed_after_the_decision_stays(world, monkeypatch):
     assert loose not in await world.rows()
 
 
+# Approved guarantee (#346): a record with the same operation_id that appears between the row
+# step's re-read and its DELETE can lose its row, but the record stays; when the retry
+# recreates the row and its cleanup succeeds, the record is disposed at deleted_at + 29 days,
+# otherwise it shows as overdue past deleted_at + 30 days. Product paths cannot create such a
+# record; these tests inject one to pin the observed behavior.
+
+async def bind_during_row_step(world, monkeypatch, moment, backend="s3"):
+    """Old completed rows `target` and `control`; a record for `target` appears at `moment`."""
+    import scripts.image_backup_jobs as jobs
+
+    user_id = world.uid()
+    target = await world.row(str(uuid4()), user_id, world.ago(days=31))
+    control = await world.row(str(uuid4()), user_id, world.ago(days=31))
+    state = {"files_done": False, "bound": False}
+    delete_files, rows_of = DeletionLedger.delete_disposed, jobs.account_rows
+
+    def bind(ledger):
+        ledger.append({"operation_id": target, "user_id": user_id, "content_id": 7,
+                       "saved_at": SAVED_AT, "deleted_at": world.now.isoformat(),
+                       "assets": [{**ASSET, "storage_backend": backend}]})
+        state["bound"] = True
+
+    def deleting_files(self):
+        if moment == "before_reread":
+            bind(self)
+        state["files_done"] = True
+        return delete_files(self)
+
+    async def account_rows(connection, events):
+        # The row step's first query after its re-read, right before the DELETE.
+        if moment == "after_reread" and state["files_done"] and not state["bound"]:
+            bind(world.ledger)
+        return await rows_of(connection, events)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(DeletionLedger, "delete_disposed", deleting_files)
+        patch.setattr(jobs, "account_rows", account_rows)
+        report = await world.dispose()
+    assert state["bound"]
+    return target, control, report
+
+
+def remains(world, operation):
+    return operation in {event["operation_id"] for event in world.ledger.read_verified_events()}
+
+
+async def test_record_bound_before_the_reread_keeps_its_row(world, monkeypatch):
+    target, control, report = await bind_during_row_step(world, monkeypatch, "before_reread")
+    assert report == result(0, 0, 1)
+    assert await world.rows() == {target}
+    assert remains(world, target) and control not in await world.rows()
+
+
+async def test_record_bound_after_the_reread_loses_its_row_but_stays(world, monkeypatch):
+    target, _, report = await bind_during_row_step(world, monkeypatch, "after_reread")
+    assert report == result(0, 0, 2)
+    assert await world.rows() == set()
+    assert remains(world, target)
+
+
+async def test_lost_row_without_retry_is_overdue_past_30_days(world, monkeypatch):
+    target, _, _ = await bind_during_row_step(world, monkeypatch, "after_reread")
+    # The new record's deleted_at is world.now.
+    assert await world.dispose(world.now + timedelta(days=29, minutes=1)) == result(0, 0, 0)
+    assert await world.dispose(world.now + timedelta(days=30, hours=1)) == result(0, 1, 0)
+    assert remains(world, target) and await world.rows() == set()
+
+
+async def test_retry_recreates_the_lost_row_and_the_record_is_disposed_on_time(
+    world, monkeypatch, tmp_path,
+):
+    from app.services.image_deletion_service import retry_image_deletions
+
+    target, _, _ = await bind_during_row_step(world, monkeypatch, "after_reread", "local")
+    monkeypatch.setattr(settings, "storage_root", tmp_path)
+    async with AsyncSession(world.engine, expire_on_commit=False) as session:
+        retried = await retry_image_deletions(session)
+    assert (retried["reconciled"], retried["pending"]) == (1, 0)
+    assert await world.rows() == {target}
+    assert await world.dispose(world.now + timedelta(days=29, minutes=1)) == result(1, 0, 1)
+    assert not remains(world, target) and await world.rows() == set()
+
+
 # Locks (Q-B4) and the read-only decision transaction (R4).
 
 async def advisory_locks(engine):
