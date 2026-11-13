@@ -68,7 +68,7 @@ def test_synthetic_manual_backup_uses_minimal_settings_and_preserves_other_work(
             time.sleep(0.1)
         seed = """
 CREATE TABLE alembic_version(version_num text); INSERT INTO alembic_version VALUES('fixture98');
-CREATE TABLE users(id int); INSERT INTO users VALUES(1);
+CREATE TABLE users(id int, created_at timestamptz); INSERT INTO users VALUES(1);
 CREATE TABLE contents(id int, content_type text, source text, title text, summary text,
  original_url text, is_favorite bool, saved_at timestamptz, last_viewed_at timestamptz);
 INSERT INTO contents VALUES(1,'screenshot','screenshot','fixture','summary',NULL,false,
@@ -77,7 +77,8 @@ CREATE TABLE content_assets(id int, content_id int, storage_key text, storage_ba
  size_bytes bigint, sha256 text);
 INSERT INTO content_assets VALUES(1,1,'original.png','local',10,'DIGEST');
 CREATE TABLE content_categories(content_id int, category_id int);
-CREATE TABLE image_deletions(operation_id text, completed bool, attempts int);
+CREATE TABLE image_deletions(operation_id text, completed bool, attempts int, user_id int,
+ content_id int, intent json, deleted_at timestamptz);
 INSERT INTO image_deletions VALUES('pending98',false,0);
 """.replace("DIGEST", hashlib.sha256(b"original98").hexdigest())
         from tests.support.maintenance import control_schema_sql

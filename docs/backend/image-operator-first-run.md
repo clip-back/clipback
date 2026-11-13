@@ -3,8 +3,10 @@
 상태: **2026-10-26 실제 운영 백업·격리 복원·명시적 서비스 재개 완료**.
 신규 이미지 Bucket 저장 전환과 일일 백업 일정 설정, 해당 정기 명령의 수동 실행도 확인했다.
 예약 시각의 자동 실행은 아직 미확인이다. `maintain` 보존 정리와 원본 삭제 재시도(`retry`)의 정기 서비스는
-설정 절차를 [아래](#일일-백업과-보존-정리-cli-개선-이미지-배포-후)에 적었고, 운영 적용은 병합 뒤 순서표(GitHub #339)로 확인하기 전이다.
-따라서 **7일 보존·삭제 사본 정리와 원본 삭제 재시도가 자동 운영 중인 것은 아니다**.
+[아래](#일일-백업과-보존-정리-cli-개선-이미지-배포-후) 절차로 운영에 적용했다(GitHub #339, 2026-11-13 사용자 확인):
+`clipback`·`clipback-backup`·`clipback-maintain`·`clipback-retry` 네 서비스가 main 자동 배포이고, `maintain`은 매시간 `passed`,
+`retry`는 첫 실행에서 `pending` 0이었다. 따라서 **7일 보존·삭제 사본 정리와 원본 삭제 재시도는 매시간 자동으로 돈다**.
+삭제 장부 30일 파기(GitHub #344)는 병합 뒤 운영 확인 전이다.
 
 상세 실행 식별자·시각·검증 범위는 [2026-10-26 운영 실행 기록](../history/2026-10-26-image-operator-production.md)에 보존한다.
 운영 현황은 이 문서를 기준으로 읽고 과거 실행 계획은 당시 설계 자료로만 사용한다.
@@ -21,8 +23,8 @@
 - [x] `clipback-backup`의 Cron을 `0 0 * * *`(매일 09:00 KST), 재시작 정책을 `Never`로 설정했다.
 - [x] `daily` 명령을 예약 외 수동 실행해 DB·이미지 백업과 정상 종료를 확인했다.
 - [ ] 예약 시각에 자동 실행되는지 확인한다. 기록 시점의 다음 예약은 2026-10-27 09:00 KST다.
-- [ ] `maintain` 정기 서비스: 설정 절차는 아래에 있고, 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
-- [ ] 원본 삭제 재시도(`retry`) 정기 서비스: 설정 절차는 아래에 있고, 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+- [x] `maintain` 정기 서비스: 아래 절차로 운영에 적용했고 매시간 `passed`를 확인했다(#339, 2026-11-13 사용자 확인).
+- [x] 원본 삭제 재시도(`retry`) 정기 서비스: 아래 절차로 운영에 적용했고 첫 실행에서 `pending` 0을 확인했다(#339, 2026-11-13 사용자 확인).
 - [ ] 기존 Volume 이미지 이관: 후속 작업이다.
 
 아래 1~4절의 체크박스는 **다음 실행에도 사용할 절차 양식**이며, 위 완료 상태와 구분한다.
@@ -205,59 +207,78 @@ main 자동 배포와 CI 통과 대기를 켠다.
 python -m scripts.image_backup_jobs daily
 ```
 
-- `BACKUP_BUCKET_CONFIG_JSON`과 `IMAGE_BACKUP_APP_COMMIT`, 기존 DB·삭제 기록·원본 S3·Volume 원격 읽기 설정을 유지한다.
+- 변수는 [명령별 필요한 변수](#명령별-필요한-변수)의 `daily` 열을 따른다.
 - ID는 `daily-YYYY-MM-DD`(UTC)로 생성한다. `IMAGE_BACKUP_ID`는 사용하지 않는다.
 - `IMAGE_BACKUP_APP_COMMIT`은 실제 원본 API 커밋과 맞추고 API 버전 변경 시 확인한다.
 - 같은 날짜의 완료 지점이 있으면 `backup_created=false`로 종료할 수 있다.
 - `restore_verified=false`는 생성만 수행했다는 뜻이다. 별도 격리 복원 성공으로 바꾸지 않는다.
 - 예약 외 실행과 예약 시각 자동 실행을 구분한다. 첫 자동 실행의 완료 지점과 종료를 확인한다.
 
-`maintain`은 별도 Railway Cron 서비스로 돌린다. 운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+`maintain`은 별도 Railway Cron 서비스(`clipback-maintain`)로 돌린다. 운영에 적용했고 매시간 `passed`를 확인했다(#339, 2026-11-13 사용자 확인).
 
 - 이미지: 운영자 이미지(Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile.operator`)
-- 시작 명령: `clipback-backup`과 같은 방식으로 아래 `maintain` 명령
+- 시작 명령: `python -m scripts.image_backup_jobs maintain`
 - Cron `15 * * * *`(매시간 15분), Restart Policy `Never`, 공개 도메인 없음
 - main 자동 배포와 CI 통과 대기를 켠다.
+- 변수는 [명령별 필요한 변수](#명령별-필요한-변수)의 `maintain` 열을 따른다. `clipback-backup`의 값을 참조해 같은 DB·삭제 기록·백업 Bucket을 쓴다.
 
-```sh
-python -m scripts.image_backup_jobs maintain
-```
-
-필요한 변수는 다음뿐이다. `clipback-backup`의 값을 참조해 같은 DB·삭제 기록·백업 Bucket을 쓴다.
-
-```text
-APP_ENVIRONMENT=production
-DATABASE_URL
-BACKUP_BUCKET_CONFIG_JSON
-DELETION_LEDGER_BACKEND=s3
-DELETION_LEDGER_S3_ENDPOINT_URL
-DELETION_LEDGER_S3_BUCKET
-DELETION_LEDGER_S3_REGION
-DELETION_LEDGER_S3_ADDRESSING_STYLE
-DELETION_LEDGER_S3_ACCESS_KEY_ID
-DELETION_LEDGER_S3_SECRET_ACCESS_KEY
-```
-
-개선 `maintain`에는 `STORAGE_*`, 원본 `S3_*`, `OPERATOR_*`, `IMAGE_BACKUP_*`, AI·로그인 키가
-필요 없다. DB는 점검 상태와 중복 실행 잠금에 사용한다. 백업 생성의 원본 검증은 그대로 유지한다.
+DB는 점검 상태, 중복 실행 잠금, 삭제 장부 파기 조건 읽기(`users`·`image_deletions`)와 원본 정리 작업 행 삭제에 사용한다.
+백업 생성의 원본 검증은 그대로 유지한다.
 첫 실행은 오래된 백업을 지우는 단계로 보고 `passed`만 확인한다. `passed=true`이거나,
 JSON에 `error`가 없고 `freshness_met=true`이며 `passed=false`의 원인이 `retention_overdue>0`뿐이면
 정상이다. 정리가 한 번도 돌지 않아 7일 전에 지운 사진의 사본이 남아 있었기 때문이다. 이때 Railway 실패 메일이
 한 번 온다. `retention_overdue`, `expired_points`, `retained_points`는 기록만 한다.
 `retention_requires_v2`·`invalid_manifest`이면 지우기 전 전체 검증에서 멈춘 것이라 아무것도 지우지 않았다.
 Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해당 지점을 읽기 전용으로 찾는다.
-다음 정시 15분 자동 실행에서 `retention_overdue=0`, `passed=true`, `deletion_records_pruned=0`과 정상 종료를 확인한다.
+다음 정시 15분 자동 실행에서 `retention_overdue=0`, `deletion_records_overdue=0`, `passed=true`와 정상 종료를 확인한다.
+`deletion_records_pruned`(파기한 장부 기록 수)와 `image_deletion_rows_pruned`(지운 원본 정리 작업 행 수)는 기록만 한다.
+가장 오래된 장부 기록이 삭제 29일이 지나기 전에는 파기할 기록이 없어 `deletion_records_pruned`가 0이다.
 
 이 작업은 만들어진 지 **7일 − 1시간** 이상 된 복구 지점과 참조되지 않는 백업 사본을 실제로 삭제한다.
 매시간 15분에 돌아도 복구 지점이 7일을 넘기지 않게 하려고 1시간을 뺐다. 사용자 삭제 후 7일이 지난 사본이
 발견되면 지금처럼 기한 미충족(`retention_overdue`)으로 보고한다. 사용자 삭제 후
 6일이 지난 이미지를 포함한 복구 지점은 7일 기한 전에 정리 여유를 확보하려고 전체가 조기 제거될 수 있다.
-삭제 기록 자체와 운영 원본의 물리 삭제 재처리는 대상이 아니다. 서비스가 켜지기 전에는 7일 자동 정리가 보장되지 않는다.
+운영 원본의 물리 삭제 재처리는 대상이 아니다(아래 `retry`). 서비스가 켜지기 전에는 7일 자동 정리가 보장되지 않는다.
+
+같은 실행은 보존 정리 뒤 삭제 장부 기록을 삭제 30일 뒤 파기한다([ADR 0013](../adr/0013-deletion-ledger-30-day-disposal.md)).
+삭제 29일이 지났고 반영이 끝났으며 남은 복구 지점의 checkpoint보다 앞선 기록까지 장부의 시작 지점을 옮기고,
+그 앞의 기록 파일·영수증과 묶인 원본 정리 작업 행을 지운다. 30일이 넘게 남은 기록이 있으면 `deletion_records_overdue>0`,
+`passed=false`로 실패 메일이 온다. 조건·출력·원인은 [백업·복구의 삭제 장부 30일 파기](backup-recovery.md#삭제-장부-30일-파기)를 따른다.
+
+#### 삭제 장부 30일 파기 배포 (#344)
+
+- [ ] 병합 전: 장부 Bucket 키(`DELETION_LEDGER_S3_ACCESS_KEY_ID`)에 객체 삭제 권한이 있는지 Railway Bucket 설정 화면에서 확인한다.
+  `maintain`이 이 키로 시작 지점 앞 기록 파일·영수증을 지운다.
+- [ ] 병합 순서: 정시 15분 직후 병합한다. 다음 15분 전에 `clipback`·`clipback-backup`·`clipback-maintain`·`clipback-retry`
+  네 서비스의 배포 커밋이 모두 같은지 확인하고, 아니면 `maintain` Cron을 잠시 끈다. 옛 코드는 파기한 장부를 읽지 못한다.
+- [ ] 병합 뒤: 다음 백업(00:00 UTC)과 `maintain`이 `passed=true`인지 확인한다.
+- [ ] 처리방침 게시: #344 새 코드 배포 뒤 첫 `maintain`이 `passed=true`인 것을 확인하면 처리방침을 게시한다(Q17).
+  #339 적용 때의 `passed`는 이 조건이 아니다. 첫 실제 파기는 아래 항목으로 따로 확인한다.
+- [ ] 첫 실제 파기(가장 오래된 기록이 삭제 29일 되는 날 이후): `deletion_records_pruned>0`,
+  `python -m scripts.image_deletions checkpoint` 통과를 확인하고, 아래 읽기 전용 SQL을 실행한다.
+  `total`·`total_min`(전체 행 수·가장 오래된 삭제 시각)은 관측값으로 기록만 한다. 이관 정리 행(intent에 `source_identity` 있음)은
+  나이와 무관하게 남기므로 `total_min`이 30일보다 오래돼도 실패가 아니다. 판정은 이관 행을 뺀 `target_min`이 30일 안인지로 한다.
+  `target_rows`가 0이면 `target_min`은 비어 있고(NULL) 정상이다.
+
+  ```sql
+  SELECT
+    count(*) AS total,
+    min(deleted_at) AS total_min,
+    count(*) FILTER (WHERE intent::jsonb ? 'source_identity') AS kept_migration_rows,
+    count(*) FILTER (WHERE NOT (intent::jsonb ? 'source_identity')) AS target_rows,
+    min(deleted_at) FILTER (WHERE NOT (intent::jsonb ? 'source_identity')) AS target_min
+  FROM image_deletions;
+  ```
+
+  `target_min`이 30일보다 오래되면 그 행은 아직 미완료이거나 남은 장부 기록에 묶인 것이므로 `deletion_records_overdue`와
+  `retry`의 `pending`을 확인한다. 장부 기록이 없는 업로드 실패 정리 행은 미완료로 30일을 넘겨도 `deletion_records_overdue`에
+  잡히지 않으므로 `retry`의 `pending`을 함께 본다.
+- 첫 파기 뒤에는 이 기능 이전 버전으로 되돌리지 않는다([Railway 배포](../railway-deployment.md#복원과-롤백)).
 
 ### 원본 삭제 재시도 서비스
 
-탈퇴·콘텐츠 삭제 때 지우지 못한 원본(정리 작업)은 별도 Railway Cron 서비스가 매시간 다시 지운다.
-운영 적용은 병합 뒤 순서표(#339)로 확인하기 전이다.
+탈퇴·콘텐츠 삭제 때 지우지 못한 원본(정리 작업)은 별도 Railway Cron 서비스(`clipback-retry`)가 매시간 다시 지운다.
+운영에 적용했고 첫 실행에서 `pending` 0을 확인했다(#339, 2026-11-13 사용자 확인).
 
 - 이미지: API 이미지(Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile`)
 - 시작 명령: `python -m scripts.image_deletions retry`
@@ -278,6 +299,22 @@ railway ssh --service clipback --environment production -- python -m scripts.ima
 ```
 
 `retry`는 점검 작업 `deletion_retry`로 돈다. 도중에 비정상 종료하면 `maintenance_operations`에 행이 남을 수 있다.
+
+### 명령별 필요한 변수
+
+| 변수 | `daily` | `maintain` | `retry` |
+| --- | --- | --- | --- |
+| `APP_ENVIRONMENT=production`, `DATABASE_URL` | 필요 | 필요 | API 값 참조 |
+| `DELETION_LEDGER_BACKEND=s3`, `DELETION_LEDGER_S3_*`(endpoint·bucket·region·addressing style·키 2개) | 필요(읽기) | 필요(읽기·쓰기·객체 삭제) | API 값 참조 |
+| `BACKUP_BUCKET_CONFIG_JSON` | 필요 | 필요 | 없음 |
+| `IMAGE_BACKUP_APP_COMMIT` | 필요 | 없음 | 없음 |
+| `STORAGE_ROOT`, `STORAGE_BACKEND`, 원본 `S3_*` | 필요(원본 읽기) | 없음 | API 값 참조 |
+| `OPERATOR_SOURCE_URL`, `OPERATOR_READ_KEY` | 필요(Volume 원격 읽기) | 없음 | 없음 |
+| `OPERATOR_SOURCE_ID` | 필요 | 없음 | API 값 참조(반드시) |
+| 그 밖의 API 변수(`SECRET_KEY`, AI·로그인 키 등) | 없음 | 없음 | API 값 참조 |
+
+`daily`·`maintain`은 운영자 이미지, `retry`는 API 이미지로 돈다. `retry`의 변수는 API 변수를 Railway 참조 변수(`${{clipback.X}}`)로 잇는다.
+`IMAGE_BACKUP_ID`는 `daily`에 쓰지 않는다.
 
 ## 읽기 전용 결과 확인과 기록
 

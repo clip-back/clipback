@@ -8,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
-from sqlalchemy import text
+from sqlalchemy import cast, delete, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 from scripts.check_backup_restore import CheckError, RestoreDrill, check, require
 from scripts.image_backup import BackupBucket, create_backup
@@ -36,6 +37,9 @@ POINT_RETENTION = timedelta(days=7) - timedelta(hours=1)
 DELETION_DEADLINE = timedelta(days=7)
 # Hourly maintenance gets a full day to retry before the contractual seven-day limit.
 DELETED_COPY_RETENTION = timedelta(days=6)
+# Ledger records leave 29 days after deletion; one still kept past 30 days fails the run (ADR 0013).
+DISPOSAL_AGE = timedelta(days=29)
+DISPOSAL_DEADLINE = timedelta(days=30)
 
 
 def latest_deletions(ledger, checkpoint):
@@ -62,7 +66,7 @@ def asset_matches(asset, deleted):
 
 
 def maintain_backups(store, ledger, *, now=None):
-    """Caller serializes backup/GC operators. No ledger records are ever pruned."""
+    """Caller serializes backup/GC operators. Ledger disposal follows in run_job (ADR 0013)."""
     from app.integrations.deletion_ledger import deleted_contents
 
     now = now or datetime.now(UTC)
@@ -140,8 +144,129 @@ def maintain_backups(store, ledger, *, now=None):
         "passed": fresh and not overdue, "freshness_met": fresh,
         "retention_overdue": len(overdue),
         "expired_points": sum(p[3] for p in points), "removed_originals": removed,
-        "retained_points": len(retained), "deletion_records_pruned": 0,
+        "retained_points": len(retained),
     }
+
+
+def surviving_checkpoint(store):
+    """Smallest ledger checkpoint among the points left after retention (Q-B1), or None."""
+    manifests = [read_point_json(store, identifier) for identifier in completed_points(store)]
+    return min((manifest["deletion_checkpoint"]["sequence"] for manifest in manifests
+                if manifest.get("deletion_checkpoint") is not None), default=None)
+
+
+def made_by(event, rows):
+    """Cleanup rows an account deletion record made: the same account and the record's IDs."""
+    from app.integrations.deletion_ledger import account_content_operation_id
+
+    return [row for row in rows if row.user_id == event["user_id"] and row.operation_id
+            == account_content_operation_id(event["operation_id"], row.content_id,
+                                            row.intent["saved_at"])]
+
+
+async def account_rows(connection, events):
+    """Cleanup rows of the accounts in these account deletion records."""
+    from app.models.image_deletion import ImageDeletion
+
+    return (await connection.execute(
+        select(ImageDeletion.operation_id, ImageDeletion.user_id, ImageDeletion.content_id,
+               ImageDeletion.intent, ImageDeletion.completed)
+        .where(ImageDeletion.user_id.in_({event["user_id"] for event in events}),
+               ImageDeletion.content_id > 0)
+    )).all()
+
+
+async def reflected_prefix(connection, events):
+    """How many leading records the DB has fully applied, rule (b)."""
+    from app.integrations.deletion_ledger import ACCOUNT_DELETION
+    from app.models.image_deletion import ImageDeletion
+    from app.models.user import User
+
+    accounts = [event for event in events if event.get("kind") == ACCOUNT_DELETION]
+    completed = dict((await connection.execute(
+        select(ImageDeletion.operation_id, ImageDeletion.completed)
+        .where(ImageDeletion.operation_id.in_([event["operation_id"] for event in events]))
+    )).all())
+    users = dict((await connection.execute(
+        select(User.id, User.created_at).where(User.id.in_({e["user_id"] for e in accounts}))
+    )).all())
+    rows = await account_rows(connection, accounts)
+    count = 0
+    for event in events:
+        if event.get("kind") == ACCOUNT_DELETION:
+            # Only the same number and creation time are the deleted account (ADR 0008).
+            applied = users.get(event["user_id"]) != aware(event["user_created_at"]) and all(
+                row.completed for row in made_by(event, rows))
+        else:
+            # No row yet means the retry has not applied the record.
+            applied = completed.get(event["operation_id"]) is True
+        if not applied:
+            break
+        count += 1
+    return count
+
+
+async def prune_cleanup_rows(ledger, engine, *, now):
+    """Delete completed cleanup rows 29 days past deletion that no remaining record binds (Q-B3).
+
+    The remainder is read after the files are gone and every condition is in the DELETE, so a
+    row bound before that re-read, or reopened before the DELETE, stays. A record with the same
+    operation_id appearing between the re-read and the DELETE can lose its row; the record
+    stays, and the retry recreates the row or the record shows as overdue (#346). Migration
+    rows are kept: a later user deletion needs their source identity to remove the retained
+    Volume original.
+    """
+    from app.integrations.deletion_ledger import ACCOUNT_DELETION
+    from app.models.image_deletion import ImageDeletion
+
+    events = await asyncio.to_thread(ledger.read_verified_events)
+    accounts = [event for event in events if event.get("kind") == ACCOUNT_DELETION]
+    async with engine.connect() as connection:
+        rows = await account_rows(connection, accounts)
+        bound = {event["operation_id"] for event in events} | {
+            row.operation_id for event in accounts for row in made_by(event, rows)}
+        result = await connection.execute(delete(ImageDeletion).where(
+            ImageDeletion.completed.is_(True),
+            ImageDeletion.deleted_at <= now - DISPOSAL_AGE,
+            ImageDeletion.operation_id.not_in(bound),
+            ~cast(ImageDeletion.intent, JSONB).has_key("source_identity"),
+        ))
+        await connection.commit()
+    return result.rowcount
+
+
+async def dispose_deletion_records(store, ledger, engine, *, now):
+    """Dispose records retention left unneeded, after it finished without an exception.
+
+    The ledger write lock covers only reading the remainder and the DB conditions and writing
+    the start point; record files and cleanup rows go after it, under the caller's job lock.
+    """
+    from app.integrations.deletion_ledger import LEDGER_WRITE_LOCK
+
+    limit = await asyncio.to_thread(surviving_checkpoint, store)
+    async with source_lock(LEDGER_WRITE_LOCK, engine=engine) as connection:
+        start, events = await asyncio.to_thread(ledger.read_verified_remainder)
+        # Rules (a) and (c) need no DB, so (b) is read only for the records passing both.
+        candidates = []
+        for sequence, event in enumerate(events, start + 1):
+            if now - aware(event["deleted_at"]) < DISPOSAL_AGE or (
+                limit is not None and sequence > limit
+            ):
+                break
+            candidates.append(event)
+        # A rollback keeps the session lock; one read-only transaction reads the conditions.
+        await connection.rollback()
+        await connection.execute(text("SET TRANSACTION READ ONLY"))
+        pruned = await reflected_prefix(connection, candidates)
+        await connection.rollback()
+        if pruned:
+            await asyncio.to_thread(ledger.advance_start, start + pruned)
+    overdue = sum(now - aware(event["deleted_at"]) > DISPOSAL_DEADLINE
+                  for event in events[pruned:])
+    await asyncio.to_thread(ledger.delete_disposed)
+    rows = await prune_cleanup_rows(ledger, engine, now=now)
+    return {"deletion_records_pruned": pruned, "deletion_records_overdue": overdue,
+            "image_deletion_rows_pruned": rows}
 
 
 @asynccontextmanager
@@ -158,7 +283,7 @@ async def source_lock(key, *, shared=False, try_only=False, engine=None):
             result = await connection.scalar(text(f"SELECT {function}{suffix}(:key)"), {"key": key})
             acquired = result is True if try_only else True
             require(acquired, "backup_job_already_running")
-            yield
+            yield connection
         finally:
             try:
                 await connection.rollback()
@@ -186,7 +311,11 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
         async with MaintenanceGate(runtime.sessions).operation("backup_" + command), \
                 source_lock(BACKUP_JOB_LOCK, try_only=True, engine=runtime.engine):
             if command == "maintain":
-                return await asyncio.to_thread(maintain_backups, store, ledger)
+                now = datetime.now(UTC)
+                report = await asyncio.to_thread(maintain_backups, store, ledger, now=now)
+                disposal = await dispose_deletion_records(store, ledger, runtime.engine, now=now)
+                return {**report, **disposal, "passed": report["passed"]
+                        and disposal["deletion_records_overdue"] == 0}
             identifier = backup_id or "daily-" + datetime.now(UTC).date().isoformat()
             if command == "daily" and identifier in completed_points(store):
                 return {"passed": True, "backup_id": identifier, "backup_created": False,
