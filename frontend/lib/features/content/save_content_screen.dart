@@ -897,32 +897,26 @@ class SavedContentConfirmation extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 164,
-                height: 100,
-                foregroundDecoration: isPhoto
-                    ? BoxDecoration(
-                        border: Border.all(color: AppColors.subtler),
-                        borderRadius: BorderRadius.circular(4),
-                      )
-                    : null,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: isPhoto
-                      ? Image.memory(
-                          photoBytes!,
-                          key: const ValueKey('save-result-preview-image'),
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                        )
-                      : Image.asset(
-                          Assets.saveLinkPreview,
-                          key: const ValueKey('save-result-preview-image'),
-                          fit: BoxFit.cover,
-                        ),
+              if (isPhoto) ...[
+                Container(
+                  width: 164,
+                  height: 100,
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(color: AppColors.subtler),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.memory(
+                      photoBytes!,
+                      key: const ValueKey('save-result-preview-image'),
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
+                const SizedBox(width: 16),
+              ],
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1050,8 +1044,8 @@ class PhotoSaveBody extends StatelessWidget {
         InkWell(
           onTap: onSelect,
           borderRadius: BorderRadius.circular(8),
-          child: selected
-              ? SelectedPhotoPreview(photoBytes: photoBytes)
+          child: selected && photoBytes != null
+              ? SelectedPhotoPreview(photoBytes: photoBytes!)
               : const PhotoEmptyPrompt(),
         ),
       ],
@@ -1145,7 +1139,7 @@ class _DashedRoundedBorderPainter extends CustomPainter {
 class SelectedPhotoPreview extends StatelessWidget {
   const SelectedPhotoPreview({required this.photoBytes, super.key});
 
-  final Uint8List? photoBytes;
+  final Uint8List photoBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -1165,17 +1159,11 @@ class SelectedPhotoPreview extends StatelessWidget {
         decoration: BoxDecoration(border: Border.all(color: AppColors.subtler)),
         child: ClipRect(
           child: SizedBox.expand(
-            child: photoBytes == null
-                ? Image.asset(
-                    Assets.savedPhotoPreview,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.center,
-                  )
-                : Image.memory(
-                    photoBytes!,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.center,
-                  ),
+            child: Image.memory(
+              photoBytes,
+              fit: BoxFit.contain,
+              alignment: Alignment.center,
+            ),
           ),
         ),
       ),

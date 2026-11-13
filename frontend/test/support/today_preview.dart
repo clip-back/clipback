@@ -36,11 +36,11 @@ class OriginalLinkPreviewServer extends isolated.ArchiveAllServer {
       metrics.add(Map<String, dynamic>.from(jsonDecode(request.body) as Map));
     }
     if (request.url.path == '/api/v1/uploads/assets/901/access') {
-      final bytes = await rootBundle.load(Assets.savedPhotoPreview);
+      final bytes = await rootBundle.load(Assets.searchEmptyIllustration);
       return originalAccessFixture(901, bytes.buffer.asUint8List());
     }
     if (request.url.path == '/api/v1/uploads/assets/901') {
-      final bytes = await rootBundle.load(Assets.savedPhotoPreview);
+      final bytes = await rootBundle.load(Assets.searchEmptyIllustration);
       return http.Response.bytes(
         bytes.buffer.asUint8List(),
         200,

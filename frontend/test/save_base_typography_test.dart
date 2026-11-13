@@ -22,6 +22,10 @@ const _shortTitle = '짧은 제목';
 const _shortSource = '출처';
 const _longTitle = '긴 저장 콘텐츠 제목이 아주 길어서 두 줄을 넘는 경우에도 말줄임이 유지되는지 확인해요';
 const _longSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름';
+// Link results have no thumbnail, so their text column is wider (#350).
+const _linkLongTitle =
+    '긴 저장 콘텐츠 제목이 아주 길어서 그림 칸 없이 넓어진 링크 결과 카드에서도 두 줄을 넘는 경우에 말줄임이 유지되는지 확인해요';
+const _linkLongSource = '한 줄 너비를 넘는 아주 긴 콘텐츠 출처 이름이 그림 칸 없이도 넘쳐요';
 const _longCategory = '매일 다시 확인하는 아주 긴 카테고리 이름이 끝까지 보존돼요';
 const _processingCategoryMessage = '링크 정보를 처리 중이에요. 분류는 나중에 반영될 수 있어요.';
 const _categoryHint = '분류는 상세 화면에서 변경할 수 있어요.';
@@ -48,9 +52,15 @@ Finder _resultPreviewImage() {
 
 Finder _resultPreviewCard() => _resultRole(
   'save-result-preview-card',
-  find
-      .ancestor(of: _resultPreviewImage(), matching: find.byType(Container))
-      .first,
+  find.descendant(
+    of: find.byType(SavedContentConfirmation),
+    matching: find.byWidgetPredicate(
+      (widget) =>
+          widget is Container &&
+          widget.padding == const EdgeInsets.all(8) &&
+          widget.child is Row,
+    ),
+  ),
 );
 
 Finder _resultPhotoSummary(String filename) => _resultRole(
@@ -752,11 +762,10 @@ void _preview(
   int? expectedTitleLines,
 }) {
   final result = find.byType(SavedContentConfirmation);
-  final image = _resultPreviewImage();
-  expect(image, findsOneWidget);
+  final confirmation = tester.widget<SavedContentConfirmation>(result);
+  final isPhoto = confirmation.photoBytes != null;
   final cardFinder = _resultPreviewCard();
   final card = tester.getRect(cardFinder);
-  final thumbnail = tester.getRect(image);
   final inner = card.deflate(8);
   final titleBounds = Rect.fromLTRB(
     inner.left,
@@ -773,8 +782,6 @@ void _preview(
     find.ancestor(of: titleFinder, matching: find.byType(Column)).first,
   );
   final viewport = tester.getRect(find.byType(SingleChildScrollView));
-  final confirmation = tester.widget<SavedContentConfirmation>(result);
-  final isPhoto = confirmation.photoBytes != null;
   final label = confirmation.originalUrl.isEmpty
       ? confirmation.content.originalUrl
       : confirmation.originalUrl;
@@ -830,17 +837,44 @@ void _preview(
     16,
   );
   _near(failures, 'preview width', card.width, viewport.width - 32);
-  _near(failures, 'preview image width', thumbnail.width, 164);
-  _near(failures, 'preview image height', thumbnail.height, 100);
-  _near(failures, 'preview image left padding', thumbnail.left - card.left, 8);
-  _near(failures, 'preview image/text gap', title.left - thumbnail.right, 16);
+  final image = isPhoto ? _resultPreviewImage() : null;
+  final thumbnail = image == null ? null : tester.getRect(image);
+  if (thumbnail != null) {
+    _near(failures, 'preview image width', thumbnail.width, 164);
+    _near(failures, 'preview image height', thumbnail.height, 100);
+    _near(
+      failures,
+      'preview image left padding',
+      thumbnail.left - card.left,
+      8,
+    );
+    _near(failures, 'preview image/text gap', title.left - thumbnail.right, 16);
+  } else {
+    _same(
+      failures,
+      'link preview has no image',
+      find
+          .descendant(of: cardFinder, matching: find.byType(Image))
+          .evaluate()
+          .isEmpty,
+      true,
+    );
+    _near(
+      failures,
+      'link preview text left padding',
+      title.left - card.left,
+      8,
+    );
+  }
   _near(
     failures,
     'preview text right padding',
     card.right - textColumn.right,
     8,
   );
-  final columnMaxWidth = card.width - 8 - 164 - 16 - 8;
+  final columnMaxWidth = isPhoto
+      ? card.width - 8 - 164 - 16 - 8
+      : card.width - 16;
   final titleParagraph = tester.renderObject<RenderParagraph>(titleFinder);
   final sourceParagraph = tester.renderObject<RenderParagraph>(sourceFinder);
   _near(
@@ -870,7 +904,14 @@ void _preview(
     title.height + 14 + source.height,
   );
   _near(failures, 'preview base card height', card.height, 116);
-  _near(failures, 'preview image center', thumbnail.center.dy, card.center.dy);
+  if (thumbnail != null) {
+    _near(
+      failures,
+      'preview image center',
+      thumbnail.center.dy,
+      card.center.dy,
+    );
+  }
   _near(failures, 'preview text center', text.center.dy, card.center.dy);
   _near(
     failures,
@@ -881,16 +922,18 @@ void _preview(
   if (card.height < 116) {
     failures.add('preview is shorter than its 116px minimum');
   }
-  _inside(failures, 'preview thumbnail', thumbnail, inner);
+  if (thumbnail != null) {
+    _inside(failures, 'preview thumbnail', thumbnail, inner);
+  }
   _inside(failures, 'preview text block', text, inner);
 
-  final thumbnailContainer = find
-      .ancestor(of: image, matching: find.byType(Container))
-      .first;
-  final thumbnailWidget = tester.widget<Container>(thumbnailContainer);
-  final thumbnailDecoration =
-      thumbnailWidget.foregroundDecoration as BoxDecoration?;
-  if (isPhoto) {
+  if (image != null) {
+    final thumbnailContainer = find
+        .ancestor(of: image, matching: find.byType(Container))
+        .first;
+    final thumbnailWidget = tester.widget<Container>(thumbnailContainer);
+    final thumbnailDecoration =
+        thumbnailWidget.foregroundDecoration as BoxDecoration?;
     _same(
       failures,
       'photo thumbnail foreground border',
@@ -913,26 +956,19 @@ void _preview(
           ),
       true,
     );
-  } else {
     _same(
       failures,
-      'link thumbnail has no foreground border',
-      thumbnailDecoration?.border,
-      null,
+      'thumbnail fit remains cover',
+      tester.widget<Image>(image).fit,
+      BoxFit.cover,
+    );
+    _same(
+      failures,
+      'thumbnail alignment remains center',
+      tester.widget<Image>(image).alignment,
+      saved.photo != null ? Alignment.topCenter : Alignment.center,
     );
   }
-  _same(
-    failures,
-    'thumbnail fit remains cover',
-    tester.widget<Image>(image).fit,
-    BoxFit.cover,
-  );
-  _same(
-    failures,
-    'thumbnail alignment remains center',
-    tester.widget<Image>(image).alignment,
-    saved.photo != null ? Alignment.topCenter : Alignment.center,
-  );
 
   for (final entry in [
     (titleFinder, 2, 'title'),
@@ -1583,7 +1619,7 @@ void main() {
     }
     await fonts.load();
     photo = (await rootBundle.load(
-      'assets/figma/saved-photo-preview.png',
+      'assets/figma/search-empty-original.png',
     )).buffer.asUint8List();
     for (final entry in _photoCases.entries) {
       markedPhotos[entry.key] = await _markedPhoto(entry.value);
@@ -1591,8 +1627,7 @@ void main() {
   });
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
-      for (final photoCase in [..._photoCases.keys, 'asset fallback']) {
-        final memoryPhoto = photoCase != 'asset fallback';
+      for (final photoCase in _photoCases.keys) {
         testWidgets('photo frame geometry $platform width $width $photoCase', (
           tester,
         ) async {
@@ -1618,7 +1653,7 @@ void main() {
                   child: RepaintBoundary(
                     key: _photoBoundaryKey,
                     child: SelectedPhotoPreview(
-                      photoBytes: markedPhotos[photoCase],
+                      photoBytes: markedPhotos[photoCase]!,
                     ),
                   ),
                 ),
@@ -1644,24 +1679,40 @@ void main() {
               matching: find.byType(Image),
             ),
           );
-          if (memoryPhoto) {
-            expect(image.image, isA<MemoryImage>());
-            expect(
-              (image.image as MemoryImage).bytes,
-              same(markedPhotos[photoCase]),
-            );
-            await _photoPixels(tester, failures, _photoCases[photoCase]!);
-          } else {
-            expect(image.image, isA<AssetImage>());
-            expect(
-              (image.image as AssetImage).assetName,
-              'assets/figma/saved-photo-preview.png',
-            );
-          }
+          expect(image.image, isA<MemoryImage>());
+          expect(
+            (image.image as MemoryImage).bytes,
+            same(markedPhotos[photoCase]),
+          );
+          await _photoPixels(tester, failures, _photoCases[photoCase]!);
           expect(tester.takeException(), isNull);
           expect(failures, isEmpty, reason: failures.join('\n'));
         });
       }
+      testWidgets(
+        'photo body without bytes shows empty prompt $platform width $width',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(width, 812);
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(useMaterial3: true, platform: platform),
+              home: const Scaffold(
+                body: PhotoSaveBody(
+                  stage: SaveFlowStage.valid,
+                  onSelect: null,
+                  photoBytes: null,
+                ),
+              ),
+            ),
+          );
+          expect(find.byType(PhotoEmptyPrompt), findsOneWidget);
+          expect(find.byType(SelectedPhotoPreview), findsNothing);
+          expect(find.byType(Image), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
       for (final scene in _Scene.values) {
         testWidgets('base typography $platform width $width ${scene.name}', (
           tester,
@@ -1703,9 +1754,13 @@ void main() {
               scene: scene,
               platform: platform,
               width: width,
-              title: width == 375
-                  ? "'주술회전(呪術廻戦)' 초반 1~10권 감상회"
-                  : '저장 결과 확인 제목 보기',
+              title: scene.photo
+                  ? width == 375
+                        ? "'주술회전(呪術廻戦)' 초반 1~10권 감상회"
+                        : '저장 결과 확인 제목 보기'
+                  : width == 375
+                  ? '그림 칸 없이 넓어진 링크 결과 카드에서 제목이 두 줄로 이어져요'
+                  : '그림 칸 없는 링크 결과에서 두 줄로 이어지는 제목',
               source: scene.photo ? '사진' : 'Youtube',
             );
             final paragraph = tester.renderObject<RenderParagraph>(
@@ -1719,7 +1774,11 @@ void main() {
               ellipsis: '\u2026',
             );
             try {
-              reference.layout(maxWidth: width - 32 - 8 - 164 - 16 - 16);
+              reference.layout(
+                maxWidth: scene.photo
+                    ? width - 32 - 8 - 164 - 16 - 16
+                    : width - 32 - 16 - 8,
+              );
               expect(reference.computeLineMetrics(), hasLength(2));
               expect(reference.didExceedMaxLines, isFalse);
             } finally {
@@ -1750,12 +1809,20 @@ void main() {
               scene: scene,
               platform: platform,
               width: width,
-              title: width == 375 ? '저장콘텐츠제목확인중요1' : '저장제목확인중',
+              title: scene.photo
+                  ? width == 375
+                        ? '저장콘텐츠제목확인중요1'
+                        : '저장제목확인중'
+                  : width == 375
+                  ? '저장콘텐츠제목확인중요합니다가나다라마바사아자차카1'
+                  : '저장콘텐츠제목확인중요합니다가나다라마바12',
             );
             final paragraph = tester.renderObject<RenderParagraph>(
               find.text(saved.title),
             );
-            final columnMaxWidth = width - 32 - 8 - 164 - 16 - 8;
+            final columnMaxWidth = scene.photo
+                ? width - 32 - 8 - 164 - 16 - 8
+                : width - 32 - 16;
             final reference = TextPainter(
               text: paragraph.text,
               textDirection: paragraph.textDirection,
@@ -1798,8 +1865,8 @@ void main() {
             scene: scene,
             platform: platform,
             width: width,
-            title: _longTitle,
-            source: _longSource,
+            title: scene.photo ? _longTitle : _linkLongTitle,
+            source: scene.photo ? _longSource : _linkLongSource,
           );
           final failures = <String>[];
           _preview(tester, failures, saved: saved, longText: true);

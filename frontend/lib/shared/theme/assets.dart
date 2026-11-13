@@ -102,8 +102,6 @@ class Assets {
   static const xCircle = 'assets/icons/x-circle.svg';
   static const photoSelect = 'assets/icons/photo-select.svg';
   static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';
-  static const savedPhotoPreview = 'assets/figma/saved-photo-preview.png';
-  static const saveLinkPreview = 'assets/figma/save-link-preview.png';
   static const saveResultFolder = 'assets/icons/save-result-folder.svg';
   static const categoryCardFolder = 'assets/icons/category-card-folder.svg';
   static const categoryCardStar = 'assets/icons/category-card-star.svg';

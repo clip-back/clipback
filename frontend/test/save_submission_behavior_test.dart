@@ -461,10 +461,10 @@ void main() {
 
   setUp(() async {
     firstBytes = (await rootBundle.load(
-      'assets/figma/saved-photo-preview.png',
+      'assets/figma/search-empty-original.png',
     )).buffer.asUint8List();
     secondBytes = (await rootBundle.load(
-      'assets/figma/save-link-preview.png',
+      'assets/figma/huturu-character-1.png',
     )).buffer.asUint8List();
     originalPicker = FilePicker.platform;
   });
