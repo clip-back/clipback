@@ -180,3 +180,34 @@ VERIFY result=PASS scope=all checks=11 failed=0
 - deployment skip이 47에서 48로 는 것은 새 Docker 경우다(로컬은 Docker 없이 skip).
 - 운영 `maintain` DB 역할 권한은 #346 절의 사용자 운영 콘솔 확인값이다. 이 작업에서 다시 확인하지 않았다.
 - 미검증·운영 단계: 장부 Bucket 키 삭제 권한(Q16-B3), 병합 순서(Q-B8), 병합 뒤 첫 `maintain`(Q16-B1)과 처리방침 게시(Q17), 첫 실제 파기(Q16-B2)는 병합 뒤 사용자가 확인한다.
+
+## #344 최종 검수와 검증
+
+코드 기준 커밋 `db4e2e1`(최종 전체 검증 기준). 이 절을 더한 커밋은 문서만 바꾼다.
+
+### 최종 검수
+
+- 범위 `d3b9c97..db4e2e1`(#345–#347 전체, 구현·테스트·문서): Standards 0건, Spec 0건.
+- 실제 제품 경로에서 행 삭제 재읽기 틈이 생기는 경쟁 경로는 찾지 못했다. 정적 검토의 결과이며 운영 교차 실행을 재현한 증거는 아니다.
+
+### 최종 검증
+
+- 앞선 검수자 실행(`db4e2e1`)은 백엔드 pytest(2640 passed, 49 skipped)까지 끝낸 뒤 앱 테스트 도중 셸 600초 제한으로 끊겼다. 최종 결과 줄이 없어 결과로 치지 않는다.
+- 같은 커밋에서 시간 제한을 늘려 한 번 다시 실행했다. 깨끗한 작업 트리, 653초:
+
+```text
+pytest: 2640 passed, 49 skipped, 3 warnings in 337.22s (0:05:37)
+pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=11 failed=0
+```
+
+- Docker 검사는 로컬에서 돌리지 않았다. 마지막 CI는 `bde063b`의 [run 43414783258](https://github.com/clip-back/clipback/actions/runs/43414783258)(success)이고, 그 뒤 `db4e2e1`까지는 문서만 바뀌었다.
+
+### 운영 단계
+
+- 확인됨(사용자 운영 콘솔, 2026-11-13): `maintain` DB 역할 권한(#346 절).
+- 남은 일:
+  - 병합 전: 장부 Bucket 키 객체 삭제 권한(Q16-B3), 병합 순서(Q-B8)
+  - 병합 뒤: 첫 `maintain` `passed=true`(Q16-B1)와 처리방침 게시(Q17)
+  - 첫 실제 파기(Q16-B2)
