@@ -255,7 +255,24 @@ Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해�
 - [ ] 처리방침 게시: #344 새 코드 배포 뒤 첫 `maintain`이 `passed=true`인 것을 확인하면 처리방침을 게시한다(Q17).
   #339 적용 때의 `passed`는 이 조건이 아니다. 첫 실제 파기는 아래 항목으로 따로 확인한다.
 - [ ] 첫 실제 파기(가장 오래된 기록이 삭제 29일 되는 날 이후): `deletion_records_pruned>0`,
-  `python -m scripts.image_deletions checkpoint` 통과, SQL `SELECT count(*), min(deleted_at) FROM image_deletions;`의 min이 30일 안인지 확인한다.
+  `python -m scripts.image_deletions checkpoint` 통과를 확인하고, 아래 읽기 전용 SQL을 실행한다.
+  `total`·`total_min`(전체 행 수·가장 오래된 삭제 시각)은 관측값으로 기록만 한다. 이관 정리 행(intent에 `source_identity` 있음)은
+  나이와 무관하게 남기므로 `total_min`이 30일보다 오래돼도 실패가 아니다. 판정은 이관 행을 뺀 `target_min`이 30일 안인지로 한다.
+  `target_rows`가 0이면 `target_min`은 비어 있고(NULL) 정상이다.
+
+  ```sql
+  SELECT
+    count(*) AS total,
+    min(deleted_at) AS total_min,
+    count(*) FILTER (WHERE intent::jsonb ? 'source_identity') AS kept_migration_rows,
+    count(*) FILTER (WHERE NOT (intent::jsonb ? 'source_identity')) AS target_rows,
+    min(deleted_at) FILTER (WHERE NOT (intent::jsonb ? 'source_identity')) AS target_min
+  FROM image_deletions;
+  ```
+
+  `target_min`이 30일보다 오래되면 그 행은 아직 미완료이거나 남은 장부 기록에 묶인 것이므로 `deletion_records_overdue`와
+  `retry`의 `pending`을 확인한다. 장부 기록이 없는 업로드 실패 정리 행은 미완료로 30일을 넘겨도 `deletion_records_overdue`에
+  잡히지 않으므로 `retry`의 `pending`을 함께 본다.
 - 첫 파기 뒤에는 이 기능 이전 버전으로 되돌리지 않는다([Railway 배포](../railway-deployment.md#복원과-롤백)).
 
 ### 원본 삭제 재시도 서비스
