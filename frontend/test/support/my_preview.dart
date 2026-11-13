@@ -435,7 +435,7 @@ Map<String, Object?> myJudgment(Map<String, Object?> m) {
       }
     }
   }
-  if (names.join('|') != '알림 설정|앱 권한|문의하기|앱 버전') {
+  if (names.join('|') != '알림 설정|앱 권한|문의하기|이용약관 및 개인정보|오픈소스 라이선스|앱 버전') {
     style.add('approved menu order: $names');
   }
   final header = b['header'] as Map,

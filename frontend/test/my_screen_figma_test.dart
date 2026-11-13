@@ -205,6 +205,24 @@ void main() {
         launcher.calls.single.options.mode,
         PreferredLaunchMode.externalApplication,
       );
+      await tester.ensureVisible(find.text('이용약관 및 개인정보'));
+      await tester.tap(find.text('이용약관 및 개인정보'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(launcher.calls.last.url, 'https://huturu-app.github.io/privacy');
+      expect(
+        launcher.calls.last.options.mode,
+        PreferredLaunchMode.externalApplication,
+      );
+      expect(launcher.calls, hasLength(2));
+      await tester.ensureVisible(find.text('오픈소스 라이선스'));
+      await tester.tap(find.text('오픈소스 라이선스'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LicensePage), findsOneWidget);
+      Navigator.of(tester.element(find.byType(LicensePage))).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(LicensePage), findsNothing);
+      expect(launcher.calls, hasLength(2));
       for (final label in ['홈', '아카이브', '즐겨찾기', '마이']) {
         await tester.tap(
           find.descendant(
