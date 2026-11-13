@@ -1,5 +1,5 @@
 class Assets {
-  static const logo = 'assets/figma/hutureu-logo.svg';
+  static const logo = 'assets/figma/huturu-logo.svg';
   static const appIcon = 'assets/figma/app-icon.svg';
   static const entryLogo = 'assets/figma/entry-logo.svg';
   static const kakaoLogin = 'assets/figma/kakao-login.png';
@@ -11,13 +11,13 @@ class Assets {
   static const onboarding1 = 'assets/figma/onboarding-1.svg';
   static const onboarding2 = 'assets/figma/onboarding-2.svg';
   static const onboarding3 = 'assets/figma/onboarding-3.svg';
-  static const character1 = 'assets/figma/hutureu-character-1.svg';
-  static const character2 = 'assets/figma/hutureu-character-2.svg';
+  static const character1 = 'assets/figma/huturu-character-1.svg';
+  static const character2 = 'assets/figma/huturu-character-2.svg';
   static const onboarding1Png = 'assets/figma/onboarding-1.png';
   static const onboarding2Png = 'assets/figma/onboarding-2.png';
   static const onboarding3Png = 'assets/figma/onboarding-3.png';
-  static const character1Png = 'assets/figma/hutureu-character-1.png';
-  static const character2Png = 'assets/figma/hutureu-character-2.png';
+  static const character1Png = 'assets/figma/huturu-character-1.png';
+  static const character2Png = 'assets/figma/huturu-character-2.png';
   static const homeLogo = 'assets/figma/home-logo.svg';
   static const homeBookmarkOutline = 'assets/figma/home-bookmark-outline.svg';
   static const homeHeroIllustration = 'assets/figma/home-hero.png';

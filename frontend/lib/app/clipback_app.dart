@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clipback_frontend/app/font_licenses.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
@@ -145,6 +146,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    registerFontLicenses();
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     _weeklyForeground =

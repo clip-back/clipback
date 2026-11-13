@@ -84,11 +84,15 @@ abstract final class _MyAssets {
   static const menuArrow = 'assets/icons/my-menu-chevron.svg';
 }
 
-Future<void> _openContact(BuildContext context) async {
-  if (await openContactForm() == false && context.mounted) {
+Future<void> _openExternal(
+  BuildContext context,
+  Future<bool?> Function() open,
+  String failureMessage,
+) async {
+  if (await open() == false && context.mounted) {
     ScaffoldMessenger.maybeOf(
       context,
-    )?.showSnackBar(const SnackBar(content: Text(contactFormFailureMessage)));
+    )?.showSnackBar(SnackBar(content: Text(failureMessage)));
   }
 }
 
@@ -208,7 +212,30 @@ class MyScreen extends StatelessWidget {
                       children: [
                         MyListTile(
                           title: '문의하기',
-                          onTap: () => unawaited(_openContact(context)),
+                          onTap: () => unawaited(
+                            _openExternal(
+                              context,
+                              openContactForm,
+                              contactFormFailureMessage,
+                            ),
+                          ),
+                        ),
+                        MyListTile(
+                          title: '이용약관 및 개인정보',
+                          onTap: () => unawaited(
+                            _openExternal(
+                              context,
+                              openPrivacyPolicy,
+                              privacyPolicyFailureMessage,
+                            ),
+                          ),
+                        ),
+                        MyListTile(
+                          title: '오픈소스 라이선스',
+                          onTap: () => showLicensePage(
+                            context: context,
+                            applicationVersion: appInfo?.version,
+                          ),
                         ),
                         MyListTile(
                           title: '앱 버전',

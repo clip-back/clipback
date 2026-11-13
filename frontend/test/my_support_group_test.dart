@@ -57,7 +57,7 @@ void main() {
       await _my(tester, user);
       expect(_groups(tester), [
         ['알림 설정', '앱 권한'],
-        ['문의하기', '앱 버전'],
+        ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
       ]);
       expect(find.text('공지사항'), findsNothing);
     });
@@ -79,7 +79,7 @@ void main() {
     expect(tiles.last.title, '앱 버전');
   });
 
-  testWidgets('support rows keep row size and the group shrinks by one row', (
+  testWidgets('support rows keep row size and the group is rows times height', (
     tester,
   ) async {
     await _my(tester, fixture.myMember);
@@ -87,7 +87,14 @@ void main() {
     final management = tester.getRect(groups.at(0));
     final support = tester.getRect(groups.at(1));
     final heights = {
-      for (final title in ['알림 설정', '앱 권한', '문의하기', '앱 버전'])
+      for (final title in [
+        '알림 설정',
+        '앱 권한',
+        '문의하기',
+        '이용약관 및 개인정보',
+        '오픈소스 라이선스',
+        '앱 버전',
+      ])
         title: tester
             .getSize(
               find.ancestor(
@@ -98,7 +105,7 @@ void main() {
             .height,
     };
     expect(heights.values.toSet(), {heights['알림 설정']});
-    expect(support.height, management.height);
+    expect(support.height, 4 * heights['알림 설정']!);
     expect(support.width, management.width);
   });
 }

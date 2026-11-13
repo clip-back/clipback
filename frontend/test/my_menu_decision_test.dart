@@ -53,7 +53,7 @@ void main() {
     await fonts.load();
   });
   testWidgets(
-    'approved management and support groups omit category, terms and notices',
+    'approved management and support groups omit category and notices',
     (tester) async {
       await _my(tester);
       final groups = tester
@@ -70,14 +70,37 @@ void main() {
             .toList(),
         [
           ['알림 설정', '앱 권한'],
-          ['문의하기', '앱 버전'],
+          ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
         ],
       );
       expect(find.text('카테고리 관리'), findsNothing);
-      expect(find.text('이용약관 및 개인정보'), findsNothing);
+      expect(find.text('이용약관 및 개인정보'), findsOneWidget);
       expect(find.text('공지사항'), findsNothing);
     },
   );
+  testWidgets('privacy and license rows are separate tappable nodes', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _my(tester);
+      final nodes = tester.semantics.simulatedAccessibilityTraversal();
+      for (final title in ['이용약관 및 개인정보', '오픈소스 라이선스']) {
+        await tester.ensureVisible(find.text(title));
+        await tester.pumpAndSettle();
+        final row = nodes.where((n) => n.label.contains(title)).toList();
+        expect(row, hasLength(1), reason: title);
+        expect(row.single.label, title);
+        expect(
+          row.single.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: title,
+        );
+      }
+    } finally {
+      semantics.dispose();
+    }
+  });
   for (final info in [fixture.myAppInfo, null]) {
     testWidgets(
       'version ${info?.version ?? 'failure'} has no tap action or navigation',
@@ -220,7 +243,13 @@ void main() {
         scale: scale,
         info: const AppInfo(version: '123.456.789', buildNumber: '999'),
       );
-      for (final text in ['알림 설정', '앱 버전', 'ver. 123.456.789']) {
+      for (final text in [
+        '알림 설정',
+        '이용약관 및 개인정보',
+        '오픈소스 라이선스',
+        '앱 버전',
+        'ver. 123.456.789',
+      ]) {
         final target = find.text(text);
         await tester.ensureVisible(target);
         await tester.pumpAndSettle();
