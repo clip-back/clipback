@@ -167,7 +167,7 @@ void main() {
     }
     await fonts.load();
     photoBytes = (await rootBundle.load(
-      'assets/figma/saved-photo-preview.png',
+      'assets/figma/search-empty-original.png',
     )).buffer.asUint8List();
   });
 
@@ -357,7 +357,6 @@ void main() {
                     )
                     .first,
               );
-              final thumbnail = tester.getRect(_previewImage());
               expect(card.width, width - 32);
               expect(card.height, greaterThanOrEqualTo(116));
               if (scale == 1) expect(card.height, 116);
@@ -418,32 +417,41 @@ void main() {
                 ),
               );
               _contained(source, card.deflate(8));
-              _contained(thumbnail, card.deflate(8));
-              expect(thumbnail.size, const Size(164, 100));
-              final imageWidget = tester.widget<Image>(_previewImage());
-              expect(imageWidget.fit, BoxFit.cover);
-              expect(
-                imageWidget.alignment,
-                photo ? Alignment.topCenter : Alignment.center,
-              );
-              final borderWidget = tester.widget<Container>(
-                find
-                    .ancestor(
-                      of: _previewImage(),
-                      matching: find.byType(Container),
-                    )
-                    .first,
-              );
-              final border =
-                  borderWidget.foregroundDecoration as BoxDecoration?;
-              expect(
-                border?.border,
-                photo ? Border.all(color: AppColors.subtler) : null,
-              );
-              if (photo) expect(border?.borderRadius, BorderRadius.circular(4));
-              expect(thumbnail.left - card.left, 8);
-              expect(title.left - thumbnail.right, 16);
-              final columnMaxWidth = card.width - 8 - 164 - 16 - 8;
+              if (photo) {
+                final thumbnail = tester.getRect(_previewImage());
+                _contained(thumbnail, card.deflate(8));
+                expect(thumbnail.size, const Size(164, 100));
+                final imageWidget = tester.widget<Image>(_previewImage());
+                expect(imageWidget.fit, BoxFit.cover);
+                expect(imageWidget.alignment, Alignment.topCenter);
+                final borderWidget = tester.widget<Container>(
+                  find
+                      .ancestor(
+                        of: _previewImage(),
+                        matching: find.byType(Container),
+                      )
+                      .first,
+                );
+                final border =
+                    borderWidget.foregroundDecoration as BoxDecoration?;
+                expect(border?.border, Border.all(color: AppColors.subtler));
+                expect(border?.borderRadius, BorderRadius.circular(4));
+                expect(thumbnail.left - card.left, 8);
+                expect(title.left - thumbnail.right, 16);
+                expect(thumbnail.center.dy, closeTo(card.center.dy, 0.01));
+              } else {
+                expect(
+                  find.descendant(
+                    of: _previewCard(),
+                    matching: find.byType(Image),
+                  ),
+                  findsNothing,
+                );
+                expect(title.left - card.left, 8);
+              }
+              final columnMaxWidth = photo
+                  ? card.width - 8 - 164 - 16 - 8
+                  : card.width - 16;
               expect(textColumn.width, closeTo(columnMaxWidth, 0.01));
               expect(card.right - textColumn.right, closeTo(8, 0.01));
               expect(
@@ -459,7 +467,6 @@ void main() {
                 text.height,
                 closeTo(title.height + 14 + source.height, 0.01),
               );
-              expect(thumbnail.center.dy, closeTo(card.center.dy, 0.01));
               expect(text.center.dy, closeTo(card.center.dy, 0.01));
               expect(_paragraph(tester, _title).maxLines, 2);
               expect(_paragraph(tester, _source).maxLines, 1);

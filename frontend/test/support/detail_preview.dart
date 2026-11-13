@@ -118,7 +118,7 @@ ContentItem _item(
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _require(_phase == 'before' || _phase == 'after', 'Unknown phase');
-  final asset = await rootBundle.load(Assets.savedPhotoPreview);
+  final asset = await rootBundle.load(Assets.searchEmptyIllustration);
   _photo = asset.buffer.asUint8List(asset.offsetInBytes, asset.lengthInBytes);
   _output = await Directory.systemTemp.createTemp('clipback-detail-');
   final previous = FlutterError.onError;

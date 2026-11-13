@@ -161,11 +161,11 @@ void main() {
 
   setUp(() async {
     final bytes = (await rootBundle.load(
-      'assets/figma/saved-photo-preview.png',
+      'assets/figma/search-empty-original.png',
     )).buffer.asUint8List();
     firstBytes = Uint8List.fromList(bytes);
     secondBytes = (await rootBundle.load(
-      'assets/figma/save-link-preview.png',
+      'assets/figma/huturu-character-1.png',
     )).buffer.asUint8List();
     picker = _Picker([
       _Photo('first-photo.png', firstBytes),
@@ -494,7 +494,7 @@ void main() {
             );
             expect(
               decoded,
-              portrait ? const Size(1179, 2556) : const Size(399, 243),
+              portrait ? const Size(1018, 1545) : const Size(1448, 1086),
             );
             final fitted = applyBoxFit(BoxFit.cover, decoded, render.size);
             expect(fitted.destination, render.size);

@@ -21,7 +21,7 @@ void main() {
       font.addFont(rootBundle.load('assets/fonts/Pretendard-$w.otf'));
     }
     await font.load();
-    final a = await rootBundle.load(Assets.savedPhotoPreview),
+    final a = await rootBundle.load(Assets.searchEmptyIllustration),
         b = await rootBundle.load(Assets.homeInitialLoadingIllustration);
     _bytes = a.buffer.asUint8List(a.offsetInBytes, a.lengthInBytes);
     _alternate = b.buffer.asUint8List(b.offsetInBytes, b.lengthInBytes);

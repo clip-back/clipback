@@ -24,7 +24,7 @@ Future<void> runSafeAreaPreview({
   late final _PreviewServer server;
   return http.runWithClient(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    final image = await rootBundle.load(Assets.savedPhotoPreview);
+    final image = await rootBundle.load(Assets.searchEmptyIllustration);
     server = _PreviewServer(image.buffer.asUint8List());
     final app = ClipbackApp(
       sessionStorage: _MemorySessionStorage(),
