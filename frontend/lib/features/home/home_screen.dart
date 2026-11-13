@@ -598,9 +598,10 @@ class EmptyHomeContent extends StatelessWidget {
     if (confirmedEmpty) {
       return const _SavedEmptyMessage(title: '저장한 콘텐츠가 없어요');
     }
-    return SizedBox(
-      height: 211,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 211),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Image.asset(Assets.character2Png, width: 67, height: 78),

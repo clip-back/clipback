@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'support/empty_asset_probe.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -12,6 +13,7 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:clipback_frontend/shared/widgets/section_header.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +26,7 @@ Future<void> _render(
   double textScale = 1,
   TargetPlatform platform = TargetPlatform.android,
   bool settle = true,
+  bool appTextTheme = true,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 900);
@@ -33,10 +36,12 @@ Future<void> _render(
         useMaterial3: true,
         platform: platform,
         fontFamily: 'Pretendard',
-        textTheme: ThemeData.fallback().textTheme.apply(
-          bodyColor: AppColors.text,
-          displayColor: AppColors.text,
-        ),
+        textTheme: appTextTheme
+            ? ThemeData.fallback().textTheme.apply(
+                bodyColor: AppColors.text,
+                displayColor: AppColors.text,
+              )
+            : null,
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.main,
           surface: AppColors.bg,
@@ -471,14 +476,9 @@ void main() {
     'stale feed items',
   ]) {
     for (final previous in ['C01', 'C02', 'unknown']) {
-      // The last three only reach the unconfirmed EmptyHomeContent panel,
-      // whose fixed height already overflows when scaled (outside #217).
-      final extra = const [
-        'missing feed',
-        'uninitialized',
-        'stale feed items',
-      ].contains(state);
-      for (final textScale in extra ? [1.0] : [1.0, 1.15, 1.3]) {
+      // The last three reach the unconfirmed EmptyHomeContent panel, whose
+      // 211 minimum height grows with scaled text (#357).
+      for (final textScale in [1.0, 1.15, 1.3]) {
         testWidgets('$state after $previous hero at $textScale', (
           tester,
         ) async {
@@ -570,6 +570,107 @@ void main() {
           expect(tester.getSize(find.byType(HomeHero)).height, heroRect.height);
           expect(tester.takeException(), isNull);
           expect(todayTaps, 0);
+        });
+      }
+    }
+  }
+
+  // Issue #357: the unconfirmed empty panel keeps 211 as a minimum height.
+  // `received` is the merged app body font; `Pretendard` is the app font.
+  FeedPage? unsettledFeed(String state) => switch (state) {
+    'missing feed' => null,
+    'uninitialized' => _feed(const [])..initialized = false,
+    _ => _feed(const [])..items.add(_content(0)),
+  };
+  testWidgets('unsettled empty home text receives the merged body font', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        await _render(
+          tester,
+          platform: platform,
+          child: _panel(
+            contents: const [],
+            feed: unsettledFeed('missing feed'),
+          ),
+        );
+        for (final text in [
+          '저장한 콘텐츠가 없어요',
+          'SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.',
+        ]) {
+          final family = tester
+              .renderObject<RenderParagraph>(find.text(text))
+              .text
+              .style
+              ?.fontFamily;
+          expect(
+            family,
+            platform == TargetPlatform.iOS ? 'CupertinoSystemText' : 'Roboto',
+          );
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  });
+  for (final font in ['received', 'Pretendard']) {
+    for (final state in ['missing feed', 'uninitialized', 'stale feed items']) {
+      for (final textScale in [1.0, 1.15, 1.3]) {
+        testWidgets('unsettled empty home $state $font font at $textScale', (
+          tester,
+        ) async {
+          addTearDown(tester.view.reset);
+          await _render(
+            tester,
+            width: 320,
+            textScale: textScale,
+            appTextTheme: font == 'received',
+            child: _panel(contents: const [], feed: unsettledFeed(state)),
+          );
+          final empty = find.byType(EmptyHomeContent);
+          expect(empty, findsOneWidget);
+          expect(
+            tester.widget<EmptyHomeContent>(empty).confirmedEmpty,
+            isFalse,
+          );
+          final box = tester.getRect(empty);
+          final image = tester.getRect(
+            find.descendant(of: empty, matching: _asset(Assets.character2Png)),
+          );
+          final title = tester.getRect(find.text('저장한 콘텐츠가 없어요'));
+          final body = tester.getRect(
+            find.text('SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.'),
+          );
+          for (final part in [image, title, body]) {
+            _expectContained(part, box);
+          }
+          final family = tester
+              .renderObject<RenderParagraph>(find.text('저장한 콘텐츠가 없어요'))
+              .text
+              .style
+              ?.fontFamily;
+          expect(family, font == 'received' ? 'Roboto' : 'Pretendard');
+          final content = body.bottom - image.top;
+          expect(box.height, closeTo(math.max(211, content), .01));
+          if (textScale == 1) {
+            // Before #357 values, measured on main 84ff8b0.
+            expect(box.height, 211);
+            expect(
+              image.top - box.top,
+              closeTo(_unsettledImageTop[font]!, .01),
+            );
+            expect(
+              title.top - box.top,
+              closeTo(_unsettledTitleTop[font]!, .01),
+            );
+            expect(body.top - box.top, closeTo(_unsettledBodyTop[font]!, .01));
+          }
+          final panel = tester.getRect(find.byType(HomeContentPanel));
+          expect(panel.bottom, closeTo(box.bottom + 32, .01));
+          expect(tester.takeException(), isNull);
         });
       }
     }
@@ -1227,3 +1328,7 @@ const _weeklyTestItems = [
     category: ApiCategory(id: 2, name: "다이어트", color: null, isDefault: false),
   ),
 ];
+
+const _unsettledImageTop = {'received': 11.5, 'Pretendard': 22.0};
+const _unsettledTitleTop = {'received': 105.5, 'Pretendard': 116.0};
+const _unsettledBodyTop = {'received': 136.5, 'Pretendard': 147.0};
