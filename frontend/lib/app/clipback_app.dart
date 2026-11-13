@@ -1083,6 +1083,13 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: AppColors.main,
+      surface: AppColors.bg,
+    );
+    final textTheme = Theme.of(
+      context,
+    ).textTheme.apply(bodyColor: AppColors.text, displayColor: AppColors.text);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
@@ -1110,14 +1117,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             width: appContentWidth(MediaQuery.sizeOf(context).width),
           ),
         ),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.main,
-          surface: AppColors.bg,
-        ),
+        colorScheme: colorScheme,
         fontFamily: 'Pretendard',
-        textTheme: Theme.of(context).textTheme.apply(
-          bodyColor: AppColors.text,
-          displayColor: AppColors.text,
+        textTheme: textTheme,
+        // textTheme keeps the platform font; only snack bar text takes
+        // Pretendard over the Material default bodyMedium (#354).
+        snackBarTheme: SnackBarThemeData(
+          contentTextStyle: textTheme.bodyMedium!.copyWith(
+            fontFamily: 'Pretendard',
+            color: colorScheme.onInverseSurface,
+          ),
         ),
       ),
       home: _withLaunchSplash(switch (_d.app.route) {

@@ -128,9 +128,9 @@ void main() {
         final text = find.text(_contactError);
         expect(text, findsOneWidget);
         final paragraph = tester.renderObject<RenderParagraph>(text);
-        // The app snack bar style is measured as rendered (2026-11-12 decision):
-        // its family falls back to the 1em-wide test glyphs, wider than Korean
-        // device fonts.
+        // The snack bar text is Pretendard (#354), but this file does not load
+        // it, so it is measured with the 1em-wide test glyphs. Pretendard is
+        // measured in snackbar_font_root_test.dart.
         expect(paragraph.textScaler.scale(10), closeTo(10 * scale, .01));
         expect(paragraph.didExceedMaxLines, isFalse);
         expect(
