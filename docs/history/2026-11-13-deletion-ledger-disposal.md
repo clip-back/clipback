@@ -57,3 +57,77 @@ VERIFY result=PASS scope=all checks=11 failed=0
 ```
 
 - 미검증: Docker 검사는 로컬에서 돌리지 않았다. 파기한 장부로 실제 격리 복원하는 경우는 #347 몫이다.
+
+## #346 백업 보존 정리에서 삭제 장부 30일 파기와 원본 정리 작업 행 정리
+
+구현 커밋 `4a389ca`, 보장 범위 테스트 `099ef99`, Docker 테스트 고정물 수정 `6eadf5a`(최종 전체 검증·CI 기준). 이 절을 더한 커밋은 문서만 바꾼다.
+
+### 착수 전 확인 (`73d489e`)
+
+- 실제 `maintain` 명령을 로컬 PostgreSQL·moto 백업 Bucket·로컬 장부로 돌렸다. 출력은 7필드였고 `deletion_records_pruned`는 0, 40일 전 `image_deletions` 행 3개는 그대로 남았다. 기존 `maintain` 출력 고정 테스트 172개가 통과했다. 스펙의 현재 동작과 같았다.
+
+### 사용자 결정
+
+- 2026-11-13 "추천대로"(A1): DB 없이 `maintain` 출력을 고정하는 `test_recovery_point_bucket_outputs.py` fixture에 파기 단계 결과 대역 연결 한 줄만 더한다.
+- 2026-11-13 "추천대로"(A2): intent에 `source_identity`가 있는 이관 정리 행은 행 삭제에서 뺀다. 사용자가 이관된 사진을 나중에 지울 때 이 행으로 일부러 남겨 둔 Volume 원본 별칭을 찾아 지우기 때문이다. 스펙 Q-B3("완료됐고, 삭제 시각이 29일 지났고, 남아 있는 장부 기록에 묶이지 않은 행")를 좁힌다.
+- 2026-11-13 "추천대로"·"좋아"(보장 범위): 행 삭제의 장부 재읽기는 잠금 밖(Q-B4 그대로)에 둔다. 승인 문구는 다음과 같다. "재읽기와 DELETE 사이에 같은 operation_id의 새 기록이 생기면 행이 지워질 수 있으나 기록은 남고, retry가 행을 다시 만들어 정리에 성공하면 deleted_at+29일에 정상 파기된다. 완료하지 못하면 deleted_at+30일 초과에 overdue로 드러난다."
+- 2026-11-13 "1. 승인": 수동 백업 Docker 테스트의 축약 스키마에 새 SQL이 읽는 열만 더한다.
+- 이슈 #344·#346 본문은 고치지 않았다. 본문과 다른 점은 A2와 위 보장 범위다.
+
+### 구현
+
+- `backend/scripts/image_backup_jobs.py`
+  - `maintain`은 보존 정리(`maintain_backups`, 바뀌지 않음)를 예외 없이 마친 뒤 같은 시각 기준으로 파기한다. 보존 정리가 예외로 끝나면 파기하지 않는다. `passed`는 보존 정리 결과 AND `deletion_records_overdue == 0`이다.
+  - (c)는 보존 정리 뒤 백업 Bucket에 남은 완료 지점 manifest를 다시 읽어, 장부 checkpoint가 있는 지점들의 순번 최솟값으로 본다.
+  - 장부 쓰기 잠금 `74264002`(단독 session lock, 기존 `source_lock`) 안에서 남은 기록을 읽는다. (a)(c)를 통과한 앞부분만 읽기 전용 트랜잭션 하나로 (b)를 확인한 뒤, 시작 지점을 쓰고 확인하고 잠금을 푼다. (b)는 이미지 기록이면 같은 operation_id 행이 완료, 탈퇴 기록이면 같은 번호·생성 시각의 계정이 없고 그 기록으로 만든 행이 모두 완료다.
+  - 잠금을 푼 뒤 남은 파일을 지우고, 장부를 다시 읽어 묶임 집합을 만든다. 정리 행은 DELETE 조건(완료, 삭제 시각 29일 지남, 묶이지 않음, 이관 행 아님) 한 문장으로 지우고 commit은 한 번이다. 작업 잠금 `74264003`은 끝까지 유지한다.
+  - 출력에 `deletion_records_overdue`·`image_deletion_rows_pruned`를 더하고 `deletion_records_pruned`를 실제 값으로 채웠다. 기존 필드의 뜻은 그대로다.
+- `backend/app/integrations/deletion_ledger.py`: `read_verified_remainder()`를 더했다. 탈퇴 정리 행 ID 공식(`account_content_operation_id`)을 여기로 옮겼다(운영자 `maintain` 이미지는 API 설정을 읽지 않음). 계정 삭제 서비스는 같은 이름으로 가져다 쓴다.
+- [ADR 0013](../adr/0013-deletion-ledger-30-day-disposal.md) (b)에 Q-B2 한 줄을 더했다.
+
+### 테스트
+
+- 새 `tests/integration/test_deletion_ledger_disposal.py`(PostgreSQL) 37개:
+  - 파기 판정 표 8행과 (b)의 행 없음·계정 남음
+  - 행 삭제: 묶임, 업로드 실패 행, 이관 행 보존, 복원으로 되살아난 행, 완료가 늦어진 행, 판정 뒤 묶임·완료 되돌림
+  - 잠금 대기와 단계별 잠금 보유(`pg_locks`), 읽기 전용 트랜잭션
+  - 실제 `maintain` 명령의 상태·오류 분류 표 각 행: 행 삭제 commit 전 오류는 실제 트리거, commit 뒤 오류는 대역
+  - 신선도 부족·`retention_overdue`에서 파기 제한과 `passed=false`, 파기 뒤 `retry`
+  - 승인된 보장 범위의 관찰값 4개: 재읽기 전에 묶이면 행 보존, 재읽기 뒤에 묶이면 행 삭제·기록 보존, `retry` 없으면 30일 넘김, `retry`가 행을 다시 만들면 29일에 파기
+- 바꾼 기존 테스트:
+  - `test_recovery_point_bucket_outputs.py`: A1 연결과 `retention()`의 새 필드 기대값 2개
+  - `test_manual_backup_docker.py`: 축약 seed의 `users`·`image_deletions`에 열만 추가
+  - 나머지 기대값·이름은 그대로다.
+
+### 리뷰
+
+- 감독 Codex 검수: Standards·Spec 지적 0건.
+- 검수자가 정적 대조로 제품 경로의 경쟁 조건을 찾지 못했다. 대상은 29일 지난 완료 행과 같은 operation_id의 새 기록이 생기는 경로이고, 복원·`retry`·계정 번호 재사용·이관을 포함한다. 운영 교차 실행을 재현한 증거는 아니다.
+
+### 검증
+
+- 리뷰 전 부분 검사:
+  - 새 테스트와 장부·탈퇴·이관·출력 고정 테스트 묶음 945 passed, skip 0
+  - 구현 변형 9개가 각각 해당 테스트로 잡혔다.
+- CI(`099ef99`): workflow_dispatch [run 43398354120](https://github.com/clip-back/clipback/actions/runs/43398354120) failure.
+  - operator-recovery 1 failed: `test_manual_backup_docker.py`의 `maintain`이 `ProgrammingError`로 끝났다.
+  - 원인은 테스트의 축약 스키마에 새 SQL이 읽는 열이 없던 것이다. 로컬 PostgreSQL에서 같은 SQL이 축약 스키마에서만 42703으로 실패함을 재현했다.
+  - `6eadf5a`에서 seed에 열을 더했다.
+- 최종 CI(`6eadf5a`): workflow_dispatch [run 43409311290](https://github.com/clip-back/clipback/actions/runs/43409311290) success.
+  - operator-recovery 32 passed, 앞 실패 테스트 포함
+  - deployment 15 passed, 둘 다 skip 0
+  - migration 1040 passed, 1 skipped
+- 운영 `maintain` DB 역할 권한: 확인됨(사용자 운영 콘솔 확인, 2026-11-13). `current_user=postgres`, `image_deletions` SELECT·DELETE와 `users` SELECT 가능. `maintain`은 API와 같은 `DATABASE_URL`을 쓴다. 로컬 테스트와 CI는 이 권한을 증명하지 않는다.
+- 최종 전체 검증(`6eadf5a`, 깨끗한 작업 트리):
+
+```text
+pytest: 2640 passed, 48 skipped, 3 warnings in 337.69s (0:05:37)
+pytest skip: 47 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=11 failed=0
+```
+
+- 미검증:
+  - Docker 검사는 로컬에서 돌리지 않았고 CI로만 확인했다.
+  - `source_lock`의 unlock 실패 → 연결 무효화 경로는 기존 코드라 새 테스트가 없다.
+  - 운영에서의 실제 파기는 첫 대상 기록이 29일 되는 날 이후 운영 확인 항목으로 따로 확인한다.
