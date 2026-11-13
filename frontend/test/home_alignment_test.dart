@@ -81,7 +81,7 @@ const _secondCategory = CategoryItem(
 );
 const _unclassifiedCategory = CategoryItem(
   id: 3,
-  name: '분류가 필요한 콘텐츠',
+  name: '미분류',
   color: AppColors.subSubtle,
   tint: AppColors.subSubtle,
   deep: AppColors.middle,
