@@ -380,6 +380,7 @@ class DeletionLedger:
 
         Deletion goes in ascending order, so the remaining disposed files are the records
         counted back from the start until the first missing one; no listing is needed.
+        Every one is verified back from the start digest before anything is deleted.
         Returns the number of records whose files were removed.
         """
         try:
@@ -387,15 +388,17 @@ class DeletionLedger:
         except (KeyError, TypeError) as exc:
             raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
         start = self._read_start(namespace)
+        expected = start["digest"]
         pending = []
         for number in range(start["sequence"], 0, -1):
             record = self._read(f"event-{number:020d}.json", missing_ok=True)
             if record is None:
                 break
-            try:
-                pending.append((number, UUID(record["event"]["operation_id"])))
-            except (KeyError, TypeError, ValueError) as exc:
-                raise LedgerUnavailableError("Deletion ledger cannot be verified") from exc
+            event = self._validate_record(record, start, number)
+            if hashlib.sha256(canonical_json(record)).hexdigest() != expected:
+                raise LedgerUnavailableError("Deletion ledger cannot be verified")
+            expected = record["previous_digest"]
+            pending.append((number, event["operation_id"]))
         for number, operation_id in reversed(pending):
             self.store.delete(f"operation-{operation_id}.json")
             self.store.delete(f"event-{number:020d}.json")

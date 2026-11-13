@@ -422,6 +422,39 @@ def test_deleting_a_missing_object_succeeds_locally(ledger, root):
     assert not (root / "operation-absent.json").exists()
 
 
+def damage(root, sequence, events, case):
+    """Replace a remaining disposed record with a structurally broken or another valid one."""
+    path = root / event_key(sequence)
+    record = stored(root, event_key(sequence))
+    other = events[-1]
+    if case == "operation_id_only":
+        value = {"event": {"operation_id": other["operation_id"]}}
+    elif case == "other_record_file":
+        value = stored(root, event_key(len(events)))
+    else:  # another valid operation at the same position
+        value = {**record, "event": other}
+    path.write_bytes(canonical_json(value))
+
+
+CORRUPT_DISPOSED = ["operation_id_only", "other_record_file", "other_operation"]
+
+
+@pytest.mark.parametrize("case", CORRUPT_DISPOSED)
+@pytest.mark.parametrize("damaged, start", [(1, 1), (1, 2), (2, 2)])
+def test_damaged_disposed_record_deletes_nothing(ledger, root, case, damaged, start):
+    """Records to remove are verified back from the start digest before any deletion."""
+    events = filled(ledger, 3)
+    ledger.advance_start(start)
+    damage(root, damaged, events, case)
+    before = remaining(root)
+    for call in (ledger.delete_disposed, lambda: ledger.dispose_through(start)):
+        with pytest.raises(LedgerUnavailableError):
+            call()
+    assert remaining(root) == before
+    assert not [key for op, key in ledger.store.calls if op == "delete"]
+    assert ledger.read_operation(events[-1]["operation_id"]) == events[-1]
+
+
 # --- Full flow and interleaving (R1) ------------------------------------------------------
 
 
@@ -558,6 +591,18 @@ def test_s3_disposal_and_verification_without_listing(s3_settings):
     assert operator.read_verified_events() == events[2:]
     assert start["sequence"] == 2
     api.store.delete("operation-absent.json")
+    operator.advance_start(3)
+    third = api.store.read(event_key(3))
+    for damaged in (
+        {"event": {"operation_id": events[2]["operation_id"]}},
+        {**json.loads(third), "event": events[0]},
+    ):
+        api.store.write(event_key(3), canonical_json(damaged))
+        for call in (operator.delete_disposed, lambda: operator.dispose_through(3)):
+            with pytest.raises(LedgerUnavailableError):
+                call()
+        assert sent.count("DELETE") == 4
+    api.store.write(event_key(3), third)
     operator.dispose_through(3)
     assert api.append(image_record(content_id=99))["sequence"] == 4
     assert operator.read_verified_checkpoint()["sequence"] == 4
