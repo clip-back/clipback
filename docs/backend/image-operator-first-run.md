@@ -252,6 +252,8 @@ Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해�
 - [ ] 병합 순서: 정시 15분 직후 병합한다. 다음 15분 전에 `clipback`·`clipback-backup`·`clipback-maintain`·`clipback-retry`
   네 서비스의 배포 커밋이 모두 같은지 확인하고, 아니면 `maintain` Cron을 잠시 끈다. 옛 코드는 파기한 장부를 읽지 못한다.
 - [ ] 병합 뒤: 다음 백업(00:00 UTC)과 `maintain`이 `passed=true`인지 확인한다.
+- [ ] 처리방침 게시: #344 새 코드 배포 뒤 첫 `maintain`이 `passed=true`인 것을 확인하면 처리방침을 게시한다(Q17).
+  #339 적용 때의 `passed`는 이 조건이 아니다. 첫 실제 파기는 아래 항목으로 따로 확인한다.
 - [ ] 첫 실제 파기(가장 오래된 기록이 삭제 29일 되는 날 이후): `deletion_records_pruned>0`,
   `python -m scripts.image_deletions checkpoint` 통과, SQL `SELECT count(*), min(deleted_at) FROM image_deletions;`의 min이 30일 안인지 확인한다.
 - 첫 파기 뒤에는 이 기능 이전 버전으로 되돌리지 않는다([Railway 배포](../railway-deployment.md#복원과-롤백)).
