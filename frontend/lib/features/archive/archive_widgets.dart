@@ -43,6 +43,7 @@ class ContentListView extends StatelessWidget {
     this.onLoadMore,
     this.onRetry,
     this.archiveAllStyle = false,
+    this.listBottomPadding = 0,
     super.key,
   });
 
@@ -63,6 +64,7 @@ class ContentListView extends StatelessWidget {
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
   final bool archiveAllStyle;
+  final double listBottomPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +123,7 @@ class ContentListView extends StatelessWidget {
             contents: visibleContents,
             onLoadMore: onLoadMore,
             onRetry: onRetry,
+            bottomPadding: listBottomPadding,
             empty: confirmedUnclassifiedEmpty
                 ? const UnclassifiedEmptyState()
                 : EmptyStatePanel(
