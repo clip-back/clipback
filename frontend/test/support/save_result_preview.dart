@@ -989,6 +989,10 @@ void _checkScene(String kind, double scale) {
       );
     } else {
       _require(
+        _imageIn(nodes['previewCard']) == null,
+        'Link preview must not show an image',
+      );
+      _require(
         (text.left - card.left - 8).abs() < 0.1,
         'Link preview text must start at the card padding',
       );
@@ -2240,7 +2244,9 @@ Map<String, Object?> _resultThumbnailMetrics() {
   if (!_has<SavedContentConfirmation>()) return {};
   final nodes = _layoutNodes();
   final element = nodes['previewImage'];
-  if (element == null) return {'present': false};
+  if (element == null) {
+    return {'present': _imageIn(nodes['previewCard']) != null};
+  }
   final image = element.widget as Image;
   final container = _ancestor(element, (w) => w is Container);
   final confirmation =
