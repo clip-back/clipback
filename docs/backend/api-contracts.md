@@ -766,8 +766,9 @@ path, any method) allows 11MiB (11,534,336 bytes): the 10MiB file limit plus
 limit are processed as before.
 
 - A `Content-Length` over the limit is rejected with HTTP413 before the body is read.
-- Without `Content-Length`, the server counts received bytes and returns HTTP413
-  as soon as they pass the limit.
+- Without `Content-Length`, the server counts body bytes as they are read and
+  returns HTTP413 as soon as they pass the limit. Responses that never read the
+  body (health checks, 404, 405, maintenance 503) are unchanged.
 - The upload path keeps `{"detail": {"code": "image_file_too_large",
   "limit_bytes": 10485760}}`, so released apps show the same 10MiB message.
 - Other paths return `{"detail": {"code": "request_body_too_large",
