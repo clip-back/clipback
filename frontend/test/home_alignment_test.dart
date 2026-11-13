@@ -902,7 +902,7 @@ void main() {
   }
 
   testWidgets(
-    'Weekly header hides chevron while recent header stays tappable',
+    'Weekly header hides chevron and its title is not tappable while recent header stays tappable',
     (tester) async {
       addTearDown(tester.view.reset);
       var archiveTaps = 0;
@@ -939,11 +939,98 @@ void main() {
       expect(categoryTaps, 0);
       await tester.tap(find.text('이번주 허투루 픽 🎯'));
       await tester.pumpAndSettle();
-      expect(categoryTaps, 1);
+      expect(categoryTaps, 0);
       expect(archiveTaps, 1);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Weekly title has no ink or button semantics while keeping its shape',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      addTearDown(tester.view.reset);
+      try {
+        final contents = [_content(0)];
+        await _render(
+          tester,
+          child: _panel(contents: contents, feed: _feed(contents)),
+        );
+        final title = find.text('이번주 허투루 픽 🎯');
+        final weeklyHeader = find.ancestor(
+          of: title,
+          matching: find.byType(SectionHeader),
+        );
+        expect(
+          find.ancestor(of: title, matching: find.byType(InkWell)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: weeklyHeader, matching: find.byType(InkWell)),
+          findsNothing,
+        );
+        expect(tester.getSize(weeklyHeader).height, greaterThanOrEqualTo(44));
+        final style = tester.widget<Text>(title).style!;
+        expect(style.fontSize, 18);
+        expect(style.fontWeight, FontWeight.w600);
+        final nodes = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .where((n) => n.label.contains('이번주 허투루 픽'))
+            .toList();
+        expect(nodes, isNotEmpty);
+        for (final node in nodes) {
+          final data = node.getSemanticsData();
+          expect(data.hasAction(SemanticsAction.tap), isFalse);
+          expect(data.flagsCollection.isButton, isFalse);
+        }
+        final recent = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .where((n) => n.label.contains('최근 저장한 콘텐츠'))
+            .single;
+        expect(
+          recent.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets('Weekly pick card still opens its category', (tester) async {
+    addTearDown(tester.view.reset);
+    var fallbackTaps = 0;
+    final selected = <ApiWeeklyRecommendationItem>[];
+    final contents = [_content(0)];
+    Widget panel({required bool withSelected}) => SingleChildScrollView(
+      child: HomeContentPanel(
+        weeklyItems: _weeklyTestItems,
+        feed: _feed(contents),
+        contents: contents,
+        categories: const [_category, _secondCategory],
+        bookmarkedIds: const {},
+        onOpenArchive: () {},
+        onOpenCategories: () => fallbackTaps++,
+        onWeeklySelected: withSelected ? selected.add : null,
+        onOpenContent: (_) {},
+        onToggleBookmark: (_) {},
+      ),
+    );
+    final card = find.byKey(
+      ValueKey('weekly-card-${_weeklyTestItems.first.id}'),
+    );
+    await _render(tester, child: panel(withSelected: true));
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(selected.single.id, _weeklyTestItems.first.id);
+    expect(fallbackTaps, 0);
+    await _render(tester, child: panel(withSelected: false));
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(fallbackTaps, 1);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('home category chips preserve selection with a 32px hit area', (
     tester,

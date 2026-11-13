@@ -448,14 +448,13 @@ Future<void> _run() async {
   await _wait(() => _route() == 'home', 'Detail return missing');
   await _show(f.homeBaseText(_home, '이번주 허투루 픽 🎯')!);
   await _tap(f.homeBaseText(_home, '이번주 허투루 픽 🎯')!);
-  await _wait(() => _route() == 'archive', 'Weekly title destination missing');
+  await _settle(6);
+  _require(_route() == 'home', 'Weekly title must keep home');
   _require(
-    (f.homeBaseFind<ArchiveScreen>(_root)!.widget as ArchiveScreen).activeTab ==
-        1,
-    'Weekly title must retain category destination',
+    f.homeBaseFind<ArchiveScreen>(_root) == null,
+    'Weekly title must not open archive',
   );
-  _record('weekly_title_category_destination');
-  await _homeTab();
+  _record('weekly_title_stays_home');
   final weekly = f.homeBaseFind<WeeklyPickRail>(_home)!;
   await _show(weekly);
   final pick = f.homeBaseFind<InkWell>(weekly)!;

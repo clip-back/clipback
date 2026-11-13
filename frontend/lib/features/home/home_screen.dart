@@ -501,11 +501,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
         children: [
           const SizedBox(height: 16),
           if (widget.weeklyItems.isNotEmpty) ...[
-            SectionHeader(
-              title: '이번주 허투루 픽 🎯',
-              onTap: widget.onOpenCategories,
-              showTrailingIcon: false,
-            ),
+            const SectionHeader(title: '이번주 허투루 픽 🎯', showTrailingIcon: false),
             const SizedBox(height: 8),
             WeeklyPickRail(
               onOpenCategory: widget.onOpenCategories,

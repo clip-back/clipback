@@ -127,6 +127,18 @@ void main() {
       });
     },
   );
+  testWidgets('weekly title tap keeps the root on home', (t) async {
+    await withHome(t, (s) async {
+      final title = find.text('이번주 허투루 픽 🎯');
+      await t.ensureVisible(title);
+      await t.pumpAndSettle();
+      await t.tap(title);
+      await t.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byType(ArchiveScreen), findsNothing);
+      expect(views(s), isEmpty);
+    });
+  });
   for (final type in WeeklyCardType.values) {
     testWidgets('weekly card tap opens the same category ID $type', (t) async {
       await withHome(
