@@ -71,7 +71,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 02 17:42',
     tags: ['여름쇼핑몰', '패션', '출근룩'],
     source: 'Web',
-    originalUrl: 'https://hutureu.example/summer-fashion',
+    originalUrl: 'https://huturu.example/summer-fashion',
     originalText: '여름 출근룩을 찾는 사용자를 위한 쇼핑몰 링크 모음과 소재별 추천 포인트입니다.',
   ),
   ContentItem(
@@ -84,7 +84,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 10 11:20',
     tags: ['부산맛집', '여행', '해운대놀거리'],
     source: 'Web',
-    originalUrl: 'https://hutureu.example/busan-food',
+    originalUrl: 'https://huturu.example/busan-food',
     originalText: '부산 여행 중 저장해두기 좋은 맛집과 이동 순서를 정리한 목데이터입니다.',
   ),
   ContentItem(
@@ -140,7 +140,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 20 07:35',
     tags: ['경제', '금리', '뉴스'],
     source: 'News',
-    originalUrl: 'https://news.example/hutureu-interest-rate',
+    originalUrl: 'https://news.example/huturu-interest-rate',
     originalText: '한국은행이 기준금리를 동결했다는 기사입니다. 소비자물가 흐름과 가계대출 증가세를 함께 언급합니다.',
   ),
   ContentItem(
@@ -154,7 +154,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 20 08:10',
     tags: ['생활정보', '루틴', '출근'],
     source: 'Web',
-    originalUrl: 'https://hutureu.example/morning-routine',
+    originalUrl: 'https://huturu.example/morning-routine',
     originalText: '출근 전 20분 동안 최소한으로 챙기면 좋은 루틴과 체크리스트를 설명하는 글입니다.',
   ),
   ContentItem(
@@ -167,7 +167,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 21 13:18',
     tags: ['취업준비', '포트폴리오', '체크리스트'],
     source: 'Web',
-    originalUrl: 'https://hutureu.example/portfolio-checklist',
+    originalUrl: 'https://huturu.example/portfolio-checklist',
     originalText:
         '포트폴리오 제출 전에 프로젝트별 문제, 해결 방식, 결과, 배운 점을 빠뜨리지 않았는지 점검하는 목록입니다.',
     bookmarked: true,
@@ -210,7 +210,7 @@ const initialContents = [
     savedAtFullShort: '2026. 07. 22 23:03',
     tags: ['자기개발', 'AI', '프롬프트'],
     source: 'Web',
-    originalUrl: 'https://hutureu.example/ai-prompt-writing',
+    originalUrl: 'https://huturu.example/ai-prompt-writing',
     originalText:
         '좋은 초안을 얻기 위해 목적, 독자, 반드시 포함할 정보, 피해야 할 표현을 함께 전달하는 프롬프트 템플릿입니다.',
     bookmarked: true,
