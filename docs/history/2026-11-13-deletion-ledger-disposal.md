@@ -131,3 +131,52 @@ VERIFY result=PASS scope=all checks=11 failed=0
   - Docker 검사는 로컬에서 돌리지 않았고 CI로만 확인했다.
   - `source_lock`의 unlock 실패 → 연결 무효화 경로는 기존 코드라 새 테스트가 없다.
   - 운영에서의 실제 파기는 첫 대상 기록이 29일 되는 날 이후 운영 확인 항목으로 따로 확인한다.
+
+## #347 운영 문서와 파기한 장부 격리 복원 Docker 경우
+
+구현 커밋 `bde063b`, 리뷰 반영 커밋 `1ab08b3`·`7ed13c8`(문서만, 최종 전체 검증 기준 `7ed13c8`). 이 절을 더한 커밋은 문서만 바꾼다.
+
+### 착수 전 확인 (`a6249f7`)
+
+- 없앨 문구 5개는 각 1건, `image-operator-first-run.md`의 "확인하기 전"은 5건, ADR 0007 "계속 보관"은 1건이었다. 티켓 원문과 같다.
+
+### 사용자 결정
+
+- 2026-11-13 "이 티켓에 포함"·"다섯 곳 모두": #339 상태 줄 다섯 곳과 이어지는 자동 운영 문장을 #339 운영 적용 결과(네 서비스 main 자동 배포, `maintain` 매시간 `passed`, `retry` 첫 실행 `pending` 0 — 사용자 확인)로 맞춘다. #344 파기의 운영 완료로 쓰지 않는다.
+- 2026-11-13 "추천대로"(Q16-B2 확인 기준): 첫 실제 파기 확인 SQL의 전체 `count`·`min`은 관측값으로 두고, 이관 정리 행(`source_identity`)을 뺀 `target_min`이 30일 안인지로 판정한다. 회의 Q16 원문("min이 30일 안")을 #346 결정 A2(이관 행 보존)에 맞춰 바꾼 것이다.
+
+### 구현
+
+- `tests/deployment/test_image_backup_docker.py`: 앞 기록을 파기(시작 지점 = head − 1)한 뒤 남은 복구 지점을 `restore-check`로 격리 복원하는 경우를 더했다. CI 명시 목록에 이미 있는 파일이다. 기존 경우·fixture·이름은 바꾸지 않았다.
+- `docs/backend/backup-recovery.md`: "삭제 장부 30일 파기" 절(시작 지점, 조건 3가지, 잠금 범위, 행 삭제 범위와 이관 행 제외, 재읽기 틈의 승인된 보장 범위, 새 출력 필드, 30일 넘김 실패). 되돌리기 절에 첫 파기 뒤 이 기능 이전 리비전으로 되돌리지 않는다는 문장.
+- `docs/backend/image-deletion.md`: 검증을 시작 지점부터로, 끝 절을 30일 파기로.
+- `docs/backend/image-operator-first-run.md`: `maintain` 시작 명령 한 줄, 명령별 필요한 변수 표, 파기 설명, 배포 체크리스트(장부 Bucket 키 삭제 권한, 병합 순서 Q-B8, 처리방침 게시 Q17, 첫 실제 파기 확인 SQL), #339 상태 줄 다섯 곳.
+- `docs/railway-deployment.md`: 첫 파기 뒤 이 기능 이전 서버로 되돌리지 않는다는 한 줄.
+
+### 리뷰
+
+- 감독 Codex 검수: Standards 0건, Spec 중간 3건.
+  1. 행 삭제 재읽기 틈의 보장 범위가 운영 문서에 없음 → `1ab08b3`에서 승인 문구를 보존 정리 절에 넣었다.
+  2. 첫 파기 확인 SQL의 "전체 min 30일 안"이 이관 행 보존(A2)과 충돌 → 사용자 결정 "추천대로"로 `7ed13c8`에서 이관 행을 뺀 기준과 SQL로 바꿨다. 대상 0행이면 `target_min`이 NULL이고 정상이다. 장부 기록 없는 업로드 실패 행은 미완료로 30일을 넘겨도 `deletion_records_overdue`에 잡히지 않아 `retry`의 `pending`을 함께 본다.
+  3. 처리방침 게시 순서(Q17) 누락 → `1ab08b3`에서 배포 체크리스트에 게시 단계를 넣었다.
+
+### 검증
+
+- 리뷰 전 부분 검사: 새 Docker 경우의 장부 단언(파기 뒤 남은 키, 남은 기록)을 moto 대역으로만 확인했다. 문서 문구 제거·링크·`git diff --check`를 확인했다.
+- 확인 SQL: 로컬 PostgreSQL 임시 DB에서 문서의 SQL을 그대로 실행했다. 빈 표, 40일 된 이관 행만(대상 0행, `target_min` NULL), 10일 된 대상 행 추가(`target_min` 10일 전), 35일 된 미완료 대상 행 추가(`target_min` 35일 전)가 각각 기대대로 나왔다. 운영 DB에서는 실행하지 않았다.
+- CI(`bde063b`): workflow_dispatch [run 43414783258](https://github.com/clip-back/clipback/actions/runs/43414783258) success.
+  - operator-recovery 33 passed, skip 0. `6eadf5a`의 32에서 새 경우 1개가 늘었다. 같은 파일 목록의 로컬 수집에 새 테스트가 있다. 출력이 테스트 이름을 찍지 않아 이름별 통과는 개수로 판단했다.
+  - deployment 15 passed, migration 1040 passed·1 skipped, test 3.11·3.12 각 1606 passed.
+- `1ab08b3`·`7ed13c8`은 문서만 바꿔 CI를 다시 돌리지 않았다.
+- 최종 전체 검증(`7ed13c8`, 깨끗한 작업 트리):
+
+```text
+pytest: 2640 passed, 49 skipped, 3 warnings in 337.58s (0:05:37)
+pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=11 failed=0
+```
+
+- deployment skip이 47에서 48로 는 것은 새 Docker 경우다(로컬은 Docker 없이 skip).
+- 운영 `maintain` DB 역할 권한은 #346 절의 사용자 운영 콘솔 확인값이다. 이 작업에서 다시 확인하지 않았다.
+- 미검증·운영 단계: 장부 Bucket 키 삭제 권한(Q16-B3), 병합 순서(Q-B8), 병합 뒤 첫 `maintain`(Q16-B1)과 처리방침 게시(Q17), 첫 실제 파기(Q16-B2)는 병합 뒤 사용자가 확인한다.
