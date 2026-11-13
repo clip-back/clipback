@@ -462,3 +462,50 @@ print(json.dumps({'status':urllib.request.urlopen(r,timeout=3).status}))
     assert gc["freshness_met"] is False  # Simulated six-day scheduler outage is observable.
     assert store.list_objects("originals/") == []
     assert ledger.read_verified_checkpoint()["sequence"] == 3
+
+
+def test_partly_disposed_ledger_still_restores_the_remaining_point(bucket_backup, tmp_path):
+    """Q15 (#344, ADR 0013): dispose the oldest records, then isolate-restore what remains.
+
+    Runs after the test above, which leaves three records and its latest point behind.
+    """
+    from app.core.config import Settings
+    from app.integrations.deletion_ledger import get_deletion_ledger
+    from scripts.recovery_point import read_point_manifest
+
+    store, _, _, credentials, image = bucket_backup
+    fixture = store.fixture_context
+    values = {k.lower(): v for k, v in fixture["env"].items()
+              if k.lower() in Settings.model_fields}
+    values["backend_cors_origins"] = []
+    ledger = get_deletion_ledger(Settings(_env_file=None, **values))
+    checkpoints = {point: read_point_manifest(store, point)["deletion_checkpoint"]
+                   for point in completed_points(store)}
+    point = max((p for p, c in checkpoints.items() if c), key=lambda p: checkpoints[p]["sequence"])
+    head = ledger.read_verified_checkpoint()["sequence"]
+    assert checkpoints[point]["sequence"] == head >= 2
+    events = ledger.read_verified_events()
+    start = head - 1
+    ledger.dispose_through(start)
+
+    def keys():
+        listing = ledger.store.client.list_objects_v2(Bucket=ledger.store.bucket)
+        return {entry["Key"] for entry in listing.get("Contents", [])}
+
+    remaining = keys()
+    for number, event in enumerate(events, start=1):
+        files = {f"event-{number:020d}.json", f"operation-{event['operation_id']}.json"}
+        assert files.isdisjoint(remaining) if number <= start else files <= remaining
+    assert ledger.read_verified_remainder() == (start, events[start:])
+    materialized = tmp_path / "remaining-point"
+    materialize_backup(store, point, materialized)
+    restored = subprocess.run(
+        [sys.executable, "-m", "scripts.image_backup_jobs", "restore-check",
+         "--synthetic-offline", "--backup-dir", str(materialized),
+         "--credentials-file", str(credentials), "--image", image, "--writers-frozen"],
+        env=fixture["env"], capture_output=True, timeout=180,
+    )
+    report = json.loads(restored.stdout)
+    assert restored.returncode == 0 and report["passed"], report
+    assert report["live_deletion_ledger_verified"] and report["deletions_applied"]
+    assert report["authentication_passed"] and report["cleanup_passed"]
