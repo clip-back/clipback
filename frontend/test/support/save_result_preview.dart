@@ -71,8 +71,8 @@ const _baseStaticInputScope =
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _require(_phase == 'before' || _phase == 'after', 'Unknown phase');
-  final photo = await rootBundle.load(Assets.savedPhotoPreview);
-  final alternate = await rootBundle.load(Assets.saveLinkPreview);
+  final photo = await rootBundle.load(Assets.searchEmptyIllustration);
+  final alternate = await rootBundle.load(Assets.character1Png);
   _photoCases = {
     'default': photo.buffer.asUint8List(),
     'landscape': await _markerPhoto(800, 400),
@@ -836,17 +836,18 @@ Map<String, Element> _layoutNodes() {
     nodes['previewPrecedingBlock'] = confirmation.photoBytes != null
         ? nodes['resultInputBox']!
         : _elements(result).firstWhere((e) => e.widget is ValidationMessage);
-    final image =
-        _imageIn(_keyed('save-result-preview-image', result)) ??
-        _elements(result).firstWhere((e) => e.widget is Image);
+    final image = confirmation.photoBytes == null
+        ? null
+        : _imageIn(_keyed('save-result-preview-image', result)) ??
+              _elements(result).firstWhere((e) => e.widget is Image);
     final title = _elements(result).firstWhere(
       (e) => e.widget is Text && (e.widget as Text).data == content.title,
     );
     nodes['previewCard'] =
         _keyed('save-result-preview-card', result) ??
-        _ancestor(image, (w) => w is Container);
+        _ancestor(image!, (w) => w is Container);
     nodes['previewHeading'] = _textElement('미리보기', result);
-    nodes['previewImage'] = image;
+    if (image != null) nodes['previewImage'] = image;
     nodes['previewTitle'] = title;
     nodes['previewSource'] = _elements(result).firstWhere(
       (e) => e.widget is Text && (e.widget as Text).data == content.source,
@@ -970,26 +971,38 @@ void _checkScene(String kind, double scale) {
     }
   } else if (_isResult(kind)) {
     final card = _rect(nodes['previewCard']!);
-    final image = _rect(nodes['previewImage']!);
+    final imageNode = nodes['previewImage'];
     final text = _rect(nodes['previewText']!);
     _require(card.height >= 115.9, 'Preview below minimum height');
     if (scale == 1) {
       _require((card.height - 116).abs() < 0.1, 'Base preview height changed');
     }
-    _require(
-      (image.width - 164).abs() < 0.1 && (image.height - 100).abs() < 0.1,
-      'Preview thumbnail changed',
-    );
-    _require(
-      (image.center.dy - card.center.dy).abs() < 0.1,
-      'Preview image is not centered',
-    );
+    if (imageNode != null) {
+      final image = _rect(imageNode);
+      _require(
+        (image.width - 164).abs() < 0.1 && (image.height - 100).abs() < 0.1,
+        'Preview thumbnail changed',
+      );
+      _require(
+        (image.center.dy - card.center.dy).abs() < 0.1,
+        'Preview image is not centered',
+      );
+    } else {
+      _require(
+        (text.left - card.left - 8).abs() < 0.1,
+        'Link preview text must start at the card padding',
+      );
+    }
     _require(
       (text.center.dy - card.center.dy).abs() < 0.1,
       'Preview text is not centered',
     );
     final inner = card.deflate(8);
-    for (final name in ['previewImage', 'previewTitle', 'previewSource']) {
+    for (final name in [
+      if (imageNode != null) 'previewImage',
+      'previewTitle',
+      'previewSource',
+    ]) {
       _require(_inside(_rect(nodes[name]!), inner), '$name clips preview');
     }
   }
@@ -1840,13 +1853,9 @@ Map<String, Object?> _photoFrameMetrics() {
           as BoxDecoration,
     ),
     'imageProvider': imageWidget.image.runtimeType.toString(),
-    'photoByteLength': selected.photoBytes?.length,
-    'photoMatchesOriginal': selected.photoBytes == null
-        ? null
-        : _same(selected.photoBytes!, _picker.photo),
-    'photoMatchesAlternate': selected.photoBytes == null
-        ? null
-        : _same(selected.photoBytes!, _picker.alternate),
+    'photoByteLength': selected.photoBytes.length,
+    'photoMatchesOriginal': _same(selected.photoBytes, _picker.photo),
+    'photoMatchesAlternate': _same(selected.photoBytes, _picker.alternate),
     'imageFit': imageWidget.fit?.name,
     'imageAlignment': alignment.toString(),
     'clipBehavior': clipWidget.clipBehavior.name,
@@ -1955,7 +1964,8 @@ Map<String, Object?> _previewGeometryMetrics() {
   final cardElement = nodes['previewCard']!;
   final cardWidget = cardElement.widget as Container;
   final card = _rect(cardElement);
-  final image = _rect(nodes['previewImage']!);
+  final imageNode = nodes['previewImage'];
+  final image = imageNode == null ? null : _rect(imageNode);
   final text = _rect(nodes['previewText']!);
   final title = _rect(nodes['previewTitle']!);
   final source = _rect(nodes['previewSource']!);
@@ -2012,7 +2022,7 @@ Map<String, Object?> _previewGeometryMetrics() {
     'previewStartGapScope':
         'Measured from the actual preceding result block: link ValidationMessage or photo summary. Before-phase falls back to the original filename box; the after-phase photo summary must expose its exact image role. Relative block gaps do not assert equality of device/OS absolute coordinates.',
     'card': _rectJson(card),
-    'image': _rectJson(image),
+    'image': image == null ? null : _rectJson(image),
     'text': _rectJson(text),
     'innerCard': _rectJson(padding.deflateRect(card)),
     'cardMinHeight': cardWidget.constraints?.minHeight,
@@ -2022,7 +2032,8 @@ Map<String, Object?> _previewGeometryMetrics() {
       'right': padding.right,
       'bottom': padding.bottom,
     },
-    'imageToTextGap': text.left - image.right,
+    'imageToTextGap': image == null ? null : text.left - image.right,
+    'textLeftPadding': text.left - card.left,
     'textGap': source.top - title.bottom,
     'expectedTextGap': 14,
     'textConstraintsMaxWidth': columnMaxWidth,
@@ -2042,7 +2053,7 @@ Map<String, Object?> _previewGeometryMetrics() {
     'sourceLines': paragraphLines(nodes['previewSource']!),
     'textHeight': text.height,
     'paragraphHeightSum': title.height + source.height,
-    'imageCenterDelta': image.center.dy - card.center.dy,
+    'imageCenterDelta': image == null ? null : image.center.dy - card.center.dy,
     'textCenterDelta': text.center.dy - card.center.dy,
     'headingToCardGap': card.top - heading.bottom,
     'boundaryScope':
@@ -2056,7 +2067,7 @@ List<String> _previewLayoutFindings() {
   final nodes = _layoutNodes();
   final metrics = _previewGeometryMetrics();
   final card = _rect(nodes['previewCard']!);
-  final image = _rect(nodes['previewImage']!);
+  final imageNode = nodes['previewImage'];
   final scale = MediaQuery.textScalerOf(nodes['previewCard']!).scale(1);
   bool near(Object? value, double target) =>
       value is num && (value - target).abs() < 0.1;
@@ -2078,10 +2089,14 @@ List<String> _previewLayoutFindings() {
   if (padding.values.any((value) => !near(value, 8))) {
     findings.add('Preview card padding must remain 8px on each side');
   }
-  if (!near(image.width, 164) || !near(image.height, 100)) {
-    findings.add('Preview image must remain 164x100px');
+  if (imageNode != null) {
+    final image = _rect(imageNode);
+    if (!near(image.width, 164) || !near(image.height, 100)) {
+      findings.add('Preview image must remain 164x100px');
+    }
   }
-  if (!near(metrics['imageToTextGap'], 16) ||
+  if ((imageNode != null && !near(metrics['imageToTextGap'], 16)) ||
+      (imageNode == null && !near(metrics['textLeftPadding'], 8)) ||
       !near(metrics['textGap'], 14) ||
       !near(metrics['headingToCardGap'], 16)) {
     findings.add(
@@ -2126,7 +2141,7 @@ List<String> _previewLayoutFindings() {
       findings.add('Preview $role visible lines exceed the retained limit');
     }
   }
-  if (!near(metrics['imageCenterDelta'], 0) ||
+  if ((imageNode != null && !near(metrics['imageCenterDelta'], 0)) ||
       !near(metrics['textCenterDelta'], 0)) {
     findings.add('Preview image/text block must remain vertically centered');
   }
@@ -2134,7 +2149,11 @@ List<String> _previewLayoutFindings() {
   final inner = cardWidget.padding!
       .resolve(Directionality.of(nodes['previewCard']!))
       .deflateRect(card);
-  for (final role in ['previewImage', 'previewTitle', 'previewSource']) {
+  for (final role in [
+    if (imageNode != null) 'previewImage',
+    'previewTitle',
+    'previewSource',
+  ]) {
     if (!_inside(_rect(nodes[role]!), inner)) {
       findings.add('$role paragraph/image layout clips padded preview card');
     }
@@ -2205,7 +2224,7 @@ Map<String, Object?> _resultSummaryMetrics() {
         ] else
           'save-result-input-summary',
         'save-result-preview-card',
-        'save-result-preview-image',
+        if (confirmation.photoBytes != null) 'save-result-preview-image',
         'save-result-category-heading',
         'save-result-category-folder',
         'save-result-category-row',
@@ -2220,7 +2239,8 @@ Map<String, Object?> _resultSummaryMetrics() {
 Map<String, Object?> _resultThumbnailMetrics() {
   if (!_has<SavedContentConfirmation>()) return {};
   final nodes = _layoutNodes();
-  final element = nodes['previewImage']!;
+  final element = nodes['previewImage'];
+  if (element == null) return {'present': false};
   final image = element.widget as Image;
   final container = _ancestor(element, (w) => w is Container);
   final confirmation =
@@ -2280,18 +2300,23 @@ List<String> _resultScreenStyleFindings() {
     }
   }
   final thumb = _resultThumbnailMetrics();
-  final thumbContainer = thumb['container']! as Map<String, Object?>;
-  final thumbForeground = thumbContainer['foreground']! as Map<String, Object?>;
-  if (thumb['fit'] != 'cover' ||
-      thumb['alignment'] != Alignment.center.toString() ||
-      (isPhoto &&
-          (thumbForeground['isSubtlerOnePixelBorder'] != true ||
-              !radius(thumbForeground['radius'], 4) ||
-              thumb['matchesSubmittedBytes'] != true)) ||
-      (!isPhoto && thumbForeground['border'] != null)) {
-    findings.add(
-      'Result thumbnail must retain cover/center and photo-only R4 subtler 1px foreground border',
-    );
+  if (!isPhoto) {
+    if (thumb['present'] != false) {
+      findings.add('Link result preview must not show a thumbnail');
+    }
+  } else {
+    final thumbContainer = thumb['container']! as Map<String, Object?>;
+    final thumbForeground =
+        thumbContainer['foreground']! as Map<String, Object?>;
+    if (thumb['fit'] != 'cover' ||
+        thumb['alignment'] != Alignment.center.toString() ||
+        thumbForeground['isSubtlerOnePixelBorder'] != true ||
+        !radius(thumbForeground['radius'], 4) ||
+        thumb['matchesSubmittedBytes'] != true) {
+      findings.add(
+        'Result thumbnail must retain cover/center and photo-only R4 subtler 1px foreground border',
+      );
+    }
   }
   final category = _categoryGeometryMetrics();
   final folder = category['folderVisual']! as Map<String, Object?>;

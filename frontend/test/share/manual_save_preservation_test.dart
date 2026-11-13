@@ -52,7 +52,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       final bytes = (await rootBundle.load(
-        'assets/figma/saved-photo-preview.png',
+        'assets/figma/search-empty-original.png',
       )).buffer.asUint8List();
       final picker = _Picker(bytes);
       final originalPicker = FilePicker.platform;

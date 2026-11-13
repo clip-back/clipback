@@ -390,7 +390,7 @@ Future<void> main() async {
       throw StateError('An explicit local image validation API is required');
     }
     _preferences = await SharedPreferences.getInstance();
-    final data = await rootBundle.load(Assets.savedPhotoPreview);
+    final data = await rootBundle.load(Assets.searchEmptyIllustration);
     FilePicker.platform = PendingPhotoPicker([
       PendingPhoto('image74.png', data.buffer.asUint8List()),
     ]);

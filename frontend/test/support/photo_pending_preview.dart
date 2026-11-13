@@ -369,7 +369,7 @@ Future<void> _run() async {
 
 Future<void> main() => http.runWithClient(() async {
   isolated.ArchiveAllFixtureBinding();
-  final original = await rootBundle.load(Assets.savedPhotoPreview),
+  final original = await rootBundle.load(Assets.searchEmptyIllustration),
       alternate = await rootBundle.load(Assets.homeInitialLoadingIllustration);
   _originalBytes = original.buffer.asUint8List(
     original.offsetInBytes,
