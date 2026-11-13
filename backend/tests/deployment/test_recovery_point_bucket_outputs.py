@@ -194,11 +194,16 @@ def maintenance_runtime(monkeypatch, tmp_path):
     async def unlocked(*args, **kwargs):
         yield
 
+    async def nothing_disposed(*args, **kwargs):
+        return {"deletion_records_pruned": 0, "deletion_records_overdue": 0,
+                "image_deletion_rows_pruned": 0}
+
     monkeypatch.setattr(operator_runtime, "MaintenanceRuntime", Runtime)
     monkeypatch.setattr(deletion_ledger, "get_deletion_ledger",
                         lambda config=None, **kwargs: ledger)
     monkeypatch.setattr(maintenance, "MaintenanceGate", lambda sessions: OpenUnitGate())
     monkeypatch.setattr(jobs, "source_lock", unlocked)
+    monkeypatch.setattr(jobs, "dispose_deletion_records", nothing_disposed)
 
 
 def run(main, argv, monkeypatch, capsys):
@@ -265,7 +270,7 @@ def retention(expired, removed, retained):
     return {
         "deletion_records_pruned": 0, "expired_points": expired, "freshness_met": True,
         "passed": True, "removed_originals": removed, "retained_points": retained,
-        "retention_overdue": 0,
+        "retention_overdue": 0, "deletion_records_overdue": 0, "image_deletion_rows_pruned": 0,
     }
 
 

@@ -7,10 +7,10 @@ import hashlib
 import json
 import os
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import boto3
 from botocore.config import Config
@@ -93,6 +93,12 @@ def deleted_contents(event: dict) -> list[dict]:
         {"user_id": event["user_id"], "deleted_at": event["deleted_at"], **content}
         for content in event["contents"]
     ]
+
+
+def account_content_operation_id(operation_id: str, content_id: int, saved_at: str) -> str:
+    """Retries and restore replays of one account deletion converge on one cleanup row."""
+    saved_at = datetime.fromisoformat(saved_at).astimezone(UTC).isoformat()
+    return str(uuid5(NAMESPACE_URL, f"account-deletion:{operation_id}:{content_id}:{saved_at}"))
 
 
 def canonical_json(value: dict) -> bytes:
@@ -326,6 +332,11 @@ class DeletionLedger:
     def read_verified_events(self, checkpoint: dict | None = None) -> list[dict]:
         """Records after the start point, verified up to the checkpoint (default: head)."""
         return [event for event, _ in self._verified_records(checkpoint)[1]]
+
+    def read_verified_remainder(self) -> tuple[int, list[dict]]:
+        """The start point's sequence and the verified records after it, through head."""
+        start, records = self._verified_records(None)
+        return start["sequence"], [event for event, _ in records]
 
     def _verified_records(self, checkpoint: dict | None) -> tuple[dict, list[tuple[dict, str]]]:
         """The start point and each later (event, record digest) through the checkpoint."""

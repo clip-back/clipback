@@ -21,6 +21,7 @@ from app.integrations.deletion_ledger import (
     ACCOUNT_DELETION,
     LEDGER_WRITE_LOCK,
     LedgerUnavailableError,
+    account_content_operation_id,
     canonical_json,
     get_deletion_ledger,
 )
@@ -54,12 +55,6 @@ logger = logging.getLogger(__name__)
 SEOUL = ZoneInfo("Asia/Seoul")
 # With the user id: queues one account's deletion requests (two-key advisory lock).
 ACCOUNT_DELETION_LOCK = 74264006
-
-
-def account_content_operation_id(operation_id: str, content_id: int, saved_at: str) -> str:
-    """Retries and restore replays of one account deletion converge on one cleanup row."""
-    saved_at = datetime.fromisoformat(saved_at).astimezone(UTC).isoformat()
-    return str(uuid5(NAMESPACE_URL, f"account-deletion:{operation_id}:{content_id}:{saved_at}"))
 
 
 def _account_identity(user_id: int, created_at: datetime) -> dict:

@@ -2,7 +2,8 @@
 
 Historical API images run this source (ADR 0004, 0008). Their ledger validation and modules
 predate account deletion records, so those records are applied here with SQL. Keep the
-deletion order and cleanup ID formula equal to app/services/account_deletion_service.py.
+deletion order equal to app/services/account_deletion_service.py and the cleanup ID formula
+equal to app/integrations/deletion_ledger.py.
 """
 
 import asyncio
