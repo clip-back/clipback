@@ -21,6 +21,7 @@
 - [Personal Categories: Update and Delete](#personal-categories-update-and-delete)
 - [Content Category Validation](#content-category-validation)
 - [Content URL Length](#content-url-length)
+- [Request Body Size](#request-body-size)
 - [Tag Replacement](#tag-replacement)
 - [Feed Pagination](#feed-pagination)
 - [Screenshot Storage](#screenshot-storage)
@@ -756,6 +757,26 @@ External metadata was stubbed; live sites, Railway, real devices, and the local
 Docker deployment check were not exercised. Remote CI results are reported on
 the PR separately.
 
+## Request Body Size
+
+Every request body has a size limit. `POST /api/v1/uploads/screenshots` (exact
+path, any method) allows 11MiB (11,534,336 bytes): the 10MiB file limit plus
+1MiB for categories, tags and multipart framing. Every other path allows 1MiB
+(1,048,576 bytes); the longest app JSON is tens of KB. Bodies at or below the
+limit are processed as before.
+
+- A `Content-Length` over the limit is rejected with HTTP413 before the body is read.
+- Without `Content-Length`, the server counts received bytes and returns HTTP413
+  as soon as they pass the limit.
+- The upload path keeps `{"detail": {"code": "image_file_too_large",
+  "limit_bytes": 10485760}}`, so released apps show the same 10MiB message.
+- Other paths return `{"detail": {"code": "request_body_too_large",
+  "limit_bytes": 1048576}}`. Released apps show their generic 413 image message
+  for it; normal app requests never reach this limit.
+
+A non-numeric `Content-Length` never reaches the app: uvicorn (httptools and h11)
+answers HTTP400 `Invalid HTTP request received.` itself.
+
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
@@ -843,7 +864,8 @@ limit. Existing over-quota images remain readable and deletable.
 
 Quota rejection is HTTP409 with `detail.code=image_quota_exceeded` and
 `detail.limit_bytes`. One file exceeding the configured 10MiB limit is HTTP413
-with `detail.code=image_file_too_large` and `detail.limit_bytes`. Clients inspect
+with `detail.code=image_file_too_large` and `detail.limit_bytes`. The whole request
+is limited to 11MiB with the same 413 response; see [Request Body Size](#request-body-size). Clients inspect
 the error code before treating every 409 as an idempotency conflict.
 OpenAI OCR extracts text, title, and summary and feeds category recommendation.
 New screenshot summaries are instructed to use concise Korean informational prose
