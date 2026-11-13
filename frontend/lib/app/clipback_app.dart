@@ -628,17 +628,20 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void _handleEffect(UiEffect effect) {
     switch (effect) {
       case MessageEffect():
-        _messengerKey.currentState?.showSnackBar(
-          SnackBar(
-            content: Text(effect.message),
-            action: effect.retry == null
-                ? null
-                : SnackBarAction(
-                    label: effect.retryLabel ?? '다시 시도',
-                    onPressed: effect.retry!,
-                  ),
-          ),
-        );
+        // A new notice replaces shown and queued ones (#353).
+        _messengerKey.currentState
+          ?..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(effect.message),
+              action: effect.retry == null
+                  ? null
+                  : SnackBarAction(
+                      label: effect.retryLabel ?? '다시 시도',
+                      onPressed: effect.retry!,
+                    ),
+            ),
+          );
       case CloseTransientRoutesEffect():
         _navigatorKey.currentState?.popUntil((route) => route.isFirst);
       case ConfirmAccountSwitchEffect():
