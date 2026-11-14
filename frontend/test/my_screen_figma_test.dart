@@ -164,7 +164,7 @@ void main() {
   }
 
   testWidgets(
-    'Account callbacks, two sheets, contact form, display-only version, tabs and save',
+    'Account callbacks, no management rows, contact form, display-only version, tabs and save',
     (tester) async {
       final launcher = RecordingUrlLauncher(),
           oldLauncher = UrlLauncherPlatform.instance;
@@ -183,17 +183,12 @@ void main() {
       await tester.tap(find.byType(MyProfileRow));
       expect(calls.account, 2);
       expect(find.text('카테고리 관리'), findsNothing);
+      // #378 hides the management rows, so their sheets have no entry.
       for (final entry in <String, Type>{
         '알림 설정': ReminderSheet,
         '앱 권한': PermissionSheet,
       }.entries) {
-        final target = find.text(entry.key);
-        await tester.ensureVisible(target);
-        await tester.tap(target);
-        await tester.pumpAndSettle();
-        expect(find.byType(entry.value), findsOneWidget);
-        Navigator.of(tester.element(find.byType(entry.value))).pop();
-        await tester.pumpAndSettle();
+        expect(find.text(entry.key), findsNothing);
         expect(find.byType(entry.value), findsNothing);
       }
       await tester.ensureVisible(find.text('문의하기'));

@@ -325,14 +325,6 @@ void main() {
             await _close(tester, 'AddContentSheet');
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
-            for (final row in [
-              ('알림 설정', 'ReminderSheet'),
-              ('앱 권한', 'PermissionSheet'),
-            ]) {
-              await _tap(tester, find.text(row.$1));
-              _sheet(tester, row.$2, edges);
-              await _close(tester, row.$2);
-            }
             tester.widget<MyScreen>(_type('MyScreen')).onTab(AppRoute.archive);
             await tester.pumpAndSettle();
             tester

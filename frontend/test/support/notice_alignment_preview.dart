@@ -402,21 +402,6 @@ Future<void> _run() async {
     _record('${kind}_os_back_preserves_my');
   }
   await _fresh('member', open: false);
-  for (final pair in const {
-    '알림 설정': 'reminderSheet',
-    '앱 권한': 'permissionSheet',
-  }.entries) {
-    final text = f.noticeText(_my, pair.key)!;
-    await _show(text);
-    await _tap(text);
-    await _wait(() => _route() == pair.value, 'Existing ${pair.value} missing');
-    await _settle(8);
-    _record('existing_${pair.value}_open');
-    await WidgetsBinding.instance.handlePopRoute();
-    await _wait(() => _route() == 'my', 'Existing sheet close missing');
-    await _settle(8);
-    _record('existing_${pair.value}_close');
-  }
   await _tap(f.noticeKey(_my, 'my-header-settings')!);
   await _wait(() => _route() == 'account', 'Settings account entry missing');
   _record('existing_account_entry');

@@ -9,6 +9,8 @@ Future<void> _my(
   WidgetTester tester,
   AppUser user, {
   double height = 812,
+  String? statsMessage,
+  VoidCallback? onRetryStats,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(320, height);
@@ -29,6 +31,8 @@ Future<void> _my(
             }) async => throw UnimplementedError(),
         onOpenAccount: () {},
         onTab: (_) {},
+        statsMessage: statsMessage,
+        onRetryStats: onRetryStats,
       ),
     ),
   );
@@ -56,10 +60,36 @@ void main() {
     testWidgets('$label My support group has no notice row', (tester) async {
       await _my(tester, user);
       expect(_groups(tester), [
-        ['알림 설정', '앱 권한'],
         ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
       ]);
       expect(find.text('공지사항'), findsNothing);
+    });
+
+    testWidgets('$label My hides management header and rows in semantics', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await _my(tester, user);
+        for (final text in ['관리', '알림 설정', '앱 권한']) {
+          expect(find.text(text), findsNothing);
+          expect(find.bySemanticsLabel(text), findsNothing);
+        }
+        final labels = [
+          for (final text in [
+            '나의 허투루',
+            '고객지원',
+            '문의하기',
+            '이용약관 및 개인정보',
+            '오픈소스 라이선스',
+            '앱 버전',
+          ])
+            tester.getRect(find.bySemanticsLabel(RegExp(text)).first).top,
+        ];
+        expect(labels, [...labels]..sort());
+      } finally {
+        semantics.dispose();
+      }
     });
   }
 
@@ -77,24 +107,43 @@ void main() {
     expect(find.text('공지사항'), findsNothing);
     final tiles = tester.widgetList<MyListTile>(find.byType(MyListTile));
     expect(tiles.last.title, '앱 버전');
+    final viewport = tester.getRect(find.byType(Scrollable).first);
+    expect(
+      viewport.bottom - tester.getRect(find.byType(MyListGroup).last).bottom,
+      24,
+    );
   });
+
+  for (final error in [false, true]) {
+    testWidgets(
+      'support header follows ${error ? 'stats error retry' : 'stats strip'} after one 16 gap',
+      (tester) async {
+        await _my(
+          tester,
+          fixture.myMember,
+          statsMessage: error ? '통계를 불러오지 못했어요.' : null,
+          onRetryStats: error ? () {} : null,
+        );
+        final above = error
+            ? tester.getRect(find.widgetWithText(OutlinedButton, '다시 시도'))
+            : tester.getRect(find.byType(MyStatsStrip));
+        final header = tester.getRect(
+          find.widgetWithText(MySectionHeader, '고객지원'),
+        );
+        expect(header.top - above.bottom, 16);
+        expect(find.text('관리'), findsNothing);
+      },
+    );
+  }
 
   testWidgets('support rows keep row size and the group is rows times height', (
     tester,
   ) async {
     await _my(tester, fixture.myMember);
     final groups = find.byType(MyListGroup);
-    final management = tester.getRect(groups.at(0));
-    final support = tester.getRect(groups.at(1));
+    final support = tester.getRect(groups);
     final heights = {
-      for (final title in [
-        '알림 설정',
-        '앱 권한',
-        '문의하기',
-        '이용약관 및 개인정보',
-        '오픈소스 라이선스',
-        '앱 버전',
-      ])
+      for (final title in ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'])
         title: tester
             .getSize(
               find.ancestor(
@@ -104,8 +153,10 @@ void main() {
             )
             .height,
     };
-    expect(heights.values.toSet(), {heights['알림 설정']});
-    expect(support.height, 4 * heights['알림 설정']!);
-    expect(support.width, management.width);
+    expect(heights.values.toSet(), {heights['문의하기']});
+    expect(support.height, 4 * heights['문의하기']!);
+    // Was the management group width. MyListGroup keeps its 16px side
+    // margins inside its own box, so it spans the full My list width.
+    expect(support.width, tester.getRect(find.byType(ListView)).width);
   });
 }

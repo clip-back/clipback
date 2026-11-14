@@ -947,7 +947,7 @@ void main() {
         expect(find.text('다시 시도'), findsOneWidget);
         expect(find.text('계정 정보 확인 중'), findsNothing);
         expect(find.text('카테고리 관리'), findsNothing);
-        expect(find.text('알림 설정'), findsOneWidget);
+        expect(find.text('문의하기'), findsOneWidget);
         await tester.pump(const Duration(seconds: 30));
         expect(server.calls(_stats), hasLength(2));
         final profileRequests = server.calls(_me).length;
