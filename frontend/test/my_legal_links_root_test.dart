@@ -143,7 +143,7 @@ void main() {
         final text = find.text(_privacyError);
         expect(text, findsOneWidget);
         final paragraph = tester.renderObject<RenderParagraph>(text);
-        // Same measurement as the contact failure message (#336).
+        // Same test-glyph measurement as the contact failure message (#354).
         expect(paragraph.textScaler.scale(10), closeTo(10 * scale, .01));
         expect(paragraph.didExceedMaxLines, isFalse);
         expect(

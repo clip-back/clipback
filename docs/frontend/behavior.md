@@ -324,6 +324,11 @@ Android는 Google·카카오, iOS는 Google·카카오·Apple을 지원합니다
 - 늦은 조회·콘텐츠 변경 응답·실패 복구에서 삭제 성공한 분류 ID를 제외합니다. 같은 이름의 새 ID는 허용하며
   계정 교체 시 보호 상태를 초기화합니다. 공용 미분류는 삭제할 수 없고 사용자 소유 기본 카테고리는 삭제할 수 있습니다.
 
+## 화면 아래 안내(스낵바)
+
+- 새 안내가 오면 떠 있거나 기다리는 이전 안내를 내리고(`clearSnackBars()`, 퇴장 애니메이션 뒤) 새 안내만 보여 줍니다. 버튼이 붙은 안내도 뒤 안내가 오면 사라지고 다시 뜨지 않습니다. 앱의 `MessageEffect` 안내와 마이 외부 링크 열기 실패 안내에 같이 적용합니다(#353).
+- 스낵바 안내 글자는 Pretendard(크기 14, 색 `colorScheme.onInverseSurface`)입니다. 앱 테마 `snackBarTheme.contentTextStyle`에서 정하며, 앱 `textTheme`와 오른쪽 버튼(`SnackBarAction`) 글자는 바꾸지 않습니다(#354).
+
 ## 상단 안전 영역과 헤더
 
 일반 화면의 헤더 높이는 `shared/theme/layout.dart`의 `appHeaderHeight`(64 논리 픽셀)를
