@@ -155,8 +155,16 @@ void main() {
     };
     expect(heights.values.toSet(), {heights['문의하기']});
     expect(support.height, 4 * heights['문의하기']!);
-    // Was the management group width. MyListGroup keeps its 16px side
-    // margins inside its own box, so it spans the full My list width.
+    // Was the management group width: the support surface inside the 16px
+    // side margins spans the My list width minus 32.
     expect(support.width, tester.getRect(find.byType(ListView)).width);
+    final surface = find.descendant(
+      of: groups,
+      matching: find.byType(Container),
+    );
+    expect(
+      tester.getRect(surface.first).width,
+      tester.getRect(find.byType(ListView)).width - 32,
+    );
   });
 }
