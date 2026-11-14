@@ -63,3 +63,5 @@ VERIFY result=PASS scope=all checks=11 failed=0
 main의 스낵바 수정 `de1eb1c`를 `0c889e9`로 병합했다. CHANGELOG의 #361 항목이 앱 배포 절에 놓인 것을 바로잡아, main 내용은 보존하고 `미배포`의 `개선`에 이 항목만 더했다. main 대비 프론트 diff는 없고 서버 코드는 직전 PR head와 같다.
 
 공용 검사 차례를 기다린 뒤 `flutter analyze --no-pub`와 변경 범위의 `contact_form_root_test.dart`, `my_legal_links_root_test.dart`, `snackbar_font_root_test.dart`, `snackbar_stack_root_test.dart`를 실행했다. 분석 문제 없음, 테스트 22개 통과, 종료 코드 0이다. 전체 검사를 다시 실행한 결과는 아니며, 문서·공백 검사도 통과했다.
+
+CI 대기 중 main에 #368(`617aa21`)이 추가되어 `a4241f9`로 병합했다. CHANGELOG는 main을 보존하고 미배포의 #361 항목만 추가된 상태임을 다시 확인했다. 공용 검사 차례 뒤 `flutter analyze --no-pub`와 `category_content_alignment_test.dart`, `home_alignment_test.dart`, `uncategorized_name_test.dart`, `unclassified_alignment_test.dart`, `weekly_root_test.dart`를 실행해 분석 문제 없음·237개 통과·종료 코드 0을 확인했다. main 대비 diff는 계속 #361의 7개 파일뿐이다.
