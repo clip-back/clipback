@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
@@ -262,100 +263,110 @@ class _OrdinaryLoginScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          child: SingleChildScrollView(
-            key: const ValueKey('login-a02-viewport'),
-            padding: const EdgeInsets.fromLTRB(16, 129, 16, 24),
-            child: Column(
-              key: const ValueKey('login-a02-body'),
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Transform.translate(
-                  offset: const Offset(0.5, 0),
-                  child: Center(
-                    child: SizedBox(
-                      width: 232,
-                      child: Column(
-                        key: const ValueKey('login-logo-group'),
-                        mainAxisSize: MainAxisSize.min,
+          // A02 keeps the guest label 83px above the safe bottom (hit box
+          // 70px); the space above the logo grows or shrinks, never below 24.
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              key: const ValueKey('login-a02-viewport'),
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 70),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: math.max(0, constraints.maxHeight - 94),
+                ),
+                child: Column(
+                  key: const ValueKey('login-a02-body'),
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Transform.translate(
+                      offset: const Offset(0.5, 0),
+                      child: Center(
+                        child: SizedBox(
+                          width: 232,
+                          child: Column(
+                            key: const ValueKey('login-logo-group'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SvgPicture.asset(
+                                _LoginAssets.logo,
+                                key: const ValueKey('login-logo'),
+                                width: 178.525,
+                                height: 60,
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                '저장한 정보를 다시 볼 순간으로',
+                                key: ValueKey('login-tagline'),
+                                textAlign: TextAlign.center,
+                                style: _LoginText.tagline,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 159),
+                    Column(
+                      key: const ValueKey('login-controls'),
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < ordered.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 8),
+                          _LoginProviderButton(
+                            provider: ordered[i],
+                            onPressed: busy
+                                ? null
+                                : () => unawaited(onSocialLogin(ordered[i])),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (busy)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    const SizedBox(height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        key: const ValueKey('login-divider'),
                         children: [
-                          SvgPicture.asset(
-                            _LoginAssets.logo,
-                            key: const ValueKey('login-logo'),
-                            width: 178.525,
-                            height: 60,
-                          ),
-                          const SizedBox(height: 16),
+                          const Expanded(child: _LoginDivider(side: 'left')),
+                          const SizedBox(width: 8),
                           const Text(
-                            '저장한 정보를 다시 볼 순간으로',
-                            key: ValueKey('login-tagline'),
-                            textAlign: TextAlign.center,
-                            style: _LoginText.tagline,
+                            '또는',
+                            key: ValueKey('login-or'),
+                            style: _LoginText.separator,
                           ),
+                          const SizedBox(width: 8),
+                          const Expanded(child: _LoginDivider(side: 'right')),
                         ],
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 159),
-                Column(
-                  key: const ValueKey('login-controls'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var i = 0; i < ordered.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 8),
-                      _LoginProviderButton(
-                        provider: ordered[i],
-                        onPressed: busy
-                            ? null
-                            : () => unawaited(onSocialLogin(ordered[i])),
+                    // The 44px hit box adds 13px above the 18px base label.
+                    // Together with this gap the visual paragraph gap is 24px.
+                    const SizedBox(height: 11),
+                    SizedBox(
+                      key: const ValueKey('login-guest-hit'),
+                      height: 44,
+                      child: TextButton(
+                        onPressed: busy ? null : () => unawaited(onContinue()),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text(
+                          '게스트로 시작하기',
+                          key: ValueKey('login-guest-label'),
+                          style: _LoginText.guest,
+                        ),
                       ),
-                    ],
+                    ),
                   ],
                 ),
-                if (busy)
-                  const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    key: const ValueKey('login-divider'),
-                    children: [
-                      const Expanded(child: _LoginDivider(side: 'left')),
-                      const SizedBox(width: 8),
-                      const Text(
-                        '또는',
-                        key: ValueKey('login-or'),
-                        style: _LoginText.separator,
-                      ),
-                      const SizedBox(width: 8),
-                      const Expanded(child: _LoginDivider(side: 'right')),
-                    ],
-                  ),
-                ),
-                // The 44px hit box adds 13px above the 18px base label.
-                // Together with this gap the visual paragraph gap is 24px.
-                const SizedBox(height: 11),
-                SizedBox(
-                  key: const ValueKey('login-guest-hit'),
-                  height: 44,
-                  child: TextButton(
-                    onPressed: busy ? null : () => unawaited(onContinue()),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text(
-                      '게스트로 시작하기',
-                      key: ValueKey('login-guest-label'),
-                      style: _LoginText.guest,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),

@@ -557,7 +557,20 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
       scroll = (m['scrollOffset'] as num).toDouble(),
       left = (frame['left'] as num).toDouble(),
       width = (frame['width'] as num).toDouble();
-  final origin = (frame['top'] as num).toDouble() + safeTop - scroll;
+  // #377: the guest label bottom sits 83px above the safe bottom and the gap
+  // above the logo (129 at Figma 812) absorbs the rest, never below 24. The
+  // internal gaps are unchanged, so every element is derived from `origin`
+  // (logo top - 129) exactly as before.
+  final count = (m['inputProviderOrder'] as List).contains('apple') ? 3 : 2,
+      span = 387 + count * 52 + (count - 1) * 8 + 83,
+      safeBottom = (m['safeBottom'] as num).toDouble(),
+      anchor =
+          (frame['top'] as num).toDouble() +
+          (frame['height'] as num).toDouble() -
+          safeBottom -
+          83,
+      floor = (frame['top'] as num).toDouble() + safeTop + 24 - 129 - scroll;
+  final origin = anchor - span > floor ? anchor - span : floor;
   final logo = m['logo'] as Map,
       lb = logo['bounds'] is Map ? logo['bounds'] as Map : const {},
       group = m['logoGroup'] is Map ? m['logoGroup'] as Map : const {},
@@ -732,6 +745,19 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
     lf,
     near(hit['height'], 44) && near(hit['top'], lastBottom + 24 + 17 + 11),
     'guest hit44/gap11',
+  );
+  final guestLabel = m['guest'] is Map ? m['guest'] as Map : const {},
+      guestBounds = guestLabel['bounds'] is Map
+          ? guestLabel['bounds'] as Map
+          : const {};
+  check(
+    lf,
+    near(guestBounds['bottom'], origin + span) &&
+        (lb['top'] is num && (lb['top'] as num) >= floor + 129 - .5) &&
+        (scroll > 0 ||
+            (guestBounds['bottom'] is num &&
+                (guestBounds['bottom'] as num) <= anchor + .5)),
+    'guest label bottom safe-83/top gap24 floor',
   );
   check(lf, m['textFittedBoxCount'] == 0, 'no font shrinking');
   final font = m['fontBundle'] as Map;

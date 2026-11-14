@@ -45,11 +45,13 @@ Future<_Calls> _pump(
   bool linking = false,
   bool back = false,
   List<SocialLoginProvider>? providers,
+  ({double top, double bottom})? safe,
+  double scale = 1,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
-  final top = platform == TargetPlatform.iOS ? 59.0 : 24.0,
-      bottom = platform == TargetPlatform.iOS ? 34.0 : 0.0;
+  final top = safe?.top ?? (platform == TargetPlatform.iOS ? 59.0 : 24.0),
+      bottom = safe?.bottom ?? (platform == TargetPlatform.iOS ? 34.0 : 0.0);
   tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
   tester.view.viewPadding = FakeViewPadding(top: top, bottom: bottom);
   addTearDown(tester.view.reset);
@@ -58,6 +60,14 @@ Future<_Calls> _pump(
     MaterialApp(
       key: UniqueKey(),
       theme: fixture.loginTheme(platform: platform),
+      builder: scale == 1
+          ? null
+          : (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
       home: LoginScreen(
         onContinue: () async {
           calls.guests++;
@@ -132,6 +142,61 @@ void main() {
           expect(tester.takeException(), isNull);
         },
       );
+      for (final height in [812.0, 932.0]) {
+        testWidgets(
+          '${platform.name} $width x $height guest label sits 83 above the safe bottom',
+          (tester) async {
+            await _pump(
+              tester,
+              platform: platform,
+              width: width,
+              height: height,
+            );
+            final m = _measure(tester), j = fixture.loginJudgment(m);
+            expect(j['layoutPassed'], isTrue, reason: '${j['layoutFailures']}');
+            final safeTop = (m['safeTop'] as num).toDouble(),
+                safeBottom = (m['safeBottom'] as num).toDouble();
+            expect(m['maxScrollExtent'], 0);
+            expect(
+              tester.getRect(find.text('게스트로 시작하기')).bottom,
+              closeTo(height - safeBottom - 83, .5),
+            );
+            final logoTop = tester
+                .getRect(find.byKey(const ValueKey('login-logo')))
+                .top;
+            final controls = fixture.loginPlatformProviders(platform).length;
+            // Logo top to guest label bottom is the unchanged internal span.
+            final span = 387 - 129 + controls * 52 + (controls - 1) * 8 + 83;
+            expect(
+              logoTop - safeTop,
+              closeTo(height - safeTop - safeBottom - 83 - span, .5),
+            );
+            expect(logoTop - safeTop, greaterThanOrEqualTo(24));
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+      testWidgets(
+        '${platform.name} $width taller 932 screen only grows the top gap by 120',
+        (tester) async {
+          double logoTop() =>
+              tester.getRect(find.byKey(const ValueKey('login-logo'))).top;
+          Rect provider(SocialLoginProvider p) => tester.getRect(_provider(p));
+          await _pump(tester, platform: platform, width: width);
+          final top812 = logoTop();
+          final gaps812 = [
+            for (final p in fixture.loginPlatformProviders(platform))
+              provider(p).top - top812,
+          ];
+          await _pump(tester, platform: platform, width: width, height: 932);
+          expect(logoTop() - top812, closeTo(120, .5));
+          expect([
+            for (final p in fixture.loginPlatformProviders(platform))
+              provider(p).top - logoTop(),
+          ], gaps812);
+          expect(tester.takeException(), isNull);
+        },
+      );
       testWidgets(
         '${platform.name} $width 1x low viewport scroll reaches every provider and guest',
         (tester) async {
@@ -175,7 +240,8 @@ void main() {
           if (body != null && vp != null) {
             expect(
               (vp['bottom'] as num) - (last['guestHit'] as Map)['bottom'],
-              closeTo(24, .2),
+              // #377 bottom anchor: guest label 83 = hit box bottom 70.
+              closeTo(70, .2),
             );
           }
           expect(tester.takeException(), isNull);
@@ -476,4 +542,49 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final scale in [1.0, 1.3]) {
+      testWidgets(
+        '${platform.name} 375x667 safe 20/0 scale $scale keeps top gap 24+ and reaches every button',
+        (tester) async {
+          final calls = await _pump(
+            tester,
+            platform: platform,
+            height: 667,
+            safe: (top: 20, bottom: 0),
+            scale: scale,
+          );
+          final logoTop = tester
+              .getRect(find.byKey(const ValueKey('login-logo')))
+              .top;
+          expect(logoTop - 20, greaterThanOrEqualTo(24 - .5));
+          expect(tester.takeException(), isNull);
+          for (final p in fixture.loginPlatformProviders(platform)) {
+            await _show(tester, _provider(p));
+            await tester.tap(_provider(p));
+            await tester.pump();
+          }
+          final guest = find.text('게스트로 시작하기');
+          await _show(tester, guest);
+          await tester.tap(guest);
+          await tester.pump();
+          expect(calls.providers, fixture.loginPlatformProviders(platform));
+          expect(calls.guests, 1);
+          final position = fixture.loginPosition(
+            tester.element(find.byType(LoginScreen)),
+          )!;
+          position.jumpTo(position.maxScrollExtent);
+          await tester.pump();
+          // The 44 hit box ends 70 above the safe bottom (label 83 at 1x).
+          expect(
+            tester
+                .getRect(find.byKey(const ValueKey('login-guest-hit')))
+                .bottom,
+            closeTo(667 - 70, .5),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 }
