@@ -1,6 +1,6 @@
 # 이미 지워진 콘텐츠의 삭제 404를 삭제 성공으로 처리 (#364)
 
-2026-11-14, 브랜치 `fix/photo-result-mismatch`. 시작 커밋 `d529d00`, 구현 커밋 `bdd0a2c`, 리뷰 반영 `9f4112e`, main(#353·#354 스낵바, `de1eb1c`) 병합 `6f82cdd`(전체 검증 기준). 이 기록을 채운 커밋은 문서만 바꾼다.
+2026-11-14, 브랜치 `fix/photo-result-mismatch`. 시작 커밋 `d529d00`, 구현 커밋 `bdd0a2c`, 리뷰 반영 `9f4112e`, main(#353·#354 스낵바, `de1eb1c`) 병합 `6f82cdd`, main(#355–#358 홈·카테고리, `617aa21`) 병합 `d865dde`(최종 전체 검증 기준). 검증 결과를 채운 커밋은 문서만 바꾼다.
 팀 피드백 시트 76("실패해도 저장이된 경우 같은 안 맞는 경우")과 0.5.2 실기기에서 사진 콘텐츠 삭제 때 '삭제 실패'가 두 번 뜬 뒤 실제로는 지워져 있던 사용자 확인 중, 두 번째 실패 안내를 다룬다. 첫 실패 안내와 사진 저장 쪽은 #366(진단)이다.
 
 ## 문제
@@ -31,6 +31,8 @@
 - 부분 검사(리뷰 반영 뒤): `content_mutation_test.dart` 전체 151건, `category_delete_test.dart`·`data/content_repository_test.dart`·`feed_pagination_test.dart`·`view_models/content_view_models_test.dart`·`session_refresh_test.dart`·`session_restore_test.dart`·`account_deletion_api_test.dart` 358건 통과, 바꾼 파일 analyze·format 통과. 첫 구현 때는 139건·227건(앞 4개 파일) 통과였다.
 - 병합(`6f82cdd`) 뒤 부분 검사: `content_mutation`·`snackbar_font_root`·`snackbar_stack_root`·`contact_form_root`·`my_legal_links_root`·`category_delete` 테스트 242건 통과, `flutter analyze --no-pub` 문제 없음.
 - 전체 검증(`6f82cdd`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트 3541건 통과. 백엔드 pytest 2640 passed, 49 skipped. skip은 `tests/deployment` 48건(`RUN_DOCKER_RECOVERY_TESTS=1`과 라벨 붙은 로컬 이미지 필요 외 6종, CI에서만 실행)과 `tests/integration` 1건(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT` 필요)이다. 백엔드는 이번에 바꾸지 않았다.
+- 두 번째 병합(`d865dde`) 뒤 부분 검사: `content_mutation`·`home_alignment`·`category_content_alignment`·`unclassified_alignment`·`uncategorized_name`·`weekly_root`·`category_delete`·`feed_pagination` 테스트 544건 통과, `flutter analyze --no-pub` 문제 없음.
+- 최종 전체 검증(`d865dde`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트 3621건 통과. 백엔드 pytest 2640 passed, 49 skipped(skip 사유는 위와 같다). 위 `6f82cdd` 결과는 그 커밋의 기록으로 남긴다.
 - 변경 전 화면(`d529d00`, iOS 18.6 iPhone 16·Android 16 `Medium_Phone`, 로컬 대역, 배율 1.0): `detail-delete-404`·`archive-delete-404`는 스낵바 `Content not found`와 상세·카드 유지, `archive-delete-503`은 `요청을 처리하지 못했습니다.`와 카드 유지. Figma 기준 없음.
 - 변경 후 화면 비교는 아직 하지 않았다(미완료). 병합한 main #354로 스낵바 글꼴이 Pretendard로 바뀌어, 503 안내의 글자 모양 차이는 #364가 아닌 #354 영향이다.
 
@@ -43,3 +45,5 @@
 재검수(Codex, `.utmp/review-364-r2.md`, `9f4112e`): Standards 0개, Spec 0개. 위 지적 해결 확인. 요청 경로·인증 갱신·세션 교체·취소·404가 아닌 실패·2xx 본문·저장소 후처리 계약이 유지됨을 대조했다. `_throwForError` 호출은 기존 7곳이 그대로이고 `deleteContent`의 직접 호출 1곳이 더해져 모두 8곳이다(동작 결함 아님).
 
 병합 검수(Codex, `.utmp/review-364-merged.md`, `6f82cdd`): Standards 0개, Spec 0개. main의 스낵바 교체(clearSnackBars → showSnackBar)·글꼴 변경과 #364 삭제 처리가 충돌하지 않는다. 404 성공은 실패 안내를 만들지 않고, 503은 기존 실패 안내 하나를 보인다.
+
+두 번째 병합 검수(Codex, `.utmp/review-364-merged2.md`, `d865dde`): Standards 0개, Spec 0개. main의 아카이브 목록 배치·하단 여백·미분류 이름 변경이 #364 삭제 경로와 촬영 데이터(601–604, 미분류 없음)를 바꾸지 않음을 확인했다. 위젯 테스트의 화면 크기·안전 영역은 기기와 달라, 기기 화면 조건의 동일성은 변경 후 촬영에서 따로 대조한다.
