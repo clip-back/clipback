@@ -54,7 +54,7 @@ const sheetSecondary = CategoryItem(
 );
 const sheetUnclassified = CategoryItem(
   id: 99,
-  name: '분류가 필요한 콘텐츠',
+  name: '미분류',
   color: Color(0xFFB5BDC3),
   tint: Color(0xFFE9ECEF),
   deep: Color(0xFF626C73),

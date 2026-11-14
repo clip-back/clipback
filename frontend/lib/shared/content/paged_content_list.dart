@@ -13,6 +13,7 @@ class PagedContentList extends StatefulWidget {
     this.feed,
     this.onLoadMore,
     this.onRetry,
+    this.bottomPadding = 0,
     super.key,
   });
 
@@ -22,6 +23,9 @@ class PagedContentList extends StatefulWidget {
   final Widget empty;
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
+
+  /// Empty space after the final row, for a control floating over the list.
+  final double bottomPadding;
 
   @override
   State<PagedContentList> createState() => _PagedContentListState();
@@ -142,7 +146,7 @@ class _PagedContentListState extends State<PagedContentList> {
     }
     return ListView.separated(
       controller: _controller,
-      padding: EdgeInsets.zero,
+      padding: EdgeInsets.only(bottom: widget.bottomPadding),
       itemCount: widget.contents.length + (page == null ? 0 : 1),
       itemBuilder: (context, index) {
         if (index == widget.contents.length) {

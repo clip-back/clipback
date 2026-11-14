@@ -221,6 +221,7 @@ class CategoryContentHostState extends State<CategoryContentHost> {
       onTabChanged: (_) {},
       onSortChanged: (_) => calls.add('sort'),
       onOpenRandomView: () => calls.add('random'),
+      onRetry: () => calls.add('retry'),
       onExitRandomView: () {},
       onClearCategory: () => calls.add('back'),
       onSearch: () => calls.add('search'),

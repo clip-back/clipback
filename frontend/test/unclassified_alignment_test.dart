@@ -13,9 +13,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/unclassified_preview.dart' as preview;
+
 const _uncategorized = CategoryItem(
   id: 99,
-  name: '분류가 필요한 콘텐츠',
+  name: '미분류',
   color: Color(0xFFB5BDC3),
   tint: Color(0xFFE9ECEF),
   deep: Color(0xFF626C73),
@@ -198,7 +200,7 @@ void main() {
           expect(box.height, 64);
           final title = find.descendant(
             of: header,
-            matching: find.text(_uncategorized.name),
+            matching: find.text('분류가 필요한 콘텐츠'),
           );
           _style(
             tester,
@@ -465,6 +467,18 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('E06 device measure finds the kept title after #358', (
+    tester,
+  ) async {
+    await _pump(tester, page: _page()..categoryId = _uncategorized.id);
+    final m = preview.unclassifiedMeasure(
+      tester.element(find.byType(ArchiveScreen)),
+    );
+    expect(m['active'], isNot(false));
+    expect(find.text('분류가 필요한 콘텐츠'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('E06 remains separate from aligned F01 toolbar/card/random', (
     tester,

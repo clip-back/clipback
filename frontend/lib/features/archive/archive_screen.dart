@@ -169,9 +169,9 @@ class ArchiveScreen extends StatelessWidget {
                 ),
               Expanded(
                 child: activeTab == 0
-                    ? Column(
+                    ? Stack(
                         children: [
-                          Expanded(
+                          Positioned.fill(
                             child: ContentListView(
                               archiveAllStyle: allRoot || categoryContent,
                               feed: feed,
@@ -189,19 +189,23 @@ class ArchiveScreen extends StatelessWidget {
                               onChangeContentCategory: onChangeContentCategory,
                               onDeleteContent: onDeleteContent,
                               onGoHome: () => onTab(AppRoute.home),
+                              // The button floats over the list (F01). The list
+                              // ends with room for it, so the final row clears it.
+                              listBottomPadding: categoryContent
+                                  ? 16 +
+                                        CategoryContentRandomButton.pressHeight(
+                                          context,
+                                        )
+                                  : 0,
                             ),
                           ),
                           if (categoryContent && contents.isNotEmpty)
-                            // The footer takes its natural height. The list ends
-                            // above it, so even the final card remains reachable.
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: RandomReviewButton(
-                                  categoryContentStyle: true,
-                                  onPressed: onOpenRandomView,
-                                ),
+                            Positioned(
+                              right: 16,
+                              bottom: 16,
+                              child: RandomReviewButton(
+                                categoryContentStyle: true,
+                                onPressed: onOpenRandomView,
                               ),
                             ),
                         ],
