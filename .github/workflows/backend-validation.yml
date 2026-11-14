@@ -200,7 +200,7 @@ jobs:
           alembic check
           DATABASE_URL="$MAINTENANCE_TEST_DATABASE_URL" alembic check
       - name: Test PostgreSQL repositories and API integration
-        run: pytest -q tests/repositories tests/integration
+        run: pytest -vv -o faulthandler_timeout=60 tests/repositories tests/integration
 
 
   deployment:
