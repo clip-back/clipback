@@ -383,7 +383,12 @@ class _DetailScreenState extends State<DetailScreen> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Text(
-                        content.summary,
+                        switch (content.summaryStatus) {
+                          'queued' ||
+                          'processing' => '요약을 만들고 있어요. 잠시 뒤 다시 열어 보세요.',
+                          'failed' => '요약을 만들지 못했어요.',
+                          _ => content.summary,
+                        },
                         key: const ValueKey('detail-summary'),
                         style: _DetailText.summary,
                       ),

@@ -720,6 +720,40 @@ void main() {
     },
   );
 
+  testWidgets(
+    'processing summary notice is replaced by the completed summary on the next detail entry',
+    (tester) async {
+      final server = _Server(
+        source: 'youtube',
+        summaryStatus: 'processing',
+        category: _uncategorized,
+      );
+      await _withApp(tester, server, () async {
+        await _saveLink(tester, url: _videoUrl);
+        await tester.tap(find.text('저장 완료'));
+        await tester.pumpAndSettle();
+        final summary = find.byKey(const ValueKey('detail-summary'));
+        expect(
+          tester.widget<Text>(summary).data,
+          '요약을 만들고 있어요. 잠시 뒤 다시 열어 보세요.',
+        );
+        expect(find.text('서버 응답 요약'), findsNothing);
+        server.saved = {
+          ...server.saved!,
+          'summary_status': 'completed',
+          'summary': '완성된 영상 요약',
+        };
+        tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+        await tester.pumpAndSettle();
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        home.onOpenContent(home.contents.single);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Text>(summary).data, '완성된 영상 요약');
+        expect(server.at('/api/v1/contents/7'), hasLength(1));
+      });
+    },
+  );
+
   testWidgets('a new app instance restores completed server classification', (
     tester,
   ) async {
