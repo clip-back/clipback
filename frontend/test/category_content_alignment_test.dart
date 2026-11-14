@@ -1,4 +1,6 @@
+import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
+import 'package:clipback_frontend/shared/content/paged_content_list.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -71,6 +73,77 @@ void main() {
             button = m['randomVisual'] as Map;
         expect(last['bottom'], lessThanOrEqualTo(button['top']));
         expect(key.currentState!.feed.items[3].categories.length, 6);
+        expect(tester.takeException(), isNull);
+      });
+      testWidgets(
+        'F01 random floats over list to navigation $platform $width',
+        (tester) async {
+          final key = await pumpF01(tester, platform, width);
+          final root = key.currentContext! as Element, m = f01Measure(root);
+          final list = tester.getRect(find.byType(PagedContentList));
+          final nav = m['navigation']! as Map, hit = m['randomHit']! as Map;
+          expect(m['scrollOffset'], 0);
+          expect(list.bottom, closeTo(nav['top'] as num, .01));
+          expect(hit['top'], greaterThanOrEqualTo(list.top));
+          expect(hit['bottom'], lessThanOrEqualTo(list.bottom));
+          final listView = tester.widget<ListView>(find.byType(ListView));
+          expect(
+            (listView.padding! as EdgeInsets).bottom,
+            closeTo(16 + (hit['height'] as num), .01),
+          );
+          expect(hit['height'], 44);
+          expect(tester.takeException(), isNull);
+        },
+      );
+      for (final scale in [1.0, 1.15, 1.3]) {
+        testWidgets('F01 last card above random at $scale $platform $width', (
+          tester,
+        ) async {
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          final key = await pumpF01(tester, platform, width);
+          final root = key.currentContext! as Element,
+              p = base.archiveAllPosition(root);
+          p.jumpTo(p.maxScrollExtent);
+          await tester.pumpAndSettle();
+          final m = f01Measure(root), rows = m['rows'] as List;
+          final hit = m['randomHit']! as Map;
+          expect(m['textScale'], closeTo(scale, 1e-9));
+          expect(rows.last['id'], 'api-606');
+          expect(
+            (rows.last['bounds'] as Map)['bottom'],
+            lessThanOrEqualTo((m['randomVisual']! as Map)['top']),
+          );
+          final listView = tester.widget<ListView>(find.byType(ListView));
+          expect(
+            (listView.padding! as EdgeInsets).bottom,
+            closeTo(16 + (hit['height'] as num), .01),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+      testWidgets('F01 retry row above random at end $platform $width', (
+        tester,
+      ) async {
+        final key = await pumpF01(tester, platform, width);
+        key.currentState!.feed
+          ..hasMore = true
+          ..error = StateError('load more failed');
+        tester.element(find.byType(ArchiveScreen)).markNeedsBuild();
+        await tester.pumpAndSettle();
+        final root = key.currentContext! as Element,
+            p = base.archiveAllPosition(root);
+        p.jumpTo(p.maxScrollExtent);
+        await tester.pumpAndSettle();
+        final m = f01Measure(root);
+        final retry = tester.getRect(find.text('다시 시도'));
+        expect(
+          retry.bottom,
+          lessThanOrEqualTo((m['randomVisual']! as Map)['top'] as num),
+        );
+        await tester.tap(find.text('다시 시도'));
+        await tester.pumpAndSettle();
+        expect(key.currentState!.calls.last, 'retry');
         expect(tester.takeException(), isNull);
       });
       testWidgets(

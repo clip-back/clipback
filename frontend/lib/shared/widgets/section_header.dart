@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 class SectionHeader extends StatelessWidget {
   const SectionHeader({
     required this.title,
-    required this.onTap,
+    this.onTap,
     this.horizontalPadding = 16,
     this.iconAsset = Assets.chevronRight,
     this.showTrailingIcon = true,
@@ -14,37 +14,37 @@ class SectionHeader extends StatelessWidget {
   });
 
   final String title;
-  final VoidCallback onTap;
+
+  /// Null makes a plain title: no ink, no button semantics.
+  final VoidCallback? onTap;
   final double horizontalPadding;
   final String iconAsset;
   final bool showTrailingIcon;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: horizontalPadding,
-            vertical: 8,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.sectionTitle,
-                ),
+    final header = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: 8,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.sectionTitle,
               ),
-              if (showTrailingIcon) SvgIcon(asset: iconAsset, size: 24),
-            ],
-          ),
+            ),
+            if (showTrailingIcon) SvgIcon(asset: iconAsset, size: 24),
+          ],
         ),
       ),
     );
+    return onTap == null ? header : InkWell(onTap: onTap, child: header);
   }
 }

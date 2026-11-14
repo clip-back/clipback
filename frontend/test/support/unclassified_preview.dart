@@ -406,7 +406,7 @@ Map<String, Object?> unclassifiedMeasure(Element root) {
       assets = <String, Object?>{},
       rows = <Map<String, Object?>>[];
   final header = _key(screen, 'unclassified-header')!;
-  final headerText = _text(header, catUncategorized.name)!;
+  final headerText = _text(header, '분류가 필요한 콘텐츠')!;
   bounds['header'] = _rect(_box(header));
   styles['header'] = _paragraph(headerText);
   for (final role in ['back', 'search', 'settings']) {

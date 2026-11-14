@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'support/empty_asset_probe.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -12,6 +13,7 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:clipback_frontend/shared/widgets/section_header.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +26,7 @@ Future<void> _render(
   double textScale = 1,
   TargetPlatform platform = TargetPlatform.android,
   bool settle = true,
+  bool appTextTheme = true,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 900);
@@ -33,10 +36,12 @@ Future<void> _render(
         useMaterial3: true,
         platform: platform,
         fontFamily: 'Pretendard',
-        textTheme: ThemeData.fallback().textTheme.apply(
-          bodyColor: AppColors.text,
-          displayColor: AppColors.text,
-        ),
+        textTheme: appTextTheme
+            ? ThemeData.fallback().textTheme.apply(
+                bodyColor: AppColors.text,
+                displayColor: AppColors.text,
+              )
+            : null,
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.main,
           surface: AppColors.bg,
@@ -76,7 +81,7 @@ const _secondCategory = CategoryItem(
 );
 const _unclassifiedCategory = CategoryItem(
   id: 3,
-  name: '분류가 필요한 콘텐츠',
+  name: '미분류',
   color: AppColors.subSubtle,
   tint: AppColors.subSubtle,
   deep: AppColors.middle,
@@ -471,14 +476,9 @@ void main() {
     'stale feed items',
   ]) {
     for (final previous in ['C01', 'C02', 'unknown']) {
-      // The last three only reach the unconfirmed EmptyHomeContent panel,
-      // whose fixed height already overflows when scaled (outside #217).
-      final extra = const [
-        'missing feed',
-        'uninitialized',
-        'stale feed items',
-      ].contains(state);
-      for (final textScale in extra ? [1.0] : [1.0, 1.15, 1.3]) {
+      // The last three reach the unconfirmed EmptyHomeContent panel, whose
+      // 211 minimum height grows with scaled text (#357).
+      for (final textScale in [1.0, 1.15, 1.3]) {
         testWidgets('$state after $previous hero at $textScale', (
           tester,
         ) async {
@@ -570,6 +570,107 @@ void main() {
           expect(tester.getSize(find.byType(HomeHero)).height, heroRect.height);
           expect(tester.takeException(), isNull);
           expect(todayTaps, 0);
+        });
+      }
+    }
+  }
+
+  // Issue #357: the unconfirmed empty panel keeps 211 as a minimum height.
+  // `received` is the merged app body font; `Pretendard` is the app font.
+  FeedPage? unsettledFeed(String state) => switch (state) {
+    'missing feed' => null,
+    'uninitialized' => _feed(const [])..initialized = false,
+    _ => _feed(const [])..items.add(_content(0)),
+  };
+  testWidgets('unsettled empty home text receives the merged body font', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        await _render(
+          tester,
+          platform: platform,
+          child: _panel(
+            contents: const [],
+            feed: unsettledFeed('missing feed'),
+          ),
+        );
+        for (final text in [
+          '저장한 콘텐츠가 없어요',
+          'SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.',
+        ]) {
+          final family = tester
+              .renderObject<RenderParagraph>(find.text(text))
+              .text
+              .style
+              ?.fontFamily;
+          expect(
+            family,
+            platform == TargetPlatform.iOS ? 'CupertinoSystemText' : 'Roboto',
+          );
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  });
+  for (final font in ['received', 'Pretendard']) {
+    for (final state in ['missing feed', 'uninitialized', 'stale feed items']) {
+      for (final textScale in [1.0, 1.15, 1.3]) {
+        testWidgets('unsettled empty home $state $font font at $textScale', (
+          tester,
+        ) async {
+          addTearDown(tester.view.reset);
+          await _render(
+            tester,
+            width: 320,
+            textScale: textScale,
+            appTextTheme: font == 'received',
+            child: _panel(contents: const [], feed: unsettledFeed(state)),
+          );
+          final empty = find.byType(EmptyHomeContent);
+          expect(empty, findsOneWidget);
+          expect(
+            tester.widget<EmptyHomeContent>(empty).confirmedEmpty,
+            isFalse,
+          );
+          final box = tester.getRect(empty);
+          final image = tester.getRect(
+            find.descendant(of: empty, matching: _asset(Assets.character2Png)),
+          );
+          final title = tester.getRect(find.text('저장한 콘텐츠가 없어요'));
+          final body = tester.getRect(
+            find.text('SNS에서 발견한 유용한 게시물을 저장하면 이곳에서 다시 확인할 수 있어요.'),
+          );
+          for (final part in [image, title, body]) {
+            _expectContained(part, box);
+          }
+          final family = tester
+              .renderObject<RenderParagraph>(find.text('저장한 콘텐츠가 없어요'))
+              .text
+              .style
+              ?.fontFamily;
+          expect(family, font == 'received' ? 'Roboto' : 'Pretendard');
+          final content = body.bottom - image.top;
+          expect(box.height, closeTo(math.max(211, content), .01));
+          if (textScale == 1) {
+            // Before #357 values, measured on main 84ff8b0.
+            expect(box.height, 211);
+            expect(
+              image.top - box.top,
+              closeTo(_unsettledImageTop[font]!, .01),
+            );
+            expect(
+              title.top - box.top,
+              closeTo(_unsettledTitleTop[font]!, .01),
+            );
+            expect(body.top - box.top, closeTo(_unsettledBodyTop[font]!, .01));
+          }
+          final panel = tester.getRect(find.byType(HomeContentPanel));
+          expect(panel.bottom, closeTo(box.bottom + 32, .01));
+          expect(tester.takeException(), isNull);
         });
       }
     }
@@ -902,7 +1003,7 @@ void main() {
   }
 
   testWidgets(
-    'Weekly header hides chevron while recent header stays tappable',
+    'Weekly header hides chevron and its title is not tappable while recent header stays tappable',
     (tester) async {
       addTearDown(tester.view.reset);
       var archiveTaps = 0;
@@ -939,11 +1040,98 @@ void main() {
       expect(categoryTaps, 0);
       await tester.tap(find.text('이번주 허투루 픽 🎯'));
       await tester.pumpAndSettle();
-      expect(categoryTaps, 1);
+      expect(categoryTaps, 0);
       expect(archiveTaps, 1);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Weekly title has no ink or button semantics while keeping its shape',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      addTearDown(tester.view.reset);
+      try {
+        final contents = [_content(0)];
+        await _render(
+          tester,
+          child: _panel(contents: contents, feed: _feed(contents)),
+        );
+        final title = find.text('이번주 허투루 픽 🎯');
+        final weeklyHeader = find.ancestor(
+          of: title,
+          matching: find.byType(SectionHeader),
+        );
+        expect(
+          find.ancestor(of: title, matching: find.byType(InkWell)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: weeklyHeader, matching: find.byType(InkWell)),
+          findsNothing,
+        );
+        expect(tester.getSize(weeklyHeader).height, greaterThanOrEqualTo(44));
+        final style = tester.widget<Text>(title).style!;
+        expect(style.fontSize, 18);
+        expect(style.fontWeight, FontWeight.w600);
+        final nodes = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .where((n) => n.label.contains('이번주 허투루 픽'))
+            .toList();
+        expect(nodes, isNotEmpty);
+        for (final node in nodes) {
+          final data = node.getSemanticsData();
+          expect(data.hasAction(SemanticsAction.tap), isFalse);
+          expect(data.flagsCollection.isButton, isFalse);
+        }
+        final recent = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .where((n) => n.label.contains('최근 저장한 콘텐츠'))
+            .single;
+        expect(
+          recent.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets('Weekly pick card still opens its category', (tester) async {
+    addTearDown(tester.view.reset);
+    var fallbackTaps = 0;
+    final selected = <ApiWeeklyRecommendationItem>[];
+    final contents = [_content(0)];
+    Widget panel({required bool withSelected}) => SingleChildScrollView(
+      child: HomeContentPanel(
+        weeklyItems: _weeklyTestItems,
+        feed: _feed(contents),
+        contents: contents,
+        categories: const [_category, _secondCategory],
+        bookmarkedIds: const {},
+        onOpenArchive: () {},
+        onOpenCategories: () => fallbackTaps++,
+        onWeeklySelected: withSelected ? selected.add : null,
+        onOpenContent: (_) {},
+        onToggleBookmark: (_) {},
+      ),
+    );
+    final card = find.byKey(
+      ValueKey('weekly-card-${_weeklyTestItems.first.id}'),
+    );
+    await _render(tester, child: panel(withSelected: true));
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(selected.single.id, _weeklyTestItems.first.id);
+    expect(fallbackTaps, 0);
+    await _render(tester, child: panel(withSelected: false));
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(fallbackTaps, 1);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('home category chips preserve selection with a 32px hit area', (
     tester,
@@ -1140,3 +1328,7 @@ const _weeklyTestItems = [
     category: ApiCategory(id: 2, name: "다이어트", color: null, isDefault: false),
   ),
 ];
+
+const _unsettledImageTop = {'received': 11.5, 'Pretendard': 22.0};
+const _unsettledTitleTop = {'received': 105.5, 'Pretendard': 116.0};
+const _unsettledBodyTop = {'received': 136.5, 'Pretendard': 147.0};
