@@ -111,6 +111,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   void _syncWeeklyHome() {
     _d.homeWeekly.sync();
+    // A failure deferred while away from home shows once home is visible.
+    if (_weeklyVisible) _weeklyVisibilityChanged();
     if (_d.app.route != AppRoute.archive && _d.app.route != AppRoute.detail) {
       _d.archive.clearWeeklyOrigin();
     }
