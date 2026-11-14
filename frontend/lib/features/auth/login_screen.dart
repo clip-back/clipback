@@ -273,18 +273,19 @@ class _OrdinaryLoginScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          // The space above the logo grows or shrinks, never below 24.
+          // The logo stays 129 below the safe top. Only the logo-button gap
+          // (at least 159) grows; a shorter screen scrolls.
           child: LayoutBuilder(
             builder: (context, constraints) => SingleChildScrollView(
               key: const ValueKey('login-a02-viewport'),
-              padding: EdgeInsets.fromLTRB(16, 24, 16, bottom),
+              padding: EdgeInsets.fromLTRB(16, 129, 16, bottom),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: math.max(0, constraints.maxHeight - 24 - bottom),
+                  minHeight: math.max(0, constraints.maxHeight - 129 - bottom),
                 ),
                 child: Column(
                   key: const ValueKey('login-a02-body'),
-                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Transform.translate(
@@ -314,64 +315,77 @@ class _OrdinaryLoginScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 159),
                     Column(
-                      key: const ValueKey('login-controls'),
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        for (var i = 0; i < ordered.length; i++) ...[
-                          if (i > 0) const SizedBox(height: 8),
-                          _LoginProviderButton(
-                            provider: ordered[i],
+                        const SizedBox(height: 159),
+                        Column(
+                          key: const ValueKey('login-controls'),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var i = 0; i < ordered.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 8),
+                              _LoginProviderButton(
+                                provider: ordered[i],
+                                onPressed: busy
+                                    ? null
+                                    : () =>
+                                          unawaited(onSocialLogin(ordered[i])),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (busy)
+                          const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        const SizedBox(height: 24),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            key: const ValueKey('login-divider'),
+                            children: [
+                              const Expanded(
+                                child: _LoginDivider(side: 'left'),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '또는',
+                                key: ValueKey('login-or'),
+                                style: _LoginText.separator,
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: _LoginDivider(side: 'right'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // The 44px hit box adds 13px above the 18px base label.
+                        // Together with this gap the visual paragraph gap is 24px.
+                        const SizedBox(height: 11),
+                        SizedBox(
+                          key: const ValueKey('login-guest-hit'),
+                          height: 44,
+                          child: TextButton(
                             onPressed: busy
                                 ? null
-                                : () => unawaited(onSocialLogin(ordered[i])),
+                                : () => unawaited(onContinue()),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              '게스트로 시작하기',
+                              key: ValueKey('login-guest-label'),
+                              style: _LoginText.guest,
+                            ),
                           ),
-                        ],
+                        ),
                       ],
-                    ),
-                    if (busy)
-                      const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    const SizedBox(height: 24),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        key: const ValueKey('login-divider'),
-                        children: [
-                          const Expanded(child: _LoginDivider(side: 'left')),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '또는',
-                            key: ValueKey('login-or'),
-                            style: _LoginText.separator,
-                          ),
-                          const SizedBox(width: 8),
-                          const Expanded(child: _LoginDivider(side: 'right')),
-                        ],
-                      ),
-                    ),
-                    // The 44px hit box adds 13px above the 18px base label.
-                    // Together with this gap the visual paragraph gap is 24px.
-                    const SizedBox(height: 11),
-                    SizedBox(
-                      key: const ValueKey('login-guest-hit'),
-                      height: 44,
-                      child: TextButton(
-                        onPressed: busy ? null : () => unawaited(onContinue()),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text(
-                          '게스트로 시작하기',
-                          key: ValueKey('login-guest-label'),
-                          style: _LoginText.guest,
-                        ),
-                      ),
                     ),
                   ],
                 ),
