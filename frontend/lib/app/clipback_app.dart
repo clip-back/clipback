@@ -36,7 +36,6 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -1193,7 +1192,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           ),
           notification: _d.app.route == AppRoute.notificationList
               ? NotificationListScreen(
-                  items: mockNotifications,
+                  items: const [],
                   onBack: _notificationNavigation(
                     AppRoute.notificationList,
                     AppRoute.home,

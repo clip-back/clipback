@@ -52,32 +52,32 @@ void main() {
     }
     await fonts.load();
   });
-  testWidgets(
-    'approved management and support groups omit category and notices',
-    (tester) async {
-      await _my(tester);
-      final groups = tester
-          .widgetList<MyListGroup>(find.byType(MyListGroup))
-          .toList();
-      expect(
-        groups
-            .map(
-              (g) => g.children
-                  .whereType<MyListTile>()
-                  .map((t) => t.title)
-                  .toList(),
-            )
-            .toList(),
-        [
-          ['알림 설정', '앱 권한'],
-          ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
-        ],
-      );
-      expect(find.text('카테고리 관리'), findsNothing);
-      expect(find.text('이용약관 및 개인정보'), findsOneWidget);
-      expect(find.text('공지사항'), findsNothing);
-    },
-  );
+  testWidgets('approved support groups omit category and notices', (
+    tester,
+  ) async {
+    await _my(tester);
+    final groups = tester
+        .widgetList<MyListGroup>(find.byType(MyListGroup))
+        .toList();
+    expect(
+      groups
+          .map(
+            (g) =>
+                g.children.whereType<MyListTile>().map((t) => t.title).toList(),
+          )
+          .toList(),
+      [
+        ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
+      ],
+    );
+    // #378: the management header and its two read-only rows are hidden.
+    expect(find.text('관리'), findsNothing);
+    expect(find.text('알림 설정'), findsNothing);
+    expect(find.text('앱 권한'), findsNothing);
+    expect(find.text('카테고리 관리'), findsNothing);
+    expect(find.text('이용약관 및 개인정보'), findsOneWidget);
+    expect(find.text('공지사항'), findsNothing);
+  });
   testWidgets('privacy and license rows are separate tappable nodes', (
     tester,
   ) async {
@@ -185,55 +185,6 @@ void main() {
       }
     },
   );
-  testWidgets(
-    'My notification settings keeps read-only values and scroll on return',
-    (tester) async {
-      await _my(tester);
-      tester.view.physicalSize = const Size(320, 480);
-      await tester.pumpAndSettle();
-      final target = find.text('알림 설정');
-      await tester.ensureVisible(target);
-      await tester.pumpAndSettle();
-      final position = Scrollable.of(tester.element(target)).position;
-      final offset = position.pixels;
-      await tester.tap(target);
-      await tester.pumpAndSettle();
-      final sheet = find.byType(ReminderSheet);
-      expect(sheet, findsOneWidget);
-      expect(
-        find.descendant(of: sheet, matching: find.text('알림 설정')),
-        findsOneWidget,
-      );
-      for (final pair in {
-        '오늘의 리마인드': '오후 8:00',
-        '반복': '매일',
-        '추천 콘텐츠': '켜짐',
-      }.entries) {
-        expect(
-          find.descendant(of: sheet, matching: find.text(pair.key)),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(of: sheet, matching: find.text(pair.value)),
-          findsOneWidget,
-        );
-      }
-      expect(
-        find.descendant(of: sheet, matching: find.byType(Switch)),
-        findsNothing,
-      );
-      expect(
-        find.descendant(of: sheet, matching: find.byType(EditableText)),
-        findsNothing,
-      );
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(sheet, findsNothing);
-      expect(position.pixels, offset);
-      expect(find.byType(MyScreen), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
   for (final scale in [1.0, 1.1, 1.2, 1.3]) {
     testWidgets('320px Pretendard menu and version fit scale $scale', (
       tester,
@@ -244,7 +195,6 @@ void main() {
         info: const AppInfo(version: '123.456.789', buildNumber: '999'),
       );
       for (final text in [
-        '알림 설정',
         '이용약관 및 개인정보',
         '오픈소스 라이선스',
         '앱 버전',

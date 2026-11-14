@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:clipback_frontend/features/account/contact_form.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
@@ -183,30 +182,6 @@ class MyScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                    const SizedBox(height: 16),
-                    const MySectionHeader(title: '관리'),
-                    MyListGroup(
-                      children: [
-                        MyListTile(
-                          title: '알림 설정',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ReminderSheet(),
-                          ),
-                        ),
-                        MyListTile(
-                          title: '앱 권한',
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const PermissionSheet(),
-                          ),
-                        ),
-                      ],
-                    ),
                     const SizedBox(height: 16),
                     const MySectionHeader(title: '고객지원'),
                     MyListGroup(

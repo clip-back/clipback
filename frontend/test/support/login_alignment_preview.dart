@@ -558,6 +558,18 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
       left = (frame['left'] as num).toDouble(),
       width = (frame['width'] as num).toDouble();
   final origin = (frame['top'] as num).toDouble() + safeTop - scroll;
+  // #377 (2026-11-14 user decision): the logo stays at safe top + 129 and the
+  // guest label bottom sits 83px above the safe bottom. Only the gap between
+  // the logo group and the first provider button (159) grows by `extra`.
+  final count = (m['inputProviderOrder'] as List).contains('apple') ? 3 : 2,
+      span = 387 + count * 52 + (count - 1) * 8 + 83,
+      safeBottom = (m['safeBottom'] as num).toDouble(),
+      anchor =
+          (frame['top'] as num).toDouble() +
+          (frame['height'] as num).toDouble() -
+          safeBottom -
+          83,
+      extra = anchor - (origin + span) > 0 ? anchor - (origin + span) : 0.0;
   final logo = m['logo'] as Map,
       lb = logo['bounds'] is Map ? logo['bounds'] as Map : const {},
       group = m['logoGroup'] is Map ? m['logoGroup'] as Map : const {},
@@ -614,7 +626,7 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
       near(r['left'], left + 16) &&
           near(r['width'], width - 32) &&
           near(r['height'], 52) &&
-          near(r['top'], origin + 387 + i * 60),
+          near(r['top'], origin + extra + 387 + i * 60),
       '$p button width/52/top/gap8',
     );
     check(
@@ -716,7 +728,7 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
     );
   }
   final lastBottom =
-      origin + 387 + expected.length * 52 + (expected.length - 1) * 8;
+      origin + extra + 387 + expected.length * 52 + (expected.length - 1) * 8;
   final divider = m['divider'] is Map ? m['divider'] as Map : const {},
       or = m['or'] is Map ? m['or'] as Map : const {},
       ob = or['bounds'] is Map ? or['bounds'] as Map : const {},
@@ -732,6 +744,16 @@ Map<String, Object?> loginJudgment(Map<String, Object?> m) {
     lf,
     near(hit['height'], 44) && near(hit['top'], lastBottom + 24 + 17 + 11),
     'guest hit44/gap11',
+  );
+  final guestLabel = m['guest'] is Map ? m['guest'] as Map : const {},
+      guestBounds = guestLabel['bounds'] is Map
+          ? guestLabel['bounds'] as Map
+          : const {};
+  check(
+    lf,
+    near(guestBounds['bottom'], origin + extra + span) &&
+        (extra == 0 || near(guestBounds['bottom'], anchor)),
+    'guest label bottom safe-83/logo-button gap 159+',
   );
   check(lf, m['textFittedBoxCount'] == 0, 'no font shrinking');
   final font = m['fontBundle'] as Map;

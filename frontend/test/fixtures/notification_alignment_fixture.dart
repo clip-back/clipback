@@ -1,5 +1,5 @@
 // C03 oracle. Runtime discovery compiles on 220f313's legacy notification sheet.
-// No notification endpoint is invented: root data are the original three examples.
+// No notification endpoint is invented: the root list is empty (C03-1 empty state).
 import 'dart:ui' as ui;
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
