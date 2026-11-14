@@ -90,9 +90,10 @@ Future<void> _openExternal(
   String failureMessage,
 ) async {
   if (await open() == false && context.mounted) {
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(failureMessage)));
+    // Same rule as the app's MessageEffect notices (#353).
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(failureMessage)));
   }
 }
 
