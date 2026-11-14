@@ -195,6 +195,19 @@ Future<void> _dragRecent(WidgetTester tester, double distance) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _flickRecent(
+  WidgetTester tester,
+  double distance,
+  double speed,
+) async {
+  await tester.flingFrom(
+    tester.getCenter(_recentRail()),
+    Offset(distance, 0),
+    speed,
+  );
+  await tester.pumpAndSettle();
+}
+
 int _activeDot(WidgetTester tester) =>
     tester.widget<PageDots>(find.byType(PageDots)).activeIndex;
 
@@ -1207,6 +1220,111 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  group('recent cards snap one card to the center', () {
+    Future<void> renderRecent(WidgetTester tester, {int count = 4}) async {
+      addTearDown(tester.view.reset);
+      final contents = List.generate(count, _content);
+      await _render(
+        tester,
+        child: _panel(contents: contents, feed: _feed(contents)),
+      );
+    }
+
+    testWidgets('slow 100 drag returns to the first card', (tester) async {
+      await renderRecent(tester);
+      await _dragRecent(tester, 100);
+      expect(_recentPosition(tester).pixels, 0);
+      expect(_activeDot(tester), 0);
+    });
+
+    testWidgets('slow 200 drag settles on the second card', (tester) async {
+      await renderRecent(tester);
+      await _dragRecent(tester, 200);
+      expect(_recentPosition(tester).pixels, 306);
+      expect(_activeDot(tester), 1);
+    });
+
+    testWidgets('short quick flick moves one card', (tester) async {
+      await renderRecent(tester);
+      await _flickRecent(tester, -60, 1000);
+      expect(_recentPosition(tester).pixels, 306);
+      expect(_activeDot(tester), 1);
+    });
+
+    testWidgets('hard flick still moves only one card', (tester) async {
+      await renderRecent(tester);
+      await _flickRecent(tester, -150, 8000);
+      expect(_recentPosition(tester).pixels, 306);
+      expect(_activeDot(tester), 1);
+    });
+
+    testWidgets('right flick from the second card returns to the first', (
+      tester,
+    ) async {
+      await renderRecent(tester);
+      await _dragRecent(tester, 306);
+      expect(_recentPosition(tester).pixels, 306);
+      await _flickRecent(tester, 60, 1000);
+      expect(_recentPosition(tester).pixels, 0);
+      expect(_activeDot(tester), 0);
+    });
+
+    testWidgets('flicks past the last card stay on the fourth card', (
+      tester,
+    ) async {
+      await renderRecent(tester);
+      expect(_recentPosition(tester).maxScrollExtent, 918);
+      for (var i = 1; i <= 3; i++) {
+        await _flickRecent(tester, -60, 1000);
+        expect(_recentPosition(tester).pixels, 306.0 * i);
+      }
+      await _flickRecent(tester, -60, 1000);
+      expect(_recentPosition(tester).pixels, 918);
+      expect(_recentPosition(tester).maxScrollExtent, 918);
+      expect(_activeDot(tester), 3);
+    });
+
+    testWidgets('one card stays centered after drag and flick', (tester) async {
+      await renderRecent(tester, count: 1);
+      await _dragRecent(tester, 100);
+      expect(_recentPosition(tester).pixels, 0);
+      expect(_activeDot(tester), 0);
+      await _flickRecent(tester, -60, 1000);
+      expect(_recentPosition(tester).pixels, 0);
+      expect(_activeDot(tester), 0);
+    });
+
+    for (final width in [320.0, 393.0]) {
+      for (final scale in [1.0, 1.3]) {
+        testWidgets(
+          'snapped card is centered at width $width scale $scale',
+          (tester) async {
+            addTearDown(tester.view.reset);
+            final contents = List.generate(4, _content);
+            await _render(
+              tester,
+              width: width,
+              textScale: scale,
+              platform: defaultTargetPlatform,
+              child: _panel(contents: contents, feed: _feed(contents)),
+            );
+            await _flickRecent(tester, -60, 1000);
+            expect(_recentPosition(tester).pixels, 306);
+            expect(_activeDot(tester), 1);
+            final card = tester.getRect(find.byType(HomeContentCard).at(1));
+            expect(card.width, 298);
+            expect(card.center.dx, closeTo(width / 2, 0.01));
+            expect(tester.takeException(), isNull);
+          },
+          variant: const TargetPlatformVariant({
+            TargetPlatform.android,
+            TargetPlatform.iOS,
+          }),
+        );
+      }
+    }
+  });
 
   for (final change in [
     'category',
