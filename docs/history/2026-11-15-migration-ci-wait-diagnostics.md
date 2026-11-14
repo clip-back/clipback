@@ -153,3 +153,34 @@ SKIPPED [1] tests/integration/test_image_storage_admin_cli.py:20: CLIPBACK_IMAGE
 원격 migration·deployment·operator-recovery CI는 PR 이후 확인할 미검증이다. 로컬 Docker·운영 DB/Bucket·실제 모델·기기·화면 실행은 하지 않았다.
 화면 변경은 없으며 자동 앱 검사는 VERIFY 범위로만 실행했다. 기존 pytest-asyncio loop scope 및 Alembic path_separator 경고는 범위 밖으로 수정하지 않았다.
 #373/#374는 PR Closes 대상이므로 닫지 않았고 외부 댓글·push·PR·원격 CI는 실행하지 않았다. 다음 main 합치기·최종 리뷰·PR 초안은 감독 단계다.
+
+## 최종 통합 리뷰와 전체 검증
+
+앞선 티켓별 실행과 별도로, 최종 리뷰어가 #373·#374 커밋 전체를 고정 clean HEAD
+`7d3cbabd45831a6fc4b06f40f23dd20dcd129474`에서 검토했다. Standards 0건 / Spec 0건이며,
+busy 차례 확보 후 다음 전체 검증을 직접 한 번 실행했다. 이번 기록 작업에서는 검사를 재실행하지 않았다.
+
+```sh
+python3 ~/.heoturu-agents/verify.py --log-dir .utmp/review-373-374-final-verify
+```
+
+최종 run ID는 `20261115T003559-83bd6f4f64cd`이다. 리뷰어가 원 session 3641의 exit 0을 회수했고,
+`execution-receipt.json`의 session/exit/HEAD/dirty/run ID를 결과 파일 및 progress와 대조했다.
+상위와 run별 `verify-result.txt`는 바이트 일치하며, 모든 progress event는 위 고정 HEAD·dirty=false이다.
+12개 검사 단계와 verify end의 exit_code는 모두 0이다.
+
+```text
+VERIFY result=PASS scope=all checks=12 failed=0
+2667 passed, 49 skipped, 3 warnings in 331.98s (0:05:31)
+app:test: 03:14 +3663: All tests passed!
+```
+
+티켓별 전체 실행과 최종 실행의 통과·skip·경고 수는 같고 실행 시간은 다르다.
+최종 backend 로그의 모든 `SKIPPED` 원문은 앞선 #374 전체 실행과 동일하다.
+따라서 skip 상세와 원격 job 대응은 [앞선 skip 표와 원문](#skip와-남은-미검증)을 그대로 적용하며,
+신규 PostgreSQL seed 검사 6개의 skip은 없다. 원격 migration·deployment·operator-recovery CI와 기존 synthetic S3 CLI 미검증은 유지한다.
+
+최종 실행 증거는 로컬 `.utmp/review-373-374-final-verify/20261115T003559-83bd6f4f64cd/`의
+`verify-result.txt`, `verify-progress.json`, `backend-pytest.log`, `app-test.log` 및 단계 로그다.
+원 프로세스 회수 기록은 `.utmp/review-373-374-final-verify/execution-receipt.json`, 최종 리뷰는 `.utmp/review-373-374-final.md`에 있다.
+이 절만 추가하는 후속 문서 커밋은 최종 VERIFY 코드 근거 7d3cbab와 코드가 같으므로 전체 검증을 반복하지 않는다.
