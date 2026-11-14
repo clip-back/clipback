@@ -1389,6 +1389,8 @@ void main() {
 
   for (final action in ['favorite', 'category', 'delete']) {
     for (final failure in ['401', '403', '404', '503', 'network', 'JSON']) {
+      // A delete 404 means the content is already gone: see the test below.
+      if (action == 'delete' && failure == '404') continue;
       testWidgets(
         failure == '401'
             ? '$action final 401 returns to login without a replacement guest'
@@ -1461,6 +1463,78 @@ void main() {
           });
         },
       );
+    }
+  }
+
+  // #364: a delete answered with 404 (already deleted on the server, whatever
+  // its detail) ends exactly like a successful delete.
+  for (final from in ['detail', 'archive']) {
+    for (final response in [
+      '204',
+      '404 Content not found',
+      '404 other',
+      '404 empty',
+    ]) {
+      testWidgets('delete $response from $from ends like a successful delete', (
+        tester,
+      ) async {
+        final server = _Server(
+          respond: (request, server) {
+            if (request.method != 'DELETE' || response == '204') return null;
+            final id = int.parse(request.url.pathSegments.last);
+            server.records.removeWhere((content) => content['id'] == id);
+            return switch (response) {
+              '404 Content not found' => _json({
+                'detail': 'Content not found',
+              }, 404),
+              '404 other' => _json({'detail': '다른 404 문구'}, 404),
+              _ => http.Response('', 404),
+            };
+          },
+        );
+        await _withApp(tester, server, () async {
+          final ContentItem deleted;
+          if (from == 'detail') {
+            await _detail(tester);
+            deleted = _currentDetail(tester).content;
+            await tester.tap(find.byKey(const ValueKey('detail-more')));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('삭제'));
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(const ValueKey('content-delete-confirm')),
+            );
+          } else {
+            await _archive(tester);
+            deleted = _currentArchive(tester).contents.first;
+            _currentArchive(tester).onDeleteContent(deleted);
+          }
+          final feedsBefore = server.feedCalls.length;
+          await tester.pumpAndSettle();
+
+          expect(_mutations(server), hasLength(1));
+          expect(_mutations(server).single.method, 'DELETE');
+          expect(find.byType(SnackBar), findsNothing);
+          expect(find.text('Content not found'), findsNothing);
+          expect(find.text('다른 404 문구'), findsNothing);
+          expect(find.byType(DetailScreen), findsNothing);
+          final remaining = from == 'detail'
+              ? tester.widget<HomeScreen>(find.byType(HomeScreen)).contents
+              : _currentArchive(tester).contents;
+          expect(remaining.map((item) => item.id), isNot(contains(deleted.id)));
+          expect(remaining, hasLength(2));
+          final refetched = server.feedCalls.skip(feedsBefore).toList();
+          expect(refetched, isNotEmpty);
+          expect(
+            refetched.every(
+              (request) => !request.url.queryParameters.containsKey('cursor'),
+            ),
+            isTrue,
+          );
+          expect(tester.takeException(), isNull);
+          expect(server.calls('/api/v1/auth/guest'), isEmpty);
+        });
+      });
     }
   }
 

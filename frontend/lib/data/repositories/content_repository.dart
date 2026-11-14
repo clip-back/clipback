@@ -712,7 +712,13 @@ class RemoteContentRepository extends ContentRepository {
             handle.targetCategoryId!,
           ]);
         case ContentMutationKind.delete:
-          await _api.deleteContent(id);
+          try {
+            await _api.deleteContent(id);
+          } on ClipbackApiException catch (error) {
+            // 404 means the content is already gone on the server: finish as
+            // a successful delete whatever the detail says.
+            if (error.statusCode != 404) rethrow;
+          }
       }
     } catch (error) {
       if (!_isCurrentMutation(handle)) return const MutationResult.stale();
