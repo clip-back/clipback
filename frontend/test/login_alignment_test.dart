@@ -575,13 +575,17 @@ void main() {
           )!;
           position.jumpTo(position.maxScrollExtent);
           await tester.pump();
-          // The 44 hit box ends 70 above the safe bottom (label 83 at 1x).
-          expect(
-            tester
-                .getRect(find.byKey(const ValueKey('login-guest-hit')))
-                .bottom,
-            closeTo(667 - 70, .5),
-          );
+          // #377: the guest label ends 83 above the safe bottom at every
+          // text scale; at 1x that is the 44 hit box ending 70 above it.
+          expect(tester.getRect(guest).bottom, closeTo(667 - 83, .5));
+          if (scale == 1.0) {
+            expect(
+              tester
+                  .getRect(find.byKey(const ValueKey('login-guest-hit')))
+                  .bottom,
+              closeTo(667 - 70, .5),
+            );
+          }
           expect(tester.takeException(), isNull);
         },
       );

@@ -259,19 +259,28 @@ class _OrdinaryLoginScreen extends StatelessWidget {
       SocialLoginProvider.apple,
       SocialLoginProvider.google,
     ].where(providers.contains).toList(growable: false);
+    // A02 keeps the guest label bottom 83px above the safe bottom at every
+    // text scale. The label is centered in its 44px hit box, so the space
+    // under the hit box is 83 minus half of the box's spare height (70 at 1x).
+    final guestLabel = TextPainter(
+      text: const TextSpan(text: '게스트로 시작하기', style: _LoginText.guest),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final bottom = 83 - (44 - guestLabel.height) / 2;
+    guestLabel.dispose();
     return PhoneFrame(
       child: Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          // A02 keeps the guest label 83px above the safe bottom (hit box
-          // 70px); the space above the logo grows or shrinks, never below 24.
+          // The space above the logo grows or shrinks, never below 24.
           child: LayoutBuilder(
             builder: (context, constraints) => SingleChildScrollView(
               key: const ValueKey('login-a02-viewport'),
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 70),
+              padding: EdgeInsets.fromLTRB(16, 24, 16, bottom),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: math.max(0, constraints.maxHeight - 94),
+                  minHeight: math.max(0, constraints.maxHeight - 24 - bottom),
                 ),
                 child: Column(
                   key: const ValueKey('login-a02-body'),
