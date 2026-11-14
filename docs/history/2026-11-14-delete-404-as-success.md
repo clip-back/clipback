@@ -1,6 +1,6 @@
 # 이미 지워진 콘텐츠의 삭제 404를 삭제 성공으로 처리 (#364)
 
-2026-11-14, 브랜치 `fix/photo-result-mismatch`. 시작 커밋 `d529d00`, 구현 커밋 `bdd0a2c`, 리뷰 반영 `9f4112e`, main(#353·#354 스낵바, `de1eb1c`) 병합 `6f82cdd`, main(#355–#358 홈·카테고리, `617aa21`) 병합 `d865dde`(최종 전체 검증 기준). 검증 결과를 채운 커밋은 문서만 바꾼다.
+2026-11-14, 브랜치 `fix/photo-result-mismatch`. 시작 커밋 `d529d00`, 구현 커밋 `bdd0a2c`, 리뷰 반영 `9f4112e`, main(#353·#354 스낵바, `de1eb1c`) 병합 `6f82cdd`, main(#355–#358 홈·카테고리, `617aa21`) 병합 `d865dde`(최종 전체 검증 기준). 이후 문서 규칙 main `0908995`를 `1e081f7`로 병합했다. 최종 촬영 코드와 전체 VERIFY 기준 `d865dde`의 제품 코드는 같고, 이후 커밋은 문서만 바꾼다.
 팀 피드백 시트 76("실패해도 저장이된 경우 같은 안 맞는 경우")과 0.5.2 실기기에서 사진 콘텐츠 삭제 때 '삭제 실패'가 두 번 뜬 뒤 실제로는 지워져 있던 사용자 확인 중, 두 번째 실패 안내를 다룬다. 첫 실패 안내와 사진 저장 쪽은 #366(진단)이다.
 
 ## 문제
@@ -34,7 +34,10 @@
 - 두 번째 병합(`d865dde`) 뒤 부분 검사: `content_mutation`·`home_alignment`·`category_content_alignment`·`unclassified_alignment`·`uncategorized_name`·`weekly_root`·`category_delete`·`feed_pagination` 테스트 544건 통과, `flutter analyze --no-pub` 문제 없음.
 - 최종 전체 검증(`d865dde`): `VERIFY result=PASS scope=all checks=11 failed=0`. 앱 테스트 3621건 통과. 백엔드 pytest 2640 passed, 49 skipped(skip 사유는 위와 같다). 위 `6f82cdd` 결과는 그 커밋의 기록으로 남긴다.
 - 변경 전 화면(`d529d00`, iOS 18.6 iPhone 16·Android 16 `Medium_Phone`, 로컬 대역, 배율 1.0): `detail-delete-404`·`archive-delete-404`는 스낵바 `Content not found`와 상세·카드 유지, `archive-delete-503`은 `요청을 처리하지 못했습니다.`와 카드 유지. Figma 기준 없음.
-- 변경 후 화면 비교는 아직 하지 않았다(미완료). 병합한 main #354로 스낵바 글꼴이 Pretendard로 바뀌어, 503 안내의 글자 모양 차이는 #364가 아닌 #354 영향이다.
+- 변경 후 화면(`1e081f7`, 전체 VERIFY 기준과 같은 제품 코드): 양 플랫폼의 세 상태 모두 실행·목표 probe·원본 PNG 확인 합격. 404 두 상태는 실패 스낵바 없이 대상 제거(4개에서 3개), 상세는 진입한 아카이브 전체보기로 복귀하고 피드를 다시 조회했다. 503은 실패 안내와 4개 항목을 유지했다. 404 결과 뒤 4.5초 추가 녹화의 화면 로그에도 스낵바가 없었다.
+- 전후 시작 계측 6쌍에서 데이터·계정·상태·항목·배율·스크롤 위치/최대 범위·안전 영역·논리 크기가 일치했다. iOS는 393×852, 안전 영역 위 59/아래 34, Android는 약 411.43×914.29, 위/아래 24다. 삭제 후 목록 길이·스크롤 범위 차이는 결과 변화로 기록했다. 원본 화면은 보정하지 않았다. 병합한 main #354로 스낵바 글꼴이 Pretendard로 바뀌어, 503 안내의 글자 모양 차이는 #364가 아닌 #354 영향이다.
+- 로컬 증거: `.utmp/ticket-364/screens/`에 플랫폼별 전후 각 3상태 PNG·영상·시작/결과 JSON, `.utmp/ticket-364-screens/compare-ios.png`·`compare-android.png`에 비교 이미지, 같은 폴더 `compare-{ios,android}-detail-delete-404.mp4`에 상세 복귀 비교 영상. 비교 도구의 시작 조건 검사와 영상 끝 프레임 검사도 통과했다. 감독이 원본 PNG 및 영상 미리보기를 확인했고, 사용자 시각 판정은 PR 초안 전달 뒤 대기한다.
+- 기기는 플랫폼별로 잠금을 잡아 순차 사용했고 종료했다. 실기기·운영 서버는 승인된 범위 밖이며 요청하지 않았다. 원격 CI는 push 전이므로 미실행이다.
 
 ## 검토
 
