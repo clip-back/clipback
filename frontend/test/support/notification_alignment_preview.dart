@@ -271,7 +271,7 @@ Map<String, Object?> _snapshot() {
     'sessionKind': _sessionKind,
     'sceneSource': _emptyScene
         ? 'explicit_empty_widget_not_root_api'
-        : 'actual_root_original_three_examples',
+        : 'actual_root_empty_state',
     'emptySceneSupported': _emptyBuilder != null,
     'emptyBeforeUnavailable': notificationPhase == 'before',
     'platform': Platform.operatingSystem,
@@ -413,9 +413,8 @@ Future<void> _maxScroll() async {
   final measure = f.notificationMeasure(_root),
       bounds = measure['bounds'] as Map,
       viewport = bounds['viewport'] as Map;
-  final last = _emptyScene
-      ? f.notificationKey(_notification, 'notification-empty-body')!
-      : f.notificationText(_notification, f.notificationExamples.last.title)!;
+  // The actual root list is empty too, so both scenes end at the empty body.
+  final last = f.notificationKey(_notification, 'notification-empty-body')!;
   _require(
     f.notificationBox(last).bottom <= (viewport['bottom'] as num) + .22,
     'Last notification content not visible',
@@ -453,10 +452,14 @@ Future<void> _run() async {
   _coverage = false;
   for (final kind in ['member', 'guest']) {
     await _fresh(kind);
-    _record('${kind}_original_three_examples_entry');
+    _require(
+      f.notificationMeasure(_root)['empty'] == true,
+      'Actual root notification list is not the empty state',
+    );
+    _record('${kind}_root_empty_state_entry');
     final count = _server.requests.length, records = _server.records.length;
-    for (final item in f.notificationExamples) {
-      final e = f.notificationText(_notification, item.title)!;
+    for (final key in ['notification-empty-title', 'notification-empty-body']) {
+      final e = f.notificationKey(_notification, key)!;
       await _show(e);
       await _tap(e);
       _require(

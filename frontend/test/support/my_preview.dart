@@ -435,7 +435,7 @@ Map<String, Object?> myJudgment(Map<String, Object?> m) {
       }
     }
   }
-  if (names.join('|') != '알림 설정|앱 권한|문의하기|이용약관 및 개인정보|오픈소스 라이선스|앱 버전') {
+  if (names.join('|') != '문의하기|이용약관 및 개인정보|오픈소스 라이선스|앱 버전') {
     style.add('approved menu order: $names');
   }
   final header = b['header'] as Map,
@@ -922,45 +922,6 @@ Future<Element> _modal(String type) async {
   return _runtime(type)!;
 }
 
-Future<void> _visible(Element e) async {
-  await Scrollable.ensureVisible(
-    e,
-    duration: const Duration(milliseconds: 150),
-    alignment: .5,
-  );
-  await _settle(4);
-}
-
-Future<void> _showTile(String title, String type) async {
-  final tile = _elements(_my).firstWhere(
-    (e) =>
-        e.widget is MyListTile &&
-        ((e.widget as MyListTile).title == title ||
-            title == '앱 권한' && (e.widget as MyListTile).title == '알림 및 앱 권한'),
-  );
-  await _visible(tile);
-  final before = _position(_my)!.pixels;
-  await _tap(tile);
-  final sheet = await _modal(type), r = _box(sheet);
-  _record('sheet_${type}_opened', {
-    'modalType': type,
-    'offsetBefore': before,
-    'modalBounds': _rect(r),
-    'transitionCompleted': true,
-  });
-  await _tapPoint(Offset(_box(_root).center.dx, r.top / 2));
-  await _wait(() => _runtime(type) == null, 'Modal $type did not close');
-  _require(_route() == 'my', 'Sheet did not return to My');
-  _require(
-    (_position(_my)!.pixels - before).abs() < .18,
-    'Modal round trip changed underlying scroll',
-  );
-  _record('sheet_${type}_closed', {
-    'offsetBefore': before,
-    'offsetAfter': _position(_my)!.pixels,
-  });
-}
-
 Future<void> _back(String route) async {
   if (route == 'management') {
     await _tap(_key(_root, 'management-back')!);
@@ -1010,12 +971,11 @@ Future<void> _run() async {
   _record('profile_account_open');
   await _back('account');
   _require(_text(_my, '카테고리 관리') == null, 'Removed My category entry remains');
-  for (final item in const {
-    '알림 설정': 'ReminderSheet',
-    '앱 권한': 'PermissionSheet',
-  }.entries) {
-    await _showTile(item.key, item.value);
+  // #378 hides the management header and its two read-only sheet rows.
+  for (final title in const ['관리', '알림 설정', '앱 권한']) {
+    _require(_text(_my, title) == null, 'Hidden My row $title remains');
   }
+  _record('management_rows_absent');
   final p = _position(_my)!;
   p.jumpTo(p.maxScrollExtent);
   await _settle(3);

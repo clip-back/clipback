@@ -7,7 +7,6 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
@@ -30,6 +29,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
+
+import 'fixtures/original_link_launcher.dart';
 
 const _feed = '/api/v1/feed';
 const _category = {
@@ -514,12 +516,16 @@ void main() {
     });
   }
 
-  testWidgets('마이 통계 재시도 연속 입력은 이동한 관리 메뉴를 열지 않는다', (tester) async {
+  testWidgets('마이 통계 재시도 연속 입력은 이동한 아래 메뉴를 열지 않는다', (tester) async {
     final fonts = FontLoader('Pretendard');
     for (final weight in ['Regular', 'Medium', 'SemiBold']) {
       fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
     }
     await fonts.load();
+    final launcher = RecordingUrlLauncher(),
+        oldLauncher = UrlLauncherPlatform.instance;
+    UrlLauncherPlatform.instance = launcher;
+    addTearDown(() => UrlLauncherPlatform.instance = oldLauncher);
     final pending = Completer<http.Response?>();
     var statsReads = 0;
     final server = _Server(
@@ -551,7 +557,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 45));
       await second.up();
       await tester.pump(const Duration(milliseconds: 350));
-      final unintendedSheet = find.byType(ReminderSheet).evaluate().isNotEmpty;
+      // #378 hid the management rows; support rows now sit below the retry.
+      bool unintended() =>
+          find.byType(BottomSheet).evaluate().isNotEmpty ||
+          find.byType(LicensePage).evaluate().isNotEmpty ||
+          launcher.calls.isNotEmpty;
+      final unintendedSheet = unintended();
       expect(server.calls('/api/v1/users/me/stats'), hasLength(3));
       pending.complete(
         _json({
@@ -562,12 +573,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(unintendedSheet, isFalse);
-      expect(find.byType(ReminderSheet), findsNothing);
+      expect(unintended(), isFalse);
       expect(find.text('320'), findsOneWidget);
       expect(find.text('89'), findsOneWidget);
-      await tester.tap(find.text('알림 설정'));
+      await tester.ensureVisible(find.text('오픈소스 라이선스'));
       await tester.pumpAndSettle();
-      expect(find.byType(ReminderSheet), findsOneWidget);
+      await tester.tap(find.text('오픈소스 라이선스'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LicensePage), findsOneWidget);
     }, textScale: 2);
   });
 

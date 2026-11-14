@@ -114,7 +114,7 @@ void main() {
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     for (final width in [320.0, 375.0]) {
       testWidgets(
-        '${platform.name} $width C03 actual roles geometry source and three read-only notifications',
+        '${platform.name} $width C03 actual roles geometry source and empty read-only state',
         (tester) async {
           for (final kind in ['member', 'guest']) {
             await _root(
@@ -127,20 +127,36 @@ void main() {
                 final m = fixture.notificationMeasure(
                   tester.element(_notification),
                 );
-                expect(m['items'], [
-                  for (final item in fixture.notificationExamples)
-                    {'title': item.title, 'time': item.time},
-                ]);
-                final rows = m['rows'] as List;
-                expect(rows.length, 3);
-                for (final row in rows) {
-                  expect(row['bounds']['height'], greaterThanOrEqualTo(76));
+                expect(m['items'], isEmpty);
+                expect(m['empty'], isTrue);
+                expect(m['rows'] as List, isEmpty);
+                expect(
+                  find.byKey(const ValueKey('notification-row-0')),
+                  findsNothing,
+                );
+                for (final key in [
+                  'notification-empty-image',
+                  'notification-empty-title',
+                  'notification-empty-body',
+                ]) {
+                  expect(find.byKey(ValueKey(key)), findsOneWidget);
                 }
+                expect(
+                  find.text(fixture.notificationEmptyTitle),
+                  findsOneWidget,
+                );
+                expect(
+                  find.text(fixture.notificationEmptyBody),
+                  findsOneWidget,
+                );
                 final requests = server.requests.length,
                     records = server.records.length;
-                for (final item in fixture.notificationExamples) {
-                  await tester.ensureVisible(find.text(item.title));
-                  await tester.tap(find.text(item.title));
+                for (final text in [
+                  fixture.notificationEmptyTitle,
+                  fixture.notificationEmptyBody,
+                ]) {
+                  await tester.ensureVisible(find.text(text));
+                  await tester.tap(find.text(text));
                   await tester.pumpAndSettle();
                   expect(_notification, findsOneWidget);
                 }
@@ -159,7 +175,7 @@ void main() {
       );
     }
     testWidgets(
-      '${platform.name} low C03 viewport exposes last row plus 24px and OS safety once',
+      '${platform.name} low C03 viewport exposes empty body plus 24px and OS safety once',
       (tester) async {
         await _root(
           tester,
@@ -170,7 +186,13 @@ void main() {
             final p = fixture.notificationPosition(
               tester.element(_notification),
             )!;
-            expect(p.maxScrollExtent, greaterThan(0));
+            // Root data are now the C03-1 empty state. With iOS 59/34 safety
+            // it is taller than the 360 viewport and scrolls; with Android
+            // 24/0 safety it fits (measured 0.0), so only iOS must scroll.
+            expect(
+              p.maxScrollExtent,
+              platform == TargetPlatform.iOS ? greaterThan(0) : 0,
+            );
             await tester.drag(
               find.byKey(const ValueKey('notification-viewport')),
               const Offset(0, -350),
@@ -179,7 +201,9 @@ void main() {
             expect(p.pixels, closeTo(p.maxScrollExtent, .2));
             _expectOracle(tester);
             expect(
-              find.text(fixture.notificationExamples.last.title).hitTestable(),
+              find
+                  .byKey(const ValueKey('notification-empty-body'))
+                  .hitTestable(),
               findsOneWidget,
             );
             expect(tester.takeException(), isNull);
