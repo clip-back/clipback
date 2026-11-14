@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -141,6 +143,20 @@ class CategoryContentRandomButton extends StatelessWidget {
     letterSpacing: -.4,
     color: AppColors.text,
   );
+  static const _minHeight = 44.0, _padding = 10.0, _iconSize = 18.0;
+
+  /// Pressable height at the current text scale (1x: 44).
+  static double pressHeight(BuildContext context) {
+    final label = TextPainter(
+      text: const TextSpan(text: '랜덤 보기', style: _style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final visual = 2 * _padding + math.max(_iconSize, label.height);
+    label.dispose();
+    return math.max(_minHeight, visual);
+  }
+
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.transparent,
@@ -148,14 +164,14 @@ class CategoryContentRandomButton extends StatelessWidget {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(100),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: const BoxConstraints(minHeight: _minHeight),
         child: Align(
           widthFactor: 1,
           heightFactor: 1,
           alignment: Alignment.bottomCenter,
           child: Container(
             key: const ValueKey('category-content-random-visual'),
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(_padding),
             decoration: BoxDecoration(
               color: AppColors.main,
               borderRadius: BorderRadius.circular(100),
@@ -165,8 +181,8 @@ class CategoryContentRandomButton extends StatelessWidget {
               children: [
                 SvgPicture.asset(
                   Assets.categoryContentRandom,
-                  width: 18,
-                  height: 18,
+                  width: _iconSize,
+                  height: _iconSize,
                 ),
                 const SizedBox(width: 4),
                 const Text('랜덤 보기', style: _style),

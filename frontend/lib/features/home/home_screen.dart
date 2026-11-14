@@ -501,11 +501,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
         children: [
           const SizedBox(height: 16),
           if (widget.weeklyItems.isNotEmpty) ...[
-            SectionHeader(
-              title: '이번주 허투루 픽 🎯',
-              onTap: widget.onOpenCategories,
-              showTrailingIcon: false,
-            ),
+            const SectionHeader(title: '이번주 허투루 픽 🎯', showTrailingIcon: false),
             const SizedBox(height: 8),
             WeeklyPickRail(
               onOpenCategory: widget.onOpenCategories,
@@ -602,9 +598,10 @@ class EmptyHomeContent extends StatelessWidget {
     if (confirmedEmpty) {
       return const _SavedEmptyMessage(title: '저장한 콘텐츠가 없어요');
     }
-    return SizedBox(
-      height: 211,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 211),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Image.asset(Assets.character2Png, width: 67, height: 78),

@@ -15,7 +15,7 @@ CategoryItem categoryFromApi(
   final color = _colorFromHex(category.color) ?? AppColors.subSubtle;
   return CategoryItem(
     id: category.id,
-    name: category.name == '미분류' ? catUncategorized.name : category.name,
+    name: category.name,
     color: color,
     tint: color.withValues(alpha: 0.2),
     deep: deepCategoryColor(color),
