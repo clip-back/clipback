@@ -1222,11 +1222,17 @@ void main() {
   );
 
   group('recent cards snap one card to the center', () {
-    Future<void> renderRecent(WidgetTester tester, {int count = 4}) async {
+    Future<void> renderRecent(
+      WidgetTester tester, {
+      int count = 4,
+      double width = 375,
+    }) async {
       addTearDown(tester.view.reset);
       final contents = List.generate(count, _content);
       await _render(
         tester,
+        width: width,
+        platform: defaultTargetPlatform,
         child: _panel(contents: contents, feed: _feed(contents)),
       );
     }
@@ -1252,12 +1258,49 @@ void main() {
       expect(_activeDot(tester), 1);
     });
 
-    testWidgets('hard flick still moves only one card', (tester) async {
+    testWidgets('hard short flick moves one card', (tester) async {
       await renderRecent(tester);
       await _flickRecent(tester, -150, 8000);
       expect(_recentPosition(tester).pixels, 306);
       expect(_activeDot(tester), 1);
     });
+
+    // User decision 2026-11-15 "지금 구현 유지": nearest card on release
+    // plus one more in the flick direction, so a fast flick longer than one
+    // card can move two cards.
+    testWidgets(
+      'long fast left flick moves from the nearest card on release',
+      (tester) async {
+        await renderRecent(tester, width: 393);
+        final y = tester.getCenter(_recentRail()).dy;
+        await tester.flingFrom(Offset(375, y), const Offset(-350, 0), 3000);
+        await tester.pumpAndSettle();
+        expect(_recentPosition(tester).pixels, 612);
+        expect(_activeDot(tester), 2);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      }),
+    );
+
+    testWidgets(
+      'long fast right flick moves from the nearest card on release',
+      (tester) async {
+        await renderRecent(tester, width: 393);
+        await _dragRecent(tester, 1500);
+        expect(_recentPosition(tester).pixels, 918);
+        final y = tester.getCenter(_recentRail()).dy;
+        await tester.flingFrom(Offset(25, y), const Offset(350, 0), 3000);
+        await tester.pumpAndSettle();
+        expect(_recentPosition(tester).pixels, 306);
+        expect(_activeDot(tester), 1);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      }),
+    );
 
     testWidgets('right flick from the second card returns to the first', (
       tester,
