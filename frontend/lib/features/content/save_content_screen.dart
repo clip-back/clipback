@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:clipback_frontend/data/services/photo_converter.dart';
 import 'package:clipback_frontend/features/content/view_models/content_save_submission.dart';
 import 'package:clipback_frontend/shared/content/source_label.dart';
 import 'package:clipback_frontend/shared/contracts/save_callbacks.dart';
@@ -56,6 +57,7 @@ class _AddContentSheetState extends State<AddContentSheet> {
   var _photoStage = SaveFlowStage.editing;
   Uint8List? _selectedPhotoBytes;
   String? _selectedPhotoFilename;
+  var _photoPick = 0;
   String? _saveError;
   late final _submission = ContentSaveSubmission(
     onAddLink: widget.onAddLink,
@@ -176,21 +178,25 @@ class _AddContentSheetState extends State<AddContentSheet> {
 
   Future<void> _selectPhoto() async {
     if (_submission.saved != null || _submission.isSaving) return;
+    final pick = ++_photoPick;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowCompression: false,
       withData: true,
     );
-    final photo = result != null && result.files.isNotEmpty
+    final picked = result != null && result.files.isNotEmpty
         ? result.files.first
         : null;
+    if (picked?.bytes == null) return;
+    // Convert once at selection so preview, save and retry share the bytes.
+    final photo = await preparePhotoForUpload(picked!.bytes!, picked.name);
     if (!mounted ||
+        pick != _photoPick ||
         _submission.saved != null ||
-        _submission.isSaving ||
-        photo?.bytes == null) {
+        _submission.isSaving) {
       return;
     }
-    _submission.photoSelected(photo!.bytes!);
+    _submission.photoSelected(photo.bytes);
     setState(() {
       _selectedPhotoBytes = photo.bytes;
       _selectedPhotoFilename = photo.name;

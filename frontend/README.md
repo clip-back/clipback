@@ -55,11 +55,14 @@ Android Release는 저장소 밖의 업로드 키 설정을 요구합니다.
 [Release 서명과 AAB 빌드](../docs/frontend/development.md#android-release-서명과-aab)를 따릅니다.
 
 앱의 사진 첨부는 파일 선택기의 압축을 끄고 선택한 파일 바이트와 이름을 그대로 업로드합니다.
+예외로 머리 바이트가 HEIC/HEIF인 사진은 고를 때 한 번 네이티브(`com.huturu.app/image`, iOS ImageIO·Android 9+ ImageDecoder)에서
+원본 해상도·품질 90·방향 반영·메타데이터(GPS 포함) 없는 JPEG로 바꾸고 이름을 `.jpg`로 바꿉니다(`lib/data/services/photo_converter.dart`).
+변환하지 못하면 원본을 그대로 보내고 서버 415에 지원 형식 안내를 보입니다([사진 형식](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)).
 사진 저장 요청 중에는 사진 선택을 잠그고, 시간 초과 뒤 같은 사진을 수동 재시도하면 같은 제출 키로 기존 저장 결과를 받습니다.
 처리 중·결과 썸네일은 원본의 상단을 표시합니다. [사진 저장·재시도 계약](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)을 따릅니다.
 링크 저장은 저장 버튼부터 20초(401 뒤 인증 갱신·재전송 포함) 안에 끝나지 않으면 사진과 같은 지연 안내로 끝나고, 같은 화면에서 다시 저장하면 같은 제출 키를 씁니다.
 [링크 저장 계약](../docs/frontend/behavior.md#콘텐츠-저장과-자동-분류)과 [#319 이력](../docs/history/2026-11-10-link-save-timeout.md)을 따릅니다.
-PNG 투명도·화질을 바꾸는 JPEG 변환을 요청하지 않으며, Android 이미지 URI 공유도 제공된 원본을 읽습니다.
+PNG·JPEG·WebP는 투명도·화질을 바꾸는 JPEG 변환을 요청하지 않으며, Android 이미지 URI 공유도 제공된 원본을 읽습니다.
 원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
 Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
 권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.
@@ -160,6 +163,7 @@ MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스
 | `lib/app/actions/` | 여러 Repository를 사용하는 계정 초기화·콘텐츠 변경 후 갱신 순서 |
 | `lib/data/repositories/` | 세션, 콘텐츠·카테고리·피드, 사용자·서버 통계, 계정별 최근 검색어, 네이티브 공유 Repository의 계약과 구현 |
 | `lib/data/services/api_request_scope.dart` | 최초 홈·부가 조회·마이 통계·카테고리 저장/재확인/조회의 요청 수명, 저장 화면 사진 저장의 닫기 취소, 링크 저장 요청의 20초 제한과 공통 인증 갱신의 늦은 응답 차단, 요청 결과를 성공·늦은 응답·실패로 돌려줌 |
+| `lib/data/services/photo_converter.dart` | 저장 화면 사진의 HEIC/HEIF 판정(머리 바이트)과 네이티브 JPEG 변환 요청, 실패 시 원본 유지 |
 | `lib/data/models/` | 읽기 전용 피드 스냅샷, 요청 세대와 변경 핸들 등 데이터 처리 계약 |
 | `lib/shared/models/` | 여러 기능에서 사용하는 화면 모델 |
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |

@@ -13,6 +13,7 @@ import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -61,6 +62,33 @@ final Uint8List _jpeg = base64Decode(
   'AAAAAAAAAAAAAABgEBAQEAAAAAAAAAAAAAAAAAAAYHEAEAAAAAAAAAAAAAAAAAAAAAEQEAAA'
   'AAAAAAAAAAAAAAAAAA/8AAEQgAAQABAwESAAISAAMSAP/aAAwDAQACEQMRAD8AixKDfx//2Q==',
 );
+
+// iPhone camera HEIC head: ftyp major heic, compatible mif1·heic (#380).
+final Uint8List _heic = Uint8List.fromList([
+  0, 0, 0, 0x18, ...ascii.encode('ftypheic'), 0, 0, 0, 0, //
+  ...ascii.encode('mif1heic'), 0, 0, 0, 0x10, ...ascii.encode('metajunkjunk'),
+]);
+const _formatError = 'PNG, JPEG, WebP 이미지만 지원합니다.';
+const _serverFormatError = 'Unsupported or invalid screenshot image';
+
+/// Mocks the platform HEIC→JPEG converter and records its calls.
+List<MethodCall> _mockConverter(Future<Object?> Function(MethodCall)? handler) {
+  const channel = MethodChannel('com.huturu.app/image');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final calls = <MethodCall>[];
+  messenger.setMockMethodCallHandler(
+    channel,
+    handler == null
+        ? null
+        : (call) {
+            calls.add(call);
+            return handler(call);
+          },
+  );
+  addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+  return calls;
+}
 
 void _expectSavedPhotoResult(WidgetTester tester) {
   final confirmation = tester.widget<SavedContentConfirmation>(
@@ -295,9 +323,10 @@ class _BackingStore {
 }
 
 class _Picker extends FilePicker {
-  _Picker({this.simulateAndroidCompression = false});
+  _Picker({this.simulateAndroidCompression = false, this.picked});
 
   final bool simulateAndroidCompression;
+  final (String, Uint8List)? picked;
   int calls = 0;
   FileType? requestedType;
   bool? requestedData;
@@ -327,10 +356,10 @@ class _Picker extends FilePicker {
         type == FileType.image &&
         allowCompression &&
         compressionQuality > 0;
-    final bytes = compressed ? _jpeg : _png;
+    final bytes = picked?.$2 ?? (compressed ? _jpeg : _png);
     return FilePickerResult([
       PlatformFile(
-        name: compressed ? 'screen.jpg' : 'screen.png',
+        name: picked?.$1 ?? (compressed ? 'screen.jpg' : 'screen.png'),
         size: bytes.length,
         bytes: bytes,
       ),
@@ -1730,4 +1759,161 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'HEIC photo uploads one converted .jpg JPEG and retries the same bytes and key',
+    (tester) async {
+      final conversions = _mockConverter((_) async => _jpeg);
+      var attempts = 0;
+      final server = _Server(
+        respond: (call) async {
+          if (call.request.url.path != _upload) return null;
+          attempts++;
+          return attempts == 1
+              ? _json({'detail': 'Injected 503 failure'}, 503)
+              : null;
+        },
+      );
+      await _withApp(tester, server, () async {
+        await _selectPhoto(
+          tester,
+          picker: _Picker(picked: ('IMG_0001.HEIC', _heic)),
+        );
+        expect(
+          tester
+              .widget<SelectedPhotoPreview>(find.byType(SelectedPhotoPreview))
+              .photoBytes,
+          orderedEquals(_jpeg),
+        );
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+        expect(find.text('Injected 503 failure'), findsOneWidget);
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+        final uploads = server.calls(_upload);
+        expect(uploads, hasLength(2));
+        for (final upload in uploads) {
+          expect(upload.file.bytes, orderedEquals(_jpeg));
+          expect(upload.file.bytes.take(3), [0xFF, 0xD8, 0xFF]);
+          expect(upload.file.filename, 'IMG_0001.jpg');
+        }
+        final key = uploads.first.request.headers['Idempotency-Key'];
+        expect(key, isNotNull);
+        expect(uploads.last.request.headers['Idempotency-Key'], key);
+        expect(conversions, hasLength(1));
+        expect(conversions.single.arguments, {'bytes': _heic, 'quality': 90});
+        expect(find.byType(SavedContentConfirmation), findsOneWidget);
+        expect(
+          tester
+              .widget<SavedContentConfirmation>(
+                find.byType(SavedContentConfirmation),
+              )
+              .photoBytes,
+          orderedEquals(_jpeg),
+        );
+      });
+    },
+  );
+
+  for (final (label, handler)
+      in <(String, Future<Object?> Function(MethodCall)?)>[
+        ('returns nothing', (_) async => null),
+        // Old Android (API 24–27) and missing plugins answer this way. A
+        // truly unregistered channel replies outside fake time; the unit
+        // test in heic_photo_test.dart covers it.
+        ('is unavailable', (_) async => throw MissingPluginException()),
+        (
+          'fails to decode',
+          (_) async => throw PlatformException(code: 'decode'),
+        ),
+      ]) {
+    testWidgets(
+      'converter that $label sends the original HEIC and shows the Korean 415 message',
+      (tester) async {
+        _mockConverter(handler);
+        final server = _Server(
+          respond: (call) async => call.request.url.path == _upload
+              ? _json({'detail': _serverFormatError}, 415)
+              : null,
+        );
+        await _withApp(tester, server, () async {
+          await _selectPhoto(
+            tester,
+            picker: _Picker(picked: ('IMG_0001.HEIC', _heic)),
+          );
+          await tester.tap(find.text('허투루에 저장하기'));
+          await tester.pumpAndSettle();
+          final upload = server.calls(_upload).single;
+          expect(upload.file.bytes, orderedEquals(_heic));
+          expect(upload.file.filename, 'IMG_0001.HEIC');
+          expect(
+            tester.widget<SaveErrorToast>(find.byType(SaveErrorToast)).message,
+            _formatError,
+          );
+          expect(find.text(_serverFormatError), findsNothing);
+          expect(find.byType(SavedContentConfirmation), findsNothing);
+          // The test engine cannot decode the HEIC preview (devices can); its
+          // report may arrive before or after this point. Nothing else may.
+          final error = tester.takeException();
+          expect(
+            error == null || '$error'.contains('Invalid image data'),
+            isTrue,
+            reason: '$error',
+          );
+        });
+      },
+    );
+  }
+
+  // Each text scale gets its own test: Flutter reports one overflow per
+  // widget, so measuring two scales in one test can hide the second.
+  for (final scale in [1.0, 1.3]) {
+    testWidgets('415 format message fits 320pt at text scale $scale', (
+      tester,
+    ) async {
+      final server = _Server(
+        respond: (call) async => call.request.url.path == _upload
+            ? _json({'detail': _serverFormatError}, 415)
+            : null,
+      );
+      await _withApp(tester, server, () async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await tester.pumpAndSettle();
+        await _selectPhoto(tester);
+        await tester.tap(find.text('허투루에 저장하기'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<SaveErrorToast>(find.byType(SaveErrorToast)).message,
+          _formatError,
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.descendant(
+              of: find.byType(SaveErrorToast),
+              matching: find.text(_formatError),
+            ),
+            matching: find.byType(RichText),
+          ),
+        );
+        expect(paragraph.textScaler.scale(1), scale);
+        expect(paragraph.didExceedMaxLines, isFalse);
+        final screen = tester.getRect(find.byType(AddContentSheet));
+        for (final finder in [
+          find.byType(SaveErrorToast),
+          find.byType(SaveFlowButton),
+        ]) {
+          final rect = tester.getRect(finder);
+          expect(rect.left, greaterThanOrEqualTo(screen.left));
+          expect(rect.right, lessThanOrEqualTo(screen.right));
+        }
+        expect(
+          tester.getRect(find.byType(SaveErrorToast)).bottom,
+          lessThanOrEqualTo(tester.getRect(find.byType(SaveFlowButton)).top),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
 }
