@@ -59,6 +59,7 @@ def create_app(*, maintenance=None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    from app.middleware.body_size_limit import BodySizeLimitMiddleware
     from app.middleware.maintenance import MaintenanceMiddleware
     from app.services.maintenance import default_gate
 
@@ -72,6 +73,12 @@ def create_app(*, maintenance=None) -> FastAPI:
     )
 
     app.add_middleware(MaintenanceMiddleware, state=app.state, prefix=settings.api_v1_prefix)
+    # Outermost, so oversized requests are refused before maintenance admission touches the DB.
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        upload_path=f"{settings.api_v1_prefix}/uploads/screenshots",
+        screenshot_max_bytes=settings.screenshot_max_bytes,
+    )
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     @app.get("/", tags=["root"])
