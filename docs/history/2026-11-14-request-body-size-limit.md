@@ -57,3 +57,9 @@ VERIFY result=PASS scope=all checks=11 failed=0
 최신 main의 배포 기록 `d529d00`을 `ef836bc`로 병합했다. 변경은 배포 문서와 CHANGELOG뿐이며, 병합 때 되살아난 이미 배포된 항목의 중복을 정리했다. 최종 CHANGELOG 차이는 미배포의 #361 한 줄이다.
 
 `bcba5ec`와 병합 후의 `backend/`, `frontend/`, `.github/` diff가 비어 있어 전체 검증 근거는 위 실행을 유지한다. 사용자 지시에 따라 변경된 문서 범위의 경로·내용과 `git diff --check`를 확인했다. 원격 CI 결과는 PR에서 별도로 확인한다.
+
+## #360 병합 뒤 충돌 해소
+
+main의 스낵바 수정 `de1eb1c`를 `0c889e9`로 병합했다. CHANGELOG의 #361 항목이 앱 배포 절에 놓인 것을 바로잡아, main 내용은 보존하고 `미배포`의 `개선`에 이 항목만 더했다. main 대비 프론트 diff는 없고 서버 코드는 직전 PR head와 같다.
+
+공용 검사 차례를 기다린 뒤 `flutter analyze --no-pub`와 변경 범위의 `contact_form_root_test.dart`, `my_legal_links_root_test.dart`, `snackbar_font_root_test.dart`, `snackbar_stack_root_test.dart`를 실행했다. 분석 문제 없음, 테스트 22개 통과, 종료 코드 0이다. 전체 검사를 다시 실행한 결과는 아니며, 문서·공백 검사도 통과했다.
