@@ -50,6 +50,7 @@ flutter run -d chrome --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:8000/
 Android application ID와 iOS Bundle ID는 `com.huturu.app`입니다. Android 내부 namespace와
 공급자 콘솔·서명 설정은 [공개 앱 설정](../docs/frontend/development.md#공개-앱-설정)을 확인합니다.
 기존 `com.clipback.frontend` 개발 앱과 새 Android 앱은 별도로 설치됩니다.
+Android 백업·기기 이전 규칙은 `android/app/src/main/res/xml/`에 있으며 로그인 세션 파일만 뺍니다([갱신 토큰 저장](../docs/frontend/behavior.md#갱신-토큰-저장)).
 Android Release는 저장소 밖의 업로드 키 설정을 요구합니다.
 [Release 서명과 AAB 빌드](../docs/frontend/development.md#android-release-서명과-aab)를 따릅니다.
 
