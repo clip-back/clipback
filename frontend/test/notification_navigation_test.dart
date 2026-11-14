@@ -299,15 +299,15 @@ void main() {
                 expect(_notifications, findsNothing);
                 expect(_home, findsOneWidget);
                 _preserved(tester, before);
-                expect(server.requests.length, requests + 1);
-                // Leaving notifications for Home is a new Weekly visit.
+                expect(server.requests.length, requests);
+                // Leaving notifications for Home keeps the Weekly visit.
                 expect(
                   server.requests
                       .where(
                         (r) => r['path'] == '/api/v1/recommendations/weekly',
                       )
                       .length,
-                  weeklyRequests + 1,
+                  weeklyRequests,
                 );
                 expect(server.records.length, records);
                 expect(server.writes, 0);
@@ -467,12 +467,12 @@ void main() {
           _back(tester)();
           await tester.pumpAndSettle();
           _preserved(tester, before);
-          expect(server.requests.length, requests + 1);
+          expect(server.requests.length, requests);
           expect(
             server.requests
                 .where((r) => r['path'] == '/api/v1/recommendations/weekly')
                 .length,
-            weeklyRequests + 1,
+            weeklyRequests,
           );
           expect(server.writes, 0);
           expect(server.logoutCalls, 0);

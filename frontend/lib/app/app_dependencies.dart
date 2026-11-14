@@ -75,6 +75,7 @@ class AppDependencies {
       users: users,
       initializeAccount: initializeAccount,
       beforeSessionChange: () => sharing.blockForSessionChange(),
+      prepareInitialHome: () => homeWeekly.prepare(),
     );
     sharing = ShareCoordinator(
       shares: shares,

@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
+import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
+import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
@@ -118,10 +120,40 @@ Future<void> _withApp(
   }, () => client);
 }
 
+/// #379: the app start loads the weekly visit before home is shown, so a test
+/// that holds a home visit's first GET starts that visit by a new login
+/// (logout, then guest), whose first GET still follows home's first frame.
+Future<void> _logout(WidgetTester t) async {
+  _home(t).onTab(AppRoute.my);
+  await t.pumpAndSettle();
+  t.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+  await t.pumpAndSettle();
+  await logoutFromAccount(t);
+  await t.pumpAndSettle();
+  expect(find.byType(LoginScreen), findsOneWidget);
+}
+
+/// Logs out, restarts the request log at the new login (counts and item IDs
+/// read as from the app start before) and logs in as a guest, the first GET
+/// held by [hold] and answered in [mode].
+Future<void> _newLogin(
+  WidgetTester t,
+  WeeklyServer s,
+  _Log log, {
+  Completer<void>? hold,
+  String? mode,
+}) async {
+  await _logout(t);
+  log.requests.clear();
+  s.batch = 800;
+  if (mode != null) s.weeklyMode = mode;
+  s.weeklyPending = hold;
+  await startGuestAndFinishOnboarding(t);
+  expect(find.byType(HomeScreen), findsOneWidget);
+}
+
 HomeScreen _home(WidgetTester t) =>
     t.widget<HomeScreen>(find.byType(HomeScreen));
-ArchiveScreen _archive(WidgetTester t) =>
-    t.widget<ArchiveScreen>(find.byType(ArchiveScreen));
 Finder get _message => find.text(_failure);
 Finder _card(int id) => find.byKey(ValueKey('weekly-card-$id'));
 List<int> _items(WidgetTester t) =>
@@ -181,45 +213,40 @@ void main() {
       'W1a failure behind the save sheet shows once after the close transition',
       (t) async {
         final pending = Completer<void>();
-        await _withApp(
-          t,
-          (s, log) async {
-            _openSaveSheet(t);
-            await t.pumpAndSettle();
-            pending.complete();
-            await t.pumpAndSettle();
-            expect(log.weeklyGets, hasLength(1));
-            expect(_message, findsNothing);
+        await _withApp(t, (s, log) async {
+          await _newLogin(t, s, log, hold: pending, mode: 'error');
+          _openSaveSheet(t);
+          await t.pumpAndSettle();
+          pending.complete();
+          await t.pumpAndSettle();
+          expect(log.weeklyGets, hasLength(1));
+          expect(_message, findsNothing);
 
-            final context = t.element(find.byType(SaveContentTopBar));
-            final route = ModalRoute.of(context)! as TransitionRoute<dynamic>;
-            var closed = false;
-            unawaited(route.completed.then((_) => closed = true));
-            Navigator.of(context).pop();
-            // Until the close transition completes, every frame is silent.
-            var frames = 0;
+          final context = t.element(find.byType(SaveContentTopBar));
+          final route = ModalRoute.of(context)! as TransitionRoute<dynamic>;
+          var closed = false;
+          unawaited(route.completed.then((_) => closed = true));
+          Navigator.of(context).pop();
+          // Until the close transition completes, every frame is silent.
+          var frames = 0;
+          expect(_message, findsNothing);
+          while (!closed) {
+            await t.pump();
+            frames++;
             expect(_message, findsNothing);
-            while (!closed) {
-              await t.pump();
-              frames++;
-              expect(_message, findsNothing);
-              expect(frames, lessThan(60));
-            }
-            expect(_message, findsNothing);
+            expect(frames, lessThan(60));
+          }
+          expect(_message, findsNothing);
 
-            // After the transition ended: exactly one notice.
-            await t.pumpAndSettle();
-            expect(_message, findsOneWidget);
-            expect(find.byType(SnackBarAction), findsOneWidget);
-            s.weeklyMode = 'empty';
-            await _retryFromNotice(t);
-            expect(log.weeklyGets, hasLength(2));
-            expect(_message, findsNothing);
-          },
-          setup: (s) => s
-            ..weeklyMode = 'error'
-            ..weeklyPending = pending,
-        );
+          // After the transition ended: exactly one notice.
+          await t.pumpAndSettle();
+          expect(_message, findsOneWidget);
+          expect(find.byType(SnackBarAction), findsOneWidget);
+          s.weeklyMode = 'empty';
+          await _retryFromNotice(t);
+          expect(log.weeklyGets, hasLength(2));
+          expect(_message, findsNothing);
+        });
       },
     );
 
@@ -258,10 +285,17 @@ void main() {
     (t) async {
       final aGate = Completer<void>();
       const aToken = 'Bearer fixture-access', bToken = 'Bearer b-access';
-      var weeklyGets = 0;
+      Completer<void>? hold;
+      var guests = 0;
       await _withApp(
         t,
         (s, log) async {
+          // Account A is a new login (its first GET follows home's frame).
+          await _logout(t);
+          log.requests.clear();
+          s.batch = 800;
+          hold = aGate;
+          await startGuestAndFinishOnboarding(t);
           expect(log.weeklyGets.single.headers['Authorization'], aToken);
           expect(_items(t), isEmpty);
 
@@ -306,17 +340,19 @@ void main() {
           switch (request.url.path) {
             case '/api/v1/auth/logout':
               return http.Response('', 204);
-            case '/api/v1/auth/guest':
+            case '/api/v1/auth/guest' when guests++ > 0:
               return s.json({
                 'access_token': 'b-access',
                 'refresh_token': 'b-refresh',
                 'expires_in': 3600,
                 'refresh_expires_in': 86400,
               }, 201);
-            case _weeklyPath when weeklyGets++ == 0:
+            case _weeklyPath when hold != null:
               // Account A: batch 801 (items 8011, 8012), held until later.
+              final gate = hold!;
+              hold = null;
               final response = await forward();
-              await aGate.future;
+              await gate.future;
               return response;
           }
           return null;
@@ -326,62 +362,59 @@ void main() {
   );
 
   testWidgets(
-    'W3 background failure then another tab: no old notice, home starts a new visit',
+    'W3 background failure then another tab: same visit, deferred notice once on home, retry adds one GET',
     (t) async {
       final pending = Completer<void>();
-      await _withApp(
-        t,
-        (s, log) async {
-          _background(t);
-          await t.pumpAndSettle();
-          pending.complete();
-          await t.pumpAndSettle();
-          expect(_message, findsNothing);
+      await _withApp(t, (s, log) async {
+        await _newLogin(t, s, log, hold: pending, mode: 'error');
+        _background(t);
+        await t.pumpAndSettle();
+        pending.complete();
+        await t.pumpAndSettle();
+        expect(_message, findsNothing);
 
-          _home(t).onTab(AppRoute.my);
-          await t.pumpAndSettle();
-          _foreground(t);
-          await t.pumpAndSettle();
-          expect(find.byType(MyScreen), findsOneWidget);
-          expect(_message, findsNothing);
-          expect(log.weeklyGets, hasLength(1));
+        _home(t).onTab(AppRoute.my);
+        await t.pumpAndSettle();
+        _foreground(t);
+        await t.pumpAndSettle();
+        expect(find.byType(MyScreen), findsOneWidget);
+        expect(_message, findsNothing);
+        expect(log.weeklyGets, hasLength(1));
 
-          s.weeklyMode = 'normal';
-          t.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
-          await t.pumpAndSettle();
-          expect(find.byType(HomeScreen), findsOneWidget);
-          expect(log.weeklyGets, hasLength(2));
-          expect(_items(t), hasLength(2));
-          expect(_message, findsNothing);
-        },
-        setup: (s) => s
-          ..weeklyMode = 'error'
-          ..weeklyPending = pending,
-      );
+        s.weeklyMode = 'normal';
+        t.widget<MyScreen>(find.byType(MyScreen)).onTab(AppRoute.home);
+        await t.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(log.weeklyGets, hasLength(1));
+        expect(_items(t), isEmpty);
+        expect(_message, findsOneWidget);
+        await _retryFromNotice(t);
+        expect(log.weeklyGets, hasLength(2));
+        expect(_items(t), hasLength(2));
+        expect(_message, findsNothing);
+      });
     },
   );
 
   testWidgets(
-    'W4 no weekly GET during splash; the first GET follows the first ready frame',
+    'W4 one weekly GET during splash; the first home frame already has the cards',
     (t) async {
       await _withApp(t, (s, log) async {
         await t.pump();
         expect(find.byType(SplashScreen), findsOneWidget);
-        expect(log.weeklyGets, isEmpty);
+        expect(log.weeklyGets, hasLength(1));
 
         // Just before launch readiness (the splash lasts 900ms).
         await t.pump(const Duration(milliseconds: 899));
         expect(find.byType(SplashScreen), findsOneWidget);
-        expect(log.weeklyGets, isEmpty);
+        expect(log.weeklyGets, hasLength(1));
 
-        // Splash done and home mounted; readiness completes after this frame,
-        // so the first ready frame has not been drawn yet.
+        // Splash done and home mounted with the cards in its first frame.
         await t.pump(const Duration(milliseconds: 1));
         expect(find.byType(SplashScreen), findsNothing);
         expect(find.byType(HomeScreen), findsOneWidget);
-        expect(log.weeklyGets, isEmpty);
+        expect(_items(t), hasLength(2));
 
-        // After the first ready frame: exactly one GET.
         await t.pump();
         expect(log.weeklyGets, hasLength(1));
         await t.pumpAndSettle();
@@ -400,11 +433,27 @@ void main() {
         expect(oldItems, [8011, 8012]);
         expect(log.exposures, isEmpty);
 
-        old.onTab(AppRoute.archive);
+        // An account change starts the new visit (leaving home keeps one).
+        // The login screens get a full-height view; the new home is shown at
+        // the short height again, so no exposure is recorded automatically.
+        t.view.physicalSize = const Size(393, 852);
+        old.onTab(AppRoute.my);
+        await t.pumpAndSettle();
+        t.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+        await t.pumpAndSettle();
+        await logoutFromAccount(t);
         await t.pumpAndSettle();
         // The new visit's response repeats the same item IDs.
         s.batch = 800;
-        _archive(t).onTab(AppRoute.home);
+        await performLoginChoice(
+          t,
+          t.widget<LoginScreen>(find.byType(LoginScreen)).onContinue,
+        );
+        await t.pumpAndSettle();
+        t.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
+        await t.pumpAndSettle();
+        t.view.physicalSize = _cardsBelowFold;
+        await completeInterestSelection(t);
         await t.pumpAndSettle();
         expect(log.weeklyGets, hasLength(2));
         expect(_items(t), oldItems);
@@ -514,6 +563,7 @@ void main() {
         (t) async {
           final pending = Completer<void>();
           await _withApp(t, (s, log) async {
+            await _newLogin(t, s, log, hold: pending);
             expect(log.weeklyGets, hasLength(1));
             expect(_items(t), isEmpty);
             final requests = log.requests.length;
@@ -527,7 +577,7 @@ void main() {
               _quietAfterRemoval,
             );
             expect(log.exposures, isEmpty);
-          }, setup: (s) => s.weeklyPending = pending);
+          });
         },
       );
     }
@@ -537,6 +587,7 @@ void main() {
       (t) async {
         final pending = Completer<void>();
         await _withApp(t, (s, log) async {
+          await _newLogin(t, s, log, hold: pending);
           expect(_items(t), isEmpty);
           pending.complete();
           await t.pumpAndSettle();
@@ -554,19 +605,41 @@ void main() {
             _quietAfterRemoval,
           );
           expect(log.weeklyGets, hasLength(1));
-        }, setup: (s) => s.weeklyPending = pending);
+        });
       },
     );
   });
+
+  /// Steps a new login up to its last tap ('다음' on interests). The tap
+  /// selects home synchronously: the new visit and its first load are
+  /// scheduled, and no frame has been drawn yet.
+  Future<void> tapIntoNewLoginHome(WidgetTester t, _Log log) async {
+    await _logout(t);
+    log.requests.clear();
+    await performLoginChoice(
+      t,
+      t.widget<LoginScreen>(find.byType(LoginScreen)).onContinue,
+    );
+    await t.pumpAndSettle();
+    t.widget<OnboardingScreen>(find.byType(OnboardingScreen)).onDone();
+    await t.pumpAndSettle();
+    await t.tap(find.byType(InterestOptionTile).first);
+    await t.pump();
+    expect(find.byType(InterestSelectionScreen), findsOneWidget);
+    expect(log.weeklyGets, isEmpty);
+    await t.tap(find.text('다음'));
+    // No frame since the tap: home is chosen but not drawn yet.
+    expect(find.byType(InterestSelectionScreen), findsOneWidget);
+    expect(find.byType(HomeScreen), findsNothing);
+    expect(t.binding.hasScheduledFrame, isTrue);
+  }
 
   testWidgets(
     'W9 app removed while the first load waits for the next frame sends no GET',
     (t) async {
       await _withApp(t, (s, log) async {
-        await t.pump();
-        await t.pump(const Duration(milliseconds: 900));
-        // Same boundary as W4: home visit started, first load next frame.
-        expect(find.byType(HomeScreen), findsOneWidget);
+        // A new login keeps the gap the app start had before #379.
+        await tapIntoNewLoginHome(t, log);
         expect(log.weeklyGets, isEmpty);
         final requests = log.requests.length;
 
@@ -578,7 +651,19 @@ void main() {
           _quietAfterRemoval,
         );
         expect(log.weeklyGets, isEmpty);
-      }, startup: false);
+      });
+    },
+  );
+
+  testWidgets(
+    'W9 control: without removal the next frame draws home and sends the GET',
+    (t) async {
+      await _withApp(t, (s, log) async {
+        await tapIntoNewLoginHome(t, log);
+        await t.pump();
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(log.weeklyGets, hasLength(1));
+      });
     },
   );
 }

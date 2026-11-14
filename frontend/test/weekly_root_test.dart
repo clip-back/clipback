@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/app/clipback_app.dart';
+import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
@@ -11,6 +13,7 @@ import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'auth_navigation.dart';
 import 'fixtures/weekly_server.dart';
 import 'support/archive_all_preview.dart' as isolated;
 import 'support/app_startup.dart';
@@ -52,6 +55,34 @@ Future<void> withHome(
   }, () => client);
 }
 
+/// #379: the app start loads the weekly visit before home is shown, so a test
+/// that holds a home visit's first GET starts that visit by a new login
+/// (logout, then guest), whose first GET still follows home's first frame.
+Future<void> logout(WidgetTester t) async {
+  home(t).onTab(AppRoute.my);
+  await t.pumpAndSettle();
+  t.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+  await t.pumpAndSettle();
+  await logoutFromAccount(t);
+  await t.pumpAndSettle();
+  expect(find.byType(LoginScreen), findsOneWidget);
+}
+
+/// Logs out, restarts the server log at the new login (counts read as from
+/// the app start before) and logs in as a guest with [hold] on its first GET.
+Future<void> newLogin(
+  WidgetTester t,
+  WeeklyServer s,
+  Completer<void> hold,
+) async {
+  await logout(t);
+  s.calls.clear();
+  s.batch = 800;
+  s.weeklyPending = hold;
+  await startGuestAndFinishOnboarding(t);
+  expect(find.byType(HomeScreen), findsOneWidget);
+}
+
 HomeScreen home(WidgetTester t) =>
     t.widget<HomeScreen>(find.byType(HomeScreen));
 DetailScreen detail(WidgetTester t) =>
@@ -89,7 +120,7 @@ void main() {
     },
   );
   testWidgets(
-    'ID category destination, attributed details, F01 return and fresh home visit',
+    'ID category destination, attributed details, F01 return keeps the home visit',
     (t) async {
       await withHome(t, (s) async {
         final h = home(t);
@@ -113,11 +144,11 @@ void main() {
         archive(t).onClearCategory();
         await t.pumpAndSettle();
         expect(find.byType(HomeScreen), findsOneWidget);
-        expect(weekly(s), hasLength(2));
-        expect(exposures(s), hasLength(4));
+        expect(weekly(s), hasLength(1));
+        expect(exposures(s), hasLength(2));
         expect(
-          (exposures(s).last['body'] as Map)['client_event_id'],
-          isNot(firstExposure),
+          (exposures(s).first['body'] as Map)['client_event_id'],
+          firstExposure,
         );
         home(t).onTab(AppRoute.archive);
         await t.pumpAndSettle();
@@ -168,6 +199,7 @@ void main() {
     (t) async {
       final pending = Completer<void>();
       await withHome(t, (s) async {
+        await newLogin(t, s, pending);
         t
             .widget<ClipbackNavigationBar>(find.byType(ClipbackNavigationBar))
             .onAdd!();
@@ -186,7 +218,7 @@ void main() {
         await t.pumpAndSettle();
         expect(weekly(s), hasLength(1));
         expect(exposures(s), hasLength(2));
-      }, setup: (s) => s.weeklyPending = pending);
+      });
     },
   );
   testWidgets(
@@ -194,6 +226,7 @@ void main() {
     (t) async {
       final pending = Completer<void>();
       await withHome(t, (s) async {
+        await newLogin(t, s, pending);
         t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
         await t.pumpAndSettle();
         pending.complete();
@@ -203,11 +236,10 @@ void main() {
         await t.pumpAndSettle();
         expect(exposures(s), hasLength(2));
         final old = home(t);
-        old.onTab(AppRoute.archive);
-        await t.pumpAndSettle();
+        // An account change starts the new visit (leaving home keeps one).
+        await logout(t);
         s.weeklyPending = Completer<void>();
-        archive(t).onTab(AppRoute.home);
-        await t.pumpAndSettle();
+        await startGuestAndFinishOnboarding(t);
         expect(home(t).weeklyItems, isEmpty);
         home(t).onTab(AppRoute.my);
         await t.pumpAndSettle();
@@ -217,7 +249,7 @@ void main() {
         old.onWeeklySelected!(old.weeklyItems.first);
         await t.pumpAndSettle();
         expect(find.byType(ArchiveScreen), findsNothing);
-      }, setup: (s) => s.weeklyPending = pending);
+      });
     },
   );
   testWidgets(
@@ -299,7 +331,7 @@ void main() {
           await t.pumpAndSettle();
           archive(t).onClearCategory();
           await t.pumpAndSettle();
-          expect(weekly(s), hasLength(2));
+          expect(weekly(s), hasLength(1));
           expect(home(t).weeklyItems, hasLength(2));
         },
         setup: (s) {
