@@ -160,6 +160,7 @@ gh pr create --base main --head feature/backend-example
 - 과거 결과에 날짜·기준 커밋·검증 환경을 남기고 현재 코드 확인·새 실행·운영 배포를 구분합니다.
 - 사용자 변경은 CHANGELOG, 실제 공개·배포 상태는 배포 기록에 남깁니다. 문서 정리만으로 해당 결과를 완료 처리하지 않습니다.
 - `CHANGELOG.md`와 [작업 이력 목차](history/README.md)는 `.gitattributes`의 `merge=union`으로 양쪽 추가 줄을 충돌 없이 모두 남깁니다. 같은 줄을 양쪽이 고치면 두 줄이 조용히 남으므로 병합 뒤 두 파일의 diff를 확인하고, 같은 날짜 안의 순서는 리뷰에서 봅니다. 작업 브랜치 쪽에 `.gitattributes`가 없으면 `union`이 적용되지 않으므로, 이 설정이 들어오기 전에 만든 브랜치는 main을 처음 합칠 때 한 번 손으로 풉니다.
+- main이 `미배포` 항목을 배포 절로 옮긴 뒤 작업 브랜치에 main을 합치면, `merge=union`이 충돌 없이 이 브랜치의 항목을 배포 절에 넣거나 옮겨진 줄을 중복시킬 수 있습니다. 합친 뒤 `git diff origin/main -- CHANGELOG.md`가 `## 미배포` 절 안에 이 브랜치 항목을 더한 줄뿐인지 확인하고, 아니면 main 쪽 구조를 그대로 두고 이 브랜치 항목만 `## 미배포` 아래 알맞은 절로 옮깁니다.
 
 - README의 API·기능 안내는 요약과 상세 문서 연결로 구성합니다. 실행·구조가 바뀌면 README를 갱신하고, 상세 계약만 바뀌면 해당 기준 문서를 갱신합니다.
 - 상세 설명은 [프론트 동작](frontend/behavior.md)·[프론트 개발·검증](frontend/development.md)·[백엔드 API](backend/api-contracts.md)·[백엔드 테스트](backend/testing.md)에서 관리합니다. 자동 분류·재발견·YouTube·디자인·운영의 전문 정책은 각 기존 문서를 따릅니다.
