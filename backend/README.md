@@ -62,7 +62,8 @@ source .venv/bin/activate
 alembic upgrade head
 ```
 
-API docs will be available at:
+In `local` and `test` environments, API docs will be available at
+the address below. They are disabled in `production`:
 
 ```text
 http://127.0.0.1:8000/docs
