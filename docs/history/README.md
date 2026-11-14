@@ -1,5 +1,9 @@
 # 작업·검증 이력
 
+- [migration CI 테스트 이름과 60초 대기 스택 출력 (#374)](2026-11-15-migration-ci-wait-diagnostics.md)
+
+- [수동 백업 축약 seed 공유와 PostgreSQL 회귀 검사 (#373)](2026-11-15-manual-backup-seed-regression.md)
+
 - [깨진 이미지 저장 거절과 운영 API 문서 비활성화 (#362)](2026-11-14-image-validation-and-production-docs.md)
 
 - [빈 화면 그림 고해상도 원본과 검색 배치 보존 (#241)](2026-11-06-empty-state-assets.md)
