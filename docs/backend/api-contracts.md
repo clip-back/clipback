@@ -141,8 +141,11 @@ Use `POST /api/v1/auth/refresh` to rotate the refresh token and issue a new toke
 pair. Use `POST /api/v1/auth/logout` to revoke the refresh session and all access
 tokens issued for that session.
 
-The root, health, OpenAPI, and authentication endpoints are public except for guest
+The root, health, and authentication endpoints are public except for guest
 social upgrades, share-credential issuance, and Apple challenges with `purpose=upgrade`.
+API documentation (`/docs`, `/redoc`, `/api/v1/openapi.json`, and
+`/docs/oauth2-redirect`) is public in `local` and `test` environments. All four
+addresses return 404 in `production`; no HTML documentation screens remain there.
 User, content, category,
 feed, upload, and metric endpoints require Bearer authentication.
 
@@ -847,6 +850,9 @@ failed-upload cleanup, and the limits of already-issued signed URLs.
 
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
 10MiB as multipart form data and returns the saved content with its asset metadata.
+Images with invalid structure or undecodable pixel data return
+`415 {"detail":"Unsupported or invalid screenshot image"}` before original storage,
+content creation, or OCR calls.
 The original bytes are preserved without resizing or recompression. `STORAGE_BACKEND`
 selects `local` (default, rooted at `STORAGE_ROOT`) or a private S3-compatible Bucket
 for new uploads. Each asset records its own storage backend, actual byte length and

@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [깨진 이미지 저장 거절과 운영 API 문서 비활성화 (#362)](2026-11-14-image-validation-and-production-docs.md)
+
 - [빈 화면 그림 고해상도 원본과 검색 배치 보존 (#241)](2026-11-06-empty-state-assets.md)
 
 - [Weekly 카드 문구·이름 색 결정](2026-11-04-weekly-pick-wording.md)

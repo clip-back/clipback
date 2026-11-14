@@ -1,4 +1,6 @@
 import json
+import struct
+import zlib
 from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
@@ -169,6 +171,22 @@ def make_image(image_format: str) -> bytes:
     return output.getvalue()
 
 
+def make_corrupt_png(*, truncated: bool) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data)) + kind + data
+            + struct.pack(">I", zlib.crc32(kind + data))
+        )
+
+    pixels = zlib.compress(b"\x00\xff\xff\xff" * 2)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 2, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", pixels[:len(pixels) // 2] if truncated else b"invalid")
+        + chunk(b"IEND", b"")
+    )
+
+
 def build_service(
     *,
     storage: FakeStorageClient | None = None,
@@ -280,6 +298,23 @@ async def test_upload_screenshot_rejects_invalid_or_unsupported_image(content: b
         )
 
     assert exc_info.value.status_code == 415
+    assert storage.files == {}
+    assert content_service.calls == []
+    assert ocr_client.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("truncated", [False, True], ids=["invalid-pixels", "truncated-pixels"])
+async def test_upload_screenshot_rejects_corrupt_png_pixels(truncated: bool) -> None:
+    service, storage, content_service, ocr_client = build_service(max_bytes=10_000)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ContentSaveFlow(content_service, uploads=service).save_screenshot(
+            user_id=1, file=FakeUploadFile(make_corrupt_png(truncated=truncated)), category_ids=[],
+        )
+
+    assert exc_info.value.status_code == 415
+    assert exc_info.value.detail == "Unsupported or invalid screenshot image"
     assert storage.files == {}
     assert content_service.calls == []
     assert ocr_client.calls == []
