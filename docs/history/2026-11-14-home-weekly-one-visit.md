@@ -1,6 +1,6 @@
 # 홈 '이번주 허투루 픽'을 앱 시작에 받고 방문을 계정마다 유지 (#379)
 
-2026-11-14, 브랜치 `fix/home-weekly-one-visit`. 시작 커밋 `ce54bc5`, 구현 커밋 `15f9881`(전체 VERIFY 기준). 이후 커밋은 이 문서만 더한다.
+2026-11-14, 브랜치 `fix/home-weekly-one-visit`. 시작 커밋 `ce54bc5`, 구현 커밋 `15f9881`, 이력 `e2b5ea9`, main(#385·#386, `aab206d`) 병합 `8ef0c13`(최종 전체 검증 기준). 이후 커밋은 이 문서만 바꾼다.
 팀 피드백 시트 99("홈에 들어가면 '이번주 허투루 픽'이 바로 안 뜨고 로딩이 끝난 뒤에 생겨서 아래 내용이 밀리고 어지러움")를 다룬다.
 
 ## 문제
@@ -47,8 +47,8 @@
 
 ## 검증
 
-- 전체 검증(`15f9881`): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3629건 통과. 백엔드 pytest 2661 passed, 49 skipped. skip은 `tests/deployment` 48건(`RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are …` 외 6종)과 `tests/integration` 1건(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…`)이다. 백엔드는 이번에 바꾸지 않았다.
-- 같은 HEAD의 첫 실행은 워크트리에 backend `.venv`가 없어 `VERIFY result=FAIL … failed_checks=backend:venv,backend:pytest`로 끝났다(앱 4단계는 통과). 워크트리 준비 스크립트로 환경을 만든 뒤 새로 실행한 위 결과만 판정에 쓴다.
+- 최종 전체 검증(main 병합 `8ef0c13`, tracked clean): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3660건 통과. 백엔드 pytest 2661 passed, 49 skipped. skip은 `tests/deployment` 48건(`RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are …` 외 6종)과 `tests/integration` 1건(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…`)이다. 백엔드는 이번에 바꾸지 않았다.
+- 병합 전 `15f9881`의 전체 검증(앱 3629건, pytest 같은 수)은 그 커밋의 기록으로 남긴다. 그 HEAD의 첫 실행은 워크트리에 backend `.venv`가 없어 환경 단계에서 실패했고, 준비 스크립트로 환경을 만든 뒤 다시 실행했다.
 - 촬영 진입 파일: 로컬 대역 서버가 주간 추천 GET마다 1000ms 늦게 답하고(실패 데이터는 1000ms 뒤 503), 요청 수·지연·카드 ID를 기록한다. 관측 기록의 보호 시험 9건과 상태별 빌드 전 확인(지연 4상태·실패 1상태)이 변경 전·후 코드 모두 통과했다.
 - 변경 전 화면(`ce54bc5`, iOS 18.6 iPhone 16·Android 16 `Medium_Phone`, 로컬 대역, 배율 1.0, 상태별 영상+마지막 프레임 PNG):
 
@@ -61,9 +61,11 @@
 | home-weekly-cold-start-fail | 1 · 없음 | 1 · 없음 | 503 뒤 픽 없는 홈과 실패 안내 한 번 |
 
   요청마다 측정 지연은 iOS 1001–1004ms, Android 1001–1026ms다. Figma 기준은 C01 `111:3584`(375×936, 2026-11-14 17:48 조회)이며, 기기 화면은 iOS 393×852(안전 영역 위 59/아래 34), Android 약 411.43×914.29(위/아래 24)로 원본은 보정하지 않았다. 로컬 증거는 `.utmp/ticket-379/screens/`, 요약 `.utmp/ticket-379/before-evidence.json`.
-- 변경 후 화면 촬영과 변경 전·후·Figma 비교는 아직 실행하지 않았다(화면 확인 미완료).
+- 변경 후 화면 촬영과 변경 전·후·Figma 비교는 아직 실행하지 않았다(화면 확인 미완료). 변경 후 코드의 촬영 빌드 전 확인 통과는 기기 촬영 완료를 뜻하지 않는다.
 - 운영 서버·실제 인증·실기기·실제 추천 모델 데이터는 범위 밖이며 확인하지 않았다. 원격 CI는 PR 뒤 확인하며 아직 실행하지 않았다.
 
 ## 검토
 
-검수(Codex, `.utmp/review-379.md`, `ce54bc5..15f9881`): Standards 0개, Spec 0개, 촬영 관측 도구 0개. 검수자가 새 테스트·W9, 손상된 성공 응답 5종(`null`·숫자·배열·빈 객체·`items` null)과 시간 초과 뒤 다시 시도 순서를 추가로 재현해 통과했고, 변경 후 코드로 촬영 빌드 전 확인(지연 24건·실패 21건)을 통과했다.
+검수(Codex, `.utmp/review-379-before-main.md`, `ce54bc5..15f9881`): Standards 0개, Spec 0개, 촬영 관측 도구 0개. 검수자가 새 테스트·W9, 손상된 성공 응답 5종(`null`·숫자·배열·빈 객체·`items` null)과 시간 초과 뒤 다시 시도 순서를 추가로 재현해 통과했고, 변경 후 코드로 촬영 빌드 전 확인(지연 24건·실패 21건)을 통과했다.
+
+병합 검수(Codex, `.utmp/review-379.md`, `8ef0c13`, main 쪽 `aab206d..8ef0c13` 13개 파일): Standards 0개, Spec 0개, 촬영 관측 도구 0개, 통합 충돌 없음. main #385(알림 빈 상태·요약 상태 문구·로그인 아래 기준·마이 관리 줄)·#386(문서)과 주간 추천 변경을 대조했고, 검수자가 병합 HEAD에서 관련 13파일 411건, 시간 초과·손상 응답 등 실패 경계 184건, 촬영 빌드 전 확인(지연 24건·실패 21건), `flutter analyze`를 새로 실행해 통과했다.
