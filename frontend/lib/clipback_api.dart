@@ -800,8 +800,14 @@ class ClipbackApi {
   Future<ApiContent> readContent(int contentId) async =>
       ApiContent.fromJson(await _json('GET', '/contents/$contentId'));
 
-  Future<void> deleteContent(int contentId) =>
-      _json('DELETE', '/contents/$contentId', allowEmpty: true);
+  Future<void> deleteContent(int contentId) async {
+    final response = await _request('DELETE', '/contents/$contentId');
+    // 404: the content is already gone on the server. Finish as deleted
+    // whatever the body is, before the error body is parsed.
+    if (response.statusCode == 404) return;
+    _throwForError(response);
+    if (response.body.isNotEmpty) _decodeJson(response);
+  }
 
   Future<ApiContent> updateContentCategories(
     int contentId,

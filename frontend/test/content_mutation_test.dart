@@ -1474,6 +1474,12 @@ void main() {
       '404 Content not found',
       '404 other',
       '404 empty',
+      '404 root array',
+      '404 root null',
+      '404 root number',
+      '404 detail list',
+      '404 detail map',
+      '404 broken JSON',
     ]) {
       testWidgets('delete $response from $from ends like a successful delete', (
         tester,
@@ -1488,6 +1494,16 @@ void main() {
                 'detail': 'Content not found',
               }, 404),
               '404 other' => _json({'detail': '다른 404 문구'}, 404),
+              '404 root array' => _json(<Object>[], 404),
+              '404 root null' => http.Response('null', 404),
+              '404 root number' => http.Response('7', 404),
+              '404 detail list' => _json({
+                'detail': [1],
+              }, 404),
+              '404 detail map' => _json({
+                'detail': {'code': 404},
+              }, 404),
+              '404 broken JSON' => http.Response('{', 404),
               _ => http.Response('', 404),
             };
           },

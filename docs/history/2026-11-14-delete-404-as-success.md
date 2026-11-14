@@ -13,7 +13,8 @@
 
 ## 구현
 
-- `ContentRepository.executeContentMutation`의 삭제 요청에서 `ClipbackApiException.statusCode == 404`만 잡아 성공으로 넘긴다. 그 뒤는 기존 성공 경로 그대로다: 삭제 표시 버전 기록, 모든 목록 페이지·오늘 묶음·즐겨찾기 id·열린 상세에서 제거, `DetailDeletedEffect`(상세면 진입 목록으로), `ContentActions`의 첫 페이지 재조회.
+- `ClipbackApi.deleteContent`가 HTTP 응답 상태를 받은 직후 404면 오류 본문을 해석하지 않고 성공으로 끝낸다. 404가 아닌 응답은 전과 같이 `_throwForError`와 본문 해석(2xx 손상 본문은 실패)을 거친다. 인증 갱신·세션 세대·취소 검사는 공용 `_request` 그대로다. 저장소는 바꾸지 않았고 성공한 삭제 요청으로 보아 기존 성공 경로를 탄다: 삭제 표시 버전 기록, 모든 목록 페이지·오늘 묶음·즐겨찾기 id·열린 상세에서 제거, `DetailDeletedEffect`(상세면 진입 목록으로), `ContentActions`의 첫 페이지 재조회.
+- 같은 helper(`_request`·`_throwForError`·`_json`·`_decodeJson`)는 바꾸지 않아 다른 요청(카테고리 삭제 `DELETE /categories/{id}` 포함)의 404·파싱 실패 처리는 그대로다.
 - 사진·링크 콘텐츠와 홈·아카이브·즐겨찾기·검색·상세의 삭제는 모두 같은 `DELETE /contents/{id}` 요청과 이 저장소 경로를 거친다(서버에서 사진은 이미지 삭제 서비스로 넘어가지만 앱 요청은 같다). 그래서 404 처리도 한 곳만 바꿨다.
 - 404가 아닌 실패(401·403·409·5xx·연결 실패·응답 파싱 실패)와 즐겨찾기·카테고리 변경의 오류 처리는 바꾸지 않았다. 서버는 바꾸지 않았다.
 
@@ -22,9 +23,16 @@
 먼저 테스트를 바꿔 실패를 본 뒤 고쳤다(로그는 로컬 `.utmp/ticket-364/partial-*.log`, 저장소에 넣지 않음).
 
 - 재현: `content_mutation_test.dart` 'delete <응답> from <detail|archive> ends like a successful delete'. 앱 전체를 띄우고 응답 204·404 `Content not found`·404 다른 문구·404 빈 본문을 상세(더보기 → 삭제 → 확인)와 아카이브에서 확인한다. 스낵바 없음, 상세 닫힘(진입 목록 홈), 항목 제거, 첫 페이지(cursor 없는) 피드 재조회를 본다. 수정 전 404 6건 실패, 204 2건 통과.
+- 리뷰 반영 재현: 같은 테스트에 404 본문 루트 배열·`null`·숫자, `detail` 목록·맵, 깨진 JSON을 더했다. 첫 구현(저장소에서 `statusCode == 404` 예외만 성공 처리)에서는 루트 배열·`null`·숫자·`detail` 목록이 본문 해석 중 TypeError로 상태 코드를 잃어 실패했다(상세·아카이브 8건).
 - 기존 반복 테스트의 `delete` × `404` 조합만 반복에서 빼고 위 테스트로 옮겼다(이슈 허용 칸). 같은 반복의 즐겨찾기·카테고리 × 404와 삭제 × 다른 실패는 기대값 그대로 통과한다. `category_delete_test.dart`는 바꾸지 않았다.
 
 ## 검증
 
-- 부분 검사: `content_mutation_test.dart` 전체 139건, `category_delete_test.dart`·`data/content_repository_test.dart`·`feed_pagination_test.dart`·`view_models/content_view_models_test.dart` 227건 통과, 바꾼 파일 analyze·format 통과.
+- 부분 검사(리뷰 반영 뒤): `content_mutation_test.dart` 전체 151건, `category_delete_test.dart`·`data/content_repository_test.dart`·`feed_pagination_test.dart`·`view_models/content_view_models_test.dart`·`session_refresh_test.dart`·`session_restore_test.dart`·`account_deletion_api_test.dart` 358건 통과, 바꾼 파일 analyze·format 통과. 첫 구현 때는 139건·227건(앞 4개 파일) 통과였다.
 - 전체 검증과 변경 후 화면 비교는 리뷰 반영 뒤 이 문서에 더한다. 변경 전 화면(iOS 18.6 iPhone 16·Android 16 `Medium_Phone`, 로컬 대역, 배율 1.0)은 `detail-delete-404`·`archive-delete-404`·`archive-delete-503` 세 상태를 찍었다. Figma 기준 없음.
+
+## 검토
+
+검수(Codex, `.utmp/review-364.md`): Standards 0개, Spec 중간 1개.
+
+- 반영: 404 본문이 루트 배열·`null`이거나 `detail`이 잘못된 타입이면 오류 본문 해석이 TypeError로 끝나 404 상태를 잃고 실패로 보였다. 사용자 결정("삭제 요청의 404는 detail과 관계없이 성공")에 맞게 404 판정을 상태 코드를 가진 API 삭제 경계로 옮겼다. 저장소에서 TypeError 전체를 성공으로 보지 않는다. 저장소의 404 catch는 중복이 되어 지웠다.
