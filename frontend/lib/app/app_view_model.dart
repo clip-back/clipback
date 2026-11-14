@@ -61,10 +61,12 @@ class AppViewModel extends ChangeNotifier {
     required UserRepository users,
     required AccountInitializationAction initializeAccount,
     Future<void> Function()? beforeSessionChange,
+    Future<void> Function()? prepareInitialHome,
   }) : _session = session,
        _users = users,
        _initializeAccount = initializeAccount,
-       _beforeSessionChange = beforeSessionChange {
+       _beforeSessionChange = beforeSessionChange,
+       _prepareInitialHome = prepareInitialHome {
     _users.addListener(_onUserChanged);
     _invalidations = session.invalidations.listen(_onSessionInvalidation);
     _appleRevocations = session.appleCredentialRevocations.listen(
@@ -79,6 +81,11 @@ class AppViewModel extends ChangeNotifier {
   final UserRepository _users;
   final AccountInitializationAction _initializeAccount;
   final Future<void> Function()? _beforeSessionChange;
+
+  /// App start only: home data loaded during the initial home loading screen
+  /// besides account and feed (the weekly visit). It bounds its own wait and
+  /// never fails, so it cannot turn into an initial home load failure.
+  final Future<void> Function()? _prepareInitialHome;
   late final StreamSubscription<SessionInvalidation> _invalidations;
   late final StreamSubscription<void> _appleRevocations;
   final List<UiEffect> _effects = [];
@@ -345,13 +352,18 @@ class AppViewModel extends ChangeNotifier {
         restoreEpoch = epoch;
         final generation = _accountGeneration;
         initialHomeLoading = _beginInitialHomeLoading();
+        final prepared = initialHomeLoading == null
+            ? null
+            : _prepareInitialHome?.call();
         await _loadRemoteData(initialHome: initialHomeLoading != null);
-        if (_disposed ||
+        bool stale() =>
+            _disposed ||
             epoch != _authEpoch ||
             generation != _accountGeneration ||
-            !_session.hasSession) {
-          return;
-        }
+            !_session.hasSession;
+        if (stale()) return;
+        await prepared;
+        if (stale()) return;
         _route = _postAuthRoute ?? AppRoute.home;
         _postAuthRoute = null;
         if (initialHomeLoading == null) await checkAppleCredential();
