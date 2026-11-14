@@ -242,6 +242,8 @@ class UploadService:
                 with Image.open(BytesIO(content)) as image:
                     image_format = image.format
                     image.verify()
+                with Image.open(BytesIO(content)) as image:
+                    image.load()
         except (
             Image.DecompressionBombError,
             Image.DecompressionBombWarning,
