@@ -51,3 +51,9 @@ VERIFY result=PASS scope=all checks=11 failed=0
 - `git diff --stat main -- frontend` 비어 있음.
 - 미검증: Docker deployment·operator-recovery는 로컬에서 돌리지 않았다(원격 CI에서 확인).
   Railway 앞단을 거친 413 수신과 운영 저장 확인은 배포 뒤 확인 항목이다.
+
+## PR 생성 전 main 반영
+
+최신 main의 배포 기록 `d529d00`을 `ef836bc`로 병합했다. 변경은 배포 문서와 CHANGELOG뿐이며, 병합 때 되살아난 이미 배포된 항목의 중복을 정리했다. 최종 CHANGELOG 차이는 미배포의 #361 한 줄이다.
+
+`bcba5ec`와 병합 후의 `backend/`, `frontend/`, `.github/` diff가 비어 있어 전체 검증 근거는 위 실행을 유지한다. 사용자 지시에 따라 변경된 문서 범위의 경로·내용과 `git diff --check`를 확인했다. 원격 CI 결과는 PR에서 별도로 확인한다.
