@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+import zlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from html import unescape
@@ -187,7 +188,7 @@ class MetadataClient:
                     transport=_PinnedTransport(self.http_transport),
                     follow_redirects=False,
                     timeout=timeout,
-                    headers={"User-Agent": self.user_agent},
+                    headers={"User-Agent": self.user_agent, "Accept-Encoding": "gzip"},
                     trust_env=False,
                 ) as client:
                     return await self._extract(
@@ -257,6 +258,15 @@ class MetadataClient:
                         http_status=response.status_code,
                     )
 
+                encodings = [
+                    token.strip().lower()
+                    for value in response.headers.get_list("content-encoding")
+                    for token in value.split(",")
+                    if token.strip().lower() not in {"", "identity"}
+                ]
+                if encodings not in ([], ["gzip"]):
+                    return self._failure(current_url, "unsupported_encoding")
+
                 content_type = (
                     response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 )
@@ -264,10 +274,20 @@ class MetadataClient:
                     return self._failure(current_url, "non_html")
 
                 body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > max_bytes:
+                compressed = encodings == ["gzip"]
+                decoder = zlib.decompressobj(16 + zlib.MAX_WBITS) if compressed else None
+                chunks = response.aiter_raw() if compressed else response.aiter_bytes()
+                async for chunk in chunks:
+                    if decoder is not None:
+                        try:
+                            chunk = decoder.decompress(chunk, max_bytes - len(body) + 1)
+                        except zlib.error:
+                            return self._failure(current_url, "request_failure")
+                    if len(body) + len(chunk) > max_bytes:
                         return self._failure(current_url, "response_too_large")
+                    body.extend(chunk)
+                if decoder is not None and not decoder.eof:
+                    return self._failure(current_url, "request_failure")
 
                 return finish(current_url, bytes(body), response.encoding)
 
