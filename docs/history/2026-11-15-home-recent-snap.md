@@ -1,6 +1,6 @@
 # 홈 '최근 저장한 콘텐츠' 카드를 한 장 단위로 가운데에 맞춰 멈추기 (#389)
 
-2026-11-15, 브랜치 `fix/home-carousel-snap`. 시작 커밋 `af2fb2b`, 구현 커밋 `b86c090`, 리뷰 반영·문서 커밋은 이 문서와 같은 커밋이다.
+2026-11-15, 브랜치 `fix/home-carousel-snap`. 시작 커밋 `af2fb2b`, 구현 커밋 `b86c090`, 리뷰 반영·문서 커밋 `035003d`. 이후 변경은 촬영 결과 기록이며 제품 코드는 같다.
 팀 피드백 시트 53("콘텐츠 보여주는 거 가로 캐러셀 고정됐으면 좋겠음", 제보자 뜻: 하나 넘기면 그 콘텐츠에 맞춰 멈추기)을 다룬다.
 
 ## 문제
@@ -12,6 +12,9 @@
 - 2026-11-15(이슈 #389 확정 절): (a) "한 장씩 (Recommended)", (b) "화면 가운데 (Recommended)", (c) "최근 저장한 콘텐츠만 (Recommended)", (d) 1.3배·320 폭 추가 처리 없음.
 - 2026-11-15 "지금 구현 유지"(리뷰 지적 뒤 조율이 두 선택지를 보임. 추천안 "빠른 튕김은 항상 한 장"은 고르지 않음): 손 뗀 자리에서 가장 가까운 카드 + 빠르게 튕기면 그 방향으로 한 장 더(Flutter 기본 페이지 넘김과 같은 방식). 카드 한 장 폭보다 길게 빠르게 밀면 두 장 넘어갈 수 있다.
 - 이슈 #389의 "세게 튕겨도 한 장", "한 번 튕김 = 한 장"과 다른 점: 놓을 때 이미 한 장 가까이 넘게 끌었으면 그 자리 기준으로 한 장 더 간다(예: 폭 393, 첫 카드에서 350 빠르게 밀기 → 3번째 카드). 한 칸 미만으로 튕기면 지금처럼 한 장이다. 이슈 본문은 고치지 않았다.
+
+- 2026-11-15 "입력 더 천천히 후 재촬영": 느린 입력의 끝부분 이동량을 줄이고, 놓는 속도 0을 확인한 뒤 변경 전·후를 같은 요청 좌표열로 다시 촬영했다.
+- 2026-11-15 "추천대로"(Android 빠른 입력 두 행의 검증 대체안 선택): `home-recent-flick`·`home-recent-last`는 통과한 자동 위젯 테스트와 사용자 직접 확인으로 갈음한다. **사용자 직접 확인은 아직 대기 중**이며 준비 연락 뒤 변경 후 빌드를 띄운다. 도구 입력 후보는 더 시도하지 않는다.
 
 ## 구현
 
@@ -27,7 +30,54 @@
 
 ## 검증
 
-- 전체 검증(구현 `b86c090` + 이 커밋의 테스트 변경, 문서 반영 전): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3682건 통과. 백엔드 pytest 2667 passed, 49 skipped. skip은 `tests/deployment` 48건(`RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are …` 외 6종)과 `tests/integration` 1건(`CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…`)이다. 백엔드는 바꾸지 않았다.
-- 변경 전 화면: 감독이 iOS Simulator iPhone 16(iOS 18.6, 393×852)·Android Emulator `Medium_Phone`(Android 16, 약 411.43×914.29)에서 6상태(`home-recent-top`·`slow-short`·`slow-long`·`flick`·`last`·`scale13`)와 영상 4개씩을 촬영했다. 손 뗀 자리에서 걸쳐 멈췄다(예: iOS slow-short 125.0, Android slow-short 91.4).
-- 변경 후 화면·카드 탭·별 탭·Figma C01 `111:3621` 비교: 아직 하지 않았다(감독 최종 촬영 예정).
-- 운영 서버·실기기는 범위 밖이다. 원격 CI는 PR 뒤 확인하며 아직 실행하지 않았다.
+- 전체 검증(구현 `b86c090` + `035003d`에 들어간 테스트 변경, 문서 반영 전): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3682건 통과, 백엔드 pytest 2667 passed·49 skipped. 이후 제품·테스트 변경이 없어 문서 갱신 때 전체 검사를 반복하지 않았다.
+- 원본 skip 출력:
+  - `pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
+  - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
+- 단일 이슈의 코드 리뷰는 `af2fb2b..b86c090` 범위에서 Standards 0건, Spec 중간 1건이었다. 긴 빠른 입력이 두 장 갈 수 있다는 지적은 사용자 결정 "지금 구현 유지"로 해소하고 회귀 테스트를 더했다.
+- 최종 촬영 직전과 PR 초안 작성 전 원격 main 전진 없음(`origin/main`은 `af2fb2b`). 추가 병합 없이 같은 제품 트리로 확인했다. 최종 문서의 경로·수치·공백을 검사했다.
+
+### 기기와 비교 범위
+
+로컬 대역 데이터(`HomeBaseServer('normal')`, 콘텐츠 4개)로 확인했다. 실기기·운영 서버·실제 모델 호출은 범위 밖이며 원격 CI는 PR 생성 뒤 확인한다. 아직 PR을 생성하지 않았다.
+
+| 플랫폼 | 기기·크기·OS 안전 영역 | 확인 결과 |
+| --- | --- | --- |
+| iOS | iPhone 16 Simulator, iOS 18.6, 393×852, 위59·아래34 | 6상태의 변경 전·후 화면과 영상 4쌍 확보, 첫·두 번째·마지막 카드 가운데 및 점 표시 확인 |
+| Android | Medium_Phone Emulator, Android 16, 약411.43×914.29, 위24·아래24 | top·slow-short·slow-long·1.3배 정지 화면의 전후 비교, 느린 입력 영상 2쌍 확보; flick·last는 사용자 확인 대기 |
+
+- 두 플랫폼에서 카드 탭 → 해당 상세, 별 탭 → 노란 별·홈 유지, 상세에서도 즐겨찾기 유지 확인. Android 별 변경 직후의 과도기 화면과 안정된 화면을 구분해 저장했다.
+- Android 1.3배 비교는 첫 카드의 **정지 화면**이다. 카드 높이 증가·가운데 정렬은 확인했지만 이 행을 빠른 튕김 성공의 증거로 쓰지 않는다. 320 폭과 1.3배의 넘김·정렬 조합은 위젯 테스트로 확인했다.
+- Figma C01 `111:3584` 전체 프레임(375×936), 최근 카드 `111:3621`을 2026-11-15 01:55 KST 재조회했다. 화면 크기·안전 영역·대역 데이터·주간 추천 노출은 Figma와 다르며 최근 카드 정렬 기준만 비교한다. 원본 화면을 늘이거나 잘라 조건을 맞추지 않았다.
+- 비교 이미지의 최근 카드 offset 차이는 이번 변경의 결과로 기록하고, 기기·배율·안전 영역·세로 위치·칩 위치 등 다른 공통 조건은 대조했다. 초기 최대 스크롤 추정값 차이는 선배치로 인한 결과이며 최종 끝은 918이다.
+- 이미지 원본과 영상 미리보기를 직접 확인했다. 비교 영상 6개 모두 원본 끝 장면 대조를 통과했다. 사용자 최종 시각 판정은 별도다.
+
+### 느린 입력의 동일성과 결과
+
+짧은 입력 100·긴 입력 200 논리px, begin/end 포함64점(move62), 끝으로 갈수록 이동량이 작아지는 감속 좌표열을 사용했다. 플랫폼별 변경 전·후에 같은 요청 좌표열을 썼다. 실제 OS 이벤트 간격·드래그 수락 시점까지 같다는 뜻은 아니며 원본 계측에 각각 남겼다. 녹화 중 놓는 속도는 0(최대 수치오차 약2.3e-13)이었고, 추적기 추정값도 플랫폼 fling 문턱 미만이었다.
+
+| 플랫폼·입력 | OS 입력 시간 전/후(ms) | 놓을 때 위치 전/후 | 정착 전 → 후 |
+| --- | --- | --- | --- |
+| iOS short | 1138.0 / 1134.9 | 74.83 / 74.83 | 74.83 → 0 |
+| iOS long | 1113.6 / 1119.0 | 173.50 / 173.50 | 173.50 → 306 |
+| Android short | 1156 / 1150 | 70.10 / 65.90 | 70.10 → 0 |
+| Android long | 1167 / 1168 | 190.10 / 155.05 | 190.10 → 306 |
+
+iOS 빠른 입력은 기존 요청 좌표열을 유지했다. 마지막 카드 행은 같은 단일 입력을 끝까지 반복하며 변경 전·후 반복 횟수와 영상 길이가 다르다. 길이 자체를 속도 비교의 근거로 쓰지 않았다. 감속 전의 느린 입력 촬영은 최종 비교에서 제외했다.
+
+### 촬영 실패 진단과 대체 검증
+
+1. iOS 느린 짧은 입력이 처음에는 306에 정착했다. 보호 계측에서 놓기 직전 추정속도가 79–101px/s로 iOS fling 문턱100 부근이었고, fling으로 판정된 실행만 다음 카드로 갔다. 감속 입력으로 바꿔 놓는 속도0과 기대 정착을 확인한 뒤 전후를 다시 촬영했다.
+2. Android 빠른 입력은 끝점에서 약149–215ms 정지한 뒤 놓였다. 같은 입력을 변경 전·후 각5회 관측했으며 추적 속도·거리가0, after는 가까운 카드0, before는 놓은 위치에 남았다. minFlingVelocity50·minFlingDistance18·인식기 touch slop8은 따로 관측했다. 이후 100ms 대체 입력도 속도·거리0으로 조건을 통과하지 못해 중단했다. 이 실패 입력들은 제품의 빠른 튕김 동작을 검증한 것이 아니다.
+
+**Android 빠른 튕김은 촬영 도구가 놓는 속도를 만들지 못해 자동 테스트+사용자 확인으로 갈음한다.** 자동 테스트는 통과했으며 사용자 확인은 아직 하지 않았다. `home-recent-flick`·`home-recent-last`의 실패 촬영을 성공 영상에 넣지 않았다. 사용자가 준비되면 Medium_Phone 변경 후 빌드에서 직접 짧게 튕겨 다음 카드 가운데 맞춤과 마지막 카드까지의 이동을 확인한다.
+
+### 증거 경로
+
+비추적 로컬 증거이며 PR 본문에는 플랫폼별 비교 이미지 한 장씩만 첨부한다. 영상은 조율이 채팅으로 전달한다.
+
+- 비교 이미지: `.utmp/ticket-389/recapture/compare-ios.png`(6행), `compare-android.png`(촬영한 4행, 1.3배는 정지 화면).
+- 같은 폴더의 비교 영상: `compare-ios-slow-short.mp4`, `compare-ios-slow-long.mp4`, `compare-ios-flick.mp4`, `compare-ios-last.mp4`, `compare-android-slow-short.mp4`, `compare-android-slow-long.mp4`.
+- 원본 화면·영상: `.utmp/ticket-389/recapture/screens/`. 탭 증거는 `ios-after-bookmark-tap.png`, `ios-after-detail-tap.png`, `android-after-bookmark-tap-settled.png`, `android-after-detail-tap.png`.
+- 계측 요약: `.utmp/ticket-389/recapture/measurements-final.json`. 진단 결과: `.utmp/ticket-389/diagnosis/report.md`, `.utmp/ticket-389/diagnosis-android/report.md`, 후보 실패 `.utmp/ticket-389/fast-recapture/report.md`.
+- 사용자 확인 순서: `.utmp/ticket-389/user-check.md`. 확인 결과를 받은 뒤 이 이력의 사용자 확인 상태를 갱신한다.
