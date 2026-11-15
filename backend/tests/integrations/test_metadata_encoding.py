@@ -42,7 +42,6 @@ async def test_gzip_response_stays_within_memory_budget():
     finally:
         tracemalloc.stop()
 
-    print(f"gzip peak={peak} limit={limit} ratio={peak / limit:.3f}")
     assert result.failure_reason == "response_too_large"
     assert peak < limit * 8
     assert stream.closed
@@ -163,7 +162,6 @@ async def test_layered_response_stays_within_memory_budget():
     finally:
         tracemalloc.stop()
 
-    print(f"layered peak={peak} limit={limit} ratio={peak / limit:.3f}")
     assert result.failure_reason == "unsupported_encoding"
     assert peak < limit * 8
     assert stream.reads == 0 and stream.closed
@@ -212,4 +210,24 @@ async def test_invalid_gzip_reports_request_failure(method, body):
     result = await fetch(client, method, 1024)
 
     assert result.failure_reason == "request_failure"
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["extract_from_url", "fetch_page", "fetch_image"])
+async def test_gzip_completion_preserves_success_without_reading_trailing_chunks(method):
+    body = b'<meta property="og:title" content="Example">'
+    stream = ResponseStream(gzip.compress(body), b"unread", b"also unread")
+    client = build_client(lambda request: encoded_response(stream), max_response_bytes=len(body))
+
+    result = await fetch(client, method, len(body))
+
+    assert result.failure_reason is None
+    if method == "extract_from_url":
+        assert result.status == "success" and result.title == "Example"
+    elif method == "fetch_page":
+        assert result.status == "success" and result.properties == {"og:title": "Example"}
+    else:
+        assert result.content == body
+    assert stream.reads == 1
     assert stream.closed

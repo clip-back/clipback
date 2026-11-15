@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [링크 메타데이터와 인스타그램 응답 압축 처리 (#397)](2026-11-16-metadata-response-encoding-limits.md)
+
 - [migration CI 테스트 이름과 60초 대기 스택 출력 (#374)](2026-11-15-migration-ci-wait-diagnostics.md)
 
 - [수동 백업 축약 seed 공유와 PostgreSQL 회귀 검사 (#373)](2026-11-15-manual-backup-seed-regression.md)

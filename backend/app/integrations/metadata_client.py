@@ -286,6 +286,8 @@ class MetadataClient:
                     if len(body) + len(chunk) > max_bytes:
                         return self._failure(current_url, "response_too_large")
                     body.extend(chunk)
+                    if decoder is not None and decoder.eof:
+                        break
                 if decoder is not None and not decoder.eof:
                     return self._failure(current_url, "request_failure")
 
