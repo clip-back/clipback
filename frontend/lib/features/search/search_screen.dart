@@ -370,6 +370,7 @@ class EmptySearchResult extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 textStyle: const TextStyle(
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                 ),

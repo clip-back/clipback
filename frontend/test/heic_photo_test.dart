@@ -217,12 +217,12 @@ void main() {
   });
 
   // SaveErrorToast has no font family of its own. Under the app theme
-  // (clipback_app.dart: the platform textTheme applied over fontFamily
-  // Pretendard) it inherits the platform font, not Pretendard, so this
-  // measures the merged theme rather than the Pretendard test wrapper. The
-  // platform font is not registered in tests; the square test glyphs are at
-  // least as wide as Latin and Hangul glyphs, a conservative width. Each scale
-  // is its own test because Flutter reports one overflow per widget.
+  // (clipback_app.dart: the platform textTheme with Pretendard applied, #391)
+  // it inherits Pretendard, so this measures the merged theme rather than the
+  // Pretendard test wrapper. Pretendard is not loaded here; the square test
+  // glyphs are at least as wide as Latin and Hangul glyphs, a conservative
+  // width. Each scale is its own test because Flutter reports one overflow
+  // per widget.
   for (final scale in [1.0, 1.3]) {
     testWidgets(
       '415 format message fits a 320pt toast at text scale $scale under the app theme',
@@ -234,6 +234,7 @@ void main() {
           Builder(
             builder: (context) {
               final textTheme = Theme.of(context).textTheme.apply(
+                fontFamily: 'Pretendard',
                 bodyColor: AppColors.text,
                 displayColor: AppColors.text,
               );
@@ -271,7 +272,7 @@ void main() {
             matching: find.byType(RichText),
           ),
         );
-        expect(paragraph.text.style?.fontFamily, isNot('Pretendard'));
+        expect(paragraph.text.style?.fontFamily, 'Pretendard');
         expect(paragraph.textScaler.scale(1), scale);
         expect(paragraph.didExceedMaxLines, isFalse);
         expect(tester.getRect(find.byType(SaveErrorToast)).width, 240);
