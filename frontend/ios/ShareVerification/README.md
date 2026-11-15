@@ -96,6 +96,7 @@ Safari가 같은 URL을 여러 `NSItemProvider`로 제공하면 단일 링크로
 동일 YouTube 영상의 `www`/`m` 주소와 모바일 표시용 `ra=m`도 단일화하며 처음 전달한 URL을 유지한다.
 영상 ID나 나머지 query가 다른 입력은 합치지 않는다.
 서로 다른 URL, 여러 이미지, 별도 URL과 이미지가 섞인 입력은 지원하지 않는다.
+서로 다른 URL 중 Instagram·YouTube 주소가 하나도 없으면 미지원 링크로, 하나라도 있으면 여러 링크로 거절한다(텍스트 공유도 같다).
 
 이미지 계정 한도·운영 중단·파일 크기 오류와 410·409는 위 묶음의 `testServerRejectionsRetryKeepOrDiscardByCategory`가 검사한다.
 `next_save_status`와 `next_save_detail`을 제어해 실제 Share Extension의 분류별 알림창을 확인한다. 일시 중단은 [다시 시도]로 저장하고,
