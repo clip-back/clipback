@@ -1069,6 +1069,14 @@ class ClipbackApi {
     } on http.ClientException {
       throw const ClipbackApiException('서버에 연결하지 못했어요.');
     }
+    // The server accepts PNG, JPEG and WebP only; HEIC that could not be
+    // converted on the device lands here (#380). Other errors keep theirs.
+    if (response.statusCode == 415) {
+      throw const ClipbackApiException(
+        'PNG, JPEG, WebP 이미지만 지원합니다.',
+        statusCode: 415,
+      );
+    }
     _throwForError(response);
     final data = _decodeJson(response);
     try {

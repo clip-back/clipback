@@ -94,3 +94,9 @@ iOS 빠른 입력은 기존 요청 좌표열을 유지했다. 마지막 카드 �
 - 원본 화면·영상: `.utmp/ticket-389/recapture/screens/`. 탭 증거는 `ios-after-bookmark-tap.png`, `ios-after-detail-tap.png`, `android-after-bookmark-tap-settled.png`, `android-after-detail-tap.png`.
 - 계측 요약: `.utmp/ticket-389/recapture/measurements-final.json`. 진단 결과: `.utmp/ticket-389/diagnosis/report.md`, `.utmp/ticket-389/diagnosis-android/report.md`, 후보 실패 `.utmp/ticket-389/fast-recapture/report.md`.
 - 사용자 확인 순서: `.utmp/ticket-389/user-check.md`. 두 행 모두 통과 결과와 실행 환경을 위 절에 기록했다.
+
+### PR 병합 전 main 반영 검사
+
+2026-11-15, #392가 반영된 main `f18a16f`를 #389 브랜치에 merge했다. 로컬 union 병합으로 문서가 합쳐졌으며 수동 코드 충돌 해결은 없었다. CHANGELOG의 미배포 절에 #389·#380 항목이 각각 한 번 남고, main 대비 차이는 #389 한 줄 추가뿐임을 확인했다. 홈 코드·테스트는 기존 `76767be`와 같고 유입된 HEIC 코드·테스트는 main 원본과 같다.
+
+사용자가 지정한 변경 범위 검사로 `home_alignment_test.dart`, `heic_photo_test.dart`, `screenshot_auth_test.dart` 300개와 `flutter analyze --no-pub`가 통과했다. 로컬 전체 VERIFY와 기기 촬영은 이 단계에서 다시 실행하지 않았다. 실행 근거는 `.utmp/ticket-389/post-main-related/`, `.utmp/ticket-389/post-main-analyze/`에 보존했다.
