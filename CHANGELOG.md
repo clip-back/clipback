@@ -20,7 +20,7 @@
 
 ## 앱 0.6.1
 
-[iOS 0.6.1(15)·Android 0.6.1(11) 후보 기록](docs/releases/app-v0.6.1-ios-b15-android-b11.md): 양 플랫폼 산출물을 만들었습니다. 후보 태그·업로드·테스터 제공·실기기 확인·정식 공개는 미실행입니다. 함께 운영에 반영된 서버 변경은 [backend-2026-11-15-1](docs/releases/backend-2026-11-15-1.md)에 있습니다.
+[iOS 0.6.1(15)·Android 0.6.1(11) 후보 기록](docs/releases/app-v0.6.1-ios-b15-android-b11.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 15는 App Store Connect에, Android 11은 Play 내부 테스트 트랙에 초안으로 올렸습니다(2026-11-15). 테스터 제공·실기기 확인·정식 공개는 미확인·미실행입니다. 함께 운영에 반영된 서버 변경은 [backend-2026-11-15-1](docs/releases/backend-2026-11-15-1.md)에 있습니다.
 
 ### 수정
 
