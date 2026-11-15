@@ -16,6 +16,7 @@ import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/archive_all_preview.dart' as isolated;
@@ -30,9 +31,42 @@ typedef _Text = (String text, Type box, bool ellipsis);
 
 Future<void> _show(WidgetTester t, Widget child) => showOnApp(t, child);
 
-/// [text] is drawn in Pretendard inside its [box] widget. Unless the widget
-/// shortens it by design ([ellipsis]), it is not cut off either.
-void _expectFits(WidgetTester t, _Text target) {
+/// Height of [p]'s text laid out again at its own width, line limit and
+/// text scale, without its parent's height limit. [family] swaps the font to
+/// tell a font-dependent height from one set by fontSize × height × scale.
+double _naturalHeight(RenderParagraph p, [String? family]) {
+  final painter = TextPainter(
+    text: family == null
+        ? p.text
+        : TextSpan(
+            text: p.text.toPlainText(includeSemanticsLabels: false),
+            style: p.text.style!.copyWith(fontFamily: family),
+          ),
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+    ellipsis: p.overflow == TextOverflow.ellipsis ? '…' : null,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final height = painter.height;
+  painter.dispose();
+  return height;
+}
+
+/// Known vertical clips, out of #391's scope and recorded only (see the
+/// summary): case and scale → (laid out height, height the widget allows).
+/// Each is a fixed Positioned height (content_list_card.dart:101–136) shorter
+/// than fontSize × height × 1.3, the same for any font, in the plain list
+/// card that no screen reaches today (archive_screen.dart:176).
+final _knownClips = <(String, double), (double, double)>{
+  ('list card longest title', 1.3): (29, 22.4),
+  ('list card longest summary', 1.3): (62, 48),
+};
+
+/// [text] is drawn in Pretendard inside its [box] widget. Horizontally, unless
+/// the widget shortens it by design ([ellipsis]), it is not cut off. Vertically
+/// the text laid out at its width must fit the height it was given (a fixed
+/// height or ClipRect); a known clip must match its recorded values instead.
+void _expectFits(WidgetTester t, _Text target, String name, double scale) {
   final (text, box, ellipsis) = target;
   final p = paragraph(t, text);
   expect(p.text.style!.fontFamily, 'Pretendard', reason: text);
@@ -50,6 +84,24 @@ void _expectFits(WidgetTester t, _Text target) {
     isTrue,
     reason: '$text $r outside $box $b',
   );
+  final natural = _naturalHeight(p), allowed = p.size.height;
+  final testFont = _naturalHeight(p, 'FlutterTest');
+  debugPrint(
+    'VERTICAL $name ${scale}x "$text" natural=${natural.toStringAsFixed(2)} '
+    'allowed=${allowed.toStringAsFixed(2)} testFont=${testFont.toStringAsFixed(2)}',
+  );
+  final known = _knownClips[(name, scale)];
+  if (known == null) {
+    expect(
+      natural,
+      lessThanOrEqualTo(allowed + e),
+      reason: '$text is clipped vertically: $natural > $allowed',
+    );
+  } else {
+    expect(natural, closeTo(known.$1, e), reason: 'recorded clip $text');
+    expect(allowed, closeTo(known.$2, e), reason: 'recorded clip $text');
+    expect(testFont, closeTo(natural, e), reason: 'clip is font independent');
+  }
 }
 
 void main() {
@@ -230,7 +282,9 @@ void main() {
 
   for (final MapEntry(key: name, value: (show, targets)) in cases.entries) {
     for (final scale in [1.0, 1.3]) {
-      testWidgets('$name at width 320 and ${scale}x', (t) async {
+      testWidgets('$name at width 320 and ${scale}x'
+          '${_knownClips.containsKey((name, scale)) ? ' is clipped vertically '
+                    '(out of scope, recorded only)' : ''}', (t) async {
         expect(pretendardLoaded(), isTrue, reason: 'Pretendard did not load');
         await withThemeFontApp(
           t,
@@ -240,7 +294,7 @@ void main() {
           (s) async {
             await show(t, s);
             for (final target in targets) {
-              _expectFits(t, target);
+              _expectFits(t, target, name, scale);
             }
             if (name == 'archive sort menu') {
               final selected = find.descendant(
