@@ -59,7 +59,7 @@ ThemeData _appTheme(WidgetTester t) =>
     Theme.of(t.element(find.byType(ClipbackNavigationBar)));
 
 /// The notice text is Pretendard 14 in the current color; every other value
-/// is the theme's bodyMedium, and the theme's own fonts stay as they were.
+/// is the theme's bodyMedium, and the theme's own fonts are Pretendard (#391).
 void _expectNoticeFont(WidgetTester t, String text) {
   final theme = _appTheme(t), body = theme.textTheme.bodyMedium!;
   final style = _style(t, text);
@@ -69,9 +69,9 @@ void _expectNoticeFont(WidgetTester t, String text) {
   expect(style.fontWeight, body.fontWeight);
   expect(style.height, body.height);
   expect(style.letterSpacing, body.letterSpacing);
-  // "테마 전체는 고치지 않는다" (2026-11-14): test default font.
-  expect(body.fontFamily, 'Roboto');
-  expect(theme.textTheme.labelLarge!.fontFamily, 'Roboto');
+  // #391 테마 한 곳 수정: the theme text styles take Pretendard.
+  expect(body.fontFamily, 'Pretendard');
+  expect(theme.textTheme.labelLarge!.fontFamily, 'Pretendard');
 }
 
 Future<void> _openMy(WidgetTester t) async {
@@ -119,7 +119,7 @@ void main() {
     await _withApp(t, weeklyMode: 'error', (s) async {
       _expectNoticeFont(t, _weekly);
       final label = _style(t, '다시 시도');
-      expect(label.fontFamily, 'Roboto');
+      expect(label.fontFamily, 'Pretendard');
       expect(label.fontSize, _appTheme(t).textTheme.labelLarge!.fontSize);
     });
   });

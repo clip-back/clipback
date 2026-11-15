@@ -11,6 +11,7 @@ class AppText {
     letterSpacing: -0.45,
   );
   static const primaryButtonLabel = TextStyle(
+    fontFamily: 'Pretendard',
     fontSize: 16,
     fontWeight: FontWeight.w700,
   );

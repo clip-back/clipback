@@ -1088,9 +1088,14 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       seedColor: AppColors.main,
       surface: AppColors.bg,
     );
-    final textTheme = Theme.of(
-      context,
-    ).textTheme.apply(bodyColor: AppColors.text, displayColor: AppColors.text);
+    // The outer context has the platform text theme (Roboto, or
+    // CupertinoSystemText on iOS). ThemeData merges a given textTheme over
+    // its fontFamily, so the font goes on the text theme itself (#391).
+    final textTheme = Theme.of(context).textTheme.apply(
+      fontFamily: 'Pretendard',
+      bodyColor: AppColors.text,
+      displayColor: AppColors.text,
+    );
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
@@ -1121,11 +1126,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         colorScheme: colorScheme,
         fontFamily: 'Pretendard',
         textTheme: textTheme,
-        // textTheme keeps the platform font; only snack bar text takes
-        // Pretendard over the Material default bodyMedium (#354).
+        // Snack bar text is the Pretendard bodyMedium (#354, #391).
         snackBarTheme: SnackBarThemeData(
           contentTextStyle: textTheme.bodyMedium!.copyWith(
-            fontFamily: 'Pretendard',
             color: colorScheme.onInverseSurface,
           ),
         ),

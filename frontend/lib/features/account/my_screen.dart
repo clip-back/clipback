@@ -170,7 +170,10 @@ class MyScreen extends StatelessWidget {
                                     side: const BorderSide(
                                       color: AppColors.subtle,
                                     ),
-                                    textStyle: const TextStyle(fontSize: 14),
+                                    textStyle: const TextStyle(
+                                      fontFamily: 'Pretendard',
+                                      fontSize: 14,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
