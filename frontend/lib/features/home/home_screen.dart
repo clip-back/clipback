@@ -463,7 +463,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
 
   void _updateActiveIndex() {
     if (!_recentController.hasClients || _visibleIds.isEmpty) return;
-    final next = (_recentController.offset / 306).round().clamp(
+    final next = (_recentController.offset / _recentCardStride).round().clamp(
       0,
       _visibleIds.length - 1,
     );
@@ -550,7 +550,13 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
                   child: ListView.separated(
                     key: ValueKey(_railGeneration),
                     controller: _recentController,
+                    physics: const _RecentCardSnapPhysics(),
                     scrollDirection: Axis.horizontal,
+                    // Lay out all four cards up front so the snap targets
+                    // see the real end instead of a lazy extent estimate.
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(
+                      _recentCardStride * 3,
+                    ),
                     padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
                       16,
@@ -584,6 +590,48 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+}
+
+/// Card width 298 plus the 8px gap between recent cards.
+const double _recentCardStride = 306;
+
+/// Settles the recent rail on one centered card: a slow release picks the
+/// nearest card and a flick moves at most one card in its direction.
+class _RecentCardSnapPhysics extends ScrollPhysics {
+  const _RecentCardSnapPhysics({super.parent});
+
+  @override
+  _RecentCardSnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _RecentCardSnapPhysics(parent: buildParent(ancestor));
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    if ((velocity <= 0 && position.pixels <= position.minScrollExtent) ||
+        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    var page = position.pixels / _recentCardStride;
+    if (velocity < -toleranceFor(position).velocity) {
+      page -= 0.5;
+    } else if (velocity > toleranceFor(position).velocity) {
+      page += 0.5;
+    }
+    final target = (page.round() * _recentCardStride).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (target == position.pixels) return null;
+    return ScrollSpringSimulation(
+      spring,
+      position.pixels,
+      target,
+      velocity,
+      tolerance: toleranceFor(position),
     );
   }
 }
