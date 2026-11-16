@@ -2,7 +2,7 @@
 
 - 기록일: 2026-11-16
 - 관련 이슈: [#400](https://github.com/clip-back/clipback/issues/400)
-- 기준: `c3db38f`에서 시작한 구현. 아래는 첫 검수 전 부분 검사 기록이다.
+- 기준: `c3db38f`에서 시작한 구현과 검수 반영 코드 `a861481`. 전체 검증은 `a861481`의 clean 상태에서 실행했고, 이후 변경은 이력 문서뿐이다.
 
 ## 변경
 
@@ -16,25 +16,44 @@
 저장 성공 응답과 기존 요약 제외·재시도·삭제·계정 전환 계약은 유지한다.
 DB 모델·마이그레이션·앱 코드는 변경하지 않았다.
 
-## 첫 검수 전 검증
+## 검수 반영
 
-로컬 PostgreSQL의 새 전용 DB를 migration한 뒤 테스트 트랜잭션으로 검사하고 DB를 제거했다.
+요약 카운터는 DB 세션의 숨은 상태 대신 저장 요청에서 서비스 생성자에 명시적으로 전달한다.
+일반·공유 링크와 업로드 저장 흐름이 같은 앱 카운터를 받으며, 공용 DB dependency는 원래대로 유지한다.
+테스트 시계는 이 모듈의 함수만 바꾸도록 분리했고 IP 정규화를 보완했다.
+운영 안내는 요약 배포 단락으로 옮겼다. 기존 API 테스트 4곳은 대역의 인자 연결만 바꿨으며
+기존 기대값·이름·설명은 유지했다.
+
+## 검증
+
+로컬 전용 PostgreSQL DB 두 개를 새로 준비해 migration과 검사를 수행하고 제거했다.
 메타데이터·OCR·소셜 검증·요약 공급자는 테스트 대역이며 외부 서비스에 요청하지 않았다.
 
 - 기준 코드에서 게스트 경계값 회귀가 실패했다: 상한 다음 요청이 429 대신 201이었다.
 - 요약 구현 전 일반·공유 저장과 게스트·로그인 계정의 상한 회귀 4개가 실패했다.
-- 게스트 구현 후 관련 인증 API 검사: `40 passed in 1.18s`.
-- 최초 요약 부분 검사: `1 failed, 245 passed in 75.06s`. 새 계정 전환 테스트가 전환으로 폐기된 토큰을 재사용한 오류였으며, 전환 응답의 새 토큰을 사용하도록 수정했다.
-- 최종 관련 부분 검사: `357 passed in 74.58s (0:01:14)`, skip 0, 종료 코드 0.
-  새 회귀와 기존 인증·콘텐츠 API·콘텐츠 서비스·작업 생성·인증 흐름·요약 worker·저장 흐름 계약을 포함한다.
+- 검수에서 추가한 IP 회귀 2개도 수정 전 실패를 확인한 뒤 반영했다.
+- 검수 반영 부분 검사: `250 passed in 69.42s (0:01:09)`, skip 0, 종료 코드 0.
 - 변경 파일 ruff 검사: `All checks passed!`, 종료 코드 0.
-- fixture import 연결을 정리한 뒤 worker 재시도 단일 회귀: `1 passed, 10 deselected in 0.45s`, 종료 코드 0.
-- 기존 테스트 변경은 공용 client fixture의 상한 상태 초기화뿐이며 기존 기대값·이름·설명은 유지했다.
+- 전체 검사: 백엔드 ruff·compileall·deptry, 두 DB의 Alembic upgrade/check,
+  DB 테스트를 포함한 전체 pytest, 앱 pub-get·format·analyze·test 모두 통과했다.
+- 백엔드: `2743 passed, 49 skipped, 3 warnings in 333.78s (0:05:33)`.
+- 앱: `3766`개 통과, `All tests passed!`.
+- `VERIFY result=PASS scope=all checks=12 failed=0`, 원 실행 종료 코드 0.
 
-## 남은 검증과 확인 범위
+검증 도구가 출력한 skip 요약 원문:
 
-첫 검수 전 단계이므로 전체 CI 동등 검사·DB 전체 검사·Alembic check는 아직 실행하지 않았다.
-iOS Simulator·Android Emulator의 새 안내 문구 및 글자 배율 확인도 아직 수행하지 않았다.
+```text
+pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+```
+
+Docker 배포·운영자 복구 48개는 로컬 미실행이며 원격 CI 대조 예정이다.
+S3 CLI 통합 1개는 로컬 미실행(S3 대역 미설정), 원격 CI 대조 예정이다.
+새 상한 테스트와 기존 auth·contents·summary 대상 테스트에는 skip이 없다.
+
+## 확인 범위
+
+감독 화면 확인 예정.
 운영 배포·실제 OAuth·유료 요약 공급자는 검증하지 않았다.
 
 Railway 공식 문서는 `X-Real-IP`를 클라이언트 IP 식별 헤더로 안내한다.
