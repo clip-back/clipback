@@ -1,5 +1,7 @@
 # 작업·검증 이력
 
+- [게스트 발급과 하루 자동 요약 상한 (#400)](2026-11-16-summary-guest-limits.md)
+
 - [링크 메타데이터와 인스타그램 응답 압축 처리 (#397)](2026-11-16-metadata-response-encoding-limits.md)
 
 - [migration CI 테스트 이름과 60초 대기 스택 출력 (#374)](2026-11-15-migration-ci-wait-diagnostics.md)

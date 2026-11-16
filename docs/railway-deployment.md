@@ -174,6 +174,10 @@ CI는 이 검증을 별도 `deployment` job에서 필수 실행한다. 로컬 Do
 
 신규 summary_jobs 마이그레이션을 pre-deploy에서 적용한다. 기본 `YOUTUBE_SUMMARY_ENABLED=true`이며 Gemini·YouTube API 키를 등록한 뒤 배포한다. 키 없이 배포하려면 명시적으로 `false`를 설정한다.  단일 replica/worker를 유지한다. 키 등록, 작업 복구, 실제 영상 검증 및 활성화 절차는 [YouTube 운영 문서](youtube-summary.md)를 따른다. 인스타그램 요약(`INSTAGRAM_SUMMARY_ENABLED`, 기본 `false`)은 같은 문서의 인스타그램 절차에 따라 운영 확인 뒤에만 켠다. 기존 Instagram·OCR 설정은 변경하지 않는다.
 
+게스트 발급(최근 1시간 IP별 20회·전체 300회)과 계정별 하루 자동 요약(게스트 20개·로그인 100개)은
+단일 API 프로세스 메모리에서 세므로 서버 재시작·재배포 시 초기화된다. replica/worker 1개 조건을 유지한다.
+클라이언트 IP는 Railway의 `X-Real-IP`를 사용한다.
+
 <details>
 <summary>이전 문서 링크와 제목 호환</summary>
 

@@ -162,7 +162,9 @@ def test_direct_and_share_routes_use_same_enrichment_pipeline(
     content_service = FakeContentService(extraction_service)
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
-    monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
+    monkeypatch.setattr(
+        content_endpoints, "_build_content_service", lambda db, **kwargs: content_service,
+    )
     monkeypatch.setattr(content_endpoints, "ExtractionService", lambda: extraction_service)
     token = create_access_token(user_id=1, session_id=1)
     headers = {"Authorization": f"Bearer {token}"}
@@ -224,7 +226,9 @@ def test_create_routes_reject_unsafe_redirect_without_saving(client, monkeypatch
     content_service = FakeContentService(extraction_service)
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
-    monkeypatch.setattr(content_endpoints, "_build_content_service", lambda db: content_service)
+    monkeypatch.setattr(
+        content_endpoints, "_build_content_service", lambda db, **kwargs: content_service,
+    )
     monkeypatch.setattr(content_endpoints, "ExtractionService", lambda: extraction_service)
     token = create_access_token(user_id=1, session_id=1)
 

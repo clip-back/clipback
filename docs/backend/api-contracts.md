@@ -43,7 +43,8 @@
   See [YouTube API, worker and rollout guide](../youtube-summary.md); enabled by default; Gemini and YouTube API keys are required.
 - Summarize saved Instagram reels/posts (`/reel/`, `/p/`, `/tv/`) asynchronously from the public page caption with OpenAI;
   disabled by default (`INSTAGRAM_SUMMARY_ENABLED`), see the Instagram section of the same guide.
-  `summary_error_code` also returns `content_unavailable`, `unsupported_content` and `insufficient_content` (always `skipped`).
+  저장 시 새로 `queued`로 만드는 자동 요약은 계정별 KST 하루 게스트 20개·로그인 100개까지이며, 초과해도 저장은 201로 성공하고 `skipped`·`daily_limit_exceeded`를 반환한다. 재시도는 세지 않는다.
+  `summary_error_code` also returns `content_unavailable`, `unsupported_content`, `insufficient_content` and `daily_limit_exceeded` (always `skipped`).
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.
@@ -130,6 +131,14 @@
 
 Create a guest session with `POST /api/v1/auth/guest`. The response contains a
 7-day access token and a rotating 90-day refresh token.
+
+성공한 게스트 발급은 최근 1시간 이동 창에서 클라이언트 IP별 20회·서버 전체 300회까지 허용한다.
+초과하면 사용자·세션을 만들지 않고 429와 문자열 `detail`을 반환한다:
+`지금은 게스트로 시작할 수 없어요. 잠시 후 다시 시도해 주세요.`
+거절·생성 실패는 세지 않는다. refresh·logout·소셜 로그인에는 이 발급 상한을 적용하지 않는다.
+클라이언트 IP는 유효한 `X-Real-IP`를 쓰며, 누락·빈 값·잘못된 IP이면 연결 주소,
+연결 주소도 없으면 알 수 없음 한 묶음으로 센다. 어느 경우든 전체 상한은 적용한다.
+횟수는 API 프로세스 메모리에만 있어 서버 재시작·재배포 때 초기화된다.
 
 Send the access token to protected endpoints:
 
