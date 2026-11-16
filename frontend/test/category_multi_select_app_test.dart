@@ -34,7 +34,8 @@ Map<String, Object?> _category(int id, String name, {bool isDefault = false}) =>
 final _study = _category(101, '공부');
 final _travel = _category(202, '여행');
 final _uncategorized = _category(303, '미분류', isDefault: true);
-final _all = [_study, _travel, _uncategorized];
+final _life = _category(404, '생활');
+final _all = [_study, _travel, _uncategorized, _life];
 
 http.Response _json(Object body, [int status = 200]) => http.Response(
   jsonEncode(body),
@@ -382,7 +383,14 @@ void main() {
       await _tap(tester, _listMore());
       await _tap(tester, find.text('카테고리 변경'));
       expect(find.text('2개 선택'), findsOneWidget);
-      await _tap(tester, find.text('전체 해제'));
+      final screen = find.byType(CategoryChangeScreen);
+      for (final name in ['공부', '여행']) {
+        await _tap(
+          tester,
+          find.descendant(of: screen, matching: find.text(name)),
+        );
+      }
+      expect(find.text('0개 선택'), findsOneWidget);
       await _tap(tester, find.text('선택 완료'));
       expect(jsonDecode(server.categoryWrites.single.body), {
         'category_ids': <int>[],
@@ -402,4 +410,82 @@ void main() {
       expect(find.text('분류 변경 거절'), findsOneWidget);
     });
   });
+
+  // #408 Testing Decisions: the content changes from {A} to {B} on the server
+  // while the screen is open; S0 and S1 stay as opened.
+  for (final addLife in [false, true]) {
+    testWidgets(
+      'opened with {A}, updated to {B} while open, ${addLife ? 'S1={A,C} overwrites' : 'S1={A} sends nothing'}',
+      (tester) async {
+        final server = _Server();
+        await _withApp(tester, server, () async {
+          _home(tester).onOpenArchive();
+          await tester.pumpAndSettle();
+          await _tap(tester, _listMore());
+          await _tap(tester, find.text('카테고리 변경'));
+          final screen = find.byType(CategoryChangeScreen);
+          expect(find.text('1개 선택'), findsOneWidget);
+
+          // A real server read under the open screen brings {B}.
+          server.records.first['categories'] = [_travel];
+          final below = tester.widget<ArchiveScreen>(
+            find.byType(ArchiveScreen, skipOffstage: false),
+          );
+          below.onOpenCategory(
+            below.categories.singleWhere((c) => c.id == 202),
+          );
+          await tester.pumpAndSettle();
+          final updated = tester
+              .widget<ArchiveScreen>(
+                find.byType(ArchiveScreen, skipOffstage: false),
+              )
+              .contents
+              .singleWhere((c) => c.apiId == 3);
+          expect(updated.categories.map((c) => c.id), [202]);
+          expect(screen, findsOneWidget);
+          expect(find.text('1개 선택'), findsOneWidget);
+
+          if (addLife) {
+            await _tap(
+              tester,
+              find.descendant(of: screen, matching: find.text('생활')),
+            );
+          }
+          await _tap(tester, find.text('선택 완료'));
+          expect(screen, findsNothing);
+          final after = _archive(tester).contents;
+          if (addLife) {
+            expect(server.categoryWrites, hasLength(1));
+            expect(jsonDecode(server.categoryWrites.single.body), {
+              'category_ids': [101, 404],
+            });
+            expect(server.records.first['categories'], [_life, _study]);
+            // The 여행 filter no longer holds it; the server now has {A,C}.
+            expect(after.where((c) => c.apiId == 3), isEmpty);
+            final archive = _archive(tester);
+            archive.onOpenCategory(
+              archive.categories.singleWhere((c) => c.id == 101),
+            );
+            await tester.pumpAndSettle();
+            expect(
+              _archive(tester).contents
+                  .singleWhere((c) => c.apiId == 3)
+                  .categories
+                  .map((c) => c.id),
+              [101, 404],
+            );
+          } else {
+            expect(server.categoryWrites, isEmpty);
+            expect(
+              after
+                  .singleWhere((c) => c.apiId == 3)
+                  .categories
+                  .map((c) => c.id),
+              [202],
+            );
+          }
+        });
+      },
+    );
+  }
 }
