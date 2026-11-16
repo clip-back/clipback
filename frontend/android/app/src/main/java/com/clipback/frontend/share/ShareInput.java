@@ -22,13 +22,14 @@ final class ShareInput {
             Matcher matcher = URL.matcher(text);
             if (!matcher.find()) throw rejected("Instagram 또는 YouTube 링크를 공유해 주세요.");
             String url = matcher.group().replaceAll("[),.]+$", "");
-            if (matcher.find()) throw rejected("한 번에 링크 하나만 공유해 주세요.");
-            Uri parsed = Uri.parse(url); String host = parsed.getHost();
-            host = host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+            Uri parsed = Uri.parse(url);
+            if (matcher.find()) {
+                boolean anySupported = supportedHost(parsed);
+                do anySupported |= supportedHost(Uri.parse(matcher.group().replaceAll("[),.]+$", ""))); while (matcher.find());
+                throw rejected(anySupported ? "한 번에 링크 하나만 공유해 주세요." : "Instagram 또는 YouTube 링크만 저장할 수 있습니다.");
+            }
             int defaultPort = "https".equalsIgnoreCase(parsed.getScheme()) ? 443 : 80;
-            boolean supported = host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be") ||
-                host.equals("instagram.com") || host.equals("www.instagram.com") || host.equals("m.instagram.com");
-            if (url.length() > 2048 || parsed.getUserInfo() != null || (parsed.getPort() != -1 && parsed.getPort() != defaultPort) || !supported)
+            if (url.length() > 2048 || parsed.getUserInfo() != null || (parsed.getPort() != -1 && parsed.getPort() != defaultPort) || !supportedHost(parsed))
                 throw rejected("Instagram 또는 YouTube 링크만 저장할 수 있습니다.");
             return store.create(operationId, url, text, null, null);
         }
@@ -57,6 +58,12 @@ final class ShareInput {
             return store.create(operationId, null, null, bytes, actual);
         }
         throw rejected("Instagram·YouTube 링크 또는 PNG·JPEG·WebP 이미지를 공유해 주세요.");
+    }
+    private static boolean supportedHost(Uri url) {
+        String host = url.getHost();
+        host = host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+        return host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be") ||
+            host.equals("instagram.com") || host.equals("www.instagram.com") || host.equals("m.instagram.com");
     }
     private static ShareFailure rejected(String reason) { return new ShareFailure(ShareFailure.Kind.REJECTED, reason); }
     static String imageMime(byte[] data) {

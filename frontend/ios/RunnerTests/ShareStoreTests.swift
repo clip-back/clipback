@@ -308,4 +308,31 @@ final class ShareStoreTests: XCTestCase {
     XCTAssertFalse(ShareInputNormalizer.isURLPayload([NSItemProvider(object: UIImage()), NSItemProvider(object: UIImage())]))
     XCTAssertFalse(ShareInputNormalizer.isURLPayload([providers[0], NSItemProvider(object: "another link" as NSString)]))
   }
+  /// #398: several links with no Instagram or YouTube host get the unsupported-site notice, not the one-link notice.
+  func testSeveralLinksWithoutSupportedHostAreUnsupported() throws {
+    // Safari's Google image preview on the iOS 18.6 Simulator (sheet 106).
+    let googlePreview = [
+      URL(string: "https://www.google.com/imgres?imgurl=https%3A%2F%2Fimage.donga.com%2Fdongailbo%2Fmobile%2Fimages%2Fcommon%2Fmain_top05.jpg&tbnid=ikP48Idw_yoL6M&vet=1&imgrefurl=https%3A%2F%2Fwww.donga.com%2Fdongailbo&docid=gWN4906HoqwUvM&w=750&h=985&source=sh%2Fx%2Fim%2Fm4%2F3&kgs=35b9eca50af5dae4&shem=epsd1%2Cnisbtsa2%2Cnisbtsal%2Crimspwouoe")!,
+      URL(string: "https://www.google.com/search?q=%EB%8F%99%EC%95%84%EC%9D%BC%EB%B3%B4&udm=2#sv=CAMSVxoyKhBlLWlrUDQ4SWR3X3lvTDZNMg5pa1A0OElkd195b0w2TToOZ1dONDkwNkhvcXdVdk0gBCoXCgFzEhBlLWlrUDQ4SWR3X3lvTDZNGAEwAUoECAEQAhgHIKyLuwpKCBACGAEgAigB")!,
+    ]
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL(googlePreview) }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(string: "https://example.com/a")!,
+      URL(string: "https://example.org/b")!]) }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://example.com/a https://example.org/b") }, .refused(.unsupportedLink))
+  }
+  /// #398: a supported host among several links keeps the one-link notice; single or file inputs are unchanged.
+  func testSeveralLinksWithSupportedHostStayMultipleLinks() throws {
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(string: "https://youtu.be/dQw4w9WgXcQ")!,
+      URL(string: "https://example.com/a")!]) }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(string: "https://youtu.be/dQw4w9WgXcQ")!,
+      URL(string: "https://youtu.be/another")!]) }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try ShareInputNormalizer.singleURL([URL(fileURLWithPath: "/private/tmp/metadata"),
+      URL(string: "https://example.com/a")!]) }, .refused(.unsupportedLink))
+    let same = URL(string: "https://example.com/a")!
+    XCTAssertEqual(try ShareInputNormalizer.singleURL([same, same]), same.absoluteString)
+    XCTAssertEqual(failureKind { try self.store.createLink(ShareInputNormalizer.singleURL([same, same])) }, .refused(.unsupportedLink))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ https://example.com/a") }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be/dQw4w9WgXcQ https://youtu.be/other") }, .refused(.multipleLinks))
+    XCTAssertEqual(failureKind { try self.store.createLink("https://youtu.be:1234/x https://example.com/a") }, .refused(.multipleLinks))
+  }
 }
