@@ -304,6 +304,21 @@ flutter run -d <iPhone-device-id> --no-pub
 정적 검사에서 `ITMS-90683`이 발생할 수 있습니다. 설명 키만 추가해 카메라나 위치를 요청하지는
 않습니다. 의존성을 변경할 때는 미사용 API 포함 여부와 이 설명들의 필요성을 함께 재확인합니다.
 
+앱(Runner) 타깃에는 privacy manifest `ios/Runner/PrivacyInfo.xcprivacy`를 리소스로 넣습니다.
+`file_picker` 8.3.7이 가져오는 `DKImagePickerController`·`DKPhotoGallery`는 Apple 목록 SDK인데
+Swift Package 설정상 자체 manifest가 빌드 결과에 들어가지 않고, 두 라이브러리는 앱 실행 파일에
+정적으로 연결됩니다. 그래서 두 라이브러리의 필수 사유 API 선언(FileTimestamp `3B52.1`)을 앱
+manifest에 함께 적고, 수집 데이터 유형은 Play 데이터 보안 답과 같은 7종(이름, 이메일 주소,
+사용자 ID, 사진, 기타 사용자 콘텐츠, 앱 상호작용, 검색 기록)으로 맞춥니다. 공유 확장에는 필수 사유
+API와 SDK가 없어 manifest를 두지 않습니다. 의존성을 바꾸면 빌드한 `Runner.app` 안의 번들별
+manifest 유무와 앱 실행 파일의 필수 사유 API 기호를 다시 확인해 이 선언을 맞춥니다.
+
+앱 `Info.plist`의 `ITSAppUsesNonExemptEncryption`은 `false`입니다. 앱은 HTTPS 통신·해시 등 면제
+대상 암호화만 사용하며, 업로드할 때마다 나오던 수출 규정 질문을 없애기 위해 둡니다. 암호화를 직접
+구현하거나 그런 라이브러리를 더하면 이 값을 다시 판단합니다. 앱과 공유 확장은 iPhone만 지원하고
+(`TARGETED_DEVICE_FAMILY = 1`, iPad에서는 iPhone 호환 모드로 실행), 화면 방향은 세로만 허용합니다.
+iPad·가로 화면은 디자인과 검증이 없기 때문입니다. 앱 `CFBundleName`은 표시 이름과 같은 `허투루`입니다.
+
 권한 설명을 수정한 뒤에는 새 빌드 번호로 배포용 바이너리를 다시 만듭니다. `APP_BUILD_NUMBER`에
 이미 업로드한 번호보다 큰 미사용 값을 로컬에서 지정합니다. 위 공개 앱 설정의 세 값을
 환경변수에 지정하고 `SocialAuth.xcconfig`도 준비해야 합니다. Android Studio의 실행 인자는
