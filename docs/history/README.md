@@ -39,6 +39,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-17 | [콘텐츠 카테고리 여러 개 고르기 (#408)](2026-11-17-category-multi-select.md) | 앱 |
 | 2026-11-17 | [iOS App Store 심사 준비 — privacy manifest·수출 규정 키·iPhone 세로 전용 (#406)](2026-11-17-ios-review-prep.md) | 앱 |
 | 2026-11-16 | [서버 의존성 lock과 API Python 패치 고정 (#403)](2026-11-16-backend-lockfile.md) | 백엔드 |
 | 2026-11-16 | [iOS 공유 저장 시트 뒤가 보내는 앱 대신 검게 보이던 문제 (#367)](2026-11-16-ios-share-backdrop.md) | 앱 |
