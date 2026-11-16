@@ -79,3 +79,11 @@ iPhone 16, iOS 18.6, Xcode 27.2, 로컬 대역 서버. `ShareUITests`의 `testDi
 - 이 반복 전 F2 첫 실행 한 번에서 `testCaptureShareLoadingStates`가 첫 공유 시트를 10초 안에 찾지 못해 실패했다(나머지 둘은 통과, 바로 다시 돌린 실행은 모두 통과). 반복 10회에서 다시 나지 않아 F2 때문인지는 가리지 못했고, 같은 조건의 변경 전과 F2에 차이는 없었다.
 - iOS 18.6에서는 F2 전·후 시트·준비 화면이 화소까지 같다(이 버전의 시트에는 불투명 배경이 없다).
 - iOS 26 이상 Simulator 런타임은 없어 Simulator로 효과를 확인하지 못했다. 효과 확인은 위 실기기 결과다.
+
+### 전체 검증
+
+- 구현 `5401f32`에 main(`747b2f0`)을 합친 `b3e08a3`, CHANGELOG 절 정정 `64d4868`에서: `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3766건 통과, 백엔드 pytest 2743 passed·49 skipped.
+- 원본 skip 출력:
+  - `pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
+  - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
+- main이 공유 코드(`ShareCore`, #398)를 바꿔 합친 트리(`64d4868`)에서 위 공유 UI 테스트 3개를 한 번 더 돌려 모두 통과했다.
