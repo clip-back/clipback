@@ -3,6 +3,7 @@
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
+import 'package:clipback_frontend/shared/widgets/notice_snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -58,17 +59,18 @@ TextStyle _style(WidgetTester t, String text) =>
 ThemeData _appTheme(WidgetTester t) =>
     Theme.of(t.element(find.byType(ClipbackNavigationBar)));
 
-/// The notice text is Pretendard 14 in the current color; every other value
-/// is the theme's bodyMedium, and the theme's own fonts are Pretendard (#391).
+/// The notice text is Pretendard 14; weight, color, line height and letter
+/// spacing are the Figma C01 428:4569 values (#407: Medium, white, the font's
+/// own line height, 0), and the theme's own fonts are Pretendard (#391).
 void _expectNoticeFont(WidgetTester t, String text) {
   final theme = _appTheme(t), body = theme.textTheme.bodyMedium!;
   final style = _style(t, text);
   expect(style.fontFamily, 'Pretendard');
   expect(style.fontSize, 14);
-  expect(style.color, theme.colorScheme.onInverseSurface);
-  expect(style.fontWeight, body.fontWeight);
-  expect(style.height, body.height);
-  expect(style.letterSpacing, body.letterSpacing);
+  expect(style.color, Colors.white);
+  expect(style.fontWeight, FontWeight.w500);
+  expect(style.height, isNull);
+  expect(style.letterSpacing, 0);
   // #391 테마 한 곳 수정: the theme text styles take Pretendard.
   expect(body.fontFamily, 'Pretendard');
   expect(theme.textTheme.labelLarge!.fontFamily, 'Pretendard');
@@ -136,8 +138,8 @@ void main() {
           'width 320 is not clipped', (t) async {
         await _withApp(t, width: 320, scale: scale, (s) async {
           ScaffoldMessenger.of(t.element(find.byType(HomeScreen))).showSnackBar(
-            SnackBar(
-              content: Text(message),
+            noticeSnackBar(
+              message,
               action: action == null
                   ? null
                   : SnackBarAction(label: action, onPressed: () {}),

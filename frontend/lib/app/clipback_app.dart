@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:clipback_frontend/app/font_licenses.dart';
 import 'package:clipback_frontend/clipback_api.dart';
@@ -36,6 +37,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
+import 'package:clipback_frontend/shared/widgets/notice_snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -633,8 +635,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         _messengerKey.currentState
           ?..clearSnackBars()
           ..showSnackBar(
-            SnackBar(
-              content: Text(effect.message),
+            noticeSnackBar(
+              effect.message,
               action: effect.retry == null
                   ? null
                   : SnackBarAction(
@@ -1103,18 +1105,20 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
-      builder: (context, child) => _launchPhase != _LaunchPhase.ready
-          ? child!
-          : PendingSharePrompt(
-              navigatorKey: _navigatorKey,
-              promptVersion: _d.sharing.promptVersion,
-              drafts: _d.sharing.drafts,
-              error: _d.sharing.error,
-              busy: _d.sharing.busy,
-              onRetry: () => unawaited(_d.sharing.retry()),
-              onOpen: (draft) => unawaited(_d.sharing.present(draft)),
-              child: child!,
-            ),
+      builder: (context, child) => _NoticeHost(
+        child: _launchPhase != _LaunchPhase.ready
+            ? child!
+            : PendingSharePrompt(
+                navigatorKey: _navigatorKey,
+                promptVersion: _d.sharing.promptVersion,
+                drafts: _d.sharing.drafts,
+                error: _d.sharing.error,
+                busy: _d.sharing.busy,
+                onRetry: () => unawaited(_d.sharing.retry()),
+                onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+                child: child!,
+              ),
+      ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
@@ -1126,10 +1130,22 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         colorScheme: colorScheme,
         fontFamily: 'Pretendard',
         textTheme: textTheme,
-        // Snack bar text is the Pretendard bodyMedium (#354, #391).
+        // Snack bar notices are Figma C01 428:4567 (#407): 16 from both
+        // sides, #484848 95%, radius 8, Pretendard Medium 14 white with the
+        // font's own line height (#354, #391). _NoticeHost places the bottom.
         snackBarTheme: SnackBarThemeData(
-          contentTextStyle: textTheme.bodyMedium!.copyWith(
-            color: colorScheme.onInverseSurface,
+          behavior: SnackBarBehavior.floating,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16),
+          backgroundColor: AppColors.middle.withValues(alpha: .95),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          ),
+          contentTextStyle: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0,
+            color: Colors.white,
           ),
         ),
       ),
@@ -1358,6 +1374,43 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         ? SplashScreen(onDone: _finishLaunchSplash)
         : route,
   );
+}
+
+/// Shows the app's notices over every screen, the bottom tabs and + button
+/// included (Figma C01 428:4419, #407). The page Scaffolds would place a
+/// notice above their bottom tabs, but the messenger only shows notices on
+/// the outermost Scaffold, so this one holds them for the whole app.
+///
+/// A notice ends 32 above the screen bottom. A system area taller than 34
+/// or the keyboard moves it up to their top (2026-11-17 decision). The pages
+/// below see the real MediaQuery.
+class _NoticeHost extends StatelessWidget {
+  const _NoticeHost({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    // Figma lets the notice sit 2 into the 34 iPhone home indicator area;
+    // only a taller system area (e.g. Android buttons) pushes it up.
+    final system = media.viewPadding.bottom;
+    final bottom = math.max(
+      system > 34 ? system : 32.0,
+      media.viewInsets.bottom,
+    );
+    return MediaQuery(
+      data: media.copyWith(
+        viewPadding: media.viewPadding.copyWith(bottom: bottom),
+      ),
+      child: Scaffold(
+        primary: false,
+        resizeToAvoidBottomInset: false,
+        backgroundColor: Colors.transparent,
+        body: MediaQuery(data: media, child: child),
+      ),
+    );
+  }
 }
 
 class _ExitConfirmationAttempt {

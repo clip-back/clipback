@@ -11,6 +11,7 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
+import 'package:clipback_frontend/shared/widgets/notice_snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -92,7 +93,7 @@ Future<void> _openExternal(
     // Same rule as the app's MessageEffect notices (#353).
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(failureMessage)));
+      ..showSnackBar(noticeSnackBar(failureMessage));
   }
 }
 
