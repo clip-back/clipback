@@ -1,6 +1,6 @@
 # 공유 메뉴에서 미지원 사이트 주소만 여러 개 오면 미지원 사이트 안내 (#398)
 
-2026-11-16, 브랜치 `fix/share-multilink-message`. 시작 커밋 `ce05582`, 구현 커밋 `f92d7c5`. 이후 변경은 이 문서뿐이며 제품·테스트 코드는 `f92d7c5`와 같다.
+2026-11-16, 브랜치 `fix/share-multilink-message`. 시작 커밋 `ce05582`, 구현 커밋 `f92d7c5`. 이후 이 작업의 변경은 문서와 main 병합(`f0b8da1`, `e2f0ff8`)뿐이며 이 작업의 제품·테스트 코드는 `f92d7c5`와 같다.
 
 ## 문제
 
@@ -54,6 +54,10 @@
   - `pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
 - 이 문서 커밋은 문서만 바꾸므로 전체 검사를 반복하지 않았다(근거 커밋 `f92d7c5`).
+- 전체 검사(최종, main `c3db38f`(#397)를 합친 `e2f0ff8`): `VERIFY result=PASS scope=all checks=12 failed=0`.
+  - `pytest: 2719 passed, 49 skipped, 3 warnings in 323.93s`
+  - pytest skip 두 줄은 위와 같다.
+- 그 전에 main `4261b35`(배포 기록 문서)만 합친 `0fead30`에서는 전체 검사가 두 번 연속 `VERIFY result=FAIL scope=all checks=12 failed=1 failed_checks=backend:pytest`였다. 실패는 `tests/integrations/test_summary_result_validation.py::test_headline_and_points_are_cleaned_and_joined[instagram-point-lf]`(`SummaryError: timeout`) 한 건이다. 이 작업은 backend를 바꾸지 않았고, 그 파일만 따로 5번 돌리면 모두 통과했다. 원인은 확인하지 않았고 별도로 진단한다.
 
 ## 화면 확인
 
