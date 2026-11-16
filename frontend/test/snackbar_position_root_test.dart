@@ -230,6 +230,53 @@ void main() {
     }
   }
 
+  // 2026-11-17 decision "추천대로" (review 407-3 A): on a narrow screen the
+  // button stays beside the text (Flutter would move it to a row of its
+  // own), so the box is still text + 2 × 16.5 with the 48 button centered.
+  for (final scale in const [1.0, 1.3]) {
+    for (final (message, label) in const [
+      ('최신 정보를 불러오지 못했어요.', '다시 불러오기'),
+      (_weekly, '다시 시도'),
+    ]) {
+      testWidgets('button notice "$label" 320 ${scale}x keeps the button '
+          'beside the text', (t) async {
+        _view(t, const Size(320, 852), 34, scale);
+        await _withHome(t, (s) async {
+          final home = t.element(find.byType(HomeScreen));
+          ScaffoldMessenger.of(home).showSnackBar(
+            noticeSnackBar(
+              home,
+              message,
+              action: SnackBarAction(label: label, onPressed: () {}),
+            ),
+          );
+          await t.pumpAndSettle();
+          final box = t.getRect(_box());
+          final text = t.getRect(find.text(message));
+          final button = t.getRect(
+            find.ancestor(
+              of: find.text(label),
+              matching: find.byType(TextButton),
+            ),
+          );
+          expect(text.top - box.top, closeTo(16.5, .5));
+          expect(box.bottom - text.bottom, closeTo(16.5, .5));
+          expect(box.height, greaterThanOrEqualTo(50 - .5));
+          expect(button.height, closeTo(48, .5));
+          expect(button.left, greaterThanOrEqualTo(text.right));
+          expect(button.center.dy, closeTo(box.center.dy, .5));
+          expect(box.right - button.right, closeTo(8, .5));
+          expect(
+            t
+                .renderObject<RenderParagraph>(find.text(message))
+                .didExceedMaxLines,
+            isFalse,
+          );
+        });
+      });
+    }
+  }
+
   // The notice is over the bottom tabs but stays under modal routes and
   // their barriers, as before #407; it is kept, not removed, while they show.
   testWidgets('dialogs and bottom sheets stay over the notice', (t) async {

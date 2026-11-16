@@ -36,6 +36,10 @@ SnackBar noticeSnackBar(
           vertical: _textVertical,
         )
       : _buttonNoticePadding(context, message, action.label),
+  // Flutter moves a wide button to a row of its own below the text; the
+  // button stays beside the text instead, as measured below (2026-11-17
+  // decision "추천대로"). Narrow screens wrap the text into more lines.
+  actionOverflowThreshold: action == null ? null : 1,
   action: action,
 );
 
