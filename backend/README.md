@@ -40,8 +40,11 @@ test -f .env || cp .env.example .env
 `pyproject.toml`을 바꾸면 lock도 같이 갱신합니다. `backend/`의 가상환경에서 아래 한 줄로 운영용과 개발용 lock을 차례로 갱신합니다. `--python-version 3.11`은 해석 하한을 프로젝트의 지원 범위로 고정합니다. 생략하면 해석 인터프리터의 Python 부 버전이 하한이 되어 운영자 이미지의 Python 3.11.2 갈래가 빠질 수 있습니다. 개발용 lock은 운영용 lock을 제약으로 사용합니다.
 
 ```bash
-uv pip compile pyproject.toml --universal --python-version 3.11 --upgrade -o requirements.lock && uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 --upgrade -c requirements.lock -o requirements-dev.lock
+uv pip compile pyproject.toml --universal --python-version 3.11 -o requirements.lock && uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -c requirements.lock -o requirements-dev.lock
 ```
+
+기존 고정 버전을 유지하며 필요한 패키지만 갱신합니다. 전부 올릴 때는 두 compile에 `--upgrade`를 붙입니다.
+`pip check`의 lock 불일치 감지 범위는 운영 라이브러리(운영 의존성)입니다. 개발 도구(`dev` extras의 ruff·deptry·uv·moto 등)는 검사 대상이 아니므로, 개발 도구를 바꿀 때도 lock을 직접 갱신하고 diff를 확인해야 합니다.
 
 로컬 설정을 확인한 뒤 다음 DB 준비·마이그레이션을 완료하고 API 서버를 실행합니다. DB 준비 블록은 저장소 루트의 별도 터미널에서 시작합니다.
 
