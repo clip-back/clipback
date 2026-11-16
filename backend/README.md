@@ -31,8 +31,16 @@ Python 3.11 또는 3.12, Docker Compose의 PostgreSQL을 준비합니다. 아래
 cd backend
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.lock
+pip install --no-deps -e .
+pip check
 test -f .env || cp .env.example .env
+```
+
+`pyproject.toml`을 바꾸면 lock도 같이 갱신합니다. `backend/`의 가상환경에서 아래 한 줄로 운영용과 개발용 lock을 차례로 갱신합니다. `--python-version 3.11`은 해석 하한을 프로젝트의 지원 범위로 고정합니다. 생략하면 해석 인터프리터의 Python 부 버전이 하한이 되어 운영자 이미지의 Python 3.11.2 갈래가 빠질 수 있습니다. 개발용 lock은 운영용 lock을 제약으로 사용합니다.
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.11 --upgrade -o requirements.lock && uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 --upgrade -c requirements.lock -o requirements-dev.lock
 ```
 
 로컬 설정을 확인한 뒤 다음 DB 준비·마이그레이션을 완료하고 API 서버를 실행합니다. DB 준비 블록은 저장소 루트의 별도 터미널에서 시작합니다.

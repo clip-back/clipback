@@ -1,10 +1,12 @@
-FROM python:3.12-slim
+FROM python:3.12.16-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
 COPY pyproject.toml ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps . && pip check
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY scripts/check_backup_restore.py scripts/recovery_probe.py scripts/recovery_deletions.py \

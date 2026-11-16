@@ -2,6 +2,7 @@
 !Dockerfile
 !Dockerfile.operator
 !pyproject.toml
+!requirements.lock
 !app/
 !app/**
 !alembic.ini
