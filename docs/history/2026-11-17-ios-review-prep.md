@@ -38,6 +38,30 @@ D3 확인 출처: 사용자가 App Store Connect 0.6.1(15) 빌드 일반 정보(
 - 새 자동 테스트는 만들지 않았다(이슈 결정, 자동 테스트로 잴 동작 변경 없음).
 - 실기기(iPhone 13, TestFlight 0.6.2)의 이름·세로 고정·사진 저장·공유 확장 저장, App Store Connect의 수출 규정 질문 없음·ITMS 경고 메일 없음은 0.6.2 배포 뒤 확인 예정이다.
 
+## iOS 시뮬레이터 확인 (완료 조건 3)
+
+로컬 대역 검증이며 운영 서버는 쓰지 않았다. 감독이 변경 전 `dd2b019`와 변경 후 `70dbc2a`(코드는 `80485f5`와 같음)를 같은 조건·순서로 촬영했다.
+
+- 기기: iPhone 16 / iOS 18.6 Simulator(같은 기기), 글자 배율 OS 기본.
+- 빌드: `frontend/`에서 `flutter build ios --simulator --debug --no-pub --dart-define=CLIPBACK_API_BASE_URL=http://127.0.0.1:18765/api/v1 -t test/support/share_preview.dart`.
+- 대역: `frontend/tool/share_fixture_server.py` 127.0.0.1:18765를 새로 띄운 상태.
+
+| 단계 | 변경 전 | 변경 후 |
+|---|---|---|
+| 홈 화면 아이콘 이름 | 허투루 | 허투루 |
+| 앱 실행(세로) | 정상 표시 | 변경 전과 같음 |
+| 기기를 가로(landscape_left)로 돌림 | 가로로 회전(2556×1179) | **세로 유지(1179×2556)** |
+| 저장 화면 → 사진 첨부 → PHPicker → 사진 1장 선택 | 카메라·위치 권한 창 없음 | 변경 전과 같음 |
+| 허투루에 저장하기 | 대역 저장 요청 1건 도달(saved 0→1), 앱은 "저장 결과를 확인하지 못했어요" 알림 | 변경 전과 같음 |
+| 공유 확장 링크 1건(`testExternalLinkSaveReturnsToSenderWithoutMainApp` 단독) | TEST SUCCEEDED, 대역 saved 1→2 | TEST SUCCEEDED, 대역 saved 1→2 |
+
+- 공유 확장은 [iOS 공유 검증 안내](../../frontend/ios/ShareVerification/README.md)의 UI 테스트로 실행했고, 공유 시트·저장 완료 토스트·보내는 앱 복귀 화면을 남겼다.
+- "저장 결과를 확인하지 못했어요"는 대역의 업로드 응답 형식 한계이며 이번 변경과 무관하다(Dart 코드 변경 없음, 전·후 같음). 그래서 사진 저장 뒤 앱 화면의 저장 완료 표시는 시뮬레이터에서 확인하지 못했고 0.6.2 실기기 확인 항목에 남긴다.
+- 홈 상단 "공유한 항목의 최신 정보…"·하단 "이번주 추천…" 오류 알림 2개는 대역에 없는 API 때문이며 전·후 같게 보였다.
+- 화면 방향 외 화면 구성 변경이 없어 Figma 비교는 하지 않았다(이슈 결정).
+
+촬영 기록·스크린샷·영상은 작업 디렉터리의 `.utmp/ticket-406/before/`, `.utmp/ticket-406/after/`(공유 확장 영상 `b09-share-video.mp4`·`a09-share-video.mp4`), 비교 이미지는 `.utmp/ticket-406/compare/compare-ios-{1,2,3}.png`에 보존했다.
+
 ## 전체 검증
 
 커밋 `80485f5`에서 실행:
