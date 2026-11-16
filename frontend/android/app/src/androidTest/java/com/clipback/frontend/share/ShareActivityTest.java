@@ -190,6 +190,18 @@ public final class ShareActivityTest extends InstrumentationTestCase {
         AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"공유할 수 없어요","Instagram 또는 YouTube 링크만 저장할 수 있습니다.","닫기");
         pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);awaitDrafts(0);
     }
+    /** #398: several links without an Instagram or YouTube host get the unsupported-site notice. */
+    public void testSeveralUnsupportedLinksAreRejectedAsUnsupported() throws Exception {
+        signIn();activity=getInstrumentation().startActivitySync(incoming().putExtra(Intent.EXTRA_TEXT,"https://example.com/a https://example.org/b"));
+        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"공유할 수 없어요","Instagram 또는 YouTube 링크만 저장할 수 있습니다.","닫기");
+        pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);awaitDrafts(0);
+    }
+    /** #398: a supported link among several keeps the one-link notice. */
+    public void testSupportedLinkAmongSeveralIsRejectedAsMultiple() throws Exception {
+        signIn();activity=getInstrumentation().startActivitySync(incoming().putExtra(Intent.EXTRA_TEXT,"https://youtu.be/dQw4w9WgXcQ https://example.com/a"));
+        AccessibilityNodeInfo alert=awaitAlert(getInstrumentation(),"공유할 수 없어요","한 번에 링크 하나만 공유해 주세요.","닫기");
+        pressAlertButton(getInstrumentation(),alert,"닫기");awaitFinishing(activity);awaitDrafts(0);
+    }
     public void testNewIntentQueuesDraftWithoutReplacingCurrentShare() throws Exception {
         signIn();activity=getInstrumentation().startActivitySync(incoming());awaitDrafts(1);awaitSaveEnabled(getInstrumentation(),activity);
         String first=store.snapshot().getJSONArray("drafts").getJSONObject(0).getString("id");

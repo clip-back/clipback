@@ -14,8 +14,9 @@ enum ShareInputNormalizer {
           urls.allSatisfy({ ["https", "http"].contains($0.scheme?.lowercased() ?? "") }) else {
       throw ShareFailure.refused(.unsupportedLink)
     }
-    guard urls.allSatisfy({ $0 == first || sameYouTubePage(first, $0) }) else { throw ShareFailure.refused(.multipleLinks) }
-    return first.absoluteString
+    if urls.allSatisfy({ $0 == first || sameYouTubePage(first, $0) }) { return first.absoluteString }
+    guard urls.contains(where: { ShareStore.supportedHost($0.host) }) else { throw ShareFailure.refused(.unsupportedLink) }
+    throw ShareFailure.refused(.multipleLinks)
   }
 
   private static func sameYouTubePage(_ first: URL, _ second: URL) -> Bool {

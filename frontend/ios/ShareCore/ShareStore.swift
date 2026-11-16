@@ -174,6 +174,9 @@ final class ShareStore {
     let matches = detector.matches(in: text, range: NSRange(text.startIndex..., in: text))
     let urls = matches.compactMap(\.url).filter { ["https", "http"].contains($0.scheme?.lowercased() ?? "") }
     guard let url = urls.first else { throw ShareFailure.refused(.noLink) }
+    guard urls.count == 1 || urls.contains(where: { Self.supportedHost($0.host) }) else {
+      throw ShareFailure.refused(.unsupportedLink)
+    }
     guard urls.count == 1 else { throw ShareFailure.refused(.multipleLinks) }
     guard url.absoluteString.count <= 2048, Self.supportedHost(url.host), url.user == nil, url.password == nil,
           url.port == nil || url.port == (url.scheme?.lowercased() == "https" ? 443 : 80) else {
