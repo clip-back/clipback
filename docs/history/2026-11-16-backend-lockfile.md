@@ -1,6 +1,6 @@
 # 서버 의존성 lock과 API Python 패치 고정 (#403)
 
-2026-11-16 기록. [이슈 #403](https://github.com/clip-back/clipback/issues/403)의 첫 구현 `2c28c9f`, 검수 반영 `e0f206a`, main 병합 뒤 검증 기준 `76517099a7553df38b5825cfba62bfc56dccacdc`의 결과다. 실제 Railway 배포 확인과 PR CI 결과는 포함하지 않는다.
+2026-11-16 기록. [이슈 #403](https://github.com/clip-back/clipback/issues/403)의 첫 구현 `2c28c9f`, 검수 반영 `e0f206a`, main 병합 뒤 검증 기준 `76517099a7553df38b5825cfba62bfc56dccacdc`의 결과와 [PR #405](https://github.com/clip-back/clipback/pull/405) CI(head `25a9600`) 결과다. 실제 Railway 배포 확인은 포함하지 않는다.
 
 ## 변경과 결정
 
@@ -77,8 +77,23 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 
 이 기록·목차만 추가하는 문서 커밋은 검증 기준 커밋과 코드가 같으므로 전체 검증을 다시 실행하지 않는다.
 
+## PR CI 회귀 확인 5–7
+
+[PR #405 CI run 43878636386](https://github.com/clip-back/clipback/actions/runs/43878636386)(head `25a9600`, 2026-11-16T13:44:14Z–13:53:39Z): `changes`·`lint`·`test (3.11)`·`test (3.12)`·`migration`·`deployment`·`operator-recovery` 7개 job 모두 success. 각 이미지 빌드 로그의 `Successfully installed` 목록을 `backend/requirements.lock`(해당 Python에서 marker 평가, 프로젝트 자신 제외)과 비교했다.
+
+| # | 빌드 | 기본 Python | 설치 목록 vs 운영용 lock | `pip check` |
+|---|---|---|---|---|
+| 5 | `deployment` API 이미지 | `python:3.12.16-slim` | 56개 diff 0, `soupsieve==4.1.1` | No broken requirements found. |
+| 5 | `operator-recovery` API 이미지 | `python:3.12.16-slim` | 56개 diff 0, `soupsieve==4.1.1` | No broken requirements found. |
+| 6 | `deployment` 운영자 이미지(PG16) | Debian `python3.11` 3.11.2 | 56개 diff 0, `soupsieve==2.10` | No broken requirements found. |
+| 6 | `operator-recovery` 운영자 이미지(PG18) | Debian `python3.11` 3.11.2 | 56개 diff 0, `soupsieve==2.10` | No broken requirements found. |
+
+- 7: `deployment`의 `Check ledger bootstrap and local API handoff` 15 passed, `operator-recovery`의 `Check private source backup, maintenance and isolated recovery` 33 passed.
+- 운영자 이미지의 pip 23.0.1이 `python_full_version` marker를 바르게 읽어 3.11.2에서 `soupsieve==2.10`을 설치했다.
+- CI의 개발 의존성 설치 6곳(lint·test 2개·migration·deployment·operator-recovery)도 `pip check` 통과. 옛 리비전(`bf65413`) API 이미지 빌드는 범위 밖이라 lock 없이 그대로 빌드됐다.
+- 로컬 전체 검증의 `pytest skip: 48 tests/deployment`(Docker)는 위 `deployment`·`operator-recovery` job이 실행했다. `pytest skip: 1 tests/integration`(S3 CLI 통합)은 CI `migration`에서도 같은 1 skipped로 남아 미검증이다.
+
 ## 미검증과 남은 확인
 
-- **회귀 확인 5–7: PR CI에서 확인 예정(로컬 미검증).** API 이미지 설치 목록·운영자 PG16/PG18 이미지의 Python 3.11.2 marker 설치와 `pip check`, deployment·operator-recovery 성공을 PR CI에서 확인해야 한다.
 - 실제 Railway 배포·운영 설치 목록·운영 데이터는 확인하지 않았다. 병합 뒤 다음 배포 로그의 lock 설치·버전 확인은 별도 배포 기록으로 남긴다.
 - 화면 변경·촬영은 없다. 이슈는 PR의 `Closes #403` 대상이므로 댓글·종료하지 않았다.
