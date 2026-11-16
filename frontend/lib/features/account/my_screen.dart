@@ -93,7 +93,7 @@ Future<void> _openExternal(
     // Same rule as the app's MessageEffect notices (#353).
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      ..showSnackBar(noticeSnackBar(failureMessage));
+      ..showSnackBar(noticeSnackBar(context, failureMessage));
   }
 }
 

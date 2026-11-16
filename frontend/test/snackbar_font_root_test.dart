@@ -139,6 +139,7 @@ void main() {
         await _withApp(t, width: 320, scale: scale, (s) async {
           ScaffoldMessenger.of(t.element(find.byType(HomeScreen))).showSnackBar(
             noticeSnackBar(
+              t.element(find.byType(HomeScreen)),
               message,
               action: action == null
                   ? null

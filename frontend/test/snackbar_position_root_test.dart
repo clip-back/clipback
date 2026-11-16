@@ -8,6 +8,7 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
+import 'package:clipback_frontend/shared/widgets/notice_snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -158,10 +159,10 @@ void main() {
     await _withHome(t, weeklyMode: 'error', (s) async {
       _expectPlace(t, _weekly);
       expect(find.text('다시 시도').hitTestable(), findsOneWidget);
-      // Trial choice (2026-11-17 "1번으로 한번 볼게"): text 7 above and
-      // below, 62 high; the Flutter button stays 8 from the box's right.
+      // 2026-11-17 decision "1번": two lines are 67 high like a notice
+      // without a button; the Flutter button stays 8 from the box's right.
       final box = t.getRect(_box());
-      expect(box.height, closeTo(62, .5));
+      expect(box.height, closeTo(67, .5));
       final button = t.getRect(
         find.ancestor(
           of: find.text('다시 시도'),
@@ -171,6 +172,63 @@ void main() {
       expect(box.right - button.right, closeTo(8, .5));
     });
   });
+
+  // 2026-11-17 decision "1번": a notice with a button is as high as one
+  // without (text 16.5 from the top and bottom, by its line count) while
+  // the button keeps its 48 tap height and its place 8 from the right.
+  for (final width in const [375.0, 393.0, 430.0]) {
+    for (final scale in const [1.0, 1.3]) {
+      for (final (message, label) in const [
+        ('최신 정보를 불러오지 못했어요.', '다시 불러오기'),
+        (_weekly, '다시 시도'),
+      ]) {
+        testWidgets('button notice "$label" $width ${scale}x follows its '
+            'line count', (t) async {
+          _view(t, Size(width, 852), 34, scale);
+          await _withHome(t, (s) async {
+            final home = t.element(find.byType(HomeScreen));
+            ScaffoldMessenger.of(home).showSnackBar(
+              noticeSnackBar(
+                home,
+                message,
+                action: SnackBarAction(label: label, onPressed: () {}),
+              ),
+            );
+            await t.pumpAndSettle();
+            final box = t.getRect(_box());
+            final text = t.getRect(find.text(message));
+            final paragraph = t.renderObject<RenderParagraph>(
+              find.text(message),
+            );
+            final lines = paragraph
+                .getBoxesForSelection(
+                  TextSelection(baseOffset: 0, extentOffset: message.length),
+                )
+                .map((b) => b.top.round())
+                .toSet()
+                .length;
+            final heights = {
+              1.0: {1: 50.0, 2: 67.0},
+              1.3: {1: 55.0, 2: 77.0},
+            };
+            expect(box.height, closeTo(heights[scale]![lines]!, .5));
+            expect(text.top - box.top, closeTo(16.5, .5));
+            expect(box.bottom - text.bottom, closeTo(16.5, .5));
+            expect(text.left - box.left, closeTo(18, .5));
+            final button = t.getRect(
+              find.ancestor(
+                of: find.text(label),
+                matching: find.byType(TextButton),
+              ),
+            );
+            expect(button.height, closeTo(48, .5));
+            expect(box.right - button.right, closeTo(8, .5));
+            expect(paragraph.didExceedMaxLines, isFalse);
+          });
+        });
+      }
+    }
+  }
 
   // The notice is over the bottom tabs but stays under modal routes and
   // their barriers, as before #407; it is kept, not removed, while they show.

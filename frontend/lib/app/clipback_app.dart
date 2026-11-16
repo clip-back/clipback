@@ -631,11 +631,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void _handleEffect(UiEffect effect) {
     switch (effect) {
       case MessageEffect():
+        // The navigator's context has the app theme and MediaQuery the
+        // notice measures its text with (#407); the messenger is above them.
+        final context = _navigatorKey.currentContext;
+        if (context == null) return;
         // A new notice replaces shown and queued ones (#353).
         _messengerKey.currentState
           ?..clearSnackBars()
           ..showSnackBar(
             noticeSnackBar(
+              context,
               effect.message,
               action: effect.retry == null
                   ? null
