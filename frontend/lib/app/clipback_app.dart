@@ -1105,20 +1105,18 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
-      builder: (context, child) => _NoticeHost(
-        child: _launchPhase != _LaunchPhase.ready
-            ? child!
-            : PendingSharePrompt(
-                navigatorKey: _navigatorKey,
-                promptVersion: _d.sharing.promptVersion,
-                drafts: _d.sharing.drafts,
-                error: _d.sharing.error,
-                busy: _d.sharing.busy,
-                onRetry: () => unawaited(_d.sharing.retry()),
-                onOpen: (draft) => unawaited(_d.sharing.present(draft)),
-                child: child!,
-              ),
-      ),
+      builder: (context, child) => _launchPhase != _LaunchPhase.ready
+          ? child!
+          : PendingSharePrompt(
+              navigatorKey: _navigatorKey,
+              promptVersion: _d.sharing.promptVersion,
+              drafts: _d.sharing.drafts,
+              error: _d.sharing.error,
+              busy: _d.sharing.busy,
+              onRetry: () => unawaited(_d.sharing.retry()),
+              onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+              child: child!,
+            ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,
@@ -1369,17 +1367,22 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     );
   }
 
-  Widget _withLaunchSplash(Widget route) => _withSystemBack(
-    _launchPhase == _LaunchPhase.showing
-        ? SplashScreen(onDone: _finishLaunchSplash)
-        : route,
+  // The notice host sits in the first route: over the bottom tabs, under
+  // dialogs and sheets the navigator pushes (#407).
+  Widget _withLaunchSplash(Widget route) => _NoticeHost(
+    child: _withSystemBack(
+      _launchPhase == _LaunchPhase.showing
+          ? SplashScreen(onDone: _finishLaunchSplash)
+          : route,
+    ),
   );
 }
 
 /// Shows the app's notices over every screen, the bottom tabs and + button
 /// included (Figma C01 428:4419, #407). The page Scaffolds would place a
 /// notice above their bottom tabs, but the messenger only shows notices on
-/// the outermost Scaffold, so this one holds them for the whole app.
+/// the outermost Scaffold, so this one holds them for the first route's
+/// screens. Routes pushed over it (dialogs, sheets) stay above the notice.
 ///
 /// A notice ends 32 above the screen bottom. A system area taller than 34
 /// or the keyboard moves it up to their top (2026-11-17 decision). The pages

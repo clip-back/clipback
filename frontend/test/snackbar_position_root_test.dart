@@ -1,6 +1,7 @@
 // #407 root app: every bottom notice uses the Figma C01 (428:4419) place and
 // shape. It ends 32 above the screen bottom (or at the top of a taller
 // system area), keeps 16 from both sides, and is drawn over the bottom tabs.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/app/clipback_app.dart';
@@ -84,17 +85,11 @@ Finder _box() => find
     .descendant(of: find.byType(SnackBar), matching: find.byType(Material))
     .first;
 
-/// The notice text sits in the box [textLeft] from its left (18 without a
-/// button, Figma 428:4569; 16 with one, kept by decision 4), the box ends
-/// [bottomGap] above the screen bottom with 16 on both sides, and a tap on
-/// its center reaches the notice even where the bottom tabs or the + button
-/// lie under it.
-void _expectPlace(
-  WidgetTester t,
-  String message, {
-  double bottomGap = 32,
-  double textLeft = 18,
-}) {
+/// The notice text sits in the box 18 from its left (Figma 428:4569), the
+/// box ends [bottomGap] above the screen bottom with 16 on both sides, and a
+/// tap on its center reaches the notice even where the bottom tabs or the +
+/// button lie under it.
+void _expectPlace(WidgetTester t, String message, {double bottomGap = 32}) {
   final size = t.view.physicalSize / t.view.devicePixelRatio;
   final box = t.getRect(_box());
   expect(box.bottom, closeTo(size.height - bottomGap, .5));
@@ -102,7 +97,7 @@ void _expectPlace(
   expect(box.right, closeTo(size.width - 16, .5));
   final text = t.getRect(find.text(message));
   expect(box.contains(text.topLeft) && box.contains(text.bottomRight), isTrue);
-  expect(text.left - box.left, closeTo(textLeft, .5));
+  expect(text.left - box.left, closeTo(18, .5));
   final result = HitTestResult();
   t.binding.hitTestInView(result, box.center, t.view.viewId);
   final hit = result.path
@@ -161,8 +156,54 @@ void main() {
   testWidgets('weekly failure notice with a retry button', (t) async {
     _view(t, const Size(375, 812), 34, 1);
     await _withHome(t, weeklyMode: 'error', (s) async {
-      _expectPlace(t, _weekly, textLeft: 16);
+      _expectPlace(t, _weekly);
       expect(find.text('다시 시도').hitTestable(), findsOneWidget);
+      // Trial choice (2026-11-17 "1번으로 한번 볼게"): text 7 above and
+      // below, 62 high; the Flutter button stays 8 from the box's right.
+      final box = t.getRect(_box());
+      expect(box.height, closeTo(62, .5));
+      final button = t.getRect(
+        find.ancestor(
+          of: find.text('다시 시도'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(box.right - button.right, closeTo(8, .5));
+    });
+  });
+
+  // The notice is over the bottom tabs but stays under modal routes and
+  // their barriers, as before #407; it is kept, not removed, while they show.
+  testWidgets('dialogs and bottom sheets stay over the notice', (t) async {
+    _view(t, const Size(375, 812), 34, 1);
+    await _withHome(t, weeklyMode: 'error', (s) async {
+      final home = t.element(find.byType(HomeScreen));
+      Future<void> check(String label) async {
+        expect(find.text(label), findsOneWidget);
+        expect(find.text(_weekly), findsOneWidget);
+        expect(find.text('다시 시도').hitTestable(), findsNothing);
+        Navigator.of(home).pop();
+        await t.pumpAndSettle();
+        expect(find.text('다시 시도').hitTestable(), findsOneWidget);
+      }
+
+      unawaited(
+        showDialog<void>(
+          context: home,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await t.pumpAndSettle();
+      await check('dialog');
+      unawaited(
+        showModalBottomSheet<void>(
+          context: home,
+          builder: (_) =>
+              const SizedBox(height: 250, child: Center(child: Text('sheet'))),
+        ),
+      );
+      await t.pumpAndSettle();
+      await check('sheet');
     });
   });
 
