@@ -149,6 +149,7 @@ async def record_content_view(
 def _build_content_service(db: AsyncSession) -> ContentService:
     category_repository = CategoryRepository(db)
     return ContentService(
+        summary_limit=db.info["daily_summary_limit"],
         content_repository=ContentRepository(db),
         category_repository=category_repository,
         event_repository=EventRepository(db),

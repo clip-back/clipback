@@ -34,9 +34,18 @@ si/list 등은 제거하며 Gemini에는 재생 시점 없는 전체 영상 URL�
 직접 입력의 비어 있지 않은 제목·요약은 보존하고, 사용자가 선택한 카테고리는 자동 결과로 덮어쓰지 않는다.
 
 오류 코드는 timeout, provider_error, invalid_response, configuration_error,
-video_unavailable, duration_exceeded, live_not_supported, disabled와
+video_unavailable, duration_exceeded, live_not_supported, disabled, daily_limit_exceeded와
 인스타그램용 content_unavailable, unsupported_content, insufficient_content로 제한된다.
 일시 장애 재시도 대기 중에는 queued와 직전 오류 코드가 반환될 수 있다.
+
+## 하루 자동 요약 상한
+
+KST 자정 기준으로 저장 시 새로 `queued`에 들어간 작업만 계정별로 센다(게스트 20개·로그인 100개).
+초과해도 링크 저장은 성공하며 작업은 `skipped`·`daily_limit_exceeded`가 된다.
+종류 스위치로 제외된 작업·지원하지 않는 스토리·요약 대상이 아닌 입력·같은 제출 키 재요청·worker 재시도는 세지 않는다.
+콘텐츠를 지워도 수는 줄지 않고, 저장 트랜잭션 실패 시에도 이미 센 수를 되돌리지 않는다.
+게스트가 로그인 계정으로 전환되면 같은 계정의 수를 이어서 로그인 상한을 적용한다.
+API 프로세스 메모리의 수는 재시작 때 비워진다. 앱은 기존 `skipped` 표시를 사용하며 새 오류 코드를 읽지 않는 배포 앱과도 호환된다.
 
 ## 분석 조건
 

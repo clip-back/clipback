@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,12 @@ async def get_current_user_id(
     return user.id
 
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db)]
+async def get_request_db(request: Request, db: AsyncSession = Depends(get_db)) -> AsyncSession:
+    db.info["daily_summary_limit"] = request.app.state.daily_summary_limit
+    return db
+
+
+DatabaseSession = Annotated[AsyncSession, Depends(get_request_db)]
 CurrentUserId = Annotated[int, Depends(get_current_user_id)]
 
 

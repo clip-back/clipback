@@ -26,6 +26,7 @@ from app.schemas.auth import (
 )
 from app.services.apple_auth_service import AppleAuthService
 from app.services.auth_service import AuthService
+from app.services.usage_limits import client_ip
 
 
 class AuthRoute(APIRoute):
@@ -51,8 +52,17 @@ router = APIRouter(route_class=AuthRoute)
 
 
 @router.post("/guest", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def create_guest_session(db: DatabaseSession) -> TokenResponse:
-    return await _build_auth_service(db).create_guest_session()
+async def create_guest_session(request: Request, db: DatabaseSession) -> TokenResponse:
+    limit = request.app.state.guest_issuance_limit
+    ip = client_ip(request)
+    limit.reserve(ip)
+    succeeded = False
+    try:
+        tokens = await _build_auth_service(db).create_guest_session()
+        succeeded = True
+        return tokens
+    finally:
+        limit.finish(ip, succeeded=succeeded)
 
 
 @router.post("/refresh", response_model=TokenResponse)
