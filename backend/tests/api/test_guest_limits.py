@@ -35,7 +35,7 @@ def test_guest_window_and_rejections_do_not_count(client, guest_service, monkeyp
     from app.services import usage_limits
 
     clock = [0.0]
-    monkeypatch.setattr(usage_limits.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(usage_limits, "monotonic", lambda: clock[0])
     for _ in range(20):
         assert client.post("/api/v1/auth/guest").status_code == 201
     clock[0] = 3599.999
@@ -147,3 +147,13 @@ async def test_guest_missing_client_and_app_state_isolation(monkeypatch):
         transport=httpx.ASGITransport(app=second, client=None), base_url="http://test"
     ) as api:
         assert (await api.post("/api/v1/auth/guest")).status_code == 201
+
+
+@pytest.mark.parametrize(
+    "first,second",
+    [("2001:db8::1%eth0", "2001:db8::1%eth1"), ("192.0.2.1", "::ffff:192.0.2.1")],
+)
+def test_guest_equivalent_ip_forms_share_limit(client, guest_service, first, second):
+    for _ in range(20):
+        assert client.post("/api/v1/auth/guest", headers={"X-Real-IP": first}).status_code == 201
+    assert client.post("/api/v1/auth/guest", headers={"X-Real-IP": second}).status_code == 429

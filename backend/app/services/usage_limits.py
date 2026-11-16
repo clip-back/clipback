@@ -5,7 +5,7 @@ import logging
 import time
 from collections import Counter, deque
 from datetime import UTC, datetime
-from ipaddress import ip_address
+from ipaddress import IPv6Address, ip_address
 
 from fastapi import HTTPException, Request
 
@@ -23,9 +23,16 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
+def monotonic() -> float:
+    return time.monotonic()
+
+
 def client_ip(request: Request) -> str:
     try:
-        return str(ip_address(request.headers.get("x-real-ip", "")))
+        address = ip_address(request.headers.get("x-real-ip", ""))
+        if isinstance(address, IPv6Address):
+            address = address.ipv4_mapped or IPv6Address(int(address))
+        return str(address)
     except ValueError:
         return request.client.host if request.client else "unknown"
 
@@ -36,7 +43,7 @@ class GuestIssuanceLimit:
         self._pending: Counter[str] = Counter()
 
     def reserve(self, ip: str) -> None:
-        cutoff = time.monotonic() - 3600
+        cutoff = monotonic() - 3600
         while self._issued and self._issued[0][0] <= cutoff:
             self._issued.popleft()
         scope = None
@@ -54,7 +61,7 @@ class GuestIssuanceLimit:
         if not self._pending[ip]:
             del self._pending[ip]
         if succeeded:
-            self._issued.append((time.monotonic(), ip))
+            self._issued.append((monotonic(), ip))
 
 
 class DailySummaryLimit:
