@@ -92,6 +92,18 @@ final class ShareViewController: UIViewController {
       + Self.bottomGap(stack, container: sheet, view: view))
   }
 
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    // Unofficial workaround (#367): on iOS 26+ the system sheet's UIDropShadowView paints an opaque
+    // background behind the extension; clearing the superviews keeps the sender app visible.
+    var container = view.superview
+    while let current = container, !(current is UIWindow) {
+      current.backgroundColor = .clear
+      current.isOpaque = false
+      container = current.superview
+    }
+  }
+
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     guard !started else { return }
