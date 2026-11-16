@@ -34,7 +34,7 @@ import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'archive_all_preview.dart' as e01;
 import '../fixtures/search_history_memory_storage.dart';
 import '../fixtures/search_history_examples.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 
 const searchPhase = String.fromEnvironment(
   'SEARCH_PHASE',
@@ -1578,17 +1578,20 @@ Future<void> _changeCategory(String id) async {
     'Category action modal did not finish entering',
   );
   await _tap(_text(sheet, '카테고리 변경')!);
-  final change = await _readyModal<CategoryChangeSheet>(
+  final change = await _readyModal<CategoryChangeScreen>(
     'Category selection modal did not finish entering',
   );
-  final tile = _elements(change).firstWhere(
-    (e) =>
-        e.widget is CategoryChangeTile &&
-        (e.widget as CategoryChangeTile).category.id == 102,
-  );
-  await _tap(tile);
+  for (final id in [101, 102]) {
+    final tile = _elements(change).firstWhere(
+      (e) =>
+          e.widget is CategoryChangeRow &&
+          (e.widget as CategoryChangeRow).category.id == id,
+    );
+    await _tap(tile);
+  }
+  await _tap(_text(change, '선택 완료')!);
   await _wait(
-    () => _find<CategoryChangeSheet>(_root) == null,
+    () => _find<CategoryChangeScreen>(_root) == null,
     'Category selection modal did not dismiss',
   );
 }

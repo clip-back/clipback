@@ -109,12 +109,12 @@ class ContentActions {
 
   Future<void> changeCategory(
     int id,
-    int categoryId,
+    List<int> categoryIds,
     ContentFeedback feedback,
   ) async {
     if (_disposed) return;
     await _changeContent(
-      content.beginContentCategoryChange(id, categoryId),
+      content.beginContentCategoryChange(id, categoryIds),
       feedback,
     );
   }

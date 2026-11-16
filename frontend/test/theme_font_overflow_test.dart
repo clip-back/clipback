@@ -8,6 +8,7 @@ import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/category/category_sheets.dart';
 import 'package:clipback_frontend/shared/content/content_delete_dialog.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
@@ -157,16 +158,12 @@ void main() {
           ),
           [(_photoFormat, SaveErrorToast, false)],
         ),
-        'category change tile 40': (
+        'category change row 40': (
           (t, s) => _show(
             t,
-            CategoryChangeTile(
-              category: category,
-              selected: true,
-              onTap: () {},
-            ),
+            CategoryChangeRow(category: category, selected: true, onTap: () {}),
           ),
-          [(_name40, CategoryChangeTile, true)],
+          [(_name40, CategoryChangeRow, true)],
         ),
         'PrimaryButton label': (
           (t, s) => _show(t, PrimaryButton(label: '시작하기', onPressed: () {})),

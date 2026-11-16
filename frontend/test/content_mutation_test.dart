@@ -306,10 +306,9 @@ void _change(DetailScreen detail, String action, {ContentItem? target}) {
     case 'favorite':
       detail.onToggleBookmark(content);
     case 'category':
-      detail.onChangeCategory(
-        content,
-        detail.categories.singleWhere((category) => category.id == 202),
-      );
+      detail.onChangeCategory(content, [
+        detail.categories.singleWhere((category) => category.id == 202).id!,
+      ]);
     case 'delete':
       detail.onDeleteContent(content);
   }
@@ -1035,10 +1034,9 @@ void main() {
     await _withApp(tester, server, () async {
       await _detail(tester);
       final detail = _currentDetail(tester);
-      detail.onChangeCategory(
-        detail.content,
-        detail.categories.singleWhere((category) => category.id == 202),
-      );
+      detail.onChangeCategory(detail.content, [
+        detail.categories.singleWhere((category) => category.id == 202).id!,
+      ]);
       await tester.pumpAndSettle();
       final after = _currentDetail(tester);
       expect(after.content.category.id, 101);
@@ -1096,10 +1094,9 @@ void main() {
         final detail = _currentDetail(tester);
         detail.onToggleBookmark(detail.content);
         detail.onToggleBookmark(detail.content);
-        detail.onChangeCategory(
-          detail.content,
-          detail.categories.singleWhere((category) => category.id == 202),
-        );
+        detail.onChangeCategory(detail.content, [
+          detail.categories.singleWhere((category) => category.id == 202).id!,
+        ]);
         detail.onDeleteContent(detail.content);
         await tester.pump();
         final calls = _mutations(server).length;
@@ -1857,10 +1854,11 @@ void main() {
           fail = true;
           if (action == 'category') {
             final detail = _currentDetail(tester);
-            detail.onChangeCategory(
-              detail.content,
-              detail.categories.singleWhere((category) => category.id == 101),
-            );
+            detail.onChangeCategory(detail.content, [
+              detail.categories
+                  .singleWhere((category) => category.id == 101)
+                  .id!,
+            ]);
           } else {
             _change(_currentDetail(tester), action);
           }
@@ -1948,10 +1946,11 @@ void main() {
             case 'favorite':
               search.onToggleBookmark(target);
             case 'category':
-              search.onChangeContentCategory(
-                target,
-                search.categories.singleWhere((category) => category.id == 202),
-              );
+              search.onChangeContentCategory(target, [
+                search.categories
+                    .singleWhere((category) => category.id == 202)
+                    .id!,
+              ]);
             case 'delete':
               search.onDeleteContent(target);
           }
@@ -2464,10 +2463,11 @@ void main() {
           if (action == 'delete') {
             archive.onDeleteContent(target);
           } else {
-            archive.onChangeContentCategory(
-              target,
-              archive.categories.singleWhere((category) => category.id == 202),
-            );
+            archive.onChangeContentCategory(target, [
+              archive.categories
+                  .singleWhere((category) => category.id == 202)
+                  .id!,
+            ]);
           }
           await tester.pump();
           expect(_starEnabled(tester, target), isFalse);
@@ -2568,10 +2568,11 @@ void main() {
             case 'favorite':
               search.onToggleBookmark(target);
             case 'category':
-              search.onChangeContentCategory(
-                target,
-                search.categories.singleWhere((category) => category.id == 202),
-              );
+              search.onChangeContentCategory(target, [
+                search.categories
+                    .singleWhere((category) => category.id == 202)
+                    .id!,
+              ]);
             case 'delete':
               search.onDeleteContent(target);
           }
@@ -2615,10 +2616,9 @@ void main() {
         await _archive(tester);
         final old = _currentArchive(tester);
         final oldB = old.contents.singleWhere((item) => item.apiId == 2);
-        old.onChangeContentCategory(
-          oldB,
-          old.categories.singleWhere((category) => category.id == 202),
-        );
+        old.onChangeContentCategory(oldB, [
+          old.categories.singleWhere((category) => category.id == 202).id!,
+        ]);
         await tester.pumpAndSettle();
         final updated = _currentArchive(tester);
         expect(
@@ -2630,10 +2630,9 @@ void main() {
         );
         await tester.pump();
         expect(categoryReads, 3);
-        old.onChangeContentCategory(
-          oldB,
-          old.categories.singleWhere((category) => category.id == 101),
-        );
+        old.onChangeContentCategory(oldB, [
+          old.categories.singleWhere((category) => category.id == 101).id!,
+        ]);
         await tester.pump();
         await tester.pump();
         final duringCategory = _currentArchive(
@@ -2788,10 +2787,9 @@ void main() {
         await _archive(tester);
         final before = _currentArchive(tester);
         final staleCard = before.contents.first;
-        before.onChangeContentCategory(
-          staleCard,
-          before.categories.singleWhere((category) => category.id == 202),
-        );
+        before.onChangeContentCategory(staleCard, [
+          before.categories.singleWhere((category) => category.id == 202).id!,
+        ]);
         before.onOpenContent(staleCard);
         await tester.pump();
         final during = _currentDetail(tester);

@@ -231,4 +231,33 @@ void main() {
   test('category write color stays lowercase RGB without alpha', () {
     expect(hexFromColor(const Color(0x33059A0F)), '#059a0f');
   });
+
+  group('categories follow the app category list order (#408)', () {
+    ApiCategory api(int id) =>
+        ApiCategory(id: id, name: '분류 $id', color: '#123456', isDefault: false);
+    Map<int, CategoryItem> list(List<int> ids) => {
+      for (final id in ids) id: categoryFromApi(api(id)),
+    };
+    List<int?> ids(List<int> app, List<int> server) => contentFromApi(
+      _content(categories: [for (final id in server) api(id)]),
+      list(app),
+    ).categories.map((item) => item.id).toList();
+
+    test('app [A,B], server [B,A] gives [A,B] with A first', () {
+      expect(ids([1, 2], [2, 1]), [1, 2]);
+      final content = contentFromApi(
+        _content(categories: [api(2), api(1)]),
+        list([1, 2]),
+      );
+      expect(content.category.id, 1);
+    });
+
+    test('categories missing from the app list stay last in server order', () {
+      expect(ids([1], [3, 2, 1]), [1, 3, 2]);
+    });
+
+    test('an empty app list keeps the server order', () {
+      expect(ids([], [2, 1]), [2, 1]);
+    });
+  });
 }

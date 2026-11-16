@@ -99,6 +99,10 @@ class Assets {
   static const clock = 'assets/icons/clock.svg';
   static const close = 'assets/icons/x.svg';
   static const check = 'assets/icons/check.svg';
+  static const categoryChangeCheckSelected =
+      'assets/icons/category-change-check-selected.svg';
+  static const categoryChangeCheckUnselected =
+      'assets/icons/category-change-check-unselected.svg';
   static const xCircle = 'assets/icons/x-circle.svg';
   static const photoSelect = 'assets/icons/photo-select.svg';
   static const folderCreatePreview = 'assets/icons/folder-create-preview.svg';

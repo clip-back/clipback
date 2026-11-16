@@ -149,9 +149,9 @@ class ArchiveViewModel extends FeedViewModel {
     }
   }
 
-  Future<void> changeCategory(ContentItem item, CategoryItem category) async {
-    if (!isDisposed && item.apiId != null && category.id != null) {
-      await actions.changeCategory(item.apiId!, category.id!, emitEffect);
+  Future<void> changeCategory(ContentItem item, List<int> categoryIds) async {
+    if (!isDisposed && item.apiId != null) {
+      await actions.changeCategory(item.apiId!, categoryIds, emitEffect);
     }
   }
 

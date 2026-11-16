@@ -40,13 +40,13 @@ class ContentMutationHandle {
     required this.original,
     required this.kind,
     required this.accountVersion,
-    this.targetCategoryId,
+    this.targetCategoryIds,
   });
 
   final ApiContent original;
   final ContentMutationKind kind;
   final int accountVersion;
-  final int? targetCategoryId;
+  final List<int>? targetCategoryIds;
 }
 
 class CategoryMutationHandle {

@@ -11,6 +11,7 @@ import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -321,7 +322,16 @@ Future<void> runChecks() async {
 
   await more();
   await tapText('카테고리 변경');
-  await tapText('여행');
+  final change = f01Find<CategoryChangeScreen>(_root);
+  require(change != null, 'Category change screen missing');
+  Future<void> tapInChange(String value) => tap(
+    f01Elements(
+      change!,
+    ).firstWhere((e) => e.widget is Text && (e.widget as Text).data == value),
+  );
+  await tapInChange(categoryContentName);
+  await tapInChange('여행');
+  await tapInChange('선택 완료');
   await wait(
     () =>
         !_archive.feed!.loading &&

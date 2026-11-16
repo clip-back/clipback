@@ -864,9 +864,9 @@ void main() {
           final target = detail.categories.singleWhere(
             (category) => category.id == 101,
           );
-          detail.onChangeCategory(detail.content, target);
+          detail.onChangeCategory(detail.content, [target.id!]);
           // Captured callbacks remain guarded while the first write is pending.
-          detail.onChangeCategory(detail.content, target);
+          detail.onChangeCategory(detail.content, [target.id!]);
           await tester.pumpAndSettle();
           expect(attempts, 1);
           detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
@@ -878,7 +878,7 @@ void main() {
               1,
             );
             expect(find.text('분류 변경 거절'), findsOneWidget);
-            detail.onChangeCategory(detail.content, target);
+            detail.onChangeCategory(detail.content, [target.id!]);
             await tester.pumpAndSettle();
             expect(attempts, 2);
             detail = tester.widget<DetailScreen>(find.byType(DetailScreen));
@@ -3042,10 +3042,11 @@ void main() {
             find.byType(ArchiveScreen),
           );
           if (action == 'category') {
-            archive.onChangeContentCategory(
-              target,
-              archive.categories.singleWhere((category) => category.id == 202),
-            );
+            archive.onChangeContentCategory(target, [
+              archive.categories
+                  .singleWhere((category) => category.id == 202)
+                  .id!,
+            ]);
           } else {
             archive.onDeleteContent(target);
           }

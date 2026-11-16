@@ -166,7 +166,7 @@ class DetailScreen extends StatefulWidget {
   final bool bookmarked;
   final VoidCallback onBack;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function(ContentItem content, CategoryItem category)
+  final void Function(ContentItem content, List<int> categoryIds)
   onChangeCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onOpenOriginalLink;
@@ -317,8 +317,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 bookmarked: widget.bookmarked,
                 onBack: widget.onBack,
                 onToggleBookmark: () => widget.onToggleBookmark(content),
-                onChangeCategory: (category) =>
-                    widget.onChangeCategory(content, category),
+                onChangeCategory: (categoryIds) =>
+                    widget.onChangeCategory(content, categoryIds),
                 onDeleteContent: () => widget.onDeleteContent(content),
               ),
               Expanded(
@@ -694,7 +694,7 @@ class DetailTopBar extends StatelessWidget {
   final bool bookmarked;
   final VoidCallback onBack;
   final VoidCallback onToggleBookmark;
-  final ValueChanged<CategoryItem> onChangeCategory;
+  final ValueChanged<List<int>> onChangeCategory;
   final VoidCallback onDeleteContent;
 
   @override

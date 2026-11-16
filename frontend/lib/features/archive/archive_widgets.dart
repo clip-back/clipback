@@ -56,7 +56,7 @@ class ContentListView extends StatelessWidget {
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
   final List<CategoryItem> categories;
-  final void Function(ContentItem content, CategoryItem category)
+  final void Function(ContentItem content, List<int> categoryIds)
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onGoHome;
@@ -73,7 +73,9 @@ class ContentListView extends StatelessWidget {
               .where(
                 (content) =>
                     activeCategoryName == null ||
-                    content.category.name == activeCategoryName,
+                    content.categories.any(
+                      (category) => category.name == activeCategoryName,
+                    ),
               )
               .toList()
         : contents;
@@ -147,8 +149,8 @@ class ContentListView extends StatelessWidget {
               bookmarked: bookmarkedIds.contains(content.id),
               onToggleBookmark: () => onToggleBookmark(content),
               categories: categories,
-              onChangeCategory: (category) =>
-                  onChangeContentCategory(content, category),
+              onChangeCategory: (categoryIds) =>
+                  onChangeContentCategory(content, categoryIds),
               onDelete: () => onDeleteContent(content),
               onTap: () => onOpenContent(content),
             ),

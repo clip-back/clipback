@@ -28,7 +28,7 @@ class ContentListCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleBookmark;
   final List<CategoryItem> categories;
-  final ValueChanged<CategoryItem> onChangeCategory;
+  final ValueChanged<List<int>> onChangeCategory;
   final VoidCallback onDelete;
   final bool bookmarked;
   // E01 opts in; other lists retain their existing presentation.

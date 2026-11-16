@@ -106,7 +106,7 @@ Future<_Calls> _pump(
     #onSearch: () => calls.search++,
     #onOpenContent: (ContentItem _) => calls.body++,
     #onToggleBookmark: (ContentItem _) => calls.favorite++,
-    #onChangeContentCategory: (ContentItem _, CategoryItem _) {},
+    #onChangeContentCategory: (ContentItem _, List<int> _) {},
     #onDeleteContent: (ContentItem _) {},
     #onAddLink:
         ({
