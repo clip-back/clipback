@@ -46,6 +46,11 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
+main(`4261b35`, 문서만 변경)을 합친 `70c70bc`에서 전체 검사를 다시 실행했다(최종).
+
+- 전체 백엔드 pytest: `2719 passed, 49 skipped, 3 warnings in 348.28s (0:05:48)`.
+- skip 줄은 위와 같고, 결과는 `VERIFY result=PASS scope=all checks=12 failed=0`.
+
 ## 확인 범위
 
 화면과 앱 코드는 변경하지 않았으므로 시뮬레이터·에뮬레이터 촬영은 하지 않았다.
