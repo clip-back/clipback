@@ -1,5 +1,9 @@
 # 작업·검증 이력
 
+- [게스트 발급과 하루 자동 요약 상한 (#400)](2026-11-16-summary-guest-limits.md)
+
+- [링크 메타데이터와 인스타그램 응답 압축 처리 (#397)](2026-11-16-metadata-response-encoding-limits.md)
+
 - [migration CI 테스트 이름과 60초 대기 스택 출력 (#374)](2026-11-15-migration-ci-wait-diagnostics.md)
 
 - [수동 백업 축약 seed 공유와 PostgreSQL 회귀 검사 (#373)](2026-11-15-manual-backup-seed-regression.md)
@@ -36,6 +40,7 @@
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
 | 2026-11-16 | [iOS 공유 저장 시트 뒤가 보내는 앱 대신 검게 보이던 문제 (#367)](2026-11-16-ios-share-backdrop.md) | 앱 |
+| 2026-11-16 | [공유 메뉴에서 미지원 사이트 주소만 여러 개 오면 미지원 사이트 안내 (#398)](2026-11-16-share-multilink-unsupported.md) | 앱 |
 | 2026-11-15 | [글꼴을 따로 주지 않은 글자도 앱 글꼴 Pretendard로 (#391)](2026-11-15-theme-font-pretendard.md) | 앱 |
 | 2026-11-15 | [홈 '최근 저장한 콘텐츠' 카드를 한 장 단위로 가운데에 맞춰 멈추기 (#389)](2026-11-15-home-recent-snap.md) | 앱 |
 | 2026-11-14 | [저장 화면에서 첨부한 HEIC 사진을 JPEG로 바꿔 저장하고 형식 거절 안내를 한국어로 (#380)](2026-11-14-heic-photo-save.md) | 앱 |

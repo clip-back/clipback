@@ -24,6 +24,7 @@ from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.recommendation_repository import RecommendationRepository
 from app.repositories.tag_repository import TagRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.category import CategoryRead
 from app.schemas.content import (
     MAX_CONTENT_URL_LENGTH,
@@ -49,6 +50,7 @@ from app.services.category_recommendation_service import (
 from app.services.extraction_service import ExtractionService, serialize_event_metadata
 from app.services.image_deletion_service import delete_image_content
 from app.services.summary_kinds import new_summary_job
+from app.services.usage_limits import DailySummaryLimit
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -142,6 +144,7 @@ class ContentService:
         storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
         extraction_service: ExtractionService | None = None,
+        summary_limit: DailySummaryLimit | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -154,6 +157,7 @@ class ContentService:
             content_repository.session
         )
         self.extraction_service = extraction_service or ExtractionService()
+        self.summary_limit = summary_limit
 
     async def prepare_link(
         self,
@@ -299,6 +303,11 @@ class ContentService:
                 config=settings,
             )
             if job is not None:
+                if job.status == "queued" and self.summary_limit is not None:
+                    user = await UserRepository(self.content_repository.session).get(user_id)
+                    if not self.summary_limit.admit(user_id, is_guest=user.is_guest):
+                        job.status = "skipped"
+                        job.error_code = "daily_limit_exceeded"
                 self.content_repository.session.add(job)
         if asset is not None:
             await self.content_asset_repository.create(

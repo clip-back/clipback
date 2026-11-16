@@ -105,6 +105,7 @@ class ContentRead(BaseModel):
             "unsupported_content",
             "insufficient_content",
             "disabled",
+            "daily_limit_exceeded",
         ]
         | None
     ) = None
