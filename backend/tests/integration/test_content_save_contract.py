@@ -72,10 +72,11 @@ class Case:
     receipts: tuple[str, ...] = ()
 
 
-# 저장 응답의 카테고리 객체(main 901a3b1 관측값). id는 게스트의 실제 id와 같은지 단언한 뒤
+# 저장 응답의 카테고리 객체(main 901a3b1 관측값, 색은 #416 결정 반영).
+# id는 게스트의 실제 id와 같은지 단언한 뒤
 # 자리표시자로 바꾸고 나머지 필드는 그대로 비교한다.
 CATEGORY_OBJECTS = {
-    "취업": {"id": "<id>", "name": "취업", "color": "#4F46E5", "is_default": True},
+    "취업": {"id": "<id>", "name": "취업", "color": "#64B5F6", "is_default": True},
     "미분류": {"id": "<id>", "name": "미분류", "color": "#6B7280", "is_default": True},
 }
 
