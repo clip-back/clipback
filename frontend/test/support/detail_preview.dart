@@ -12,7 +12,7 @@ import 'dart:ui' as ui;
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/content/tag_chip.dart';
@@ -273,12 +273,19 @@ class _HostState extends State<_Host> {
                 _record('bookmark', {'id': item.id});
                 if (!bookmarks.add(item.id)) bookmarks.remove(item.id);
               }),
-              onChangeCategory: (item, category) => setState(() {
-                _record('category', {'id': item.id, 'categoryId': category.id});
+              onChangeCategory: (item, categoryIds) => setState(() {
+                _record('category', {
+                  'id': item.id,
+                  'categoryIds': categoryIds,
+                });
+                final categories = [
+                  for (final id in categoryIds)
+                    const [_cat, _second, _other].firstWhere((c) => c.id == id),
+                ];
                 contents = contents
                     .map(
                       (value) => value.id == item.id
-                          ? value.copyWith(category: category)
+                          ? value.copyWith(categories: categories)
                           : value,
                     )
                     .toList();
@@ -1251,12 +1258,14 @@ Future<void> _run() async {
   _record('bookmark_state_changed');
   await _tap(_icon(Assets.more, _find<DetailTopBar>())!);
   await _tapText('카테고리 변경');
-  final tile = _elements(_find<CategoryChangeSheet>()).firstWhere(
+  final change = _find<CategoryChangeScreen>();
+  final tile = _elements(change).firstWhere(
     (e) =>
-        e.widget is CategoryChangeTile &&
-        (e.widget as CategoryChangeTile).category.id == _second.id,
+        e.widget is CategoryChangeRow &&
+        (e.widget as CategoryChangeRow).category.id == _cat.id,
   );
   await _tap(tile);
+  await _tap(_text('선택 완료', change)!);
   _require(
     host.active.category.id == _second.id &&
         host.calls.any((c) => c['action'] == 'category'),

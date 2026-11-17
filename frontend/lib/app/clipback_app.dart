@@ -29,6 +29,7 @@ import 'package:clipback_frontend/features/home/home_initial_loading_screen.dart
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
 import 'package:clipback_frontend/shared/models/app_info.dart';
@@ -1103,18 +1104,21 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       scaffoldMessengerKey: _messengerKey,
       scrollBehavior: const AppScrollBehavior(),
       title: '허투루',
-      builder: (context, child) => _launchPhase != _LaunchPhase.ready
-          ? child!
-          : PendingSharePrompt(
-              navigatorKey: _navigatorKey,
-              promptVersion: _d.sharing.promptVersion,
-              drafts: _d.sharing.drafts,
-              error: _d.sharing.error,
-              busy: _d.sharing.busy,
-              onRetry: () => unawaited(_d.sharing.retry()),
-              onOpen: (draft) => unawaited(_d.sharing.present(draft)),
-              child: child!,
-            ),
+      builder: (context, child) => CategoryChangeScope(
+        source: _d.categories,
+        child: _launchPhase != _LaunchPhase.ready
+            ? child!
+            : PendingSharePrompt(
+                navigatorKey: _navigatorKey,
+                promptVersion: _d.sharing.promptVersion,
+                drafts: _d.sharing.drafts,
+                error: _d.sharing.error,
+                busy: _d.sharing.busy,
+                onRetry: () => unawaited(_d.sharing.retry()),
+                onOpen: (draft) => unawaited(_d.sharing.present(draft)),
+                child: child!,
+              ),
+      ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.bg,

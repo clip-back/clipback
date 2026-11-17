@@ -30,7 +30,7 @@ import 'package:http/testing.dart';
 
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/widgets/empty_state.dart';
 import 'archive_all_preview.dart' as e01;
 
@@ -1043,16 +1043,17 @@ Future<void> _changeCategory(String id) async {
   await _tap(_more(card));
   final actions = _find<ContentActionSheet>(_root)!;
   await _tap(_text(actions, '카테고리 변경')!);
-  final sheet = _find<CategoryChangeSheet>(_root)!;
+  final sheet = _find<CategoryChangeScreen>(_root)!;
   final tile = _elements(sheet).firstWhere(
     (e) =>
-        e.widget is CategoryChangeTile &&
-        (e.widget as CategoryChangeTile).category.id == 101,
+        e.widget is CategoryChangeRow &&
+        (e.widget as CategoryChangeRow).category.id == 101,
   );
   await _tap(tile);
+  await _tap(_text(sheet, '선택 완료')!);
   await _wait(
     () =>
-        _find<CategoryChangeSheet>(_root) == null &&
+        _find<CategoryChangeScreen>(_root) == null &&
         _screen.contents.every((c) => !c.isMutating) &&
         _screen.feed?.loading == false,
     'Category mutation did not settle',

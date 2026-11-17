@@ -71,7 +71,7 @@ class ArchiveScreen extends StatelessWidget {
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function(ContentItem content, CategoryItem category)
+  final void Function(ContentItem content, List<int> categoryIds)
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final ValueChanged<CategoryItem> onAddCategory;

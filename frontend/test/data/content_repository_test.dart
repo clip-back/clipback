@@ -321,7 +321,7 @@ void main() {
       await seed();
       final write = Completer<ApiContent>();
       api.onContentCategories = (_, _) => write.future;
-      final handle = repository.beginContentCategoryChange(1, 2)!;
+      final handle = repository.beginContentCategoryChange(1, [2])!;
       final writing = repository.executeContentMutation(handle);
       api.onFeed = (_) async => ApiFeed(
         items: [_item(title: 'new title', summary: 'new summary')],
@@ -479,7 +479,7 @@ void main() {
       api.onCategories = () async => [_travel, _uncategorized];
       await repository.loadCategories();
       expect(repository.categories.any((item) => item.id == 1), isTrue);
-      expect(repository.beginContentCategoryChange(1, 1), isNull);
+      expect(repository.beginContentCategoryChange(1, [1]), isNull);
       write.completeError(StateError('delete failed'));
       await writing;
       repository.finishCategoryMutation(handle);
@@ -757,5 +757,143 @@ void main() {
     };
     await repository.loadNext(FeedKey.home);
     expect(repository.feed(FeedKey.home).items.map((item) => item.id), [1, 2]);
+  });
+
+  group('category change with a list of category IDs (#408)', () {
+    late List<List<int>> writes;
+
+    setUp(() {
+      writes = [];
+      api.onContentCategories = (id, ids) async {
+        writes.add(List.of(ids));
+        return _item(
+          id: id,
+          categories: [
+            for (final categoryId in ids)
+              _categories.firstWhere((item) => item.id == categoryId),
+          ],
+        );
+      };
+    });
+
+    List<int> shown() => repository
+        .feed(FeedKey.home)
+        .items
+        .single
+        .categories
+        .map((item) => item.id)
+        .toList();
+
+    Future<void> run(ContentMutationHandle handle) async {
+      final result = await repository.executeContentMutation(handle);
+      repository.finishContentMutation(handle);
+      expect(result.succeeded, isTrue);
+    }
+
+    for (final (input, optimistic, sent) in [
+      ([2], [2], [2]),
+      ([2, 1], [2, 1], [2, 1]),
+      ([2, 2], [2], [2]),
+      (<int>[], [3], <int>[]),
+      ([3], [3], [3]),
+    ]) {
+      test('$input shows $optimistic at once and sends $sent once', () async {
+        await seed();
+        final handle = repository.beginContentCategoryChange(1, input);
+        expect(handle, isNotNull);
+        expect(shown(), optimistic);
+        expect(writes, isEmpty);
+        await run(handle!);
+        expect(writes, [sent]);
+      });
+    }
+
+    for (final input in [
+      [3, 1],
+      [99],
+      [1, 99],
+    ]) {
+      test('$input is rejected without a change or request', () async {
+        await seed();
+        expect(repository.beginContentCategoryChange(1, input), isNull);
+        expect(shown(), [1]);
+        expect(writes, isEmpty);
+      });
+    }
+
+    test('a deleting category in the list rejects the change', () async {
+      await seed();
+      final delete = Completer<void>();
+      api.onCategoryDelete = (_) => delete.future;
+      final handle = repository.beginCategoryDelete(1)!;
+      final deleting = repository.executeCategoryMutation(handle);
+      expect(repository.beginContentCategoryChange(1, [2, 1]), isNull);
+      expect(writes, isEmpty);
+      delete.complete();
+      await deleting;
+      repository.finishCategoryMutation(handle);
+    });
+
+    test('a deleted category in the list rejects the change', () async {
+      await seed();
+      final handle = repository.beginCategoryDelete(2)!;
+      await repository.executeCategoryMutation(handle);
+      repository.finishCategoryMutation(handle);
+      expect(repository.beginContentCategoryChange(1, [1, 2]), isNull);
+      expect(writes, isEmpty);
+    });
+
+    test('another change of the same content rejects the change', () async {
+      await seed();
+      final favorite = Completer<ApiContent>();
+      api.onFavorite = (_, _) => favorite.future;
+      final bookmark = repository.beginBookmark(1)!;
+      expect(repository.beginContentCategoryChange(1, [1, 2]), isNull);
+      expect(shown(), [1]);
+      favorite.complete(_item(favorite: true));
+      await repository.executeContentMutation(bookmark);
+      repository.finishContentMutation(bookmark);
+      expect(writes, isEmpty);
+    });
+
+    test('a failed change restores every original category', () async {
+      api.onFeed = (_) async => ApiFeed(
+        items: [
+          _item(categories: [_study, _travel]),
+        ],
+      );
+      await seed();
+      final write = Completer<ApiContent>();
+      api.onContentCategories = (_, ids) {
+        writes.add(List.of(ids));
+        return write.future;
+      };
+      final handle = repository.beginContentCategoryChange(1, [])!;
+      expect(shown(), [3]);
+      final writing = repository.executeContentMutation(handle);
+      write.completeError(StateError('failed'));
+      final result = await writing;
+      repository.finishContentMutation(handle);
+      expect(result.succeeded, isFalse);
+      expect(writes, [<int>[]]);
+      expect(shown(), [1, 2]);
+    });
+
+    test('a response after an account reset is ignored', () async {
+      await seed();
+      final write = Completer<ApiContent>();
+      api.onContentCategories = (_, ids) {
+        writes.add(List.of(ids));
+        return write.future;
+      };
+      final handle = repository.beginContentCategoryChange(1, [1, 2])!;
+      final writing = repository.executeContentMutation(handle);
+      repository.resetAccount(1);
+      write.complete(_item(categories: [_study, _travel]));
+      expect((await writing).stale, isTrue);
+      repository.finishContentMutation(handle);
+      expect(repository.feed(FeedKey.home).items, isEmpty);
+      expect(repository.currentContent(1), isNull);
+    });
   });
 }

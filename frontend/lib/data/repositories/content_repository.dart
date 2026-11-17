@@ -55,7 +55,7 @@ abstract class ContentRepository extends ChangeNotifier {
   ContentMutationHandle? beginBookmark(int contentId);
   ContentMutationHandle? beginContentCategoryChange(
     int contentId,
-    int categoryId,
+    List<int> categoryIds,
   );
   ContentMutationHandle? beginContentDelete(int contentId);
   Future<MutationResult> executeContentMutation(ContentMutationHandle handle);
@@ -612,7 +612,7 @@ class RemoteContentRepository extends ContentRepository {
   ContentMutationHandle? _beginContentMutation(
     int contentId,
     ContentMutationKind kind, {
-    int? categoryId,
+    List<int>? categoryIds,
   }) {
     final current = currentContent(contentId);
     if (_disposed ||
@@ -624,7 +624,7 @@ class RemoteContentRepository extends ContentRepository {
       original: current,
       kind: kind,
       accountVersion: _accountVersion,
-      targetCategoryId: categoryId,
+      targetCategoryIds: categoryIds,
     );
     final change = _contentChanges[contentId] ??= _ContentChange();
     change.pending = handle;
@@ -654,29 +654,36 @@ class RemoteContentRepository extends ContentRepository {
   @override
   ContentMutationHandle? beginContentCategoryChange(
     int contentId,
-    int categoryId,
+    List<int> categoryIds,
   ) {
-    if (_deletedCategoryIds.contains(categoryId) ||
-        _categoryMutations[categoryId]?.handle.deleting == true) {
+    final ids = categoryIds.toSet().toList();
+    final categories = <ApiCategory>[];
+    for (final id in ids) {
+      final category = _categories.where((item) => item.id == id).firstOrNull;
+      if (category == null ||
+          _deletedCategoryIds.contains(id) ||
+          _categoryMutations[id]?.handle.deleting == true) {
+        return null;
+      }
+      categories.add(category);
+    }
+    // 미분류 cannot share a content with another category.
+    if (categories.length > 1 && categories.any((item) => item.name == '미분류')) {
       return null;
     }
-    final category = _categories
-        .where((item) => item.id == categoryId)
-        .firstOrNull;
-    if (category == null) return null;
     final handle = _beginContentMutation(
       contentId,
       ContentMutationKind.category,
-      categoryId: categoryId,
+      categoryIds: ids,
     );
     if (handle == null) return null;
     _contentChanges[contentId]!.category = (
       version: ++_contentVersion,
-      value: [category],
+      value: categories,
     );
     _updateExistingContent(
       contentId,
-      (item) => _copyContent(item, categories: [category]),
+      (item) => _copyContent(item, categories: categories),
     );
     return handle;
   }
@@ -708,9 +715,10 @@ class RemoteContentRepository extends ContentRepository {
             !handle.original.isFavorite,
           );
         case ContentMutationKind.category:
-          response = await _api.updateContentCategories(id, [
-            handle.targetCategoryId!,
-          ]);
+          response = await _api.updateContentCategories(
+            id,
+            handle.targetCategoryIds!,
+          );
         case ContentMutationKind.delete:
           await _api.deleteContent(id);
       }

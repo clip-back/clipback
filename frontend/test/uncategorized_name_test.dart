@@ -6,7 +6,7 @@ import 'package:clipback_frontend/features/archive/category_card_review_screen.d
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -15,7 +15,6 @@ import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -263,89 +262,66 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('category change tile (#6) at $textScale', (tester) async {
+    testWidgets('category change screen has no 미분류 row (#6) at $textScale', (
+      tester,
+    ) async {
       await _render(
         tester,
         textScale: textScale,
-        Column(
-          children: [
-            for (final category in [_classified, _uncategorized])
-              CategoryChangeTile(
-                category: category,
-                selected: category == _uncategorized,
-                onTap: () {},
-              ),
-          ],
+        CategoryChangeScreen(
+          content: _content('unclassified', _uncategorized),
+          categories: [_classified, _uncategorized],
+          onChange: (_) {},
         ),
       );
-      expect(find.text('미분류'), findsOneWidget);
+      expect(find.text('미분류'), findsNothing);
       expect(find.text('여행'), findsOneWidget);
       _expectNoOldName();
       expect(tester.takeException(), isNull);
     });
   }
 
-  // The tile inherits the merged app body font (not Pretendard), as in the app.
+  // The screen under the merged app theme still lists no 미분류 row.
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('category change tile (#6) app body font at 1.3 $platform', (
-      tester,
-    ) async {
-      debugDefaultTargetPlatformOverride = platform;
-      try {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = const Size(320, 900);
-        addTearDown(tester.view.reset);
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData(
-              useMaterial3: true,
-              platform: platform,
-              fontFamily: 'Pretendard',
-              textTheme: ThemeData.fallback().textTheme.apply(),
-            ),
-            home: MediaQuery(
-              data: const MediaQueryData(
-                size: Size(320, 900),
-                textScaler: TextScaler.linear(1.3),
+    testWidgets(
+      'category change screen has no 미분류 row (#6) app body font at 1.3 $platform',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        try {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(320, 900);
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(
+                useMaterial3: true,
+                platform: platform,
+                fontFamily: 'Pretendard',
+                textTheme: ThemeData.fallback().textTheme.apply(),
               ),
-              child: Scaffold(
-                body: Column(
-                  children: [
-                    for (final category in [_classified, _uncategorized])
-                      CategoryChangeTile(
-                        category: category,
-                        selected: category == _uncategorized,
-                        onTap: () {},
-                      ),
-                  ],
+              home: MediaQuery(
+                data: const MediaQueryData(
+                  size: Size(320, 900),
+                  textScaler: TextScaler.linear(1.3),
+                ),
+                child: CategoryChangeScreen(
+                  content: _content('unclassified', _uncategorized),
+                  categories: [_classified, _uncategorized],
+                  onChange: (_) {},
                 ),
               ),
             ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        final label = find.text('미분류');
-        expect(
-          tester.renderObject<RenderParagraph>(label).text.style?.fontFamily,
-          platform == TargetPlatform.iOS ? 'CupertinoSystemText' : 'Roboto',
-        );
-        final tile = find.ancestor(
-          of: label,
-          matching: find.byType(CategoryChangeTile),
-        );
-        final box = tester.getRect(tile), text = tester.getRect(label);
-        expect(text.top, greaterThanOrEqualTo(box.top));
-        expect(text.bottom, lessThanOrEqualTo(box.bottom));
-        expect(text.right, lessThanOrEqualTo(box.right));
-        expect(
-          tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
-          isFalse,
-        );
-        expect(tester.takeException(), isNull);
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
-    });
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('미분류'), findsNothing);
+          expect(find.text('여행'), findsOneWidget);
+          expect(find.text('0개 선택'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
   }
 
   Widget panel({

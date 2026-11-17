@@ -256,7 +256,7 @@ class CategoryArchivePreviewState extends State<CategoryArchivePreviewHost> {
       #onSearch: search,
       #onOpenContent: (ContentItem item) => record('content', {'id': item.id}),
       #onToggleBookmark: (ContentItem item) {},
-      #onChangeContentCategory: (ContentItem item, CategoryItem category) {},
+      #onChangeContentCategory: (ContentItem item, List<int> categoryIds) {},
       #onDeleteContent: (ContentItem item) {},
       #onAddCategory: add,
       #onUpdateCategory: update,

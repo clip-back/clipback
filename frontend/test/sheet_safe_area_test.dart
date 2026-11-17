@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -58,7 +58,7 @@ Future<void> _pumpDetail(
   required double top,
   double height = 812,
   List<CategoryItem> categories = const [],
-  void Function(ContentItem, CategoryItem)? onChangeCategory,
+  void Function(ContentItem, List<int>)? onChangeCategory,
   Future<Uint8List> Function(int)? onReadAsset,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -147,7 +147,7 @@ void main() {
           deep: Colors.blue.shade800,
         ),
       );
-      final selected = <CategoryItem>[];
+      final selected = <List<int>>[];
       await _pumpDetail(
         tester,
         top: top,
@@ -163,16 +163,28 @@ void main() {
       await tester.tap(find.text('카테고리 변경'));
       await tester.pumpAndSettle();
 
-      final sheet = find.byType(CategoryChangeSheet);
-      expect(tester.getTopLeft(sheet).dy, top);
-      expect(tester.getSize(sheet).height, 812 - top);
-      expect(tester.getTopLeft(find.text('카테고리 변경')).dy, top + 18);
+      final sheet = find.byType(CategoryChangeScreen);
+      final header = find.byKey(const ValueKey('category-change-header'));
+      expect(tester.getTopLeft(header).dy, top);
+      expect(tester.getSize(sheet).height, 812);
       expect(selected, isEmpty);
 
-      await tester.ensureVisible(find.text('카테고리 20'));
+      await tester.scrollUntilVisible(
+        find.text('카테고리 20'),
+        200,
+        scrollable: find.descendant(
+          of: sheet,
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.tap(find.text('카테고리 20'));
       await tester.pumpAndSettle();
-      expect(selected, [categories.last]);
+      expect(selected, isEmpty);
+      await tester.tap(find.text('선택 완료'));
+      await tester.pumpAndSettle();
+      expect(selected, [
+        [categories.last.id],
+      ]);
       expect(sheet, findsNothing);
       expect(find.byType(DetailScreen), findsOneWidget);
       expect(tester.takeException(), isNull);

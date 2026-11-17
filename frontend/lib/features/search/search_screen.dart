@@ -49,7 +49,7 @@ class SearchScreen extends StatefulWidget {
   final VoidCallback onClose;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function(ContentItem content, CategoryItem category)
+  final void Function(ContentItem content, List<int> categoryIds)
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final VoidCallback onOpenArchive;
@@ -164,8 +164,8 @@ class _SearchScreenState extends State<SearchScreen> {
     bookmarked: widget.bookmarkedIds.contains(content.id),
     onToggleBookmark: () => widget.onToggleBookmark(content),
     categories: widget.categories,
-    onChangeCategory: (category) =>
-        widget.onChangeContentCategory(content, category),
+    onChangeCategory: (categoryIds) =>
+        widget.onChangeContentCategory(content, categoryIds),
     onDelete: () => widget.onDeleteContent(content),
     onTap: () => widget.onOpenContent(content),
   );
