@@ -469,7 +469,7 @@ class ArchiveSortButton extends StatelessWidget {
       elevation: 1,
       shadowColor: const Color(0x1F000000),
       menuPadding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints.tightFor(width: 145),
+      constraints: const BoxConstraints.tightFor(width: 149),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: const BorderSide(color: AppColors.faint),
