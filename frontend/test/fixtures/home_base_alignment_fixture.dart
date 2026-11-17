@@ -2,6 +2,7 @@
 // the actual-root native preview; target failures never prevent BEFORE capture.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -248,13 +249,13 @@ Map<String, Object?> homeBaseMeasure(Element root) {
     for (final label in w.categories) {
       final e = homeBaseText(chipElement, label);
       if (e == null) continue;
-      final box = homeBaseAncestor(e, (w) => w is SizedBox && w.width == 70)!;
-      final material =
-          homeBaseAncestor(e, (w) => w is Material)!.widget as Material;
+      final box = homeBaseAncestor(e, (w) => w is Material)!;
+      final material = box.widget as Material;
       chips.add({
         'label': label,
         'active': label == w.activeLabel,
         'bounds': homeBaseRect(homeBaseBox(box)),
+        'screenWidth': media.size.width,
         'style': _paragraph(e),
         'fill': _color(material.color),
       });
@@ -554,7 +555,30 @@ Map<String, Object?> homeBaseJudgment(Map<String, Object?> m) {
     }
   }
   for (final chip in m['chips'] as List) {
-    n(chip['bounds']['width'], 70, 'chip width70');
+    // #415: width = max(70, label + 16), at most screen - 32; label 8 inside.
+    final width = chip['bounds']['width'] as num,
+        text = chip['style']['bounds'] as Map,
+        maxWidth = (chip['screenWidth'] as num) - 32;
+    final wanted = math.min(
+      math.max(70, (text['width'] as num) + 16),
+      maxWidth,
+    );
+    n(width, wanted, 'chip width');
+    if (chip['style']['didExceedMaxLines'] == true) {
+      n(width, maxWidth, 'chip max width');
+    }
+    if (width > 70.18) {
+      n(
+        (text['left'] as num) - (chip['bounds']['left'] as num),
+        8,
+        'chip inset left',
+      );
+      n(
+        (chip['bounds']['right'] as num) - (text['right'] as num),
+        8,
+        'chip inset right',
+      );
+    }
     n(chip['bounds']['height'], 32, 'chip height32');
     style(
       chip['style'] as Map,
