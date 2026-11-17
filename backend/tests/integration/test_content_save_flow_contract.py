@@ -1781,7 +1781,7 @@ EXPECTED_CURRENT_REPLAY: dict = {
         "deleted": [410, {"detail": "Previously saved content was deleted"}],
         "first": {
             "assets": [],
-            "categories": [{"color": "#4F46E5", "id": "<id>", "is_default": True, "name": "취업"}],
+            "categories": [{"color": "#64B5F6", "id": "<id>", "is_default": True, "name": "취업"}],
             "content_type": "link", "id": "<id>", "is_favorite": False, "last_viewed_at": None,
             "original_url": "https://example.com/a", "saved_at": "<saved_at>", "source": "web",
             "summary": "통합 설명", "summary_error_code": None, "summary_status": "not_requested",
@@ -1806,7 +1806,7 @@ EXPECTED_CURRENT_REPLAY: dict = {
         "deleted": [410, {"detail": "Previously saved content was deleted"}],
         "first": {
             "assets": [],
-            "categories": [{"color": "#4F46E5", "id": "<id>", "is_default": True, "name": "취업"}],
+            "categories": [{"color": "#64B5F6", "id": "<id>", "is_default": True, "name": "취업"}],
             "content_type": "link", "id": "<id>", "is_favorite": False, "last_viewed_at": None,
             "original_url": "https://www.instagram.com/reel/XYZ789/", "saved_at": "<saved_at>",
             "source": "instagram", "summary": "통합 설명", "summary_error_code": "disabled",
@@ -1837,7 +1837,7 @@ EXPECTED_CURRENT_REPLAY: dict = {
                     "id": "<id>", "mime_type": "image/png",
                 },
             ],
-            "categories": [{"color": "#4F46E5", "id": "<id>", "is_default": True, "name": "취업"}],
+            "categories": [{"color": "#64B5F6", "id": "<id>", "is_default": True, "name": "취업"}],
             "content_type": "screenshot", "id": "<id>", "is_favorite": False,
             "last_viewed_at": None, "original_url": None, "saved_at": "<saved_at>",
             "source": "screenshot", "summary": "화면 요약", "summary_error_code": None,
