@@ -40,28 +40,38 @@ class CategoryChips extends StatelessWidget {
           itemBuilder: (context, index) {
             final label = categories[index];
             final active = label == activeLabel;
-            return SizedBox(
-              width: 70,
-              height: height,
+            // Width = max(70, label + 8 on each side), at most screen - 32.
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                minWidth: 70,
+                maxWidth: MediaQuery.sizeOf(context).width - 32,
+                minHeight: height,
+                maxHeight: height,
+              ),
               child: Material(
                 color: active ? AppColors.faint : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
                 child: InkWell(
                   onTap: onSelected == null ? null : () => onSelected!(label),
                   borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    alignment: Alignment.center,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        inherit: false,
-                        fontFamily: 'Pretendard',
-                        color: active ? AppColors.middle : AppColors.subtler,
-                        fontSize: 15,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                        letterSpacing: -0.375,
+                  child: Align(
+                    widthFactor: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          inherit: false,
+                          fontFamily: 'Pretendard',
+                          color: active ? AppColors.middle : AppColors.subtler,
+                          fontSize: 15,
+                          fontWeight: active
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          letterSpacing: -0.375,
+                        ),
                       ),
                     ),
                   ),
