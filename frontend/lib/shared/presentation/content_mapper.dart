@@ -37,9 +37,22 @@ ContentItem contentFromApi(
   bool isMutating = false,
   String? mutationLabel,
 }) {
-  final categories = content.categories
-      .map((category) => categoryById[category.id] ?? categoryFromApi(category))
-      .toList();
+  // The server gives no order: listed categories follow [categoryById]'s list
+  // order, unlisted ones stay after them in response order (#408).
+  final order = {for (final (i, id) in categoryById.keys.indexed) id: i};
+  final listed =
+      content.categories.where((item) => order.containsKey(item.id)).toList()
+        ..sort((a, b) => order[a.id]!.compareTo(order[b.id]!));
+  final categories =
+      [
+            ...listed,
+            ...content.categories.where((item) => !order.containsKey(item.id)),
+          ]
+          .map(
+            (category) =>
+                categoryById[category.id] ?? categoryFromApi(category),
+          )
+          .toList();
   if (categories.isEmpty) categories.add(uncategorized ?? catUncategorized);
   return ContentItem(
     id: 'api-${content.id}',

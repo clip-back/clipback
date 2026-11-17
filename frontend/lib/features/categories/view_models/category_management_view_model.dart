@@ -1,5 +1,6 @@
 import 'package:clipback_frontend/app/actions/content_actions.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
@@ -8,9 +9,17 @@ import 'package:clipback_frontend/shared/contracts/category_submission.dart';
 import 'package:clipback_frontend/data/services/event_uuid.dart';
 import 'package:flutter/material.dart';
 
-class CategoryManagementViewModel extends ContentViewModel {
+class CategoryManagementViewModel extends ContentViewModel
+    implements CategoryChangeSource {
   CategoryManagementViewModel(super.repository, this.actions);
   final ContentActions actions;
+
+  @override
+  int get accountGeneration => repository.accountVersion;
+
+  @override
+  bool hasContent(int contentId) =>
+      repository.currentContent(contentId) != null;
 
   List<ContentItem> get contents =>
       repository.feed(FeedKey.home).items.map(present).toList();

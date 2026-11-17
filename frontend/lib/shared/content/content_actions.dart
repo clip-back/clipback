@@ -1,4 +1,4 @@
-import 'package:clipback_frontend/shared/category/category_sheets.dart';
+import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/content/content_delete_dialog.dart';
 import 'package:clipback_frontend/shared/content/mutation_status.dart';
 import 'package:clipback_frontend/shared/models/category_item.dart';
@@ -20,7 +20,7 @@ class ContentActionSheet extends StatefulWidget {
 
   final ContentItem content;
   final List<CategoryItem> categories;
-  final ValueChanged<CategoryItem> onChangeCategory;
+  final ValueChanged<List<int>> onChangeCategory;
   final VoidCallback onDelete;
   final BuildContext ownerContext;
   final bool Function() isCurrent;
@@ -33,7 +33,7 @@ class _ContentActionSheetState extends State<ContentActionSheet> {
   bool _confirming = false;
   ContentItem get content => widget.content;
   List<CategoryItem> get categories => widget.categories;
-  ValueChanged<CategoryItem> get onChangeCategory => widget.onChangeCategory;
+  ValueChanged<List<int>> get onChangeCategory => widget.onChangeCategory;
 
   Future<void> _delete() async {
     if (_confirming || !widget.isCurrent()) return;
@@ -60,21 +60,15 @@ class _ContentActionSheetState extends State<ContentActionSheet> {
         SheetActionTile(
           icon: Assets.archive,
           title: '카테고리 변경',
-          description: '이 콘텐츠를 다른 카테고리로 옮겨요.',
+          description: '이 콘텐츠를 넣을 카테고리를 골라요.',
           enabled: !content.isMutating,
           onTap: () {
             Navigator.pop(context);
-            showModalBottomSheet<void>(
+            showCategoryChangeScreen(
               context: context,
-              useSafeArea: true,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (context) => CategoryChangeSheet(
-                current: content.category,
-                categories: categories,
-                onChange: onChangeCategory,
-                enabled: !content.isMutating,
-              ),
+              content: content,
+              categories: categories,
+              onChange: onChangeCategory,
             );
           },
         ),

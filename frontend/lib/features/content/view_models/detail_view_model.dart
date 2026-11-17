@@ -6,7 +6,6 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/models/content_state.dart';
 import 'package:clipback_frontend/data/services/original_link_opener.dart';
 import 'package:clipback_frontend/shared/contracts/ui_effect.dart';
-import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
 import 'package:clipback_frontend/shared/presentation/content_view_model.dart';
@@ -429,9 +428,9 @@ class DetailViewModel extends ContentViewModel {
     }
   }
 
-  Future<void> changeCategory(ContentItem item, CategoryItem category) async {
-    if (!isDisposed && item.apiId != null && category.id != null) {
-      await actions.changeCategory(item.apiId!, category.id!, emitEffect);
+  Future<void> changeCategory(ContentItem item, List<int> categoryIds) async {
+    if (!isDisposed && item.apiId != null) {
+      await actions.changeCategory(item.apiId!, categoryIds, emitEffect);
     }
   }
 

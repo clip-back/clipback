@@ -41,7 +41,7 @@ class BookmarkScreen extends StatelessWidget {
   final VoidCallback onSearch;
   final ValueChanged<ContentItem> onOpenContent;
   final ValueChanged<ContentItem> onToggleBookmark;
-  final void Function(ContentItem content, CategoryItem category)
+  final void Function(ContentItem content, List<int> categoryIds)
   onChangeContentCategory;
   final ValueChanged<ContentItem> onDeleteContent;
   final SaveLinkCallback onAddLink;
@@ -114,8 +114,8 @@ class BookmarkScreen extends StatelessWidget {
                     bookmarked: bookmarkedIds.contains(content.id),
                     onToggleBookmark: () => onToggleBookmark(content),
                     categories: categories,
-                    onChangeCategory: (category) =>
-                        onChangeContentCategory(content, category),
+                    onChangeCategory: (categoryIds) =>
+                        onChangeContentCategory(content, categoryIds),
                     onDelete: () => onDeleteContent(content),
                     onTap: () => onOpenContent(content),
                   ),

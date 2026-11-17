@@ -1737,8 +1737,8 @@ void main() {
         old.onUpdateCategory(original, original.copyWith(name: '실패 이름'));
         await tester.pumpAndSettle();
         expect(_categoryItem(_archive(tester)).name, '최신 이름');
-        expect(_categoryIds(_archive(tester).contents.first), [202, 101]);
-        expect(_archive(tester).contents.first.categories.last.name, '최신 이름');
+        expect(_categoryIds(_archive(tester).contents.first), [101, 202]);
+        expect(_archive(tester).contents.first.categories.first.name, '최신 이름');
       });
     },
   );
@@ -1817,10 +1817,9 @@ void main() {
         if (action == 'favorite success') {
           screen.onToggleBookmark(screen.contents.first);
         } else {
-          screen.onChangeContentCategory(
-            screen.contents.first,
-            _categoryItem(screen, 202),
-          );
+          screen.onChangeContentCategory(screen.contents.first, [
+            _categoryItem(screen, 202).id!,
+          ]);
         }
         screen.onDeleteCategory(_categoryItem(screen));
         await tester.pumpAndSettle();
@@ -1999,10 +1998,9 @@ void main() {
         await _openArchive(tester);
         final old = _archive(tester);
         final original = _categoryItem(old);
-        old.onChangeContentCategory(
-          old.contents.first,
-          _categoryItem(old, 202),
-        );
+        old.onChangeContentCategory(old.contents.first, [
+          _categoryItem(old, 202).id!,
+        ]);
         await tester.pump();
         old.onUpdateCategory(
           original,
@@ -2082,14 +2080,14 @@ void main() {
         final target = _categoryItem(old);
         final content = old.contents.first;
         old.onDeleteCategory(target);
-        old.onChangeContentCategory(content, target);
+        old.onChangeContentCategory(content, [target.id!]);
         await tester.pump();
         expect(server.calls('/api/v1/contents/3/categories'), isEmpty);
         pending.complete(null);
         await tester.pumpAndSettle();
         old.onDeleteCategory(target);
         old.onUpdateCategory(target, target.copyWith(name: '사라진 분류 수정'));
-        old.onChangeContentCategory(content, target);
+        old.onChangeContentCategory(content, [target.id!]);
         await tester.pumpAndSettle();
         expect(_deletes(server), hasLength(1));
         expect(

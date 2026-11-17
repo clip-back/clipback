@@ -7,8 +7,6 @@ import 'package:clipback_frontend/shared/models/category_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
-import 'package:clipback_frontend/shared/widgets/icons.dart';
-import 'package:clipback_frontend/shared/widgets/sheet_primitives.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -1025,122 +1023,6 @@ class CategorySelectField extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class CategoryChangeSheet extends StatelessWidget {
-  const CategoryChangeSheet({
-    required this.current,
-    required this.categories,
-    required this.onChange,
-    this.enabled = true,
-    super.key,
-  });
-
-  final CategoryItem current;
-  final List<CategoryItem> categories;
-  final ValueChanged<CategoryItem> onChange;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: '카테고리 변경',
-      children: [
-        const Text(
-          '저장할 카테고리를 선택해 주세요.',
-          style: TextStyle(
-            color: AppColors.subtle,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 12),
-        for (final category in categories)
-          CategoryChangeTile(
-            category: category,
-            selected: category.id == current.id,
-            enabled: enabled && !category.isDeleting,
-            onTap: () {
-              onChange(category);
-              Navigator.pop(context);
-            },
-          ),
-      ],
-    );
-  }
-}
-
-class CategoryChangeTile extends StatelessWidget {
-  const CategoryChangeTile({
-    required this.category,
-    required this.selected,
-    required this.onTap,
-    this.enabled = true,
-    super.key,
-  });
-
-  final CategoryItem category;
-  final bool selected;
-  final VoidCallback onTap;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(8),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            height: 56,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: selected ? category.tint : AppColors.bg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected ? category.deep : AppColors.faint,
-              ),
-            ),
-            child: Row(
-              children: [
-                FolderGlyph(color: category.color, size: 32),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    category.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected ? category.deep : AppColors.text,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: selected ? category.deep : Colors.transparent,
-                    shape: BoxShape.circle,
-                    border: selected
-                        ? null
-                        : Border.all(color: AppColors.subtler),
-                  ),
-                  child: selected
-                      ? const Icon(Icons.check, color: Colors.white, size: 16)
-                      : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

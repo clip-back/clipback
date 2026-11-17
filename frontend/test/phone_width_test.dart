@@ -362,8 +362,12 @@ void main() {
             await _tap(tester, find.byKey(const ValueKey('detail-more')));
             _sheet(tester, 'ContentActionSheet', edges);
             await _tap(tester, find.text('카테고리 변경'));
-            _sheet(tester, 'CategoryChangeSheet', edges);
-            await _close(tester, 'CategoryChangeSheet');
+            _sheet(tester, 'CategoryChangeScreen', edges);
+            await _tap(
+              tester,
+              find.byKey(const ValueKey('category-change-back')),
+            );
+            expect(_type('CategoryChangeScreen'), findsNothing);
           });
         });
         testWidgets(

@@ -199,16 +199,16 @@ void main() {
           };
       final mapped = contentFromApi(api, byId, uncategorized: categories.last);
       expect(mapped.categories.map((v) => v.id), [
-        103,
-        104,
-        105,
-        106,
         101,
         102,
+        103,
+        104,
+        106,
+        105,
       ]);
-      expect(mapped.categories[2].name, archiveAllCategoryMaps[4]['name']);
-      expect(mapped.categories[2].color.toARGB32(), 0xFFFFA24B);
-      expect(mapped.category.id, 103);
+      expect(mapped.categories[5].name, archiveAllCategoryMaps[4]['name']);
+      expect(mapped.categories[5].color.toARGB32(), 0xFFFFA24B);
+      expect(mapped.category.id, 101);
       final empty = contentFromApi(
         ApiContent.fromJson(
           Map<String, dynamic>.from(archiveAllRecords().last),
