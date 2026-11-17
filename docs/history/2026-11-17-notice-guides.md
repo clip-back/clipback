@@ -53,7 +53,8 @@
 - 전체 검증(로컬, HEAD `c3e226b`, 작업 트리 clean): `VERIFY result=PASS scope=all checks=12 failed=0`. app 단계(pub-get·format·analyze·test)가 이슈 완료 조건의 앱 세 명령에 해당하며 앱 테스트 +3889 모두 통과. 서버 pytest 2751 passed, 49 skipped.
   - `pytest skip: 48 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)`
   - `pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)`
-- 원격 CI는 실행하지 않았다(push 전).
+- 전체 검사(최종, main의 #421을 합친 뒤): 로컬, HEAD `c9ec529`(merge), 작업 트리 clean, `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 +3938 모두 통과, 서버 pytest 2751 passed, 49 skipped(skip 사유는 위 두 줄과 같음).
+- 원격 CI: 합치기 전 head `4c34eac`에서 PR #422 CI 성공(App Validation app, Backend Validation changes·lint·test(3.11)·test(3.12)·migration 성공, deployment·operator-recovery는 변경 범위 필터로 건너뜀). 합친 뒤 결과는 PR에서 확인한다.
 
 ## 화면 확인
 
