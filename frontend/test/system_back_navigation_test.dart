@@ -10,7 +10,7 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
-import 'package:clipback_frontend/features/home/notification_list_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -28,7 +28,7 @@ String screen() {
     AccountManagementScreen,
     CategoryCardReviewScreen,
     CategoryManagementScreen,
-    NotificationListScreen,
+    NoticeListScreen,
     LogoutConfirmationScreen,
     ArchiveScreen,
     BookmarkScreen,
@@ -58,7 +58,7 @@ void main() {
     'category-list',
     'card-review',
     'category-management',
-    'notifications',
+    'notices',
     'logout-confirmation',
   ]) {
     testWidgets('system Back handles $scene without implicit OS exit', (
@@ -116,7 +116,7 @@ void main() {
           } else if (scene == 'detail') {
             home().onOpenContent(home().contents.first);
             await t.pumpAndSettle();
-          } else if (scene == 'notifications') {
+          } else if (scene == 'notices') {
             home().onOpenNotifications!();
             await t.pumpAndSettle();
           } else if ([
@@ -175,7 +175,7 @@ void main() {
             'category-list': 'ArchiveScreen',
             'card-review': 'ArchiveScreen',
             'category-management': 'ArchiveScreen',
-            'notifications': 'HomeScreen',
+            'notices': 'HomeScreen',
             'logout-confirmation': 'AccountManagementScreen',
           };
           if (scene == 'home') {

@@ -11,8 +11,9 @@ import 'package:clipback_frontend/features/account/account_deleted_screen.dart';
 import 'package:clipback_frontend/features/account/account_deletion_screen.dart';
 import 'package:clipback_frontend/features/account/logout_confirmation_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_detail_screen.dart';
 import 'package:clipback_frontend/features/account/notice_list_screen.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
 import 'package:clipback_frontend/features/auth/interest_selection_screen.dart';
@@ -28,7 +29,6 @@ import 'package:clipback_frontend/features/categories/category_management_screen
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_initial_loading_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/features/search/search_screen.dart';
 import 'package:clipback_frontend/shared/category/category_change_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
@@ -95,6 +95,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   int _myNoticeStorageAccountGeneration = 0;
   int _myNoticeStorageAuthEpoch = 0;
   bool _myNoticeStorageBlocked = true;
+  Notice _openNotice = usageGuideNotice;
+  AppRoute _noticeReturnRoute = AppRoute.noticeList;
+  // Notices opened from home (bell or card) cover home; from My they replace it.
+  bool _noticesFromHome = false;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
   AppRoute _statsRoute = AppRoute.splash;
   bool _weeklyForeground = true;
@@ -255,8 +259,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     };
   }
 
-  // Only the My -> notices -> My pair restores My's scroll position. Other
-  // routes and security/restore boundaries discard the old bucket entirely.
+  // Only My <-> notices <-> notice detail steps keep My's and the list's
+  // scroll positions. Other routes and security/restore boundaries discard
+  // the old bucket entirely.
   void _syncMyNoticeStorage() {
     final route = _d.app.route;
     final generation = _d.app.accountGeneration;
@@ -266,10 +271,12 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         _d.app.apiConnectionError != null ||
         _d.session.pendingSessionClear ||
         !_d.session.hasSession;
+    bool step(AppRoute from, AppRoute to) =>
+        (from == AppRoute.my && to == AppRoute.noticeList) ||
+        (from == AppRoute.noticeList && to == AppRoute.noticeDetail);
     final noticePair =
-        (_myNoticeStorageRoute == AppRoute.my &&
-            route == AppRoute.noticeList) ||
-        (_myNoticeStorageRoute == AppRoute.noticeList && route == AppRoute.my);
+        step(_myNoticeStorageRoute, route) ||
+        step(route, _myNoticeStorageRoute);
     if (generation != _myNoticeStorageAccountGeneration ||
         epoch != _myNoticeStorageAuthEpoch ||
         blocked != _myNoticeStorageBlocked ||
@@ -298,23 +305,59 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     };
   }
 
-  bool _canUseNotifications(AppRoute from, int generation, int epoch) =>
+  /// Opens the notice list from My or the home bell; back returns there.
+  VoidCallback _noticeListOpening(AppRoute from) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return () {
+      // The same late-tap guard as _noticeNavigation.
+      if (!_canOpenNotices(from, generation, epoch)) return;
+      _noticesFromHome = from == AppRoute.home;
+      _go(AppRoute.noticeList);
+    };
+  }
+
+  /// Opens a notice's detail from [from]; back returns there (#420 Q5, R2).
+  ValueChanged<Notice> _noticeOpening(AppRoute from) {
+    final generation = _d.app.accountGeneration;
+    final epoch = _d.app.authEpoch;
+    return (notice) {
+      if (!_canOpenNotices(from, generation, epoch)) return;
+      if (from == AppRoute.home) _noticesFromHome = true;
+      _openNotice = notice;
+      _noticeReturnRoute = from;
+      _go(AppRoute.noticeDetail);
+    };
+  }
+
+  // The list keeps its scroll across its detail in the My/notice bucket.
+  Widget _noticeList(AppRoute back) => PageStorage(
+    key: ObjectKey(_myNoticePageStorageBucket),
+    bucket: _myNoticePageStorageBucket,
+    child: NoticeListScreen(
+      notices: notices,
+      onBack: _noticeNavigation(AppRoute.noticeList, back),
+      onOpen: _noticeOpening(AppRoute.noticeList),
+    ),
+  );
+
+  Widget _noticeDetail() => NoticeDetailScreen(
+    notice: _openNotice,
+    onBack: _noticeNavigation(AppRoute.noticeDetail, _noticeReturnRoute),
+  );
+
+  VoidCallback _usageGuideFromHome() {
+    final open = _noticeOpening(AppRoute.home);
+    return () => open(usageGuideNotice);
+  }
+
+  bool _canOpenNotices(AppRoute from, int generation, int epoch) =>
       _canUseAccountActions &&
       _d.session.hasSession &&
       !_d.session.pendingSessionClear &&
       _d.app.accountGeneration == generation &&
       _d.app.authEpoch == epoch &&
       _d.app.route == from;
-
-  VoidCallback _notificationNavigation(AppRoute from, AppRoute to) {
-    final generation = _d.app.accountGeneration;
-    final epoch = _d.app.authEpoch;
-    return () {
-      if (_canUseNotifications(from, generation, epoch)) {
-        _go(to);
-      }
-    };
-  }
 
   // An acknowledgement belongs to this ordinary-login visit, not to an auth
   // attempt: the SDK increments authEpoch even when it cancels or fails.
@@ -959,8 +1002,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       return false;
     }
     return switch (_d.app.route) {
-      AppRoute.notificationList ||
       AppRoute.noticeList ||
+      AppRoute.noticeDetail ||
       AppRoute.logoutConfirmation ||
       AppRoute.accountDeletion ||
       AppRoute.accountDeleted ||
@@ -1176,14 +1219,20 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onBack: () => _go(AppRoute.onboarding),
           onDone: () => _go(AppRoute.home),
         ),
-        AppRoute.home || AppRoute.notificationList => _HomeNotificationFlow(
+        // Notices opened from My replace My; from home (bell or card) they
+        // cover home, which keeps its state (#420 Q5, R1).
+        AppRoute.noticeList when !_noticesFromHome => _noticeList(AppRoute.my),
+        AppRoute.noticeDetail when !_noticesFromHome => _noticeDetail(),
+        AppRoute.home ||
+        AppRoute.noticeList ||
+        AppRoute.noticeDetail => _HomeNotificationFlow(
           key: ValueKey((
             _d.app.accountGeneration,
             _d.app.authEpoch,
             _d.session.pendingSessionClear,
             _d.session.hasSession,
           )),
-          showingNotifications: _d.app.route == AppRoute.notificationList,
+          showingOverlay: _d.app.route != AppRoute.home,
           home: HomeScreen(
             weeklyItems: _d.homeWeekly.items,
             weeklyExposureEnabled: _weeklyVisible,
@@ -1198,10 +1247,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             categories: _d.categories.categories,
             bookmarkedIds: _d.home.bookmarkedIds,
             onSearch: _openSearch,
-            onOpenNotifications: _notificationNavigation(
-              AppRoute.home,
-              AppRoute.notificationList,
-            ),
+            onOpenNotifications: _noticeListOpening(AppRoute.home),
+            onOpenNotice: _usageGuideFromHome(),
             onOpenArchive: () => _openArchive(
               categoryName: _d.home.categories
                   .where((item) => item.id == _d.home.page.categoryId)
@@ -1216,15 +1263,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onAddScreenshot: _d.save.addScreenshot,
             onTab: _selectRootTab,
           ),
-          notification: _d.app.route == AppRoute.notificationList
-              ? NotificationListScreen(
-                  items: const [],
-                  onBack: _notificationNavigation(
-                    AppRoute.notificationList,
-                    AppRoute.home,
-                  ),
-                )
-              : const SizedBox.shrink(),
+          overlay: switch (_d.app.route) {
+            AppRoute.noticeList => _noticeList(AppRoute.home),
+            AppRoute.noticeDetail => _noticeDetail(),
+            _ => const SizedBox.shrink(),
+          },
         ),
         AppRoute.archive => PageStorage(
           key: ValueKey(_archiveStorageAccountGeneration),
@@ -1322,12 +1365,9 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             onAddLink: _d.save.addLink,
             onAddScreenshot: _d.save.addScreenshot,
             onOpenAccount: () => _go(AppRoute.account),
+            onOpenNotices: _noticeListOpening(AppRoute.my),
             onTab: _selectRootTab,
           ),
-        ),
-        AppRoute.noticeList => NoticeListScreen(
-          titles: mockNotices,
-          onBack: _noticeNavigation(AppRoute.noticeList, AppRoute.my),
         ),
         AppRoute.account => AccountManagementScreen(
           user: _d.account.user,
@@ -1433,32 +1473,33 @@ class _ExitConfirmationAttempt {
   bool confirmed = false;
 }
 
-// Preserve the existing modal round-trip semantics only for home/notifications.
+// Preserve the existing modal round-trip semantics only for home and the
+// notice screens it opens over itself (bell or notice card).
 // Other logical routes remove this subtree, as they did before this flow existed.
 class _HomeNotificationFlow extends StatelessWidget {
   const _HomeNotificationFlow({
-    required this.showingNotifications,
+    required this.showingOverlay,
     required this.home,
-    required this.notification,
+    required this.overlay,
     super.key,
   });
-  final bool showingNotifications;
+  final bool showingOverlay;
   final Widget home;
-  final Widget notification;
+  final Widget overlay;
 
   @override
   Widget build(BuildContext context) => IndexedStack(
-    index: showingNotifications ? 1 : 0,
+    index: showingOverlay ? 1 : 0,
     children: [
       TickerMode(
-        enabled: !showingNotifications,
+        enabled: !showingOverlay,
         child: ExcludeFocus(
-          excluding: showingNotifications,
-          child: ExcludeSemantics(excluding: showingNotifications, child: home),
+          excluding: showingOverlay,
+          child: ExcludeSemantics(excluding: showingOverlay, child: home),
         ),
       ),
       // An inactive PopScope must not register against the home route.
-      notification,
+      overlay,
     ],
   );
 }

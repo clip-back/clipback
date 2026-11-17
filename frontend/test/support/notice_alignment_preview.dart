@@ -7,6 +7,8 @@ import 'dart:ui' as ui;
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
+import 'package:clipback_frontend/features/account/notice_detail_screen.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
@@ -45,8 +47,7 @@ int _epoch = 0, _pointer = 68000;
 double _openingMyOffset = 0;
 Element get _root => _capture.currentContext! as Element;
 Element get _my => f.noticeFind<MyScreen>(_root)!;
-Element get _notice =>
-    f.noticeScreen(_root) ?? f.noticeFind<NoticeSheet>(_root)!;
+Element get _notice => f.noticeScreen(_root)!;
 PendingSharePrompt? _sharePrompt() =>
     f.noticeFind<PendingSharePrompt>(_root)?.widget as PendingSharePrompt?;
 void _requireShareUnblocked() {
@@ -60,8 +61,8 @@ void _requireShareUnblocked() {
 String _route() {
   if (_capture.currentContext == null) return 'mounting';
   if (f.noticeFind<SaveContentTopBar>(_root) != null) return 'save';
+  if (f.noticeFind<NoticeDetailScreen>(_root) != null) return 'noticeDetail';
   if (f.noticeScreen(_root) != null) return 'noticeList';
-  if (f.noticeFind<NoticeSheet>(_root) != null) return 'noticeSheet';
   if (f.noticeFind<ReminderSheet>(_root) != null) return 'reminderSheet';
   if (f.noticeFind<PermissionSheet>(_root) != null) return 'permissionSheet';
   if (f.noticeFind<AccountManagementScreen>(_root) != null) return 'account';
@@ -139,10 +140,7 @@ Future<void> _open() async {
   await _show(text);
   _openingMyOffset = f.noticeMyPosition(_root)?.pixels ?? 0;
   await _tap(text);
-  await _wait(
-    () => ['noticeList', 'noticeSheet'].contains(_route()),
-    'Actual notice entry missing',
-  );
+  await _wait(() => _route() == 'noticeList', 'Actual notice entry missing');
   await _settle(8);
   f.noticePosition(_root)?.jumpTo(0);
   await _settle(3);
@@ -342,7 +340,7 @@ Future<void> _maxScroll() async {
   final p = f.noticePosition(_root)!;
   p.jumpTo(p.maxScrollExtent);
   await _settle(5);
-  final last = f.noticeText(_notice, mockNotices.last)!;
+  final last = f.noticeText(_notice, notices.last.title)!;
   final viewport = f.noticeMeasure(_root)['bounds'] as Map;
   _require(
     f.noticeBox(last).bottom <= (viewport['viewport']['bottom'] as num) + .18,
@@ -364,22 +362,34 @@ Future<void> _run() async {
     await _fresh(kind);
     _record('${kind}_notice_entry');
     final count = _server.requests.length, records = _server.records.length;
-    for (final title in mockNotices) {
-      final e = f.noticeText(_notice, title)!;
+    for (final notice in notices) {
+      final e = f.noticeText(_notice, notice.title)!;
       await _show(e);
       await _tap(e);
-      _require(
-        ['noticeList', 'noticeSheet'].contains(_route()),
-        'Readonly title opened a destination',
+      await _wait(
+        () => _route() == 'noticeDetail',
+        'Notice row did not open its detail',
       );
+      await _settle(5);
+      await _tap(
+        f.noticeKey(
+          f.noticeFind<NoticeDetailScreen>(_root)!,
+          'notice-back-hit',
+        )!,
+      );
+      await _wait(
+        () => _route() == 'noticeList',
+        'Detail back did not return to the list',
+      );
+      await _settle(5);
     }
     _require(
       _server.requests.length == count &&
           _server.records.length == records &&
           _server.writes == 0,
-      'Readonly titles changed HTTP or content',
+      'Notice details changed HTTP or content',
     );
-    _record('${kind}_three_titles_readonly_no_requests');
+    _record('${kind}_two_notices_open_detail_no_requests');
     await _maxScroll();
     final headerAvailable = f.noticeScreen(_root) != null,
         offset = _openingMyOffset;

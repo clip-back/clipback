@@ -7,9 +7,9 @@ import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/features/account/notice_list_screen.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
+import 'package:clipback_frontend/features/account/notice_detail_screen.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'support/placeholder_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dart';
@@ -243,19 +243,32 @@ void main() {
                 .widget<HomeScreen>(_type('HomeScreen'))
                 .onOpenNotifications!();
             await tester.pumpAndSettle();
-            _screen(tester, 'NotificationListScreen', edges);
+            _screen(tester, 'NoticeListScreen', edges);
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
             _screen(tester, 'MyScreen', edges);
             Navigator.of(tester.element(_type('MyScreen'))).push(
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    NoticeListScreen(titles: mockNotices, onBack: () {}),
+                builder: (_) => NoticeListScreen(
+                  notices: notices,
+                  onBack: () {},
+                  onOpen: (_) {},
+                ),
               ),
             );
             await tester.pumpAndSettle();
             _screen(tester, 'NoticeListScreen', edges);
             Navigator.of(tester.element(_type('NoticeListScreen'))).pop();
+            await tester.pumpAndSettle();
+            Navigator.of(tester.element(_type('MyScreen'))).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    NoticeDetailScreen(notice: usageGuideNotice, onBack: () {}),
+              ),
+            );
+            await tester.pumpAndSettle();
+            _screen(tester, 'NoticeDetailScreen', edges);
+            Navigator.of(tester.element(_type('NoticeDetailScreen'))).pop();
             await tester.pumpAndSettle();
             original.onTab(AppRoute.my);
             await tester.pumpAndSettle();
@@ -370,31 +383,6 @@ void main() {
             expect(_type('CategoryChangeScreen'), findsNothing);
           });
         });
-        testWidgets(
-          '$label auxiliary sheets inherit production route constraints',
-          (tester) async {
-            await _root(tester, width, scale, platform, () async {
-              final context = tester.element(find.byType(HomeScreen));
-              // Fallback panels use the public modal route options of their
-              // callers; normal app navigation opens dedicated list screens.
-              for (final sheet in <Widget>[
-                const NoticeSheet(),
-                const NotificationSheet(),
-              ]) {
-                showModalBottomSheet<void>(
-                  context: context,
-                  useSafeArea: true,
-
-                  backgroundColor: Colors.transparent,
-                  builder: (_) => sheet,
-                );
-                await tester.pumpAndSettle();
-                _sheet(tester, sheet.runtimeType.toString(), edges);
-                await _close(tester, sheet.runtimeType.toString());
-              }
-            });
-          },
-        );
         testWidgets('$label original image failure route and dismissal', (
           tester,
         ) async {

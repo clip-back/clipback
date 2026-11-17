@@ -16,7 +16,6 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:clipback_frontend/shared/widgets/section_header.dart';
 import 'package:flutter/foundation.dart';
@@ -119,6 +118,7 @@ class HomeScreen extends StatelessWidget {
     this.activeCategoryId,
     this.onCategorySelected,
     this.onOpenNotifications,
+    this.onOpenNotice,
     this.previousEmptyHero = false,
     required this.contents,
     required this.categories,
@@ -150,6 +150,9 @@ class HomeScreen extends StatelessWidget {
   final List<CategoryItem> categories;
   final Set<String> bookmarkedIds;
   final VoidCallback? onOpenNotifications;
+
+  /// Opens the usage guide from the weekly row's notice card (#420).
+  final VoidCallback? onOpenNotice;
   final VoidCallback onSearch;
   final VoidCallback onOpenArchive;
   final VoidCallback onOpenCategories;
@@ -208,6 +211,7 @@ class HomeScreen extends StatelessWidget {
                         onWeeklySelected: onWeeklySelected,
                         onWeeklyExposed: onWeeklyExposed,
                         weeklyExposureEnabled: weeklyExposureEnabled,
+                        onOpenNotice: onOpenNotice,
                         feed: feed,
                         onRetry: onRetry,
                         activeCategoryId: activeCategoryId,
@@ -288,14 +292,8 @@ class HomeHero extends StatelessWidget {
                     SvgIconButton(
                       asset: Assets.bell,
                       semanticLabel: '알림',
-                      onPressed:
-                          onOpenNotifications ??
-                          () => showModalBottomSheet<void>(
-                            context: context,
-                            useSafeArea: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const NotificationSheet(),
-                          ),
+                      // Without a destination (widget tests) the bell does nothing.
+                      onPressed: onOpenNotifications ?? () {},
                       size: 24,
                       hitSize: 24,
                       color: Colors.black,
@@ -383,6 +381,7 @@ class HomeContentPanel extends StatefulWidget {
     this.onWeeklySelected,
     this.onWeeklyExposed,
     this.weeklyExposureEnabled = false,
+    this.onOpenNotice,
     this.feed,
     this.onRetry,
     this.activeCategoryId,
@@ -403,6 +402,7 @@ class HomeContentPanel extends StatefulWidget {
   final ValueChanged<ApiWeeklyRecommendationItem>? onWeeklySelected;
   final ValueChanged<int>? onWeeklyExposed;
   final bool weeklyExposureEnabled;
+  final VoidCallback? onOpenNotice;
   final FeedPage? feed;
   final VoidCallback? onRetry;
   final int? activeCategoryId;
@@ -500,7 +500,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
       child: Column(
         children: [
           const SizedBox(height: 16),
-          if (widget.weeklyItems.isNotEmpty) ...[
+          if (widget.weeklyItems.isNotEmpty || widget.onOpenNotice != null) ...[
             const SectionHeader(title: '이번주 허투루 픽 🎯', showTrailingIcon: false),
             const SizedBox(height: 8),
             WeeklyPickRail(
@@ -509,6 +509,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
               onSelected: widget.onWeeklySelected,
               onExposed: widget.onWeeklyExposed,
               exposureEnabled: widget.weeklyExposureEnabled,
+              onOpenNotice: widget.onOpenNotice,
             ),
             const SizedBox(height: 32),
           ],
@@ -809,6 +810,7 @@ class WeeklyPickRail extends StatefulWidget {
     this.onSelected,
     this.onExposed,
     this.exposureEnabled = false,
+    this.onOpenNotice,
     super.key,
   });
   final VoidCallback onOpenCategory;
@@ -816,6 +818,10 @@ class WeeklyPickRail extends StatefulWidget {
   final ValueChanged<ApiWeeklyRecommendationItem>? onSelected;
   final ValueChanged<int>? onExposed;
   final bool exposureEnabled;
+
+  /// When set, a notice card follows the picks, even when there are none.
+  /// It is not a pick: it records no exposure and selects no category.
+  final VoidCallback? onOpenNotice;
   @override
   State<WeeklyPickRail> createState() => _WeeklyPickRailState();
 }
@@ -865,7 +871,10 @@ class _WeeklyPickRailState extends State<WeeklyPickRail> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.items.isEmpty) return const SizedBox.shrink();
+    final onOpenNotice = widget.onOpenNotice;
+    if (widget.items.isEmpty && onOpenNotice == null) {
+      return const SizedBox.shrink();
+    }
     final labelHeight = _textHeight(context, '한', _pickLabel, maxLines: 1);
     final titleHeight = _textHeight(context, '한\n한', _cardTitle, maxLines: 2);
     final railHeight = math.max(
@@ -877,9 +886,12 @@ class _WeeklyPickRailState extends State<WeeklyPickRail> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: widget.items.length,
+        itemCount: widget.items.length + (onOpenNotice == null ? 0 : 1),
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
+          if (index == widget.items.length) {
+            return _NoticeCard(onTap: onOpenNotice!);
+          }
           final pick = widget.items[index];
           final label = switch (pick.type) {
             WeeklyCardType.mostSaved => '많이 저장한',
@@ -941,6 +953,55 @@ class _WeeklyPickRailState extends State<WeeklyPickRail> {
       ),
     );
   }
+}
+
+class _NoticeCard extends StatelessWidget {
+  const _NoticeCard({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    key: const ValueKey('weekly-notice-card'),
+    container: true,
+    button: true,
+    label: '공지사항, 허투루 100% 활용법',
+    onTap: onTap,
+    excludeSemantics: true,
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 133,
+          padding: const EdgeInsets.fromLTRB(16, 16, 21, 16),
+          decoration: BoxDecoration(
+            color: AppColors.main,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '공지사항',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _pickLabel,
+              ),
+              Spacer(),
+              // Two fixed lines (#420 Q4), cut short like the picks.
+              Text(
+                '허투루\n100% 활용법',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _cardTitle,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class HomeContentCard extends StatelessWidget {

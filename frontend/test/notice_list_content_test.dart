@@ -2,6 +2,7 @@
 // newly introduced public NoticeListScreen constructor. Not a baseline claim.
 import 'dart:math' as math;
 import 'package:clipback_frontend/features/account/notice_list_screen.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -30,7 +31,23 @@ Future<void> _show(
         fontFamily: 'Pretendard',
         scaffoldBackgroundColor: AppColors.bg,
       ),
-      home: NoticeListScreen(titles: titles, onBack: onBack ?? () {}),
+      home: NoticeListScreen(
+        notices: [
+          for (final title in titles)
+            Notice(
+              title: title,
+              publishedLabel: usageGuideNotice.publishedLabel,
+              pinned: true,
+              introTitle: usageGuideNotice.introTitle,
+              intro: usageGuideNotice.intro,
+              steps: usageGuideNotice.steps,
+              closingTitle: usageGuideNotice.closingTitle,
+              closing: usageGuideNotice.closing,
+            ),
+        ],
+        onBack: onBack ?? () {},
+        onOpen: (_) {},
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -58,11 +75,11 @@ void main() {
               paragraph = tester.renderObject<RenderParagraph>(rich),
               style = (paragraph.text as TextSpan).style!;
           expect(style.fontFamily, 'Pretendard');
-          expect(style.fontSize, 18);
+          expect(style.fontSize, 19);
           expect(style.fontWeight, FontWeight.w500);
-          expect(style.letterSpacing, -.45);
+          expect(style.letterSpacing, -.475);
           expect(style.height, isNull);
-          expect(paragraph.textScaler.scale(18), 18);
+          expect(paragraph.textScaler.scale(19), 19);
           expect(paragraph.maxLines, isNull);
           expect(paragraph.softWrap, isTrue);
           expect(paragraph.overflow, TextOverflow.visible);
@@ -71,10 +88,16 @@ void main() {
           final row = tester.getRect(
                 find.byKey(const ValueKey('notice-row-0')),
               ),
-              p = tester.getRect(rich);
-          expect(row.height, greaterThan(79));
-          expect(row.height, closeTo(math.max(79, p.height + 32), .18));
-          expect(p.left - row.left, closeTo(16, .18));
+              p = tester.getRect(rich),
+              date = tester.getRect(
+                find.byKey(const ValueKey('notice-date-0')),
+              );
+          expect(row.height, greaterThan(82));
+          expect(
+            row.height,
+            closeTo(math.max(82, date.height + 8 + p.height + 32), .18),
+          );
+          expect(p.left - row.left, greaterThan(16));
           expect(row.right - p.right, greaterThanOrEqualTo(15.8));
           final position = fixture.noticePosition(
             tester.element(find.byType(NoticeListScreen)),

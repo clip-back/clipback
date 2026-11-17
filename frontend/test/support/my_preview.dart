@@ -435,7 +435,7 @@ Map<String, Object?> myJudgment(Map<String, Object?> m) {
       }
     }
   }
-  if (names.join('|') != '문의하기|이용약관 및 개인정보|오픈소스 라이선스|앱 버전') {
+  if (names.join('|') != '공지사항|문의하기|이용약관 및 개인정보|오픈소스 라이선스|앱 버전') {
     style.add('approved menu order: $names');
   }
   final header = b['header'] as Map,
@@ -748,6 +748,7 @@ String _route() {
   if (_find<AddContentSheet>(_root) != null) return 'save';
   if (_find<AccountManagementScreen>(_root) != null) return 'account';
   if (_find<CategoryManagementScreen>(_root) != null) return 'management';
+  if (_runtime('NoticeDetailScreen') != null) return 'noticeDetail';
   if (_runtime('NoticeListScreen') != null) return 'noticeList';
   if (_find<MyScreen>(_root) != null) return 'my';
   if (_find<ArchiveScreen>(_root) != null) return 'archive';

@@ -22,10 +22,10 @@ import 'auth_navigation.dart';
 import 'fixtures/notification_alignment_fixture.dart' as fixture;
 import 'support/app_startup.dart';
 
-// Runtime discovery keeps this target executable on the frozen source, where
-// the bell opens NotificationSheet and intentionally fails the C03 target.
+// #420 R1: the bell opens the notice list over the retained home, where the
+// notification screen used to be.
 Finder get _notifications => find.byWidgetPredicate(
-  (widget) => widget.runtimeType.toString() == 'NotificationListScreen',
+  (widget) => widget.runtimeType.toString() == 'NoticeListScreen',
 );
 Finder get _home => find.byType(HomeScreen);
 Finder get _retainedHome => find.byType(HomeScreen, skipOffstage: false);
@@ -290,7 +290,7 @@ void main() {
                 _preserved(tester, before);
                 if (action == 'header') {
                   await tester.tap(
-                    find.byKey(const ValueKey('notification-back-hit')),
+                    find.byKey(const ValueKey('notice-back-hit')),
                   );
                 } else {
                   await tester.binding.handlePopRoute();
@@ -455,7 +455,7 @@ void main() {
               findsNothing,
             );
             final rect = tester.getRect(
-              find.byKey(const ValueKey('notification-header')),
+              find.byKey(const ValueKey('notice-header')),
             );
             await tester.tapAt(Offset(rect.right - 28, rect.center.dy));
             await tester.pumpAndSettle();

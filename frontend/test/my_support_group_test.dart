@@ -57,12 +57,14 @@ void main() {
     ('member', fixture.myMember),
     ('guest', fixture.myGuest),
   ]) {
-    testWidgets('$label My support group has no notice row', (tester) async {
+    testWidgets('$label My support group starts with the notice row', (
+      tester,
+    ) async {
       await _my(tester, user);
       expect(_groups(tester), [
-        ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
+        ['공지사항', '문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
       ]);
-      expect(find.text('공지사항'), findsNothing);
+      expect(find.text('공지사항'), findsOneWidget);
     });
 
     testWidgets('$label My hides management header and rows in semantics', (
@@ -79,6 +81,7 @@ void main() {
           for (final text in [
             '나의 허투루',
             '고객지원',
+            '공지사항',
             '문의하기',
             '이용약관 및 개인정보',
             '오픈소스 라이선스',
@@ -93,7 +96,7 @@ void main() {
     });
   }
 
-  testWidgets('scrolled to the end, version is the last row and no notice', (
+  testWidgets('scrolled to the end, version is the last row after notice', (
     tester,
   ) async {
     await _my(tester, fixture.myMember, height: 480);
@@ -104,7 +107,7 @@ void main() {
       tester.element(find.byType(MyListGroup).last),
     ).position;
     expect(position.pixels, position.maxScrollExtent);
-    expect(find.text('공지사항'), findsNothing);
+    expect(find.text('공지사항'), findsOneWidget);
     final tiles = tester.widgetList<MyListTile>(find.byType(MyListTile));
     expect(tiles.last.title, '앱 버전');
     final viewport = tester.getRect(find.byType(Scrollable).first);
@@ -143,7 +146,7 @@ void main() {
     final groups = find.byType(MyListGroup);
     final support = tester.getRect(groups);
     final heights = {
-      for (final title in ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'])
+      for (final title in ['공지사항', '문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'])
         title: tester
             .getSize(
               find.ancestor(
@@ -154,7 +157,7 @@ void main() {
             .height,
     };
     expect(heights.values.toSet(), {heights['문의하기']});
-    expect(support.height, 4 * heights['문의하기']!);
+    expect(support.height, 5 * heights['문의하기']!);
     // Was the management group width: the support surface inside the 16px
     // side margins spans the My list width minus 32.
     expect(support.width, tester.getRect(find.byType(ListView)).width);

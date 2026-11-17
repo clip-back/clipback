@@ -1,7 +1,4 @@
-import 'package:clipback_frontend/app/clipback_app.dart';
-import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/shared/theme/assets.dart';
-import 'package:clipback_frontend/shared/widgets/buttons.dart';
+import 'package:clipback_frontend/features/home/notification_list_screen.dart';
 import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'fixtures/notification_alignment_fixture.dart' as fixture;
-import 'support/app_startup.dart';
 
 Finder get _notification => find.byWidgetPredicate(
   (w) => w.runtimeType.toString() == 'NotificationListScreen',
@@ -34,22 +30,12 @@ Future<void> _root(
   addTearDown(server.client.close);
   await http.runWithClient(() async {
     try {
+      // #420 R3: the bell opens notices; C03 stays without a root entry.
       await tester.pumpWidget(
-        ClipbackApp(
-          key: UniqueKey(),
-          sessionStorage: fixture.NotificationMemoryStorage(),
-          socialAuth: fixture.NotificationSocial(),
+        MaterialApp(
+          home: NotificationListScreen(items: const [], onBack: () {}),
         ),
       );
-      await completeAppStartup(tester);
-      expect(find.byType(HomeScreen), findsOneWidget);
-      final bell = find.descendant(
-        of: find.byType(HomeHero),
-        matching: find.byWidgetPredicate(
-          (w) => w is SvgIconButton && w.asset == Assets.bell,
-        ),
-      );
-      await tester.tap(bell);
       await tester.pumpAndSettle();
       await body(server);
     } finally {
@@ -122,7 +108,6 @@ void main() {
               (server) async {
                 expect(_notification, findsOneWidget);
                 expect(find.byType(NotificationSheet), findsNothing);
-                // Fixed home/notification slots retain Home state in the root flow.
                 _expectOracle(tester);
                 final m = fixture.notificationMeasure(
                   tester.element(_notification),
@@ -186,7 +171,7 @@ void main() {
             final p = fixture.notificationPosition(
               tester.element(_notification),
             )!;
-            // Root data are now the C03-1 empty state. With iOS 59/34 safety
+            // The C03-1 empty state. With iOS 59/34 safety
             // it is taller than the 360 viewport and scrolls; with Android
             // 24/0 safety it fits (measured 0.0), so only iOS must scroll.
             expect(
