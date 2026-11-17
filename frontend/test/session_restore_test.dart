@@ -1206,6 +1206,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(LoginScreen), findsNothing);
       expect(storage.clears, 0);
+      await tester.drag(find.byType(SnackBar), const Offset(0, 300));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('logout-cancel')));
       await tester.pumpAndSettle();
       final account = tester.widget<AccountManagementScreen>(

@@ -39,6 +39,7 @@
 
 | 최초 기록일 | 작업 | 영역 |
 | --- | --- | --- |
+| 2026-11-17 | [화면 아래 안내(스낵바)를 Figma 위치·모양으로 (#407)](2026-11-17-bottom-notice-position.md) | 앱 |
 | 2026-11-17 | [콘텐츠 카테고리 여러 개 고르기 (#408)](2026-11-17-category-multi-select.md) | 앱 |
 | 2026-11-17 | [iOS App Store 심사 준비 — privacy manifest·수출 규정 키·iPhone 세로 전용 (#406)](2026-11-17-ios-review-prep.md) | 앱 |
 | 2026-11-16 | [서버 의존성 lock과 API Python 패치 고정 (#403)](2026-11-16-backend-lockfile.md) | 백엔드 |
