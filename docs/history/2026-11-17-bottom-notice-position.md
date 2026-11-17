@@ -79,7 +79,8 @@
 - 새 테스트 실패 확인: 변경 전 코드(`dd2b019`)에서 `snackbar_position_root_test.dart` 13개 모두 실패. 검수 반영 테스트는 `787d50a` 코드에서 2개 실패(버튼 안내 문구 왼쪽 16, 모달 위에서 안내 버튼이 눌림).
 - 변형 실험(`de8c119` 기준): 마이 외부 열기 실패만 옛 `SnackBar`로 → 1개 실패, 아래 기준 32→0 → 11개 실패, 안내 전용 Scaffold 제거(탭 막대 위 배치) → 12개 실패.
 - 바꾼 부분: 안내를 쓰는 테스트 16개 파일 + format·analyze 392 통과(`de8c119`), `session_restore_test.dart`·새 테스트 92 통과(`c84878b`).
-- 전체 검증(최종, `b4ef817`): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3796 통과. pytest 2743 passed, 49 skipped(48 tests/deployment: Docker 복구 시험 환경 없음 외, 1 tests/integration: 로컬 S3 endpoint 없음). 그 전 `c84878b`·`28ba571`(main의 #406 합침)도 PASS였다(앱 3780).
+- 전체 검증(최종, main의 #408을 합친 `c7117ef`): `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3854 통과. pytest 2743 passed, 49 skipped(사유는 아래와 같음). 합칠 때 `docs/figma-ui-alignment-plan.md` 표에서 양쪽이 더한 행이 충돌해 둘 다 남겼다.
+- 그 전 `b4ef817`: `VERIFY result=PASS scope=all checks=12 failed=0`. 앱 테스트 3796 통과. pytest 2743 passed, 49 skipped(48 tests/deployment: Docker 복구 시험 환경 없음 외, 1 tests/integration: 로컬 S3 endpoint 없음). 그 전 `c84878b`·`28ba571`(main의 #406 합침)도 PASS였다(앱 3780).
 - 버튼 안내 높이: 줄 수 맞춤 테스트는 인자만 바꾼 상태에서 13개 모두 62로 실패했고(`c3fa66f` 전), 폭 320 테스트는 버튼 아래 줄 배치에서 '다시 불러오기' 2개가 문구 위 9.5·14.5로 실패했다(`b4ef817` 전).
 - `de8c119`의 첫 전체 검증은 `session_restore_test.dart` 하나가 실패(로그아웃 실패 안내가 '취소'를 덮음)해 FAIL이었고, 위 사용자 결정으로 그 테스트를 고친 뒤 다시 돌렸다.
 
