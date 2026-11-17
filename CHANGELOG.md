@@ -20,7 +20,7 @@
 
 ## 앱 0.7.0
 
-[iOS 0.7.0(16)·Android 0.7.0(12) 후보 기록](docs/releases/app-v0.7.0-ios-b16-android-b12.md): 양 플랫폼 산출물을 만들었습니다(2026-11-18). 후보 태그 생성·업로드·테스터 제공·실기기 확인·정식 공개는 미실행입니다. 같은 시기 운영에 반영된 서버 변경은 [backend-2026-11-18-1](docs/releases/backend-2026-11-18-1.md)에 있습니다.
+[iOS 0.7.0(16)·Android 0.7.0(12) 후보 기록](docs/releases/app-v0.7.0-ios-b16-android-b12.md): 양 플랫폼 산출물을 만들고 후보 태그를 푸시했습니다. iOS 16은 App Store Connect에, Android 12는 Play 내부 테스트 트랙에 초안으로 올렸습니다(2026-11-18). 테스터 제공·실기기 확인·정식 공개는 미확인·미실행입니다. 같은 시기 운영에 반영된 서버 변경은 [backend-2026-11-18-1](docs/releases/backend-2026-11-18-1.md)에 있습니다.
 
 ### 추가
 

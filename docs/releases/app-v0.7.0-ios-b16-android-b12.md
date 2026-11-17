@@ -8,7 +8,7 @@
 - 포함한 [변경 이력](../../CHANGELOG.md)의 항목 또는 앵커: [앱] 공지 사용 안내 글·공지 상세·마이·홈 진입점 (팀 피드백 시트 81, #420, CHANGELOG 앱 0.7.0 추가); [앱] 콘텐츠 여러 카테고리 지정 (팀 피드백 시트 64, #408, CHANGELOG 앱 0.7.0 추가); [앱] 로그인 화면 약관 문구·링크 (#412, CHANGELOG 앱 0.7.0 추가); [iOS] App Store 심사용 iOS 설정 (#406, CHANGELOG 앱 0.7.0 개선); [앱] 목록 화면 돋보기 크기 (팀 피드백 시트 77, #413, CHANGELOG 앱 0.7.0 수정); [앱] 기본 6색 카테고리 배지 색 (팀 피드백 시트 79, #414, CHANGELOG 앱 0.7.0 수정); [앱] 홈 카테고리 칩 여백 (팀 피드백 시트 122, #415, CHANGELOG 앱 0.7.0 수정); [앱] 정렬 팝업 즐겨찾기 우선 줄 넘침 (팀 피드백 시트 123, #423, CHANGELOG 앱 0.7.0 수정); [앱] 하단 안내 Figma 위치·모양 (팀 피드백 시트 91, #407, CHANGELOG 앱 0.7.0 수정); [앱] 공유 메뉴 미지원 주소 여러 개 안내 (팀 피드백 시트 106, #398, CHANGELOG 앱 0.7.0 수정); [iOS] iOS 26 이상 공유 시트 뒤 화면 (팀 피드백 시트 90, #367, CHANGELOG 앱 0.7.0 수정, 변경 이력 표시는 [앱])
 - 관련 PR·작업 링크: [미지원 사이트 주소 여러 개 안내 #401](https://github.com/clip-back/clipback/pull/401)(#398), [iOS 26 공유 시트 뒤 화면 #404](https://github.com/clip-back/clipback/pull/404)(#367), [iOS 심사 준비 #409](https://github.com/clip-back/clipback/pull/409)(#406), [하단 안내 위치·모양 #410](https://github.com/clip-back/clipback/pull/410)(#407), [카테고리 여러 개 고르기 #411](https://github.com/clip-back/clipback/pull/411)(#408), [로그인 약관 링크 #417](https://github.com/clip-back/clipback/pull/417)(#412), [돋보기·배지 색·칩 여백 #421](https://github.com/clip-back/clipback/pull/421)(#413–#415), [공지 사용 안내 #422](https://github.com/clip-back/clipback/pull/422)(#420), [정렬 팝업 폭 #424](https://github.com/clip-back/clipback/pull/424)(#423)
 - 앱 버전별 개요·이전 후보 링크: 개요 없음. 이전 버전 후보 [iOS 0.6.1(15)·Android 0.6.1(11)](app-v0.6.1-ios-b15-android-b11.md)
-- 후보 준비 상태·미확인 사유: iOS 0.7.0(16) 아카이브·IPA와 Android 0.7.0(12) AAB 빌드 완료(2026-11-18). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 후보 태그 생성·푸시, TestFlight 업로드, Play 내부 테스트(internal) 업로드는 사용자 승인 전이라 미실행. iOS 심사 제출 미정(AI 전송 동의 화면 디자인 대기로 이 빌드로 제출하지 않을 수 있음, 사용자 결정 2026-11-18). 테스터 안내 초안은 승인 전. 실기기 확인·정식 공개 미실행
+- 후보 준비 상태·미확인 사유: iOS 0.7.0(16) 아카이브·IPA와 Android 0.7.0(12) AAB 빌드 완료(2026-11-18). 두 산출물 모두 업로드 대상 후보이며 업로드 금지로 지정한 산출물은 없음. 사용자 승인(2026-11-18 "승인", 조율 전달) 뒤 후보 태그 생성·푸시, Android 12는 Play 내부 테스트(internal) 트랙에 초안으로 업로드(2026-11-18 01:11 KST), iOS 16은 App Store Connect에 업로드(2026-11-18 01:10 KST, Upload succeeded). Play 내부 테스트 출시(출시 노트 입력)·Alpha 승급, App Store Connect 처리 완료·TestFlight '테스트할 내용' 입력·테스터 제공은 사용자 단계로 미확인. iOS 심사 제출 미정(AI 전송 동의 화면 디자인 대기로 이 빌드로 제출하지 않을 수 있음, 사용자 결정 2026-11-18). 실기기 확인·정식 공개 미실행
 
 사용자 결정(2026-11-18, 조율 전달): iOS 16·Android 12, 소스 main `d39c62b`, 포함 변경은 CHANGELOG `미배포` 절 전체(#419 한글 줄바꿈은 보류돼 들어가지 않음). 원래 11-23 빌드 일정을 앞당겨 지금 빌드하고, 업로드는 승인 뒤 TestFlight와 Play 내부 테스트(internal)까지만 함(Play Alpha·TestFlight 외부 그룹 승급은 사용자가 나중에 직접). 스토어 최대 업로드 번호는 사용자 답 "15, 11이야"(2026-11-18 00:5x KST)를 App Store Connect 15·Play 11로 받음(기존 태그 `app-ios-v0.6.1-b15`·`app-android-v0.6.1-b11`과 맞음).
 사용자 버전은 처음 0.6.2로 지시됐으나, 포함 변경에 `추가` 3개(#420, #408, #412)가 있어 [버전 결정](../release-process.md#버전-결정)의 0.x.y 규칙(기능 추가는 가운데 숫자)과 어긋나 배포 세션이 멈추고 물었고, 사용자 답 "0.7.0으로 하자"(2026-11-18, 조율 전달)로 0.7.0이 됐습니다. 작업 기록(`docs/history/`)의 "0.6.2" 언급은 이 버전을 가리키며 고치지 않았습니다. 포함 변경은 `추가` 3개, `개선` 1개, `수정` 7개입니다. 같은 `미배포`의 `[서버]` 항목 셋(#416, #400, #397)은 [backend-2026-11-18-1](backend-2026-11-18-1.md)로 옮겼습니다.
@@ -44,11 +44,11 @@
 | 실제 앱 버전 | 0.7.0 | 0.7.0 |
 | 실제 빌드 번호 | 16 | 12 |
 | 빌드 소스 SHA | d39c62b5b3d9ffaca55a521be4404f7400f76729 | d39c62b5b3d9ffaca55a521be4404f7400f76729 |
-| 후보 태그·실제 생성 여부 | app-ios-v0.7.0-b16 (미생성) | app-android-v0.7.0-b12 (미생성) |
+| 후보 태그·실제 생성 여부 | app-ios-v0.7.0-b16 (2026-11-18 생성·푸시, annotated) | app-android-v0.7.0-b12 (2026-11-18 생성·푸시, annotated) |
 | 최종 검증 빌드·정식 배포 대상 여부 | 미결정 — 업로드·실기기 확인 전. 심사 제출 미정 | 미결정 — 업로드·실기기 확인 전 |
 | 빌드 결과·산출물 식별자 | 아카이브·IPA 내보내기 성공. 아카이브 `frontend/build/release-candidates/app-v0.7.0-ios-b16/Runner.xcarchive`(생성 2026-11-18 01:00 KST), IPA `frontend/build/release-candidates/app-v0.7.0-ios-b16/ipa/허투루.ipa` 42,409,511바이트, SHA-256 `a4862ec0df07fe07df2b1d67f0e30e14be8d53276d25dd286e75ebb7d1bc53b0` — 본앱 `com.huturu.app` 0.7.0(16), 공유 확장 `com.huturu.app.ShareExtension` 0.7.0(16), 팀 `8X6N747PQM`. IPA 파일 이름이 `clipback_frontend.ipa`에서 `허투루.ipa`로 바뀐 것은 #406의 번들 이름 변경 때문. 업로드 대상 후보(업로드 금지 아님) | Release AAB 성공. `frontend/build/release-candidates/app-v0.7.0-android-b12/app-release.aab`, 74,679,263바이트, SHA-256 `45b0ece54df7c51402027bc6e9c64d022e824ad71cf63c29eaeff670e8c2c587`. versionName 0.7.0·versionCode 12 확인. 업로드 대상 후보(업로드 금지 아님) |
-| 업로드·처리 상태 | 미실행 — 사용자 승인 전 | 미실행 — 사용자 승인 전 |
-| 테스트 배포 상태·대상 트랙 또는 그룹 | 미실행 — 승인 뒤 TestFlight 업로드까지. '테스트할 내용' 입력·테스터 그룹 제공은 사용자 단계 | 미실행 — 승인 뒤 Play 내부 테스트(internal) 트랙(`upload.py` 기본값)까지. 출시 노트 입력·Alpha 승급은 사용자 단계 |
+| 업로드·처리 상태 | 후보 아카이브 `app-v0.7.0-ios-b16/Runner.xcarchive`를 `xcodebuild -exportArchive`(destination upload)로 App Store Connect에 업로드 성공(2026-11-18 01:10 KST). 업로드 직후 상태 "Uploaded package is processing". App Store Connect 처리 완료 여부 미확인(이 세션에 조회 도구 없음) | 배포 세션이 Play Developer API로 후보 AAB(`app-v0.7.0-android-b12/app-release.aab`, SHA-256 같음)를 업로드(2026-11-18 01:11 KST, `UPLOAD result=UPLOADED`), versionCode 12. Play 처리 결과 미확인 |
+| 테스트 배포 상태·대상 트랙 또는 그룹 | 미확인 — TestFlight '테스트할 내용' 입력·테스터 그룹 제공은 사용자 단계 | 내부 테스트(internal) 트랙에 초안(draft) 릴리스 "0.7.0 (12)". `check.py` 트랙 조회(01:11 KST): `internal: 0.7.0 (12)[draft]; 0.6.1 (11)[completed]`, `alpha: 0.6.1 (11)[completed]`. 내부 테스트 출시(출시 노트 입력)·Alpha 승급은 사용자가 Play Console에서 함, 미확인 |
 | 심사 상태 | 심사 제출 미정 — AI 전송 동의 화면 디자인 대기(사용자 결정 2026-11-18) | 미확인 |
 | 정식 공개 상태·공개 범위 | 미실행 | 미실행 |
 | 실제 공개일·시각 | 해당 없음 — 공개 전 | 해당 없음 — 공개 전 |
@@ -74,9 +74,9 @@
 
 앱 후보는 [테스터 안내 양식](TESTER-NOTES.md)으로 쓴 초안과 사용자가 승인한 최종 문구를 남깁니다. 서버 단독 기록은 두 칸 모두 `해당 없음`입니다.
 
-아래는 배포 세션이 쓴 초안이며 사용자 승인 전입니다. 원본은 CHANGELOG `## 앱 0.7.0` 절(추가 3, 개선 1, 수정 7)입니다. 오픈채팅방(Android 테스터) 기준으로 `[iOS]` 항목(#406 심사 설정, #367 iOS 공유 시트 뒤 화면)은 넣지 않았습니다. 공지 날짜는 실제로 공지하는 날로 바꿉니다.
+사용자 승인 문구입니다(2026-11-18 "승인", 조율 전달). 오픈채팅방 공지와 스토어 짧은 안내 모두 배포 세션이 쓴 초안 그대로입니다. 원본은 CHANGELOG `## 앱 0.7.0` 절(추가 3, 개선 1, 수정 7)입니다. 오픈채팅방(Android 테스터) 기준으로 `[iOS]` 항목(#406 심사 설정, #367 iOS 공유 시트 뒤 화면)은 넣지 않았습니다. 공지 날짜는 실제로 공지하는 날로 바꿉니다.
 
-- 오픈채팅방 공지: 아래 초안(승인 전). 추가 셋을 `🆕`에, 앱 수정 여섯을 `🔧`에 넣었습니다. 시트 줄이 있는 제보 항목(77, 79, 91, 106, 122, 123)이 있어 "제보 감사합니다"를 둡니다.
+- 오픈채팅방 공지: 아래 승인 문구(초안 그대로). 실제 게시 여부·날짜는 사용자 보고 전이라 미확인. 추가 셋을 `🆕`에, 앱 수정 여섯을 `🔧`에 넣었습니다. 시트 줄이 있는 제보 항목(77, 79, 91, 106, 122, 123)이 있어 "제보 감사합니다"를 둡니다.
 
 ```text
 [허투루 0.7.0 업데이트 안내] 2026-11-18
@@ -102,7 +102,7 @@
 💬 사용하면서 불편한 점이나 좋았던 점이 있으면 이 방에 편하게 남겨 주세요!
 ```
 
-- 스토어 짧은 안내: 아래 초안(승인 전). Play 출시 노트·TestFlight '테스트할 내용' 입력은 사용자가 합니다. `[iOS]` 항목을 넣지 않아 두 스토어 문구가 같습니다.
+- 스토어 짧은 안내: 아래 승인 문구(초안 그대로). Play 출시 노트·TestFlight '테스트할 내용' 입력은 사용자가 하며(업로드 도구는 출시 노트를 넣지 않음) 입력 여부는 미확인. `[iOS]` 항목을 넣지 않아 두 스토어 문구가 같습니다.
 
 ```text
 0.7.0 업데이트
@@ -141,3 +141,6 @@
 | 2026-11-18 00:58 | 후보 예약 | 사용자 확인 스토어 최대 업로드(App Store Connect 15, Play 11, 2026-11-18 00:5x KST 사용자 답, 확인 시각 00:55 KST로 기재)로 iOS 0.7.0(16)·Android 0.7.0(12) 예약. 소스 main `d39c62b` | `prepare_release app` created=true, identifier_checks_complete=true(수동 확인값·원격 태그 범위). 태그 미생성 |
 | 2026-11-18 00:58–01:01 | iOS 아카이브·IPA 내보내기 | 빌드 차례 확인(비어 있음) 뒤 실행. Git 제외 `SocialAuth.xcconfig`를 본체에서 복사해 같음을 확인(값 미출력). `flutter pub get --enforce-lockfile` 뒤 `flutter build ipa --release --no-pub -t lib/main.dart --build-name=0.7.0 --build-number=16`, 공개 소셜 Dart define 3개. Flutter 3.47.9. 작업 트리 HEAD `d39c62b`, 변경은 CHANGELOG·배포 기록뿐 | 약 3분 성공(아카이브 92초, IPA 45초), 0.7.0(16) 확인. 산출물을 본체 후보 폴더로 복사(IPA SHA-256 일치, 아카이브 `diff -r` 같음). 업로드 미실행 |
 | 2026-11-18 01:02–01:04 | Android AAB | iOS 빌드 종료 후 차례 확인(비어 있음) 뒤 실행. 저장소 밖 값 파일에서 서명 설정·공개 SDK 설정을 불러옴(값 미출력). `flutter build appbundle --release --no-pub -t lib/main.dart --build-name=0.7.0 --build-number=12`, 운영 API·공개 SDK 설정 지정. 빌드 뒤 단독 `:app:validateReleaseSigning` 통과 | `bundleRelease` 127초 성공, 0.7.0(12) 확인. 본체 후보 폴더로 복사(SHA-256 일치), `./gradlew --stop`으로 데몬 정지. 업로드 미실행 |
+| 2026-11-18 01:07 | 태그 생성·푸시 | 사용자 승인(2026-11-18 "승인", 조율 전달: 태그 생성·push, iOS 16 업로드, Android 12 internal 업로드, 테스터 안내 승인, 기록 브랜치 push·PR). 만들기 전 로컬·origin에 같은 태그 없음, `d39c62b`이 origin/main에 있음을 확인. annotated 태그 `app-ios-v0.7.0-b16`·`app-android-v0.7.0-b12`를 `d39c62b5b3d9ffaca55a521be4404f7400f76729`에 만들어 origin에 푸시. 서버 기록 태그는 만들지 않음 | origin `ls-remote`로 두 태그가 `d39c62b`을 가리킴을 확인 |
+| 2026-11-18 01:08–01:10 | iOS 업로드 | 같은 승인. 빌드 차례 확인(비어 있음) 뒤 실행. 올리기 전 보존 아카이브가 빌드 직후 아카이브와 같음(`diff -r`)을, 본앱·공유 확장 모두 0.7.0(16)임을 확인. 새로 빌드하지 않고 보존 아카이브를 `xcodebuild -exportArchive -allowProvisioningUpdates`로 업로드. 내보내기 설정은 IPA 내보내기 설정에서 destination만 upload로, 빌드 번호 자동 변경(`manageAppVersionAndBuildNumber`)은 끔. Xcode에 로그인된 계정 사용. 심사 제출은 하지 않음 | 약 2분, `Upload succeeded`(01:10:17 KST)·`EXPORT SUCCEEDED`, 한 번 시도. 로그에 Xcode에 등록된 다른 계정 하나의 자격 증명 로드 실패 경고가 있었으나(0.6.1 때와 같음) 업로드에 영향 없음. App Store Connect 처리·TestFlight 제공은 미확인 |
+| 2026-11-18 01:10–01:11 | Android 업로드 | 같은 승인. `~/.heoturu-agents/play/upload.py`(`.venv-play`)로 보존 AAB `app-v0.7.0-android-b12/app-release.aab`를 먼저 dry-run(Play 최대 versionCode 11, 12는 새 번호) 뒤 `--release-name "0.7.0 (12)" --confirm-upload`. 트랙은 도구 기본값 internal, 상태는 기본값 draft. 출시 노트는 도구가 지원하지 않아 넣지 않음(사용자가 Play Console에서 승인 문구 입력) | `UPLOAD result=UPLOADED`, AAB SHA-256 `45b0ece5…e8c2c587` 일치, edit 커밋. `check.py` 트랙 조회(01:11 KST): `internal: 0.7.0 (12)[draft]; 0.6.1 (11)[completed]`, `alpha: 0.6.1 (11)[completed]`. 테스터 제공은 안 됨 — Play Console에서 출시해야 함 |
