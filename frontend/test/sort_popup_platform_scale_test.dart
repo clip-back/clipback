@@ -2,6 +2,8 @@
 // 선형 배율(textScaleFactorTestValue)은 Android 14+ 비선형 1.3과 iOS xxxL을
 // 재현하지 못하므로, 루트 앱 병합 테마·실제 Pretendard 위에 배율을 직접 넣는다.
 // Flutter는 같은 위젯의 넘침을 한 번만 알리므로 환경·선택마다 테스트를 따로 둔다.
+// 앱 시작·정리 흐름은 support/theme_font_app.dart의 withThemeFontApp과 같다(그 helper는
+// 선형 배율만 받는다). 그쪽 흐름을 바꾸면 여기도 맞춘다.
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:flutter/foundation.dart';
@@ -110,13 +112,22 @@ void main() {
                 scaler.scale(14),
                 reason: '팝업 문구가 넣은 배율을 받는다',
               );
-              expect(
-                find.descendant(of: item, matching: find.byIcon(Icons.check)),
-                findsOneWidget,
+              final check = find.descendant(
+                of: item,
+                matching: find.byIcon(Icons.check),
               );
+              expect(check, findsOneWidget);
+              // 넘치면 체크가 줄(Row) 오른쪽 끝 밖에 놓인다. 넘침 오류 보고와 따로 본다.
               expect(
-                t.getRect(text).right,
-                lessThanOrEqualTo(t.getRect(item).right),
+                t.getRect(check).right,
+                lessThanOrEqualTo(
+                  t
+                      .getRect(
+                        find.descendant(of: item, matching: find.byType(Row)),
+                      )
+                      .right,
+                ),
+                reason: '선택 체크가 줄 안에 있다',
               );
               expect(t.takeException(), isNull);
               expect(server.base.unexpected, isEmpty);
