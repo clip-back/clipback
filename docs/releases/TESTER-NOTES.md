@@ -63,20 +63,21 @@ TestFlight '테스트할 내용'에 씁니다. 스토어 짧은 안내보다 길
 ```text
 허투루 X.Y.Z 업데이트
 
-🆕 새로 생긴 것
+[새로 생긴 것]
 - (CHANGELOG `추가` 항목, 한두 줄씩)
 
-📱 아이폰에서 달라진 것
+[아이폰에서 달라진 것]
 - (`[iOS]` 항목과, iPhone에서만 보이는 공유 관련 앱 항목, 한두 줄씩)
 
-🔧 고친 것
+[고친 것]
 - (그 밖의 CHANGELOG `개선`·`수정` 항목, 한두 줄씩)
 
 불편한 점이나 좋았던 점은 TestFlight 피드백으로 편하게 보내 주세요!
 ```
 
 - `[Android]`만 붙은 항목은 넣지 않습니다.
-- `📱 아이폰에서 달라진 것`에 넣은 항목은 `🔧 고친 것`에 다시 쓰지 않습니다.
+- `[아이폰에서 달라진 것]`에 넣은 항목은 `[고친 것]`에 다시 쓰지 않습니다.
+- 이모지를 넣지 않습니다(App Store Connect가 받지 않음, 2026-11-18 사용자 확인). 절 머리는 대괄호로 씁니다.
 - "제보 감사합니다", 업데이트 방법, 테스트 요청은 넣지 않습니다.
 
 ## 변환 규칙
@@ -110,7 +111,7 @@ TestFlight '테스트할 내용'에 씁니다. 스토어 짧은 안내보다 길
 | 자리 | 제한 | 출처 |
 | --- | --- | --- |
 | Play 출시 노트 | 언어마다 유니코드 500자 | [Play Console 고객센터 "Prepare and roll out a release"](https://support.google.com/googleplay/android-developer/answer/9859348): "You can enter release notes using up to 500 Unicode characters per language." |
-| TestFlight '테스트할 내용' | 공식 제한 미확인 | Apple 공식 문서(App Store Connect 도움말 "Provide test information", App Store Connect API `BetaBuildLocalization`의 `whatsNew`)에서 글자 수 제한을 찾지 못했습니다. |
+| TestFlight '테스트할 내용' | 공식 제한 미확인 | Apple 공식 문서(App Store Connect 도움말 "Provide test information", App Store Connect API `BetaBuildLocalization`의 `whatsNew`)에서 글자 수 제한을 찾지 못했습니다. 이모지가 든 문구는 입력되지 않았습니다(2026-11-18 사용자 확인). |
 
 스토어 짧은 안내는 2–4줄이라 수백 자 이하입니다. TestFlight 안내는 더 길므로, 입력할 때 잘리면 사용자에게 알립니다.
 
