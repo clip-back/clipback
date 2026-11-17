@@ -13,12 +13,13 @@ CategoryItem categoryFromApi(
   String? mutationLabel,
 }) {
   final color = _colorFromHex(category.color) ?? AppColors.subSubtle;
+  final badge = categoryBadgeColors(color);
   return CategoryItem(
     id: category.id,
     name: category.name,
     color: color,
-    tint: color.withValues(alpha: 0.2),
-    deep: deepCategoryColor(color),
+    tint: badge.tint,
+    deep: badge.deep,
     contentCount: category.contentCount,
     rawLastSavedAt: category.lastSavedAt,
     lastSavedAt: category.lastSavedAt == null

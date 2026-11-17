@@ -482,14 +482,17 @@ class CategoryCreateSheet extends StatelessWidget {
   Widget build(BuildContext context) => CategoryFormSheet(
     actionLabel: '생성하기',
     onSubmit: onSubmit,
-    onSave: (name, color) => onCreate(
-      CategoryItem(
-        name: name,
-        color: color,
-        tint: color.withValues(alpha: 0.22),
-        deep: color,
-      ),
-    ),
+    onSave: (name, color) {
+      final badge = categoryBadgeColors(color);
+      onCreate(
+        CategoryItem(
+          name: name,
+          color: color,
+          tint: badge.tint,
+          deep: badge.deep,
+        ),
+      );
+    },
   );
 }
 
@@ -514,14 +517,17 @@ class CategoryEditSheet extends StatelessWidget {
     initialColor: category.color,
     actionLabel: '수정하기',
     onSubmit: onSubmit,
-    onSave: (name, color) => onSave(
-      category.copyWith(
-        name: name,
-        color: color,
-        tint: color.withValues(alpha: 0.22),
-        deep: deepCategoryColor(color),
-      ),
-    ),
+    onSave: (name, color) {
+      final badge = categoryBadgeColors(color);
+      onSave(
+        category.copyWith(
+          name: name,
+          color: color,
+          tint: badge.tint,
+          deep: badge.deep,
+        ),
+      );
+    },
   );
 }
 
