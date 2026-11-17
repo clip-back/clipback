@@ -605,9 +605,15 @@ void main() {
           )!;
           position.jumpTo(position.maxScrollExtent);
           await tester.pump();
-          // #377: the guest label ends 83 above the safe bottom at every
-          // text scale; at 1x that is the 44 hit box ending 70 above it.
-          expect(tester.getRect(guest).bottom, closeTo(667 - 83, .5));
+          // #412: the guest label ends 11 + terms line height + 30 above the
+          // safe bottom (83 at 1x, the 44 hit box ending 70 above it).
+          final terms = tester.getRect(
+            find.byKey(const ValueKey('login-terms')),
+          );
+          expect(
+            tester.getRect(guest).bottom,
+            closeTo(667 - 11 - terms.height - 30, .5),
+          );
           if (scale == 1.0) {
             expect(
               tester

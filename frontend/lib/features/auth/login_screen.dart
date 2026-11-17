@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:clipback_frontend/features/account/contact_form.dart';
 import 'package:clipback_frontend/features/auth/entry_widgets.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/app_layout.dart';
+import 'package:clipback_frontend/shared/widgets/notice_snack_bar.dart';
 import 'package:clipback_frontend/social_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -237,6 +240,19 @@ abstract final class _LoginText {
     letterSpacing: 0,
     color: AppColors.middle,
   );
+  static const terms = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 13,
+    fontWeight: FontWeight.w400,
+    height: 1.6,
+    letterSpacing: -0.325,
+    color: AppColors.subtle,
+  );
+  static const termsLink = TextStyle(
+    fontWeight: FontWeight.w600,
+    color: AppColors.middle,
+  );
 }
 
 class _OrdinaryLoginScreen extends StatelessWidget {
@@ -259,16 +275,18 @@ class _OrdinaryLoginScreen extends StatelessWidget {
       SocialLoginProvider.apple,
       SocialLoginProvider.google,
     ].where(providers.contains).toList(growable: false);
-    // A02 keeps the guest label bottom 83px above the safe bottom at every
-    // text scale. The label is centered in its 44px hit box, so the space
-    // under the hit box is 83 minus half of the box's spare height (70 at 1x).
+    // A02 (#412): the terms line ends 11 above the safe bottom and the guest
+    // label ends 30 above the terms line (83 above the safe bottom at 1x).
+    // The label is centered in its 44px hit box, so the gap under the hit box
+    // is 30 minus half of the box's spare height (17 at 1x).
     final guestLabel = TextPainter(
       text: const TextSpan(text: '게스트로 시작하기', style: _LoginText.guest),
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.textScalerOf(context),
     )..layout();
-    final bottom = 83 - (44 - guestLabel.height) / 2;
+    final termsGap = 30 - (44 - guestLabel.height) / 2;
     guestLabel.dispose();
+    const bottom = 11.0;
     return PhoneFrame(
       child: Scaffold(
         backgroundColor: AppColors.bg,
@@ -385,6 +403,8 @@ class _OrdinaryLoginScreen extends StatelessWidget {
                             ),
                           ),
                         ),
+                        SizedBox(height: termsGap),
+                        const _LoginTerms(),
                       ],
                     ),
                   ],
@@ -396,6 +416,66 @@ class _OrdinaryLoginScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+const _termsFailureMessage = '서비스 이용약관을 열지 못했어요. 다시 시도해 주세요.';
+const _privacyFailureMessage = '개인정보처리방침을 열지 못했어요. 다시 시도해 주세요.';
+
+/// The A02 terms line (Figma 111:3419). Each of the two words opens its web
+/// page like the My privacy row (#349), also while a login is busy (#412).
+class _LoginTerms extends StatefulWidget {
+  const _LoginTerms();
+
+  @override
+  State<_LoginTerms> createState() => _LoginTermsState();
+}
+
+class _LoginTermsState extends State<_LoginTerms> {
+  late final _terms = TapGestureRecognizer()
+    ..onTap = () => _open(openTermsOfService, _termsFailureMessage);
+  late final _privacy = TapGestureRecognizer()
+    ..onTap = () => _open(openPrivacyPolicy, _privacyFailureMessage);
+
+  Future<void> _open(Future<bool?> Function() open, String failure) async {
+    if (await open() == false && mounted) {
+      // Same rule as the app's MessageEffect notices (#353).
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(noticeSnackBar(context, failure));
+    }
+  }
+
+  @override
+  void dispose() {
+    _terms.dispose();
+    _privacy.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Text.rich(
+    key: const ValueKey('login-terms'),
+    textAlign: TextAlign.center,
+    TextSpan(
+      style: _LoginText.terms,
+      children: [
+        const TextSpan(text: '계속하면 허투루의 '),
+        TextSpan(
+          text: '서비스 이용약관',
+          style: _LoginText.termsLink,
+          recognizer: _terms,
+        ),
+        // Figma keeps this line break (decision 4).
+        const TextSpan(text: '에 동의하며,\n'),
+        TextSpan(
+          text: '개인정보처리방침',
+          style: _LoginText.termsLink,
+          recognizer: _privacy,
+        ),
+        const TextSpan(text: '을 확인한 것으로 간주합니다.'),
+      ],
+    ),
+  );
 }
 
 class _LoginDivider extends StatelessWidget {

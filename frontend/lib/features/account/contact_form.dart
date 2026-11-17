@@ -8,6 +8,9 @@ const contactFormFailureMessage = '문의하기를 열지 못했어요. 다시 �
 final privacyPolicyUri = Uri.parse('https://huturu-app.github.io/privacy');
 const privacyPolicyFailureMessage = '이용약관 및 개인정보를 열지 못했어요. 다시 시도해 주세요.';
 
+/// The login terms line opens the terms page by itself (#412).
+final termsOfServiceUri = Uri.parse('https://huturu-app.github.io/terms');
+
 final _opening = <Uri>{};
 
 /// Opens [uri] in an external app. Returns null for a tap made while the OS is
@@ -26,3 +29,5 @@ Future<bool?> _openOnce(Uri uri) async {
 Future<bool?> openContactForm() => _openOnce(contactFormUri);
 
 Future<bool?> openPrivacyPolicy() => _openOnce(privacyPolicyUri);
+
+Future<bool?> openTermsOfService() => _openOnce(termsOfServiceUri);
