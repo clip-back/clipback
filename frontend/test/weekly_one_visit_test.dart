@@ -7,7 +7,7 @@ import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/content/detail_screen.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
-import 'package:clipback_frontend/features/home/notification_list_screen.dart';
+import 'package:clipback_frontend/features/account/notice_list_screen.dart';
 import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -145,7 +145,12 @@ void main() {
         expect(_home, findsNothing);
         final frames = await _launch(t, limitMs: 1000);
         expect(frames.first, isEmpty);
-        expect(find.text('이번주 허투루 픽 🎯'), findsNothing);
+        // #420 Q2: the section stays with only the notice card.
+        expect(find.text('이번주 허투루 픽 🎯'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('weekly-notice-card')),
+          findsOneWidget,
+        );
         expect(_message, findsOneWidget);
         expect(log.weeklyGets, 1);
 
@@ -278,9 +283,7 @@ void main() {
           await _returnHome(
             t,
             () => t
-                .widget<NotificationListScreen>(
-                  find.byType(NotificationListScreen),
-                )
+                .widget<NoticeListScreen>(find.byType(NoticeListScreen))
                 .onBack(),
           ),
           [8011, 8012],

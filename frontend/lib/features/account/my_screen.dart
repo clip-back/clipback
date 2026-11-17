@@ -105,6 +105,7 @@ class MyScreen extends StatelessWidget {
     required this.onAddScreenshot,
     required this.onOpenAccount,
     required this.onTab,
+    this.onOpenNotices,
     this.statsMessage,
     this.onRetryStats,
     super.key,
@@ -117,6 +118,7 @@ class MyScreen extends StatelessWidget {
   final SaveLinkCallback onAddLink;
   final SaveScreenshotCallback onAddScreenshot;
   final VoidCallback onOpenAccount;
+  final VoidCallback? onOpenNotices;
   final ValueChanged<AppRoute> onTab;
 
   @override
@@ -190,6 +192,7 @@ class MyScreen extends StatelessWidget {
                     const MySectionHeader(title: '고객지원'),
                     MyListGroup(
                       children: [
+                        MyListTile(title: '공지사항', onTap: onOpenNotices),
                         MyListTile(
                           title: '문의하기',
                           onTap: () => unawaited(

@@ -101,7 +101,7 @@ void main() {
     (t) async {
       await withHome(t, (s) async {
         expect(weekly(s), hasLength(1));
-        expect(find.text('공지사항'), findsNothing);
+        expect(find.text('공지사항'), findsOneWidget);
         expect(home(t).weeklyItems.map((c) => c.category.id), [102, 101]);
         expect(exposures(s), hasLength(2));
         expect(views(s), isEmpty);
@@ -253,10 +253,26 @@ void main() {
     },
   );
   testWidgets(
-    'failed/empty query hides entire section; owned manual retry only',
+    'failed/empty query keeps only the section and notice card; owned manual retry only',
     (t) async {
+      void onlyNoticeCard() {
+        expect(find.text('이번주 허투루 픽 🎯'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('weekly-notice-card')),
+          findsOneWidget,
+        );
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith('weekly-card-'),
+          ),
+          findsNothing,
+        );
+      }
+
       await withHome(t, (s) async {
-        expect(find.text('이번주 허투루 픽 🎯'), findsNothing);
+        onlyNoticeCard();
         expect(find.text('이번주 추천을 불러오지 못했어요. 다시 시도해 주세요.'), findsOneWidget);
         final retry = t
             .widget<SnackBarAction>(find.byType(SnackBarAction))
@@ -266,7 +282,7 @@ void main() {
         retry();
         await t.pumpAndSettle();
         expect(weekly(s), hasLength(2));
-        expect(find.text('이번주 허투루 픽 🎯'), findsNothing);
+        onlyNoticeCard();
         expect(exposures(s), isEmpty);
         home(t).onTab(AppRoute.my);
         await t.pumpAndSettle();

@@ -1,8 +1,9 @@
-// K01 render oracle and memory dependencies. Runtime discovery also compiles
-// on 56721f9, where My opens the legacy NoticeSheet. No production requests.
+// K01 render oracle (Figma 423:4464, #420) and memory dependencies.
+// No production requests.
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:clipback_frontend/features/account/my_screen.dart';
-import 'package:clipback_frontend/features/account/settings_sheets.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../support/account_preview.dart' as account;
 import '../support/archive_all_preview.dart' as isolated;
 
 const noticeBackAsset = 'assets/icons/detail-back.svg';
+const noticeArrowAsset = 'assets/icons/chevron-right.svg';
 List<Element> noticeElements(Element root) => common.logoutElements(root);
 Element? noticeFind<T extends Widget>(Element root) =>
     common.logoutFind<T>(root);
@@ -75,31 +77,26 @@ ScrollPosition? _position(Element? root) {
       : null;
 }
 
-ScrollPosition? noticePosition(Element root) =>
-    _position(noticeScreen(root) ?? noticeFind<NoticeSheet>(root));
+ScrollPosition? noticePosition(Element root) => _position(noticeScreen(root));
 ScrollPosition? noticeMyPosition(Element root) =>
     _position(noticeFind<MyScreen>(root));
 Map<String, Object?> noticeMeasure(Element root) {
-  final screen = noticeScreen(root),
-      sheet = noticeFind<NoticeSheet>(root),
-      target = screen ?? sheet;
+  final target = noticeScreen(root);
   if (target == null) return {'active': false};
-  final isScreen = screen != null,
-      media = MediaQuery.of(target),
-      position = noticePosition(root);
-  final header = isScreen ? noticeKey(target, 'notice-header') : null,
-      viewport = isScreen
-          ? noticeKey(target, 'notice-viewport')
-          : noticeFind<SingleChildScrollView>(target),
-      back = isScreen ? noticeKey(target, 'notice-back-hit') : null;
-  final scaffold = isScreen ? noticeFind<Scaffold>(target) : null;
-  final titles = isScreen
-      ? List<String>.from((screen.widget as dynamic).titles as List)
-      : List<String>.from(mockNotices);
+  final media = MediaQuery.of(target), position = noticePosition(root);
+  final header = noticeKey(target, 'notice-header'),
+      viewport = noticeKey(target, 'notice-viewport'),
+      back = noticeKey(target, 'notice-back-hit');
+  final scaffold = noticeFind<Scaffold>(target);
+  final listed = List<Notice>.from((target.widget as dynamic).notices as List);
+  final titles = [for (final notice in listed) notice.title];
   final rows = <Map<String, Object?>>[];
   for (var i = 0; i < titles.length; i++) {
-    final text = noticeText(target, titles[i]),
-        row = isScreen ? noticeKey(target, 'notice-row-$i') : text;
+    final text = noticeKey(target, 'notice-title-$i'),
+        row = noticeKey(target, 'notice-row-$i'),
+        date = noticeKey(target, 'notice-date-$i'),
+        pin = noticeKey(target, 'notice-pin-$i'),
+        arrow = noticeKey(target, 'notice-arrow-$i');
     final surface = row == null ? null : noticeFind<Material>(row);
     final decorated = row == null
         ? null
@@ -124,21 +121,25 @@ Map<String, Object?> noticeMeasure(Element root) {
     rows.add({
       'index': i,
       'title': titles[i],
+      'published': listed[i].publishedLabel,
+      'pinned': listed[i].pinned,
       'bounds': row == null ? null : noticeRect(noticeBox(row)),
       'style': _paragraph(text),
+      'dateStyle': _paragraph(date),
+      'pinStyle': _paragraph(pin),
+      'arrow': _asset(arrow),
       'fill': _color(fill),
       'svgCount': row == null
           ? 0
           : noticeElements(row).where((e) => e.widget is SvgPicture).length,
-      'interactiveChildren': row == null
+      // InkWell builds its own GestureDetector, so only buttons are counted.
+      'buttons': row == null
           ? null
           : noticeElements(row)
                 .where(
                   (e) =>
                       (e.widget is InkWell &&
                           (e.widget as InkWell).onTap != null) ||
-                      (e.widget is GestureDetector &&
-                          (e.widget as GestureDetector).onTap != null) ||
                       (e.widget is ButtonStyleButton &&
                           (e.widget as ButtonStyleButton).onPressed != null),
                 )
@@ -154,7 +155,7 @@ Map<String, Object?> noticeMeasure(Element root) {
   }
   return {
     'active': true,
-    'presentation': isScreen ? 'fullScreen' : 'legacySheet',
+    'presentation': 'fullScreen',
     'titles': titles,
     'headerStyle': _paragraph(noticeText(target, '공지사항')),
     'bounds': {
@@ -163,9 +164,7 @@ Map<String, Object?> noticeMeasure(Element root) {
       'viewport': viewport == null ? null : noticeRect(noticeBox(viewport)),
       'backHit': back == null ? null : noticeRect(noticeBox(back)),
     },
-    'assets': {
-      'back': _asset(isScreen ? noticeKey(target, 'notice-back-image') : null),
-    },
+    'assets': {'back': _asset(noticeKey(target, 'notice-back-image'))},
     'rows': rows,
     'bottomNavigationCount': noticeElements(
       target,
@@ -213,12 +212,20 @@ Map<String, Object?> noticeJudgment(Map<String, Object?> m) {
     if (!near(x, y)) lf.add('$why: $x != $y');
   }
 
-  void style(Map p, int weight, String color, String why) {
+  final scale = (m['textScale'] as num?) ?? 1;
+  void style(
+    Map p,
+    int weight,
+    String color,
+    String why, {
+    num size = 19,
+    num spacing = -.475,
+  }) {
     if (p['fontFamily'] != 'Pretendard' ||
-        !near(p['fontSize'], 18) ||
-        !near(p['scaledFontSize'], 18) ||
+        !near(p['fontSize'], size) ||
+        !near(p['scaledFontSize'], size * scale) ||
         p['fontWeight'] != weight ||
-        !near(p['letterSpacing'], -.45) ||
+        !near(p['letterSpacing'], spacing) ||
         p['color'] != color ||
         p['height'] != null) {
       sf.add('$why: $p');
@@ -279,26 +286,54 @@ Map<String, Object?> noticeJudgment(Map<String, Object?> m) {
           p['didExceedMaxLines'] == true) {
         sf.add('Full title wraps naturally');
       }
+      final d = row['dateStyle'] as Map, pin = row['pinStyle'] as Map;
+      style(d, 500, '0xFF767676', 'notice date', size: 16, spacing: -.4);
+      if (d['text'] != row['published']) sf.add('Published date text: $d');
       if (row['fill'] != '0xFFFFFFFF') lf.add('White notice row');
-      if (row['svgCount'] != 0 || row['interactiveChildren'] != 0) {
-        lf.add('Read-only title row must have no extra icons/actions');
+      if (row['svgCount'] != 1 || row['buttons'] != 1) {
+        lf.add('Row is one button with one arrow');
       }
-      if (r == null) {
+      if (r == null || d['bounds'] == null) {
         lf.add('Missing notice row');
         continue;
       }
-      if ((r['height'] as num) < 78.8) lf.add('Row min79');
+      final pb = p['bounds'] as Map, db = d['bounds'] as Map;
+      if ((r['height'] as num) < 81.8) lf.add('Row min82');
+      n(
+        r['height'],
+        math.max(82, (db['height'] as num) + 8 + (pb['height'] as num) + 32),
+        'row = date + 8 + title + 32',
+      );
       n((r['left'] as num) - (frame['left'] as num), 0, 'row full width');
       n(r['width'], frame['width'] as num, 'row full width');
-      n(
-        (p['bounds']['left'] as num) - (r['left'] as num),
-        16,
-        'row inner left16',
-      );
-      if ((p['bounds']['right'] as num) > (r['right'] as num) - 15.8 ||
-          (p['bounds']['top'] as num) < (r['top'] as num) + 15.8 ||
-          (p['bounds']['bottom'] as num) > (r['bottom'] as num) - 15.8) {
-        lf.add('Title inside16 padding');
+      var textLeft = (r['left'] as num) + 16;
+      if (row['pinned'] == true) {
+        final pinBounds = pin['bounds'] as Map?;
+        if (pin['text'] != '📌' || pinBounds == null) {
+          sf.add('Pinned notice shows 📌');
+        } else {
+          if (!near(pin['fontSize'], 19) || pin['fontWeight'] != 500) {
+            sf.add('📌 19 Medium: $pin');
+          }
+          n((pinBounds['left'] as num) - (r['left'] as num), 16, 'pin left16');
+          textLeft = (pinBounds['right'] as num) + 16;
+        }
+      }
+      n(pb['left'], textLeft, 'title after pin gap16');
+      n(db['left'], textLeft, 'date after pin gap16');
+      n((pb['top'] as num) - (db['bottom'] as num), 8, 'date above title 8');
+      n((db['top'] as num) - (r['top'] as num), 16, 'row inner top16');
+      n((r['bottom'] as num) - (pb['bottom'] as num), 16, 'row inner bottom16');
+      final arrow = row['arrow'] as Map, ab = arrow['bounds'] as Map?;
+      if (arrow['asset'] != noticeArrowAsset || ab == null) {
+        af.add('Row chevron-right SVG');
+      } else {
+        n(ab['width'], 24, 'arrow24');
+        n(ab['height'], 24, 'arrow24');
+        n((r['right'] as num) - (ab['right'] as num), 16, 'arrow right16');
+        if ((pb['right'] as num) > (ab['left'] as num) - 7.8) {
+          lf.add('Title stays left of the arrow');
+        }
       }
       if (i == 0 && near(m['scrollOffset'], 0)) {
         n(r['top'], header['bottom'] as num, 'first row starts after header');
@@ -306,8 +341,8 @@ Map<String, Object?> noticeJudgment(Map<String, Object?> m) {
       if (i > 0) {
         n(
           (r['top'] as num) - (rows[i - 1]['bounds']['bottom'] as num),
-          8,
-          'row gap8',
+          5,
+          'row gap5',
         );
       }
       if (i == rows.length - 1 &&
@@ -322,6 +357,7 @@ Map<String, Object?> noticeJudgment(Map<String, Object?> m) {
     }
   }
   style(m['headerStyle'] as Map, 600, '0xFF000000', 'header');
+  if ((m['headerStyle'] as Map)['text'] != '공지사항') sf.add('Header title');
   if (back['asset'] != noticeBackAsset || back['unfiltered'] != true) {
     af.add('Exact unfiltered original back SVG');
   }

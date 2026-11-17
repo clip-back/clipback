@@ -4,7 +4,6 @@ enum AppRoute {
   onboarding,
   interests,
   home,
-  notificationList,
   archive,
   bookmark,
   search,
@@ -15,5 +14,6 @@ enum AppRoute {
   accountDeletion,
   accountDeleted,
   noticeList,
+  noticeDetail,
   categoryManagement,
 }

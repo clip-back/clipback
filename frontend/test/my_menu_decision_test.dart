@@ -52,7 +52,7 @@ void main() {
     }
     await fonts.load();
   });
-  testWidgets('approved support groups omit category and notices', (
+  testWidgets('approved support groups omit category and start with notices', (
     tester,
   ) async {
     await _my(tester);
@@ -67,7 +67,7 @@ void main() {
           )
           .toList(),
       [
-        ['문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
+        ['공지사항', '문의하기', '이용약관 및 개인정보', '오픈소스 라이선스', '앱 버전'],
       ],
     );
     // #378: the management header and its two read-only rows are hidden.
@@ -76,7 +76,7 @@ void main() {
     expect(find.text('앱 권한'), findsNothing);
     expect(find.text('카테고리 관리'), findsNothing);
     expect(find.text('이용약관 및 개인정보'), findsOneWidget);
-    expect(find.text('공지사항'), findsNothing);
+    expect(find.text('공지사항'), findsOneWidget);
   });
   testWidgets('privacy and license rows are separate tappable nodes', (
     tester,
