@@ -4,12 +4,19 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - backend/**
+      - .github/workflows/backend-validation.yml
   push:
     branches:
       - main
+    paths:
+      - backend/**
+      - .github/workflows/backend-validation.yml
   schedule:
-    # 매일 04:00 KST. 경로 판정으로 건너뛴 작업까지 전체를 실행한다.
-    - cron: "0 19 * * *"
+    # 매주 월요일 04:23 KST. 경로 판정·push에서 건너뛴 작업까지 전체를 실행한다.
+    # 정각은 예약 실행이 늦어지거나 빠지기 쉬워 피한다.
+    - cron: "23 19 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +39,8 @@ env:
   STORAGE_ROOT: /tmp/clipback-storage
 
 jobs:
-  # deployment·operator-recovery의 PR·main push 실행 여부를 바뀐 경로로 판정한다.
+  # deployment·operator-recovery·test (3.11)의 PR 실행 여부를 바뀐 경로로 판정한다.
+  # 세 job은 main push에서 돌지 않는다(PR에서 검사한 내용을 다시 검사하지 않는다).
   # operator_recovery 목록의 근거는 docs/history/2026-11-01-backend-ci-paths.md에 있다.
   changes:
     runs-on: ubuntu-24.04
@@ -99,7 +107,8 @@ jobs:
               - backend/app/services/image_storage_control.py
               - backend/app/services/maintenance.py
 
-  lint:
+  test:
+    name: test (3.12)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -119,21 +128,24 @@ jobs:
         run: ruff check app scripts alembic tests
       - name: Check dependencies
         run: deptry .
+      - name: Test
+        run: pytest -q -rs
+      - name: Compile
+        run: python -m compileall app scripts alembic tests
 
-  test:
+  # 3.11은 운영자 이미지의 Python이다(backend/Dockerfile.operator). 예약·수동 실행과
+  # 운영자 경로가 바뀐 PR에서만 돈다.
+  test-py311:
+    name: test (3.11)
+    needs: changes
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.operator_recovery == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version:
-          - "3.11"
-          - "3.12"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements-dev.lock
       - name: Install backend dependencies
@@ -212,7 +224,7 @@ jobs:
 
   deployment:
     needs: changes
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.deployment == 'true'
+    if: github.event_name != 'push' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.deployment == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -244,7 +256,7 @@ jobs:
 
   operator-recovery:
     needs: changes
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.operator_recovery == 'true'
+    if: github.event_name != 'push' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.operator_recovery == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

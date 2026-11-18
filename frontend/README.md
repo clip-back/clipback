@@ -129,8 +129,9 @@ flutter test --no-pub
 flutter build web --no-pub
 ```
 
-원격 CI는 [App Validation](../.github/workflows/app-validation.yml)입니다. main 대상 PR과 main push에서
+원격 CI는 [App Validation](../.github/workflows/app-validation.yml)입니다. main 대상 PR에서
 `frontend/**`나 워크플로 파일이 바뀌었을 때만 실행하며, 수동 실행(`workflow_dispatch`)도 됩니다.
+main push에서는 PR에서 같은 내용을 검사했으므로 실행하지 않습니다.
 Flutter 3.47.9(stable)로 의존성 설치(`flutter pub get --enforce-lockfile`),
 포맷 검사(`dart format --output=none --set-exit-if-changed lib test`),
 `flutter analyze --no-pub`, `flutter test --no-pub`를 차례로 실행합니다.
