@@ -6,8 +6,9 @@
 ## Validation
 
 The backend supports Python 3.11 and 3.12. CI runs Python 3.12 on every run and
-Python 3.11 only under the conditions in the CI section below. Run the same checks
-used by CI from the `backend` directory:
+Python 3.11 only on scheduled and manual runs and on PRs whose `operator_recovery`
+path filter matches (see [원본 운영자·점검·복원 통합 검사](#원본-운영자점검복원-통합-검사)).
+Run the same checks used by CI from the `backend` directory:
 
 ```bash
 ruff check app alembic tests
@@ -191,7 +192,7 @@ private control 종료 코드, 예외 클래스와 `CheckError` 코드. 토큰·
   pid가 없음), `unobserved`(종료 코드를 볼 수 없음. CLI 실행의 자식은 다른 프로세스 안에 있다) 중 하나다.
   CLI 실행의 부모 종료 코드는 `command_returncode`에 따로 두고 자식 값으로 쓰지 않는다.
 
-PR과 main push 실행은 `backend/**`나 workflow 파일이 바뀌었을 때만 시작한다. 매주 월요일 04:23 KST
+PR과 main push 실행은 `backend/**`나 `.github/workflows/backend-validation.yml`이 바뀌었을 때만 시작한다. 매주 월요일 04:23 KST
 (`23 19 * * 0` UTC) 예약 실행과 수동 실행(`workflow_dispatch`)은 경로와 관계없이 전체 job을 돌린다.
 예약 시각은 실행이 늦어지거나 빠지기 쉬운 정각을 피했다.
 
@@ -204,9 +205,11 @@ PR과 main push 실행은 `backend/**`나 workflow 파일이 바뀌었을 때만
 취소한다. push·예약·수동 실행은 커밋별로 따로 돌아 서로 취소하지 않으며, 같은 커밋의 같은 종류 실행이 다시 들어올 때만
 이전 실행이 취소된다.
 
-- `deployment`: `backend/` 아래 파일이나 workflow 파일이 바뀌면 실행한다.
+PR의 경로 판정 기준은 다음과 같다.
+
+- `deployment`: `backend/` 아래 파일이나 workflow 파일이 바뀐 PR에서 실행한다.
 - `operator-recovery`: Dockerfile·운영 스크립트·migration·배포 테스트, 운영 스크립트가 import하는
-  `app` 모듈, 컨테이너 기동 경로(`app/main.py` 등), workflow 파일이 바뀌면 실행한다.
+  `app` 모듈, 컨테이너 기동 경로(`app/main.py` 등), workflow 파일이 바뀐 PR에서 실행한다.
   일반 API·요약 worker만 바뀐 PR은 건너뛴다. 목록은 workflow의 `changes` job에 직접 적혀 있어
   import가 바뀌면 낡을 수 있으며, 빠진 경로의 회귀는 예약 실행에서 발견한다.
   목록을 만든 근거와 다시 계산하는 방법은 [작업 이력](../history/2026-11-01-backend-ci-paths.md)에 있다.
