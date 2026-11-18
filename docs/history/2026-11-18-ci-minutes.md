@@ -57,6 +57,20 @@
 | migration | 실패 06:54:14–07:00:10. `tests/integration/test_content_save_flow_contract.py::test_rollback_failure_keeping_transaction_open_does_not_finish_within_time_limit` 1건(1 failed, 1064 passed, 1 skipped) | 성공 07:04:16–07:09:27 |
 
   migration 실패는 시트 131로 따로 조사하는 불안정 실패이고, migration job 정의는 이번 변경에서 바뀌지 않았다. 별도 lint job은 없다.
+- 원격 PR 실행([PR #427](https://github.com/clip-back/clipback/pull/427), 커밋 `bd8a68d`, 시간은 UTC): 두 workflow 파일이 바뀌어 모든 필터가 참이다.
+  Backend Validation [44258890969](https://github.com/clip-back/clipback/actions/runs/44258890969)는 모든 job이 성공했다. 별도 lint job은 없고, `test (3.12)`의 단계는 설치 → `Lint` → `Check dependencies` → `Test` → `Compile` 순서다.
+  App Validation [44258891059](https://github.com/clip-back/clipback/actions/runs/44258891059)의 `app`도 성공했다(07:26:31–07:34:05).
+
+| job | 결과 |
+| --- | --- |
+| changes | 성공 07:26:30–07:26:35 |
+| test (3.12)(Lint·Check dependencies 포함) | 성공 07:26:30–07:28:34 |
+| test (3.11) | 성공 07:26:37–07:29:29 |
+| migration | 성공 07:26:30–07:31:31 |
+| deployment | 성공 07:26:37–07:29:09 |
+| operator-recovery | 성공 07:26:38–07:36:12 |
+
+- Railway 네 서비스의 Watch Paths `/backend/**`: 사용자가 병합 전에 설정했다고 답했다(2026-11-18). 배포 생략은 병합 뒤 확인한다.
 
 ## 미검증
 
