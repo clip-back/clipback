@@ -22,7 +22,7 @@
 3. API에 Volume을 추가하고 **Mount Path `/data`**를 지정한다. 기본 root 실행을 사용한다. replicas는 **1**로 유지한다.
 4. 아래 Variables를 설정한 다음 **Pre-deploy Command `alembic upgrade head`**, **Healthcheck Path `/api/v1/health/ready`**, **Healthcheck Timeout `120`초**를 지정한다.
 5. API의 Railway 기본 HTTPS 도메인을 생성한다. API는 Railway가 주입하는 `PORT`를 사용하며 DB는 내부 주소로만 연결한다. 외부 DB TCP 공개는 기본 구성에 포함하지 않는다.
-6. 배포 로그에서 마이그레이션 성공과 준비 상태 200을 확인하고, 게스트 가입·소셜 로그인·스크린샷 업로드와 재조회로 실제 설정을 검증한다. GitHub 자동 배포의 Wait for CI를 활성화한다.
+6. 배포 로그에서 마이그레이션 성공과 준비 상태 200을 확인하고, 게스트 가입·소셜 로그인·스크린샷 업로드와 재조회로 실제 설정을 검증한다. GitHub 자동 배포의 Wait for CI를 활성화하고, Watch Paths에 `/backend/**`를 넣는다(Root Directory가 `/backend`여도 패턴은 저장소 루트 기준). 앱·문서만 바뀐 main 커밋에는 서버 CI가 돌지 않으므로, 이런 커밋에서는 새 배포를 만들지 않아 CI 없이 배포되는 일을 막는다.
 
 ### Variables
 
@@ -97,7 +97,7 @@ SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상�
 Bucket 원본을 사용하는 새 이미지 보관은 [전용 운영 작업의 일일 백업·7일 보존·삭제 반영 복원](backend/backup-recovery.md#일일-백업과-시간별-보존-작업)을 기준으로 한다.
 별도 operator 이미지에 source DB와 같은 pg_dump 주 버전 및 daily/시간별 maintain 일정을
 설정하고, 원본 API에는 백업 자격을 주지 않는다. 원본 삭제 재시도는 API 이미지의 별도 Cron 서비스로 매시간 실행한다.
-백업·정리·재시도 서비스는 API처럼 main 자동 배포와 CI 통과 대기를 켠다
+백업·정리·재시도 서비스는 API처럼 main 자동 배포와 CI 통과 대기를 켜고 Watch Paths `/backend/**`를 넣는다
 ([운영 실행 체크리스트](backend/image-operator-first-run.md#일일-백업과-보존-정리-cli-개선-이미지-배포-후)). 아래 Railway 볼륨 자체의 백업과 구분하며,
 코드 구현만으로 실제 일정·권한·복구 전환이 검증되거나 설정된 것은 아니다.
 

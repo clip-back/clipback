@@ -83,6 +83,7 @@ API의 pre-deploy migration·HTTP start command·healthcheck를 운영자에 복
 API처럼 main 자동 배포를 켜고 CI 통과를 기다리게 한다(Wait for CI). 자동 배포가 꺼져 있던 백업 서비스의
 옛 이미지가 2026-11-08 탈퇴 기록을 읽지 못해 11-09부터 백업이 실패했기 때문이다. 배포 때 명령이
 한 번 더 돌아도 같은 날짜 백업은 다시 만들지 않고(`backup_created=false`), 실행 잠금으로 겹쳐 돌지 않아 안전하다.
+Watch Paths에는 `/backend/**`를 넣어, 서버 CI가 돌지 않는 앱·문서만 바뀐 main 커밋으로는 배포하지 않는다.
 
 | 운영자 설정 | 공급 내용 |
 | --- | --- |
@@ -201,7 +202,7 @@ S3 대역·CI 성공만으로 실제 운영 완료를 체크하지 않는다. �
 현재 운영 중인 `clipback-backup`의 Cron은 `0 0 * * *` (UTC 00:00 / KST 09:00),
 Restart Policy는 `Never`다. 새 이미지 배포를 확인한 뒤 다음 명령으로 교체할 수 있다.
 이 문서 변경만으로 운영 명령을 교체하지 않는다. 시작 명령과 `IMAGE_BACKUP_APP_COMMIT`은 그대로 두고
-main 자동 배포와 CI 통과 대기를 켠다.
+main 자동 배포와 CI 통과 대기를 켜고 Watch Paths `/backend/**`를 넣는다.
 
 ```sh
 python -m scripts.image_backup_jobs daily
@@ -219,7 +220,7 @@ python -m scripts.image_backup_jobs daily
 - 이미지: 운영자 이미지(Root Directory `/backend`, Dockerfile 경로 `/backend/Dockerfile.operator`)
 - 시작 명령: `python -m scripts.image_backup_jobs maintain`
 - Cron `15 * * * *`(매시간 15분), Restart Policy `Never`, 공개 도메인 없음
-- main 자동 배포와 CI 통과 대기를 켠다.
+- main 자동 배포와 CI 통과 대기를 켜고 Watch Paths `/backend/**`를 넣는다.
 - 변수는 [명령별 필요한 변수](#명령별-필요한-변수)의 `maintain` 열을 따른다. `clipback-backup`의 값을 참조해 같은 DB·삭제 기록·백업 Bucket을 쓴다.
 
 DB는 점검 상태, 중복 실행 잠금, 삭제 장부 파기 조건 읽기(`users`·`image_deletions`)와 원본 정리 작업 행 삭제에 사용한다.
@@ -285,7 +286,7 @@ Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해�
 - Cron `45 * * * *`(00:00 백업·15분 정리와 겹치지 않게), Restart Policy `Never`, 공개 도메인 없음,
   pre-deploy migration 없음
 - 변수: API 변수를 Railway 참조 변수(`${{clipback.X}}`)로 잇는다. `OPERATOR_SOURCE_ID`도 반드시 잇는다.
-- main 자동 배포와 CI 통과 대기를 켠다.
+- main 자동 배포와 CI 통과 대기를 켜고 Watch Paths `/backend/**`를 넣는다.
 
 이 서비스에는 API의 Volume이 붙어 있지 않다. 그래서 `OPERATOR_SOURCE_ID`가 설정돼 있으면 Volume 원본(`local`,
 이관된 원본의 Volume 사본 포함)을 지우기 전에 `STORAGE_ROOT`의 `.clipback-source-id`가 그 값과 맞는지 확인한다.

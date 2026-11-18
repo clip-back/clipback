@@ -5,8 +5,9 @@
 
 ## Validation
 
-The backend supports Python 3.11 and 3.12. Run the same checks used by CI from the
-`backend` directory:
+The backend supports Python 3.11 and 3.12. CI runs Python 3.12 on every run and
+Python 3.11 only under the conditions in the CI section below. Run the same checks
+used by CI from the `backend` directory:
 
 ```bash
 ruff check app alembic tests
@@ -56,7 +57,7 @@ DATABASE_URL="$TEST_DATABASE_URL" .venv/bin/alembic upgrade head
 Set `TEST_DATABASE_URL` explicitly to a PostgreSQL asyncpg URL before running these
 commands. Without it, DB tests skip; an invalid connection or missing migrations
 fails. The CI PostgreSQL job applies migrations and runs both suites as required
-checks. Existing Python 3.11/3.12 jobs continue running tests without a database.
+checks. The Python 3.12 and 3.11 `test` jobs continue running tests without a database.
 
 Each integration test opens an outer transaction. Every sequential HTTP request
 uses a new session and savepoint, allowing actual application commits and rollbacks
@@ -190,9 +191,16 @@ private control 종료 코드, 예외 클래스와 `CheckError` 코드. 토큰·
   pid가 없음), `unobserved`(종료 코드를 볼 수 없음. CLI 실행의 자식은 다른 프로세스 안에 있다) 중 하나다.
   CLI 실행의 부모 종료 코드는 `command_returncode`에 따로 두고 자식 값으로 쓰지 않는다.
 
-`lint`·`test`·`migration`은 모든 실행에서 돈다. `deployment`·`operator-recovery`는 PR과 main push에서
-`changes` job의 경로 판정 결과가 참일 때만 돌고, 매일 04:00 KST(`0 19 * * *` UTC) 예약 실행과
-수동 실행(`workflow_dispatch`)에서는 항상 돈다. 같은 PR의 새 실행만 이전 실행을
+PR과 main push 실행은 `backend/**`나 workflow 파일이 바뀌었을 때만 시작한다. 매주 월요일 04:23 KST
+(`23 19 * * 0` UTC) 예약 실행과 수동 실행(`workflow_dispatch`)은 경로와 관계없이 전체 job을 돌린다.
+예약 시각은 실행이 늦어지거나 빠지기 쉬운 정각을 피했다.
+
+`test (3.12)`·`migration`은 시작한 모든 실행에서 돈다. ruff(`Lint`)와 deptry(`Check dependencies`)는
+따로 job을 두지 않고 `test (3.12)` 안에서 설치 뒤·`Test` 앞에 돌며, 실패한 단계 이름으로 구분한다.
+`deployment`·`operator-recovery`는 PR에서 `changes` job의 경로 판정 결과가 참일 때 돌고, 예약·수동
+실행에서는 항상 돈다. main push에서는 PR에서 같은 내용을 검사했으므로 돌지 않는다.
+`test (3.11)`은 운영자 이미지의 Python이라 예약·수동 실행과 `operator_recovery` 판정이 참인 PR에서만
+돌고, main push에서는 돌지 않는다. 같은 PR의 새 실행만 이전 실행을
 취소한다. push·예약·수동 실행은 커밋별로 따로 돌아 서로 취소하지 않으며, 같은 커밋의 같은 종류 실행이 다시 들어올 때만
 이전 실행이 취소된다.
 
