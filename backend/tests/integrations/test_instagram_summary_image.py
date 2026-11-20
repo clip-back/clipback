@@ -66,6 +66,7 @@ def build(page_response, image_handler, openai_handler=lambda r: completion(), r
         return openai_handler(request)
 
     metadata = MetadataClient(
+        total_timeout_seconds=60,
         http_transport=httpx.MockTransport(route), resolver=resolver or public_resolver
     )
     openai = AsyncOpenAI(

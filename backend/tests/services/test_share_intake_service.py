@@ -276,7 +276,10 @@ async def test_instagram_share_redirect_uses_existing_pinned_transport_and_block
         assert request.headers["host"] == "www.instagram.com"
         return httpx.Response(302, headers={"location": "http://private.test/p/post/"})
 
-    metadata = MetadataClient(http_transport=httpx.MockTransport(handler), resolver=resolver)
+    metadata = MetadataClient(
+        total_timeout_seconds=60,
+        http_transport=httpx.MockTransport(handler), resolver=resolver
+    )
     content = FakeContentService()
     service = ContentSaveFlow(content, share_intake=ShareIntakeService(ExtractionService(metadata)))
     with pytest.raises(HTTPException) as error:

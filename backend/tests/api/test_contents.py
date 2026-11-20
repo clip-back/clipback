@@ -220,6 +220,7 @@ def test_create_routes_reject_unsafe_redirect_without_saving(client, monkeypatch
 
     extraction_service = ExtractionService(
         metadata_client=MetadataClient(
+            total_timeout_seconds=60,
             resolver=resolver, http_transport=httpx.MockTransport(handler)
         )
     )
