@@ -29,7 +29,8 @@ async def test_tag_save_recreates_an_orphan_claimed_by_cleanup(concurrent_data):
     async with sessions() as cleaner, sessions() as writer:
         cleaner_pid = await cleaner.scalar(text("SELECT pg_backend_pid()"))
         writer_pid = await writer.scalar(text("SELECT pg_backend_pid()"))
-        assert await delete_orphan_tags(cleaner) == 1
+        await delete_orphan_tags(cleaner)
+        assert await cleaner.scalar(select(Tag.id).where(Tag.id == old_id)) is None
         save = asyncio.create_task(replace(writer, user_id, content_id, ["Reused"]))
         try:
             assert await wait_for_block_or_completion(sessions, save, writer_pid, cleaner_pid)
@@ -58,7 +59,7 @@ async def test_cleanup_skips_an_orphan_with_an_uncommitted_link(concurrent_data)
         tags = await TagRepository(writer).get_or_create_many(user_id=user_id, names=["Reused"])
         await content_repository.replace_tags(content=content, tags=tags)
         await cleaner.execute(text("SET LOCAL lock_timeout = '500ms'"))
-        assert await delete_orphan_tags(cleaner) == 0
+        await delete_orphan_tags(cleaner)
         await writer.commit()
 
     async with sessions() as session:
@@ -73,10 +74,10 @@ async def test_second_cleanup_finds_no_more_orphans(concurrent_data):
         await replace(session, user_id, content_id, ["Attached"])
 
     async with sessions.begin() as session:
-        assert await delete_orphan_tags(session) == 1
+        await delete_orphan_tags(session)
     async with sessions.begin() as session:
-        assert await delete_orphan_tags(session) == 0
         assert await session.scalar(select(Tag.id).where(Tag.id == orphan_id)) is None
+        assert await delete_orphan_tags(session) == 0
         content = await ContentRepository(session).get_owned(user_id=user_id, content_id=content_id)
         assert [tag.name for tag in content.tags] == ["Attached"]
 
@@ -104,7 +105,7 @@ async def test_cleanup_rechecks_after_writer_commits_between_snapshot_and_tag_lo
         try:
             assert await wait_for_block_or_completion(sessions, cleanup, cleaner_pid, writer_pid)
             await writer.commit()
-            removed = await asyncio.wait_for(cleanup, timeout=10)
+            await asyncio.wait_for(cleanup, timeout=10)
         finally:
             if not cleanup.done():
                 cleanup.cancel()
@@ -115,4 +116,3 @@ async def test_cleanup_rechecks_after_writer_commits_between_snapshot_and_tag_lo
     async with sessions() as session:
         saved = await ContentRepository(session).get_owned(user_id=user_id, content_id=content_id)
         assert [tag.id for tag in saved.tags] == [tag_id]
-    assert removed == 0

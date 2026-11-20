@@ -123,7 +123,7 @@ async def apply(events):
                 deleted.append({"content_id": content.id,
                                 "asset_ids": [a.id for a in content.assets]})
             operations.append(event["operation_id"])
-        # Use a fresh READ COMMITTED snapshot after taking the locks, as maintain does.
+        # Keep these two statements in sync with image_backup_jobs.delete_orphan_tags.
         tag_ids = (await session.scalars(text("""
             SELECT t.id FROM tags t
             WHERE NOT EXISTS (SELECT 1 FROM content_tags ct WHERE ct.tag_id = t.id)

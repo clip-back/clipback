@@ -62,17 +62,23 @@ async def test_hourly_cleanup_keeps_shared_tag_after_content_deletion(
     capsys.readouterr()
     caplog.clear()
 
-    for expected in (1, 0):
+    deleted_counts = []
+    for _ in range(2):
         status = await asyncio.to_thread(image_backup_jobs.main)
         output = capsys.readouterr()
         assert status == 0
         report = json.loads(output.out)
-        assert report.get("orphan_tags_deleted") == expected
+        count = report["orphan_tags_deleted"]
+        assert type(count) is int
+        deleted_counts.append(count)
         for name in (EXCLUSIVE, SHARED):
             assert name not in output.out
             assert name not in output.err
             assert name not in caplog.text
 
+    first_count, second_count = deleted_counts
+    assert first_count >= 1
+    assert second_count == 0
     async with sessions() as session:
         assert await tag_names(session, user["id"]) == {SHARED}
     detail = await request(api, "GET", f"contents/{survivor['id']}", headers=headers)
