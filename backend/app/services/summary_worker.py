@@ -18,6 +18,7 @@ from app.models.summary_job import SummaryJob
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.tag_repository import TagRepository
 from app.services.summary_kinds import summary_kinds
 
 # The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
@@ -231,6 +232,11 @@ class SummaryWorker:
                                 {"before_category_ids": before, "after_category_ids": after}
                             ),
                         )
+            if result.tag_names and not content.tags:
+                tags = await TagRepository(session).get_or_create_many(
+                    user_id=user_id, names=result.tag_names
+                )
+                await contents.replace_tags(content=content, tags=tags)
             job.status, job.error_code = "completed", None
 
     async def run(self):

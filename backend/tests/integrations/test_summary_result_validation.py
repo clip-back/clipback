@@ -281,3 +281,35 @@ async def test_youtube_needs_the_exact_keys_and_instagram_ignores_an_extra_key(a
         await rejected("instagram", summarize_answer, answer)
     else:
         assert (await summarize_answer("instagram", answer)).summary == instagram
+
+
+VALID_ANSWER = {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": 7}
+TAG_FIELDS = [
+    pytest.param({}, [], id="missing"),
+    pytest.param({"tags": ["요리"]}, ["요리"], id="valid"),
+    pytest.param(
+        {"tags": ["＃요리", 5, None, [], {}, "요리", "레시피", "김치", "식사"]},
+        ["요리", "레시피", "김치"],
+        id="mixed",
+    ),
+    pytest.param({"tags": "요리"}, [], id="non-list"),
+]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("fields,expected", TAG_FIELDS)
+async def test_optional_raw_tags_do_not_change_summary_or_category(kind, fields, expected):
+    result = await summarize_answer(kind, {**VALID_ANSWER, **fields})
+
+    assert (result.title, result.summary, result.category_id) == ("제목", "핵심\n• 요점", 7)
+    assert result.tag_names == expected
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("fields,_expected", TAG_FIELDS)
+async def test_optional_raw_tags_do_not_change_invalid_summary(kind, fields, _expected):
+    await rejected(kind, summarize_answer, {**VALID_ANSWER, **fields, "points": [7]})
+
+
+async def test_gemini_rejects_unrelated_extra_key_even_with_tags():
+    await rejected("youtube", summarize_answer, {**VALID_ANSWER, "tags": [], "extra": True})

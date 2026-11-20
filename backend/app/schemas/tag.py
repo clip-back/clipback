@@ -42,7 +42,10 @@ def clean_ai_tag_names(value: object) -> list[str]:
             display_name = normalize_tag_name(item)
         except ValueError:
             continue
-        if any(unicodedata.category(char) == "Cs" for char in display_name):
+        # PostgreSQL text cannot store NUL or unpaired surrogates.
+        if "\x00" in display_name or any(
+            unicodedata.category(char) == "Cs" for char in display_name
+        ):
             continue
         normalized_names.append(display_name)
 

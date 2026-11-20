@@ -120,8 +120,9 @@ async def test_gemini_is_asked_for_a_headline_and_points():
                 "maxItems": 5,
             },
             "category_id": {"type": ["integer", "null"]},
+            "tags": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["title", "headline", "points", "category_id"],
+        "required": ["title", "headline", "points", "category_id", "tags"],
         "additionalProperties": False,
     }
     prompt = bodies[0]["systemInstruction"]["parts"][0]["text"]
