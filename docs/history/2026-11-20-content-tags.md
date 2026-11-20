@@ -46,3 +46,23 @@ pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled loc
 pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
+
+## #437 저장 시 일반 링크와 스크린샷에 태그 추가
+
+일반 링크의 저장 시 카테고리 추천과 스크린샷의 글자 읽기·사진 요약에 태그 칸을 추가했습니다. 기존 호출에서 태그를 최대 3개 받아 사용자 태그가 비어 있을 때 콘텐츠와 함께 저장합니다. 스크린샷에서는 글자 읽기 결과를 사용하며, 글자가 없거나 응답 전체가 실패하면 태그가 비어 있습니다. 인스타그램 게시물·릴스·TV와 유튜브 영상의 태그는 자동 요약이 맡으며, 반영은 #438 범위입니다. 저장 시 카테고리 추천의 출력 상한 기본값은 160입니다. [이슈 #437](https://github.com/clip-back/clipback/issues/437)
+
+- 기준 `31c1431`에서 가짜 클라이언트로 저장 API를 15건 실측했습니다. 13건이 명세와 일치했습니다. 일반 웹 링크 공유는 카테고리 선택 여부와 관계없이 `422 Only Instagram URLs are supported`였고 AI 호출이 없었습니다. 감독 판단에 따라 공유 API의 기존 유튜브·인스타그램 지원 범위를 유지하고 일반 웹 공유의 422와 AI 호출 0회를 테스트로 고정했습니다.
+- 사용자 결정 “반환 형식만 허용 (추천)”에 따라 저장 HTTP 고정 테스트에서는 가짜 추천기의 반환값만 같은 ID 또는 null과 빈 태그를 가진 형식으로 연결했습니다. 이름·설명과 요청·응답·오류 단언을 유지했습니다.
+- 구현 `1562507`의 부분 검사에서 Ruff와 백엔드 pytest 648건이 통과했습니다. OpenAI SDK의 원시 응답 처리, 태그 출처와 실패 처리, 기존 표기·ID 순서, 재시도와 409·410, 게스트 전환 뒤 검색 격리 및 로그·이벤트 미노출을 확인했습니다.
+- 검수 반영 `673a0e0`의 부분 검사에서 Ruff와 백엔드 pytest 137건이 통과했습니다. 일반 링크가 최종 인스타그램 게시물 주소로 풀릴 때 추천 1회·태그 0개·자동 요약 건너뜀을 확인했습니다. 로그 검사는 DEBUG까지 포함합니다. CHANGELOG는 #439에서 한 항목으로 작성합니다.
+
+### 전체 검증
+
+- 검수 반영 커밋 `673a0e0`에서 `verify.py` 12단계와 Flutter 3,943건이 통과했습니다. 건너뛴 Docker·S3 검사는 #437 범위 밖입니다. 실제 모델 응답 확인은 #439에서 진행합니다.
+
+```text
+pytest: 2839 passed, 50 skipped, 3 warnings in 352.34s (0:05:52)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
