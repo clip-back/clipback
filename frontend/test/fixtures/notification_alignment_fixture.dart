@@ -285,6 +285,9 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
     'assetFailures': af,
   };
   if (m['active'] != true) return result();
+  if (m['presentation'] != 'fullScreen') {
+    lf.add('presentation: ${m['presentation']} != fullScreen');
+  }
   bool near(Object? x, num y) => x is num && (x - y).abs() < .22;
   void n(Object? x, num y, String why) {
     if (!near(x, y)) lf.add('$why: $x != $y');
