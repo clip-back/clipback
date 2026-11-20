@@ -66,3 +66,24 @@ pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled loc
 pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
+
+## 유튜브·인스타그램 자동 요약 완료 시 AI 태그 (#438)
+
+유효한 자동 요약이 완료될 때, 잠근 콘텐츠의 태그가 비어 있으면 같은 모델 응답에서 받은 태그를 최대 3개 저장합니다. 처리 중 추가된 수동 태그를 보존하고, 삭제된 콘텐츠나 만료된 이전 작업의 응답은 반영하지 않습니다. 지원되는 인스타그램 링크는 저장 시 받은 추천 태그를 버리고 요약 완료 뒤 상세 조회에 태그를 표시합니다. [이슈 #438](https://github.com/clip-back/clipback/issues/438)
+
+- 배포 전에 저장되어 대기하던 작업에도 배포 뒤 완료 시 적용합니다. 이미 처리가 끝난 콘텐츠를 다시 처리하지 않습니다. 마이그레이션이 없어 배포 전·후 작업 행 형식이 같아 따로 재현할 상태가 없습니다. 저장 직후 대기 상태와 작업 완료 뒤 상세 조회를 같은 통합 테스트에서 확인했습니다.
+- 구현 `e90e3ac`에서 감독이 허용한 요청 스키마 기대값 변경은 Gemini·OpenAI의 `properties.tags`와 `required`의 `tags` 추가입니다. OpenAI의 필드에는 SDK가 만든 `title: Tags`를 포함합니다. 공급자 원시 응답에서 태그 칸 누락·비목록·혼합 목록이 기존 제목·요약·카테고리와 오류 판정을 바꾸지 않는지 확인했습니다.
+- NUL(U+0000)이 든 태그를 공급자가 반환하면 PostgreSQL이 거부해 요약 완료까지 실패하는 것을 두 공급자 대역으로 재현했습니다. 감독 판단에 따라 공용 AI 태그 정리에서 해당 항목을 버립니다. #437의 저장 시 카테고리 추천과 스크린샷 글자 읽기에도 같은 규칙을 적용합니다. 범위 밖인 수동 입력은 로컬 `POST /api/v1/contents`의 `tag_names`에 NUL을 보내 HTTP 500을 한 번 확인했습니다.
+- 검수 반영 `4df617b`에서 유튜브 카테고리 지시 바로 아래에 후보 JSON을 배치하고 작업자 건너뜀, 태그 칸의 null·숫자·객체, 앱 DEBUG 로그를 검사했습니다. 두 PostgreSQL 세션이 새 태그를 반대 순서로 삽입할 때 교착을 재현했습니다. 공용 저장소에서 입력 순서대로 태그 ID를 배정한 뒤 정규화 키 순서로 삽입해, 충돌하는 두 요청이 완료되고 기존 반환 순서와 표기가 유지되는 것을 확인했습니다.
+- 시작 커밋 `6dda208`에서 기능 테스트 12건이 실패했습니다. 첫 커밋의 부분 검사에서 593건, 검수 반영 커밋에서 607건이 통과했습니다. 두 부분 검사 모두 Ruff 통과, 스킵 0건입니다. CHANGELOG는 #439에서 작성합니다.
+
+### 전체 검증
+
+- `4df617b`에서 `verify.py` 12단계와 Flutter 3,943건이 통과했습니다. Docker 배포·복구 검사와 S3 CLI 검사는 이번 변경 범위 밖입니다. 실제 모델은 #439에서 확인합니다.
+
+```text
+pytest: 2883 passed, 50 skipped, 3 warnings in 344.80s (0:05:44)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
