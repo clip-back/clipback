@@ -39,9 +39,12 @@ def clean_ai_tag_names(value: object) -> list[str]:
         if not isinstance(item, str):
             continue
         try:
-            normalized_names.append(normalize_tag_name(item))
+            display_name = normalize_tag_name(item)
         except ValueError:
             continue
+        if any(unicodedata.category(char) == "Cs" for char in display_name):
+            continue
+        normalized_names.append(display_name)
 
     return _unique_tag_names(normalized_names)[:MAX_AI_TAGS]
 

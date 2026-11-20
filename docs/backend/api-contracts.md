@@ -796,7 +796,9 @@ answers HTTP400 `Invalid HTTP request received.` itself.
 content's entire tag set. Content saves and tag replacement both normalize tag names
 with NFKC, remove Unicode format characters (category `Cf`), collapse whitespace,
 and strip leading `#` characters. A name that becomes blank or exceeds 40 characters
-before or after case folding returns `422`. Case-insensitive duplicates keep the first spelling.
+before or after case folding returns `422`. Case-insensitive duplicates within a
+request keep the first spelling. An existing tag in the same account that differs
+only by case is reused with its stored spelling.
 An empty list clears all tag links while preserving reusable tag records. Missing
 and other users' content both return `404`.
 

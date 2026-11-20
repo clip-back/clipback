@@ -87,6 +87,9 @@ def test_normalize_tag_name_rejects_blank_or_long_names(value: str, message: str
             id="nested-nonstrings",
         ),
         pytest.param({"tags": ["\u200b", "요리"]}, ["요리"], id="format-only-item"),
+        pytest.param(
+            {"tags": ["\ud83d", "\ud83d요리", "김치"]}, ["김치"], id="unpaired-surrogates",
+        ),
         pytest.param({"tags": ["# Ｐython", "py\u200bthon"]}, ["Python"], id="normalize-first"),
         pytest.param({"tags": ["a", "b", "c", "d"]}, ["a", "b", "c"], id="limit-to-three"),
         pytest.param({"tags": "요리"}, [], id="string-field"),
