@@ -276,7 +276,10 @@ def real_client(page_handler):
     async def forbidden(**kwargs):
         raise AssertionError("GPT must not be called")
 
-    metadata = MetadataClient(http_transport=httpx.MockTransport(handler), resolver=public_resolver)
+    metadata = MetadataClient(
+        total_timeout_seconds=60,
+        http_transport=httpx.MockTransport(handler), resolver=public_resolver
+    )
     openai = SimpleNamespace(responses=SimpleNamespace(parse=forbidden))
     return InstagramSummaryClient(settings, metadata, openai), requests
 

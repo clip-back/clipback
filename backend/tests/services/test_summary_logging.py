@@ -184,6 +184,7 @@ async def test_worker_logs_instagram_failure_stage_without_sensitive_data(
         return completion(title="가" * 121)
 
     metadata = MetadataClient(
+        total_timeout_seconds=60,
         http_transport=httpx.MockTransport(page_handler), resolver=public_resolver
     )
     openai = AsyncOpenAI(
@@ -239,6 +240,7 @@ async def test_worker_logs_the_page_decision_without_sensitive_data(
     from app.integrations.metadata_client import MetadataClient
 
     metadata = MetadataClient(
+        total_timeout_seconds=60,
         http_transport=httpx.MockTransport(lambda request: page_response()),
         resolver=public_resolver,
     )
