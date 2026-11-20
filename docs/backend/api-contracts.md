@@ -793,7 +793,10 @@ answers HTTP400 `Invalid HTTP request received.` itself.
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
-content's entire tag set. Existing tag normalization and deduplication still apply.
+content's entire tag set. Content saves and tag replacement both normalize tag names
+with NFKC, remove Unicode format characters (category `Cf`), collapse whitespace,
+and strip leading `#` characters. A name that becomes blank or exceeds 40 characters
+before or after case folding returns `422`. Case-insensitive duplicates keep the first spelling.
 An empty list clears all tag links while preserving reusable tag records. Missing
 and other users' content both return `404`.
 

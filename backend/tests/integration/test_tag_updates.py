@@ -82,3 +82,17 @@ async def test_tag_commit_failure_rolls_back_tags_and_links(api, database_connec
         await database_connection.scalars(select(Tag.name).where(Tag.user_id == user["id"]))
     )
     assert names == {"old"}
+
+
+async def test_tag_replacement_removes_format_characters(api):
+    headers, _, _ = await guest(api)
+    tagged = await link(api, headers, tag_names=["요리"])
+    content = await link(api, headers, tag_names=["old"])
+    content_path = f"contents/{content['id']}"
+    path = f"{content_path}/tags"
+
+    updated = await request(api, "PUT", path, headers=headers, json={"tag_names": ["요\u200b리"]})
+    assert updated["tags"] == tagged["tags"]
+    await request(api, "PUT", path, headers=headers, json={"tag_names": ["\u200b"]}, status=422)
+    detail = await request(api, "GET", content_path, headers=headers)
+    assert detail["tags"] == tagged["tags"]
