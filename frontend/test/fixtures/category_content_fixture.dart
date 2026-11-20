@@ -117,7 +117,7 @@ class CategoryContentServer {
         'total_count': selected.length,
       });
     }
-    if (p == '/api/v1/recommendations/weekly') {
+    if (r.method == 'GET' && p == '/api/v1/recommendations/weekly') {
       return json({
         'period_start': '2026-10-19T00:00:00Z',
         'period_end': '2026-10-26T00:00:00Z',
