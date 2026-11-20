@@ -503,7 +503,8 @@ def report(pruned=0, overdue=0, rows=0, *, passed=True, fresh=True, expired=0, r
            retention_overdue=0):
     return {"deletion_records_overdue": overdue, "deletion_records_pruned": pruned,
             "expired_points": expired, "freshness_met": fresh,
-            "image_deletion_rows_pruned": rows, "passed": passed, "removed_originals": 0,
+            "image_deletion_rows_pruned": rows, "orphan_tags_deleted": 0,
+            "passed": passed, "removed_originals": 0,
             "retained_points": retained, "retention_overdue": retention_overdue}
 
 

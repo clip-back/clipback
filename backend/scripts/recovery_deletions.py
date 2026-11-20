@@ -123,6 +123,17 @@ async def apply(events):
                 deleted.append({"content_id": content.id,
                                 "asset_ids": [a.id for a in content.assets]})
             operations.append(event["operation_id"])
+        # Use a fresh READ COMMITTED snapshot after taking the locks, as maintain does.
+        tag_ids = (await session.scalars(text("""
+            SELECT t.id FROM tags t
+            WHERE NOT EXISTS (SELECT 1 FROM content_tags ct WHERE ct.tag_id = t.id)
+            FOR UPDATE SKIP LOCKED
+        """))).all()
+        await session.execute(text("""
+            DELETE FROM tags t
+            WHERE t.id = ANY(CAST(:tag_ids AS integer[]))
+              AND NOT EXISTS (SELECT 1 FROM content_tags ct WHERE ct.tag_id = t.id)
+        """), {"tag_ids": tag_ids})
         await session.commit()
         for operation in operations:
             await cleanup_image_deletion(session, operation, get_storage_client())

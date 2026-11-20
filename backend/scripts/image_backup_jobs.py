@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import ValidationError
 from sqlalchemy import cast, delete, select, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from scripts.check_backup_restore import CheckError, RestoreDrill, check, require
 from scripts.image_backup import BackupBucket, create_backup
@@ -295,6 +296,22 @@ async def source_lock(key, *, shared=False, try_only=False, engine=None):
                 raise
 
 
+async def delete_orphan_tags(session: AsyncSession) -> int:
+    """Use a fresh READ COMMITTED snapshot after locking candidates."""
+    # Keep this SQL in sync with the replay source that runs in historical API images.
+    tag_ids = (await session.scalars(text("""
+        SELECT t.id FROM tags t
+        WHERE NOT EXISTS (SELECT 1 FROM content_tags ct WHERE ct.tag_id = t.id)
+        FOR UPDATE SKIP LOCKED
+    """))).all()
+    result = await session.execute(text("""
+        DELETE FROM tags t
+        WHERE t.id = ANY(CAST(:tag_ids AS integer[]))
+          AND NOT EXISTS (SELECT 1 FROM content_tags ct WHERE ct.tag_id = t.id)
+    """), {"tag_ids": tag_ids})
+    return result.rowcount
+
+
 async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
                   pg_dump="pg_dump", backup_id=None):
     """Backup-only commands never perform source cleanup or retention."""
@@ -314,7 +331,10 @@ async def run_job(store, *, command, app_commit=None, origin=None, sample=None,
                 now = datetime.now(UTC)
                 report = await asyncio.to_thread(maintain_backups, store, ledger, now=now)
                 disposal = await dispose_deletion_records(store, ledger, runtime.engine, now=now)
-                return {**report, **disposal, "passed": report["passed"]
+                async with runtime.sessions.begin() as session:
+                    orphan_tags_deleted = await delete_orphan_tags(session)
+                return {**report, **disposal, "orphan_tags_deleted": orphan_tags_deleted,
+                        "passed": report["passed"]
                         and disposal["deletion_records_overdue"] == 0}
             identifier = backup_id or "daily-" + datetime.now(UTC).date().isoformat()
             if command == "daily" and identifier in completed_points(store):

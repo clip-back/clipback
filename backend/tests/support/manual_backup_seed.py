@@ -16,6 +16,9 @@ CREATE TABLE content_assets(id int, content_id int, storage_key text, storage_ba
  size_bytes bigint, sha256 text);
 INSERT INTO content_assets VALUES(1,1,'original.png','local',10,'DIGEST');
 CREATE TABLE content_categories(content_id int, category_id int);
+CREATE TABLE tags(id int PRIMARY KEY);
+CREATE TABLE content_tags(content_id int NOT NULL, tag_id int REFERENCES tags(id) ON DELETE CASCADE,
+ PRIMARY KEY(content_id, tag_id));
 CREATE TABLE image_deletions(operation_id text, completed bool, attempts int, user_id int,
  content_id int, intent json, deleted_at timestamptz);
 INSERT INTO image_deletions VALUES('pending98',false,0);
