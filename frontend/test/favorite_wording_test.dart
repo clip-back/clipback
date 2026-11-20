@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 // #198: 화면에 보이는 "북마크" 문구는 "즐겨찾기"로 바꾼다.
 void main() {
-  // 정렬 메뉴 폭(128)에 실제 글꼴로 들어가는지 보려고 앱 글꼴을 쓴다.
+  // 정렬 메뉴 폭(149)에 실제 글꼴로 들어가는지 보려고 앱 글꼴을 쓴다.
   setUpAll(() async {
     final fonts = FontLoader('Pretendard');
     for (final weight in ['Regular', 'Medium', 'SemiBold']) {

@@ -14,7 +14,6 @@ import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -44,12 +43,11 @@ Element get _home => f.homeBaseFind<HomeScreen>(_root)!;
 String _route() {
   if (_capture.currentContext == null) return 'mounting';
   if (f.homeBaseFind<SaveContentTopBar>(_root) != null) return 'save';
-  if (f.homeBaseFind<NotificationSheet>(_root) != null ||
-      f
-          .homeBaseElements(_root)
-          .any(
-            (e) => e.widget.runtimeType.toString() == 'NotificationListScreen',
-          )) {
+  if (f
+      .homeBaseElements(_root)
+      .any(
+        (e) => e.widget.runtimeType.toString() == 'NotificationListScreen',
+      )) {
     return 'notifications';
   }
   if (f.homeBaseFind<SearchScreen>(_root) != null) return 'search';
