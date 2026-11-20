@@ -1,19 +1,13 @@
-// C03 oracle. Runtime discovery compiles on 220f313's legacy notification sheet.
+// C03 oracle.
 // No notification endpoint is invented: the root list is empty (C03-1 empty state).
 import 'dart:ui' as ui;
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'notice_alignment_fixture.dart' as common;
 import 'home_base_alignment_fixture.dart' as home;
 
-const notificationExamples = <({String title, String time})>[
-  (title: '오늘의 콘텐츠가 준비됐어요', time: '방금 전'),
-  (title: '저장한 링크 요약이 완료됐어요', time: '10분 전'),
-  (title: '다시 볼 콘텐츠를 추천해드려요', time: '어제'),
-];
 const notificationEmptyTitle = '아직 받은 알림이 없어요';
 const notificationEmptyBody = '저장한 콘텐츠를\n다시 볼 때 알려드릴게요';
 const notificationBackAsset = 'assets/icons/detail-back.svg';
@@ -87,8 +81,7 @@ Map<String, Object?> _asset(Element? e) {
 }
 
 ScrollPosition? notificationPosition(Element root) {
-  final target =
-      notificationScreen(root) ?? notificationFind<NotificationSheet>(root);
+  final target = notificationScreen(root);
   if (target == null) return null;
   final e = notificationFind<Scrollable>(target);
   return e is StatefulElement && e.state is ScrollableState
@@ -97,26 +90,18 @@ ScrollPosition? notificationPosition(Element root) {
 }
 
 Map<String, Object?> notificationMeasure(Element root) {
-  final screen = notificationScreen(root),
-      sheet = notificationFind<NotificationSheet>(root),
-      target = screen ?? sheet;
+  final target = notificationScreen(root);
   if (target == null) return {'active': false};
-  final full = screen != null,
-      media = MediaQuery.of(target),
-      pos = notificationPosition(root);
-  final List<({String title, String time})> items = full
-      ? [
-          for (final dynamic x in (screen.widget as dynamic).items as List)
-            (title: x.title as String, time: x.time as String),
-        ]
-      : notificationExamples;
+  final media = MediaQuery.of(target), pos = notificationPosition(root);
+  final List<({String title, String time})> items = [
+    for (final dynamic x in (target.widget as dynamic).items as List)
+      (title: x.title as String, time: x.time as String),
+  ];
   final bounds = <String, Object?>{};
   for (final entry in {
-    'screen': full ? notificationFind<Scaffold>(target) : null,
+    'screen': notificationFind<Scaffold>(target),
     'header': notificationKey(target, 'notification-header'),
-    'viewport': full
-        ? notificationKey(target, 'notification-viewport')
-        : notificationFind<SingleChildScrollView>(target),
+    'viewport': notificationKey(target, 'notification-viewport'),
     'backHit': notificationKey(target, 'notification-back-hit'),
     'settingsHit': notificationKey(target, 'notification-settings-hit'),
     'emptyGroup': notificationKey(target, 'notification-empty-group'),
@@ -129,19 +114,10 @@ Map<String, Object?> notificationMeasure(Element root) {
         : notificationRect(notificationBox(entry.value!));
   }
   final rows = <Map<String, Object?>>[];
-  final legacyRows = notificationElements(
-    target,
-  ).where((e) => e.widget is NotificationRow).toList();
   for (var i = 0; i < items.length; i++) {
-    final row = full
-            ? notificationKey(target, 'notification-row-$i')
-            : (i < legacyRows.length ? legacyRows[i] : null),
-        title = full
-            ? notificationKey(target, 'notification-title-$i')
-            : notificationText(target, items[i].title),
-        time = full
-            ? notificationKey(target, 'notification-time-$i')
-            : notificationText(target, items[i].time);
+    final row = notificationKey(target, 'notification-row-$i'),
+        title = notificationKey(target, 'notification-title-$i'),
+        time = notificationKey(target, 'notification-time-$i');
     final box = row == null
         ? null
         : notificationElements(row)
@@ -255,8 +231,8 @@ Map<String, Object?> notificationMeasure(Element root) {
           'spread': shadow.spreadRadius,
         },
     ],
-    'presentation': full ? 'fullScreen' : 'legacySheet',
-    'empty': full && items.isEmpty,
+    'presentation': 'fullScreen',
+    'empty': items.isEmpty,
     'items': [
       for (final item in items) {'title': item.title, 'time': item.time},
     ],
@@ -310,10 +286,7 @@ Map<String, Object?> notificationJudgment(Map<String, Object?> m) {
   };
   if (m['active'] != true) return result();
   if (m['presentation'] != 'fullScreen') {
-    sf.add('C03 roles absent in baseline sheet');
-    lf.add('Legacy modal lacks C03 fixed header/list');
-    af.add('Legacy modal lacks C03 header assets');
-    return result();
+    lf.add('presentation: ${m['presentation']} != fullScreen');
   }
   bool near(Object? x, num y) => x is num && (x - y).abs() < .22;
   void n(Object? x, num y, String why) {
