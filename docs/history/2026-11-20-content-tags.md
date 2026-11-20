@@ -26,3 +26,23 @@ VERIFY result=PASS scope=all checks=12 failed=0
 
 - Docker 데몬이 꺼져 있어 이 티켓 범위의 Docker 검사 3건(기존 다계정 복원, 과거 API 이미지의 태그 복원, 수동 백업)을 로컬에서 실행하지 않았습니다. PR CI의 `operator-recovery`에서 확인합니다. 수동 백업용 축약 스키마에 대한 정리 SQL은 로컬 PostgreSQL에서 확인했습니다.
 - 운영 연결의 실제 권한과 첫 정리 실행은 사용자 확인 단계입니다.
+
+## #436 태그 이름 정규화와 AI 응답 판정
+
+기준 커밋은 `2953aed`입니다. 공용 태그 이름 정규화는 NFKC, Unicode `Cf` 제거, 공백 합치기, 앞의 `#` 제거, 빈 값과 40자 검증 순서로 처리합니다. AI 태그 정리 함수는 유효한 이름 중 대소문자를 무시해 첫 표기를 남기고 앞 3개를 반환합니다. 태그가 0개여도 성공입니다. AI 호출 연결은 #437·#438에서 진행합니다. [이슈 #436](https://github.com/clip-back/clipback/issues/436)
+
+- 알려진 한계. 사용자 결정에 따라 정규화 순서를 유지했습니다. Cf를 지운 자리에서 결합 문자가 이어지면 이름이 NFKC 정규형이 아닐 수 있어 겉모양이 같은 태그가 별개로 남을 수 있습니다.
+- 배포 앱은 Cf가 든 태그 이름을 보내지 않으므로 이 변경을 사용자용 CHANGELOG에서 제외했습니다.
+
+### 검증
+
+- 구현 `5118e78`. 기준 커밋에서 문자 범위와 판정 순서 검사 21건이 실패하고 19건이 통과했습니다. 구현 뒤 Ruff와 부분 검사 291건이 통과했습니다. 저장과 교체에서 Cf만 든 이름은 422였고, `요\u200b리`는 `요리`로 조회됐습니다. 빈 `tag_names`의 fingerprint와 같은 제출 키의 재시도 응답도 유지됐습니다. 중복 제거 전에 자르거나 빈 값 판정 뒤 Cf를 제거하는 각 변형에서 지정 테스트가 실패했습니다.
+- 검수 반영 `fad65cd`. AI 정리에서 서로게이트가 든 항목만 폐기하며, API 계약에는 한 요청 안의 중복 처리와 같은 계정의 기존 행 재사용을 명시했습니다. 신규 서로게이트 테스트는 수정 전에 실패했고, 수정 뒤 Ruff와 관련 검사 51건이 통과했습니다. 검수에서 재현한 짝 없는 서로게이트 입력의 기존 HTTP 500은 별도 범위입니다.
+- `fad65cd`의 전체 `verify.py` 12단계와 Flutter 테스트 3,943건이 통과했습니다. 건너뛴 Docker·S3 검사는 #436 범위 밖입니다.
+
+```text
+pytest: 2801 passed, 50 skipped, 3 warnings in 386.14s (0:06:26)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
