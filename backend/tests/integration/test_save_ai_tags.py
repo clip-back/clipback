@@ -1,4 +1,5 @@
 import json
+import logging
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -180,6 +181,28 @@ async def test_link_tag_source_by_save_route(api, save_provider, route, url, cho
     assert detail["tags"] == saved["tags"]
 
 
+async def test_redirect_to_instagram_post_leaves_tags_to_automatic_summary(
+    api, save_provider, monkeypatch,
+):
+    async def resolve_post(self, url):
+        assert url == WEB
+        return MetadataResult(
+            resolved_url=INSTAGRAM, title="게시물 제목", description="게시물 설명",
+            status="success",
+        )
+
+    monkeypatch.setattr(MetadataClient, "extract_from_url", resolve_post)
+    monkeypatch.setattr(settings, "instagram_summary_enabled", False)
+    headers, _, _ = await guest(api)
+
+    saved = await link(api, headers)
+
+    assert save_provider.calls == ["recommend"]
+    assert saved["original_url"] == INSTAGRAM
+    assert saved["tags"] == []
+    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", "disabled")
+
+
 async def chosen_category(api, headers):
     categories = await request(api, "GET", "categories", headers=headers)
     return next(category["id"] for category in categories if category["name"] == "취업")
@@ -300,6 +323,7 @@ async def test_saved_ai_tags_replay_without_ai_and_keep_conflict_and_gone(api, s
 async def test_guest_ai_tags_survive_upgrade_without_search_or_log_leaks(
     api, save_provider, database_connection, caplog, capsys,
 ):
+    caplog.set_level(logging.DEBUG)
     marker = f"태그표식{uuid4().hex}"
     headers, _, user = await guest(api)
     other, _, other_user = await guest(api)

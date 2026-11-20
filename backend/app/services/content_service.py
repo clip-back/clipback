@@ -242,7 +242,7 @@ class ContentService:
             summary_typed=None,
             base_metadata_json=json.dumps(ocr_metadata, ensure_ascii=False, separators=(",", ":")),
             asset=asset,
-            ai_tag_names=ocr.tag_names if shared_text else [],
+            ai_tag_names=ocr.tag_names,
         )
 
     async def _prepare(
