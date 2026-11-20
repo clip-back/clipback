@@ -284,20 +284,25 @@ async def test_youtube_needs_the_exact_keys_and_instagram_ignores_an_extra_key(a
 
 
 VALID_ANSWER = {"title": "제목", "headline": "핵심", "points": ["요점"], "category_id": 7}
-TAG_FIELDS = [
-    pytest.param({}, [], id="missing"),
-    pytest.param({"tags": ["요리"]}, ["요리"], id="valid"),
-    pytest.param(
+TAG_CASES = {
+    "missing": ({}, []),
+    "valid": ({"tags": ["요리"]}, ["요리"]),
+    "mixed": (
         {"tags": ["＃요리", 5, None, [], {}, "요리", "레시피", "김치", "식사"]},
         ["요리", "레시피", "김치"],
-        id="mixed",
     ),
-    pytest.param({"tags": "요리"}, [], id="non-list"),
-]
+    "string": ({"tags": "요리"}, []),
+    "null": ({"tags": None}, []),
+    "number": ({"tags": 5}, []),
+    "object": ({"tags": {"name": "요리"}}, []),
+}
 
 
 @pytest.mark.parametrize("kind", KINDS)
-@pytest.mark.parametrize("fields,expected", TAG_FIELDS)
+@pytest.mark.parametrize(
+    "fields,expected",
+    [pytest.param(fields, expected, id=case) for case, (fields, expected) in TAG_CASES.items()],
+)
 async def test_optional_raw_tags_do_not_change_summary_or_category(kind, fields, expected):
     result = await summarize_answer(kind, {**VALID_ANSWER, **fields})
 
@@ -306,8 +311,10 @@ async def test_optional_raw_tags_do_not_change_summary_or_category(kind, fields,
 
 
 @pytest.mark.parametrize("kind", KINDS)
-@pytest.mark.parametrize("fields,_expected", TAG_FIELDS)
-async def test_optional_raw_tags_do_not_change_invalid_summary(kind, fields, _expected):
+@pytest.mark.parametrize(
+    "fields", [pytest.param(fields, id=case) for case, (fields, _) in TAG_CASES.items()]
+)
+async def test_optional_raw_tags_do_not_change_invalid_summary(kind, fields):
     await rejected(kind, summarize_answer, {**VALID_ANSWER, **fields, "points": [7]})
 
 

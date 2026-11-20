@@ -16,6 +16,7 @@ from tests.integration.test_save_ai_tags import provider as provider, save_provi
 from tests.integration.test_summary_log_contract import (
     REEL,
     YOUTUBE_LINK,
+    answer,
     gemini_text,
     instagram_client,
     make_worker as make_worker,
@@ -57,7 +58,7 @@ async def tag_names(connection, user):
 async def test_queued_summary_adds_tags_to_detail_without_logging_them(
     api, database_connection, make_worker, save_provider, caplog, capsys, kind, url, tags, expected
 ):
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="app")
     headers, _, user = await guest(api)
     queued = await link(api, headers, original_url=url)
     assert queued["summary_status"] == "queued"
@@ -91,12 +92,16 @@ async def test_queued_summary_adds_tags_to_detail_without_logging_them(
 
 @pytest.mark.parametrize(
     "reason,status", [("disabled", "skipped"), ("daily_limit_exceeded", "skipped"),
-                      ("invalid_response", "failed")],
+                      ("video_unavailable", "skipped"), ("invalid_response", "failed")],
 )
 async def test_skipped_and_failed_summaries_do_not_add_tags(
     api, database_connection, make_worker, save_provider, monkeypatch, reason, status
 ):
-    worker = make_worker(youtube=summary_client("youtube", headline="", tags=[MARKER]))
+    if reason == "video_unavailable":
+        client = youtube_client(preflight=answer(json={"items": []}))
+    else:
+        client = summary_client("youtube", headline="", tags=[MARKER])
+    worker = make_worker(youtube=client)
     headers, _, user = await guest(api)
     if reason == "disabled":
         monkeypatch.setattr(settings, "youtube_summary_enabled", False)
@@ -107,7 +112,7 @@ async def test_skipped_and_failed_summaries_do_not_add_tags(
     content = await link(api, headers, original_url=YOUTUBE_LINK)
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
 
-    assert await worker.run_once() == (status == "failed")
+    assert await worker.run_once() == (reason in {"video_unavailable", "invalid_response"})
     completed = await detail(api, headers, content)
     assert (completed["summary_status"], completed["summary_error_code"]) == (status, reason)
     assert completed["tags"] == []
