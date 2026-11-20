@@ -8,7 +8,6 @@ import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/account/account_management_screen.dart';
 import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:clipback_frontend/features/account/settings_sheets.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/bookmark_screen.dart';
@@ -50,9 +49,7 @@ Widget Function(VoidCallback onBack)? _emptyBuilder;
 bool _emptyScene = false;
 Element get _root => _capture.currentContext! as Element;
 Element get _home => f.notificationFind<HomeScreen>(_root)!;
-Element get _notification =>
-    f.notificationScreen(_root) ??
-    f.notificationFind<NotificationSheet>(_root)!;
+Element get _notification => f.notificationScreen(_root)!;
 PendingSharePrompt? _sharePrompt() =>
     f.notificationFind<PendingSharePrompt>(_root)?.widget
         as PendingSharePrompt?;
@@ -72,9 +69,6 @@ String _route() {
   if (f.notificationFind<SaveContentTopBar>(_root) != null) return 'save';
   if (f.notificationFind<ReminderSheet>(_root) != null) return 'reminderSheet';
   if (f.notificationScreen(_root) != null) return 'notificationList';
-  if (f.notificationFind<NotificationSheet>(_root) != null) {
-    return 'notificationSheet';
-  }
   if (f.notificationFind<PermissionSheet>(_root) != null) {
     return 'permissionSheet';
   }
@@ -168,7 +162,7 @@ Future<void> _open() async {
       f.notificationHomePosition(_root, recent: true)?.pixels ?? 0;
   await _tap(bell);
   await _wait(
-    () => ['notificationList', 'notificationSheet'].contains(_route()),
+    () => _route() == 'notificationList',
     'Actual notification entry missing',
   );
   await _settle(8);
@@ -177,7 +171,7 @@ Future<void> _open() async {
 }
 
 Future<void> _close({bool header = false}) async {
-  if (header && f.notificationScreen(_root) != null) {
+  if (header) {
     await _tap(f.notificationKey(_notification, 'notification-back-hit')!);
   } else {
     await WidgetsBinding.instance.handlePopRoute();
@@ -428,7 +422,7 @@ Future<void> _maxScroll() async {
 
 Future<void> _settings() async {
   final requests = _server.requests.length;
-  if (f.notificationScreen(_root) == null) return;
+  _require(f.notificationScreen(_root) != null, 'Notification screen missing');
   _require(
     f.notificationKey(_notification, 'notification-settings-hit') == null,
     'Removed settings hit remains',
@@ -463,7 +457,7 @@ Future<void> _run() async {
       await _show(e);
       await _tap(e);
       _require(
-        ['notificationList', 'notificationSheet'].contains(_route()),
+        _route() == 'notificationList',
         'Readonly row opened a destination',
       );
     }
@@ -561,27 +555,26 @@ Future<void> _run() async {
   _require(_server.writes == 0, 'Save close wrote content');
   _record('save_close_without_write');
   await _open();
-  if (f.notificationScreen(_root) != null) {
-    final VoidCallback staleBack =
-        (f.notificationScreen(_root)!.widget as dynamic).onBack;
-    _social.revoked = true;
-    WidgetsBinding.instance.handleAppLifecycleStateChanged(
-      AppLifecycleState.paused,
-    );
-    WidgetsBinding.instance.handleAppLifecycleStateChanged(
-      AppLifecycleState.resumed,
-    );
-    await _wait(() => _route() == 'login', 'Revoked member did not show Login');
-    _require(_storage.value == null, 'Revoked session storage not cleared');
-    final requests = _server.requests.length;
-    staleBack();
-    await _settle(5);
-    _require(
-      _route() == 'login' && _server.requests.length == requests,
-      'Stale notification callback escaped session guard',
-    );
-    _record('session_invalidation_blocks_stale_back');
-  }
+  _require(f.notificationScreen(_root) != null, 'Notification screen missing');
+  final VoidCallback staleBack =
+      (f.notificationScreen(_root)!.widget as dynamic).onBack;
+  _social.revoked = true;
+  WidgetsBinding.instance.handleAppLifecycleStateChanged(
+    AppLifecycleState.paused,
+  );
+  WidgetsBinding.instance.handleAppLifecycleStateChanged(
+    AppLifecycleState.resumed,
+  );
+  await _wait(() => _route() == 'login', 'Revoked member did not show Login');
+  _require(_storage.value == null, 'Revoked session storage not cleared');
+  final requests = _server.requests.length;
+  staleBack();
+  await _settle(5);
+  _require(
+    _route() == 'login' && _server.requests.length == requests,
+    'Stale notification callback escaped session guard',
+  );
+  _record('session_invalidation_blocks_stale_back');
   await _fresh('member');
   _record('final_member_list_scroll_zero');
   _coverage = true;
