@@ -131,7 +131,7 @@ def youtube_client(*, preflight=None, gemini=None, config=None):
     return YouTubeSummaryClient(config or youtube_config(), http)
 
 
-def instagram_client(*, post=None, image=None, openai=None, openai_client=True, page_timeout=5):
+def instagram_client(*, post=None, image=None, openai=None, openai_client=True, page_timeout=60):
     """Real client; `post` serves the page, `image` the image CDN, `openai` the GPT endpoint."""
 
     def page_side(request):

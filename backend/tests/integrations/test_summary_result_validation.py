@@ -73,6 +73,7 @@ async def summarize_answer(kind, answer):
                 "dQw4w9WgXcQ", "model", CANDIDATES
             )
     metadata = MetadataClient(
+        total_timeout_seconds=60,
         http_transport=httpx.MockTransport(lambda r: page()), resolver=public_resolver
     )
     openai = AsyncOpenAI(
