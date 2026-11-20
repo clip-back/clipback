@@ -31,7 +31,7 @@ os.environ["STORAGE_ROOT"] = str(Path(
 
 import httpx  # noqa: E402
 
-from app.integrations.ai_client import AIClient  # noqa: E402
+from app.integrations.ai_client import AIClient, CategorySuggestion  # noqa: E402
 from app.integrations.metadata_client import MetadataClient, MetadataResult  # noqa: E402
 from app.integrations.ocr_client import OCRClient, ScreenshotOCRResult  # noqa: E402
 from app.integrations.social_auth_client import SocialAuthClient, SocialProfile  # noqa: E402
@@ -50,7 +50,7 @@ async def metadata(self, url):
 
 
 async def recommend(self, *, candidates, **kwargs):
-    return candidates[0][0] if candidates else None
+    return CategorySuggestion(category_id=candidates[0][0] if candidates else None)
 
 
 async def ocr(self, **kwargs):

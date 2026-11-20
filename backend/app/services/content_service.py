@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
@@ -49,6 +49,7 @@ from app.services.category_recommendation_service import (
 )
 from app.services.extraction_service import ExtractionService, serialize_event_metadata
 from app.services.image_deletion_service import delete_image_content
+from app.services.link_url import instagram_post_type
 from app.services.summary_kinds import new_summary_job
 from app.services.usage_limits import DailySummaryLimit
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
@@ -106,6 +107,7 @@ class PreparedContent:
     user_id: int
     payload: ContentCreate
     categories: list[Category]
+    tag_names: list[str]
     metadata_json: str
     summary_typed: tuple[bool, bool] | None
     asset: PendingContentAsset | None
@@ -197,6 +199,8 @@ class ContentService:
                 "after normalization",
             )
 
+        # Instagram posts get tags from automatic summaries even when the job is skipped.
+        instagram_post = instagram_post_type(str(payload.original_url)) in ("p", "reel", "tv")
         return await self._prepare(
             user_id=user_id,
             payload=payload,
@@ -209,6 +213,7 @@ class ContentService:
             ),
             base_metadata_json=base_metadata_json,
             asset=None,
+            ai_tag_names=[] if instagram_post else None,
         )
 
     async def prepare_screenshot(
@@ -237,6 +242,7 @@ class ContentService:
             summary_typed=None,
             base_metadata_json=json.dumps(ocr_metadata, ensure_ascii=False, separators=(",", ":")),
             asset=asset,
+            ai_tag_names=ocr.tag_names if shared_text else [],
         )
 
     async def _prepare(
@@ -249,6 +255,7 @@ class ContentService:
         summary_typed: tuple[bool, bool] | None,
         base_metadata_json: str | None,
         asset: PendingContentAsset | None,
+        ai_tag_names: list[str] | None,
     ) -> PreparedContent:
         categories, recommendation = await self._decide_categories(
             user_id=user_id,
@@ -270,6 +277,9 @@ class ContentService:
             user_id=user_id,
             payload=payload,
             categories=categories,
+            tag_names=payload.tag_names or (
+                recommendation.tag_names if ai_tag_names is None else ai_tag_names
+            ),
             metadata_json=metadata_json,
             summary_typed=summary_typed,
             asset=asset,
@@ -280,7 +290,7 @@ class ContentService:
         user_id = prepared.user_id
         payload = prepared.payload
         asset = prepared.asset
-        tags = await self._resolve_tags(user_id=user_id, tag_names=payload.tag_names)
+        tags = await self._resolve_tags(user_id=user_id, tag_names=prepared.tag_names)
         content = await self.content_repository.create(
             user_id=user_id,
             content_type=ModelContentType(payload.content_type.value),
@@ -372,8 +382,8 @@ class ContentService:
                     category_ids=[recommendation.category_id],
                 )
                 if not categories:
-                    recommendation = CategoryRecommendationResult(
-                        category_id=recommendation.category_id,
+                    recommendation = replace(
+                        recommendation,
                         assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
                         failure_reason=CategoryRecommendationFailureReason.ERROR,
                     )

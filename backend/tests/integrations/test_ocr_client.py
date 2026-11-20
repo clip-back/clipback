@@ -300,7 +300,7 @@ def test_ocr_request_asks_for_headline_and_points() -> None:
     schema = ScreenshotOCROutput.model_json_schema()
     properties = schema["properties"]
 
-    assert set(properties) == {"text", "title", "headline", "points"}
+    assert set(properties) == {"text", "title", "headline", "points", "tags"}
     assert properties["headline"]["maxLength"] == 40
     assert properties["points"]["items"] == {"type": "string", "maxLength": 60}
     assert properties["points"]["maxItems"] == 5

@@ -522,12 +522,16 @@ def install_fakes(monkeypatch, recorder: Recorder, case: Case) -> None:
         )
 
     async def suggest(self, **kwargs):
+        from app.integrations.ai_client import CategorySuggestion
+
         recorder.ai.append({key: value for key, value in kwargs.items() if key != "candidates"})
         if case.ai == "fail":
             raise AIClientError("injected AI failure")
         if case.ai == "outside":
-            return MISSING
-        return kwargs["candidates"][0][0] if kwargs["candidates"] else None
+            return CategorySuggestion(category_id=MISSING)
+        return CategorySuggestion(
+            category_id=kwargs["candidates"][0][0] if kwargs["candidates"] else None,
+        )
 
     monkeypatch.setattr(MetadataClient, "extract_from_url", metadata)
     monkeypatch.setattr(AIClient, "suggest_category_id", suggest)

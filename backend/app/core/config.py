@@ -37,7 +37,7 @@ class Settings(DeletionLedgerSettings):
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.4-nano-2026-03-17"
     ai_timeout_seconds: float = Field(default=2.0, gt=0)
-    ai_max_output_tokens: int = Field(default=64, gt=0)
+    ai_max_output_tokens: int = Field(default=160, gt=0)
     ai_reasoning_effort: Literal["none"] = "none"
     ocr_model: str = "gpt-5.4-nano-2026-03-17"
     ocr_timeout_seconds: float = Field(default=5.0, gt=0)

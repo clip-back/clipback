@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.integrations.ai_client import AIClient, AIClientError
+from app.integrations.ai_client import AIClient, AIClientError, CategorySuggestion
 from app.integrations.deletion_ledger import get_deletion_ledger
 from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.integrations.ocr_client import OCRClient, OCRClientTimeoutError, ScreenshotOCRResult
@@ -30,7 +30,7 @@ def external_responses(monkeypatch):
         state.ai_calls += 1
         if state.ai_fails:
             raise AIClientError("injected AI failure")
-        return candidates[0][0] if candidates else None
+        return CategorySuggestion(category_id=candidates[0][0] if candidates else None)
 
     async def ocr(self, **kwargs):
         if state.ocr_fails:

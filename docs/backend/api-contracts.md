@@ -790,6 +790,19 @@ limit are processed as before.
 A non-numeric `Content-Length` never reaches the app: uvicorn (httptools and h11)
 answers HTTP400 `Invalid HTTP request received.` itself.
 
+## Tags on Saved Content
+
+When a save supplies no `tag_names`, the server can attach up to three tags from
+the existing category recommendation for an ordinary link or from OCR for a
+screenshot with visible text. Screenshot category recommendations and save-time
+recommendations for Instagram posts do not supply tags. A non-empty
+`tag_names` list takes precedence. Missing or malformed tag values do not change
+the title, summary, or category result.
+
+Save and detail responses expose `tags` as `[{"id": ..., "name": ...}]`, ordered by
+ascending tag ID. Reused tags keep their stored spelling. Save retries return the
+current content using the original submission key without calling the model again.
+
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the

@@ -6,6 +6,7 @@ from app.integrations.ai_client import (
     AIClientError,
     AIClientInvalidResponseError,
     AIClientTimeoutError,
+    CategorySuggestion,
 )
 from app.schemas.content import ContentCreate, ContentSource
 from app.services.category_recommendation_service import CategoryRecommendationService
@@ -31,7 +32,7 @@ class FakeAIClient:
         self.calls.append(kwargs)
         if self.error is not None:
             raise self.error
-        return self.result
+        return CategorySuggestion(category_id=self.result)
 
 
 def candidate(category_id: int, name: str) -> SimpleNamespace:
