@@ -31,6 +31,7 @@
 - 전체 검증 `verify.py`: HEAD `9cecab3`, 작업 트리 변경 없음에서 `VERIFY result=PASS scope=all checks=12 failed=0`.
   - 앱 3명령(`dart format --output=none --set-exit-if-changed lib test`, `flutter analyze --no-pub`, `flutter test --no-pub` 3,943개 통과)은 이 verify의 같은 단계로 확인했다.
   - 백엔드 pytest는 2,751 통과·49 건너뜀(Docker 배포 복구 48, 로컬 S3 1).
+- 전체 검증(최종, main `3b35d09`까지 합친 HEAD `e1fbbe2`, 작업 트리 변경 없음): `VERIFY result=PASS scope=all checks=12 failed=0`. 건너뜀 사유는 위와 같다.
 - 검수(`20f180a`·`c620033`): 높음·중간 0, 낮음 1. "주간 추천 분기가 메서드를 보지 않는다"를 반영해 GET에만 답하게 했다.
 
 ## 기기 실행 확인
