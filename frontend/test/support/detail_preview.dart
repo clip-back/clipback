@@ -1351,6 +1351,7 @@ Future<void> _run() async {
         (e) => e.widget is Image && (e.widget as Image).image is MemoryImage,
       )
       .firstOrNull;
+  final reads = host.calls.where((c) => c['action'] == 'readAsset').toList();
   _require(
     sheetImage != null &&
         identical(
@@ -1358,15 +1359,16 @@ Future<void> _run() async {
           _photo,
         ) &&
         (sheetImage.widget as Image).fit == BoxFit.contain &&
-        host.calls.where((c) => c['action'] == 'readAsset').length == 1,
-    'Original photo sheet must share one local read callback and contain identical bytes',
+        reads.length == 2 &&
+        reads.every((c) => c['assetId'] == reads.first['assetId']),
+    'Original photo sheet must recheck access with one more read of the same asset and contain identical bytes',
   );
   await _tapText('확인');
   _require(
     _find<OriginalContentSheet>() == null,
     'Original photo sheet did not close',
   );
-  _record('photo_original_sheet_local_cache_shared');
+  _record('photo_original_sheet_access_rechecked');
   for (final label in ['홈', '아카이브', '즐겨찾기', '마이']) {
     await _open('basic');
     await _tapText(label);
