@@ -233,6 +233,8 @@ SDK requests carry only an ID token, so `at_hash` is not checked on that input. 
 server grants also supply an access token when available: it is used to verify any
 `at_hash` claim and then discarded without storage. Authentication validation errors
 return a generic 422 message without echoing request tokens, codes, or other input.
+Apple login and guest upgrade reject a `display_name` containing NUL or an unpaired
+Unicode surrogate with `422 {"detail":"Invalid authentication request"}`.
 
 Challenges expire after five minutes and are consumed atomically **before** external
 validation. A failed exchange or 409 therefore requires a new challenge and a fresh
@@ -684,6 +686,8 @@ Login and guest-to-social promotion do not recreate deleted categories.
 - Only supplied fields change. `color: null` removes the color; omitted color stays.
 - Name is trimmed, nonblank, at most 40 characters, and cannot be null. Color keeps
   the existing maximum of 20 characters. Empty objects and unknown fields return `422`.
+- Category creation and updates return `422` if `name` or `color` contains NUL or an
+  unpaired Unicode surrogate.
 - A case-insensitive duplicate among other visible categories returns `409`.
   The target is excluded, allowing case changes and identical-value requests.
 - Success returns `200` with `CategoryRead` (`id`, `name`, `color`, `is_default`).
@@ -803,6 +807,11 @@ Save and detail responses expose `tags` as `[{"id": ..., "name": ...}]`, ordered
 ascending tag ID. Reused tags keep their stored spelling. Save retries return the
 current content using the original submission key without calling the model again.
 
+### Direct Save Text Validation
+
+`POST /api/v1/contents` returns `422` if `title` or `summary` contains NUL or an
+unpaired Unicode surrogate. Validation applies with or without an idempotency key.
+
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
@@ -834,6 +843,7 @@ order by default (`sort=latest`). `sort=favorites_first` puts favorites first, t
 `saved_at DESC, id DESC` within each segment. Other sort values (including empty) return
 request validation `422`. Optional `q` (title, summary, and tags), `category_id`, and `is_favorite` filters
 combine with pagination. `limit` defaults to 20 and accepts 1–100.
+The `q` filter returns `422` if it contains NUL.
 
 - `total_count` counts the same user/category/favorite/search filters before cursor and limit, independently of sort.
   It is recalculated on every page; whitespace-only search has no filter. Missing or foreign
@@ -878,6 +888,12 @@ failed-upload cleanup, and the limits of already-issued signed URLs.
 
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
 10MiB as multipart form data and returns the saved content with its asset metadata.
+Each multipart `tag_names` value must be valid UTF-8 regardless of the
+`Content-Type` charset parameter. Invalid tag bytes return `422` after form parsing,
+authentication and authorization, and validation of the other body and header fields
+succeed. The error has `detail[0].loc` set to `["tag_names"]` and `detail[0].msg` set to
+`Value error, Tag name contains unsupported characters`. NUL in a decoded tag
+is rejected by the same tag name rules used for other saves.
 Images with invalid structure or undecodable pixel data return
 `415 {"detail":"Unsupported or invalid screenshot image"}` before original storage,
 content creation, or OCR calls.
