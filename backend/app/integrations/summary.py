@@ -91,11 +91,11 @@ def _joined_summary(headline, points) -> str:
     return join_headline_and_points(headline, points, for_link=True)
 
 
-def join_headline_and_points(headline: str, points: list[str], *, for_link: bool = False) -> str:
+def join_headline_and_points(headline: str, points: list[str], *, for_link: bool) -> str:
     """Clean and join link or photo summaries in the order defined by #450.
 
     Links require a headline and at least one point, which is kept when trimming for length.
-    Photo OCR applies its own length limit to the joined summary.
+    Photo OCR allows an empty summary or a headline alone and truncates an oversized headline.
     """
     headline = _one_line(headline).strip()
     points = [_LEADING_MARK.sub("", _one_line(point).lstrip(), count=1).strip() for point in points]
@@ -107,9 +107,12 @@ def join_headline_and_points(headline: str, points: list[str], *, for_link: bool
 
     point_lines = [f"• {point}" for point in points]
     summary = "\n".join([headline, *point_lines])
-    while for_link and len(point_lines) > 1 and len(summary) > MAX_SUMMARY_LENGTH:
+    min_points = 1 if for_link else 0
+    while len(point_lines) > min_points and len(summary) > MAX_SUMMARY_LENGTH:
         point_lines.pop()
         summary = "\n".join([headline, *point_lines])
-    if for_link and len(summary) > MAX_SUMMARY_LENGTH:
-        raise SummaryError("invalid_response")
+    if len(summary) > MAX_SUMMARY_LENGTH:
+        if for_link:
+            raise SummaryError("invalid_response")
+        return headline[:MAX_SUMMARY_LENGTH]
     return summary

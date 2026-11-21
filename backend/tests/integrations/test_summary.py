@@ -13,6 +13,7 @@ from tests.integrations.test_instagram_summary_client import (
     page,
     summarize as summarize_instagram,
 )
+from tests.integrations.test_ocr_client import screenshot_prompt
 from tests.integrations.test_youtube_summary_client import config, output, video
 
 
@@ -66,13 +67,17 @@ async def test_youtube_and_instagram_send_the_same_summary_instructions():
     (openai_request,) = seen["openai"]
     youtube_prompt = gemini_body["systemInstruction"]["parts"][0]["text"]
     instagram_prompt = json.loads(openai_request.content)["input"][0]["content"]
+    photo_prompt = await screenshot_prompt()
     common_section = r"요약은 headline\(핵심 한 줄\).*?확인되지 않은 내용을 추측하지 마라\."
     youtube_section = re.search(common_section, youtube_prompt, re.DOTALL)
     instagram_section = re.search(common_section, instagram_prompt, re.DOTALL)
+    photo_section = re.search(common_section, photo_prompt, re.DOTALL)
 
     assert youtube_section is not None
     assert instagram_section is not None
     assert youtube_section[0] == instagram_section[0]
+    assert photo_section is not None
+    assert youtube_section[0] == photo_section[0]
     for phrase in [
         "핵심 한 줄", "요점", "1–10개", "80자", "명사형", "마침표", "기호",
         "번호", "마크다운", "되풀이", "재료", "단계", "추측",
