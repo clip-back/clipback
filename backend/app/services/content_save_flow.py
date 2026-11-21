@@ -154,9 +154,12 @@ class ContentSaveFlow:
                     committed = await ShareReceiptRepository(
                         self.session,
                     ).committed_after_failure(submission.receipt)
-                except Exception:
+                except Exception as exc:
                     # Retain an uncertain file rather than delete a committed asset.
-                    logger.exception("Unable to verify screenshot commit; retaining file")
+                    logger.error(
+                        "Unable to verify screenshot commit; retaining file (%s)",
+                        type(exc).__name__,
+                    )
                     raise
                 if committed:
                     raise

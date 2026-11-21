@@ -806,8 +806,9 @@ current content using the original submission key without calling the model agai
 ## Tag Replacement
 
 `PUT /api/v1/contents/{id}/tags` accepts `{ "tag_names": [...] }` and replaces the
-content's entire tag set. Content saves and tag replacement both normalize tag names
-with NFKC, remove Unicode format characters (category `Cf`), collapse whitespace,
+content's entire tag set. Content saves and tag replacement both return `422` for a
+tag name containing NUL or an unpaired Unicode surrogate. They normalize other tag
+names with NFKC, remove Unicode format characters (category `Cf`), collapse whitespace,
 and strip leading `#` characters. A name that becomes blank or exceeds 40 characters
 before or after case folding returns `422`. Case-insensitive duplicates within a
 request keep the first spelling. An existing tag in the same account that differs

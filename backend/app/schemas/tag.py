@@ -12,6 +12,9 @@ LEADING_HASH_PATTERN = re.compile(r"^(?:#\s*)+")
 
 
 def normalize_tag_name(value: str) -> str:
+    # PostgreSQL text cannot store NUL or unpaired surrogates.
+    if "\x00" in value or any(unicodedata.category(char) == "Cs" for char in value):
+        raise ValueError("Tag name contains unsupported characters")
     normalized = unicodedata.normalize("NFKC", value)
     normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
     normalized = WHITESPACE_PATTERN.sub(" ", normalized).strip()
@@ -41,11 +44,6 @@ def clean_ai_tag_names(value: object) -> list[str]:
         try:
             display_name = normalize_tag_name(item)
         except ValueError:
-            continue
-        # PostgreSQL text cannot store NUL or unpaired surrogates.
-        if "\x00" in display_name or any(
-            unicodedata.category(char) == "Cs" for char in display_name
-        ):
             continue
         normalized_names.append(display_name)
 

@@ -1,8 +1,12 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager, suppress
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
@@ -51,6 +55,21 @@ async def lifespan(_: FastAPI):
             await close_social_auth_client()
 
 
+async def _render_request_validation_error(
+    request: Request, exc: RequestValidationError,
+) -> Response:
+    try:
+        return await request_validation_exception_handler(request, exc)
+    except UnicodeEncodeError:
+        # A validation error can echo input that cannot be encoded as UTF-8.
+        content = {"detail": jsonable_encoder(exc.errors())}
+        return Response(
+            json.dumps(content, ensure_ascii=True, separators=(",", ":"), allow_nan=False),
+            status_code=422,
+            media_type="application/json",
+        )
+
+
 def create_app(*, maintenance=None) -> FastAPI:
     docs_enabled = settings.app_environment != "production"
     app = FastAPI(
@@ -61,6 +80,7 @@ def create_app(*, maintenance=None) -> FastAPI:
         openapi_url=f"{settings.api_v1_prefix}/openapi.json" if docs_enabled else None,
         lifespan=lifespan,
     )
+    app.add_exception_handler(RequestValidationError, _render_request_validation_error)
 
     from app.middleware.body_size_limit import BodySizeLimitMiddleware
     from app.middleware.maintenance import MaintenanceMiddleware
