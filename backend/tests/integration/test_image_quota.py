@@ -4,9 +4,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import update
 
+from app.integrations import ocr_client
 from app.models.content_asset import ContentAsset
-from tests.integration.helpers import guest, request
+from tests.integration.helpers import guest, link, request
 from tests.integration.test_share_write_concurrency import independent_api  # noqa: F401
+from tests.repositories.test_tag_concurrency import wait_for_block_or_completion
 
 pytestmark = pytest.mark.asyncio
 
@@ -160,6 +162,48 @@ async def test_main_and_native_concurrent_writes_cannot_overrun_remaining_space(
     finally:
         release.set()
         await asyncio.gather(first, return_exceptions=True)
+
+
+async def test_screenshot_and_link_can_save_the_same_new_tag(
+    independent_api, png_bytes, monkeypatch,  # noqa: F811
+):
+    api, headers, _, sessions, pids, _ = independent_api
+    entered_ocr, release = asyncio.Event(), asyncio.Event()
+
+    async def ocr(self, **kwargs):
+        # Upload authorization has acquired the user's quota lock before OCR.
+        entered_ocr.set()
+        await asyncio.wait_for(release.wait(), 10)
+        return ocr_client.ScreenshotOCRResult(
+            text="screenshot", title="Screenshot", summary="Example", tag_names=["GuestTrip"],
+        )
+
+    monkeypatch.setattr(ocr_client.OCRClient, "extract", ocr)
+    tasks = [asyncio.create_task(upload(api, headers, png_bytes))]
+    try:
+        await asyncio.wait_for(entered_ocr.wait(), 10)
+        upload_pid = pids[-1]
+        before_link = len(pids)
+        tasks.append(asyncio.create_task(link(api, headers, tag_names=["GuestTrip"])))
+        async with asyncio.timeout(10):
+            while len(pids) == before_link and not tasks[1].done():
+                await asyncio.sleep(0.01)
+        link_pid = pids[-1]
+        assert link_pid != upload_pid
+        await wait_for_block_or_completion(sessions, tasks[1], link_pid, upload_pid)
+        release.set()
+        screenshot, saved_link = await asyncio.wait_for(asyncio.gather(*tasks), 10)
+    finally:
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert screenshot["id"] != saved_link["id"]
+    [tag] = saved_link["tags"]
+    assert tag["name"] == "GuestTrip"
+    assert screenshot["tags"] == [tag]
 
 
 async def test_failed_storage_write_does_not_consume_last_available_space(
