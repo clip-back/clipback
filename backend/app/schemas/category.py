@@ -11,8 +11,6 @@ class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     color: str | None = Field(default=None, max_length=20)
 
-    _storable = field_validator("name", "color")(reject_unstorable_text)
-
     @field_validator("name")
     @classmethod
     def normalize_name(cls, value: str) -> str:
@@ -20,6 +18,8 @@ class CategoryCreate(BaseModel):
         if not normalized:
             raise ValueError("Category name cannot be blank")
         return normalized
+
+    _storable = field_validator("name", "color")(reject_unstorable_text)
 
 
 class CategoryRead(BaseModel):

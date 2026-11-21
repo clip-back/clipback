@@ -32,11 +32,20 @@ from app.services.usage_limits import DailySummaryLimit
 
 
 class _ScreenshotMultipartParser(MultiPartParser):
+    invalid_tag_encoding = False
+
     def on_part_end(self) -> None:
+        # Inspect Starlette's raw part before _user_safe_decode can fall back to Latin-1.
+        # Recheck the screenshot cases in test_input_validation.py when upgrading Starlette.
         part = self._current_part
         if part.file is None and part.field_name == "tag_names":
-            # Starlette falls back to Latin-1. Check the original bytes before that decode.
-            self.items.append((part.field_name, part.data.decode("utf-8")))
+            try:
+                value = part.data.decode("utf-8")
+            except UnicodeDecodeError:
+                # Keep parsing for multipart errors. Authentication runs before reporting this.
+                self.invalid_tag_encoding = True
+            else:
+                self.items.append((part.field_name, value))
             return
         super().on_part_end()
 
@@ -50,25 +59,20 @@ class _ScreenshotRoute(APIRoute):
             if content_type == b"multipart/form-data":
                 try:
                     async with aclosing(request.stream()) as stream:
-                        form = await _ScreenshotMultipartParser(request.headers, stream).parse()
-                except UnicodeDecodeError as exc:
-                    error = ValidationError.from_exception_data("TagNamesPayload", [{
-                        "type": "value_error",
-                        "loc": ("tag_names",),
-                        "input": None,
-                        "ctx": {"error": ValueError(UNSUPPORTED_TAG_CHARACTERS)},
-                    }])
-                    raise RequestValidationError(error.errors()) from exc
+                        parser = _ScreenshotMultipartParser(request.headers, stream)
+                        form = await parser.parse()
                 except MultiPartException as exc:
                     raise HTTPException(status_code=400, detail=exc.message) from exc
+                # Match FastAPI's body parsing errors, including the receive limit's HTTP 413.
                 except HTTPException:
                     raise
                 except Exception as exc:
                     raise HTTPException(
                         status_code=400, detail="There was an error parsing the body",
                     ) from exc
-                # FastAPI reuses the parsed form and registers its normal UploadFile cleanup.
+                # FastAPI reads Starlette's Request._form cache and registers UploadFile cleanup.
                 request._form = form
+                request.state.invalid_screenshot_tag_encoding = parser.invalid_tag_encoding
             return await handler(request)
 
         return handle
@@ -86,6 +90,15 @@ async def upload_screenshot(
     category_ids: list[int] = Form(default_factory=list),
     tag_names: list[str] = Form(default_factory=list),
 ) -> ContentRead:
+    if getattr(request.state, "invalid_screenshot_tag_encoding", False):
+        error = ValidationError.from_exception_data("TagNamesPayload", [{
+            "type": "value_error",
+            "loc": ("tag_names",),
+            "input": None,
+            "ctx": {"error": ValueError(UNSUPPORTED_TAG_CHARACTERS)},
+        }])
+        raise RequestValidationError(error.errors())
+
     try:
         normalized_tag_names = TagNamesPayload(tag_names=tag_names).tag_names
     except ValidationError as exc:

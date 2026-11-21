@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select
+from starlette import formparsers
 
 from app.models.apple_auth import AppleAuthChallenge
 from app.models.category import Category
@@ -230,31 +231,101 @@ async def test_shared_metadata_and_urls_keep_accepting_nul(api, database_connect
     assert raw_text_share["original_url"] == SHARE_URL
 
 
-def screenshot_form(png_bytes, *tags):
+def screenshot_form(png_bytes, *tags, extra_parts=()):
     boundary = b"clipback-test"
     parts = [
         b'Content-Disposition: form-data; name="file"; filename="image.png"\r\n'
         b"Content-Type: image/png\r\n\r\n" + png_bytes,
         *(b'Content-Disposition: form-data; name="tag_names"\r\n\r\n' + tag for tag in tags),
+        *extra_parts,
     ]
     separator = b"--" + boundary + b"\r\n"
     body = b"".join(separator + part + b"\r\n" for part in parts) + b"--" + boundary + b"--\r\n"
     return body, "multipart/form-data; boundary=" + boundary.decode()
 
 
+@pytest.fixture
+def multipart_tempfiles(monkeypatch):
+    files = []
+    open_file = formparsers.SpooledTemporaryFile
+
+    def record_file(*args, **kwargs):
+        file = open_file(*args, **kwargs)
+        files.append(file)
+        return file
+
+    monkeypatch.setattr(formparsers, "SpooledTemporaryFile", record_file)
+    return files
+
+
+@pytest.mark.parametrize(
+    "authorization", [None, "Bearer invalid-token"], ids=["missing", "invalid"],
+)
+async def test_screenshot_invalid_utf8_preserves_authentication_failure(
+    api, png_bytes, multipart_tempfiles, authorization,
+):
+    body, content_type = screenshot_form(png_bytes, b"\xff")
+    headers = {"Content-Type": content_type}
+    if authorization is not None:
+        headers["Authorization"] = authorization
+
+    response = await api.post("/api/v1/uploads/screenshots", headers=headers, content=body)
+
+    assert response.status_code == 401, response.text
+    assert response.content == b'{"detail":"Invalid authentication credentials"}'
+    file, = multipart_tempfiles
+    assert file.closed
+
+
+async def test_screenshot_invalid_utf8_preserves_multipart_structure_error(
+    api, png_bytes, multipart_tempfiles,
+):
+    body, content_type = screenshot_form(
+        png_bytes, b"\xff", extra_parts=(b"Content-Disposition: form-data\r\n\r\ninvalid",),
+    )
+    response = await api.post(
+        "/api/v1/uploads/screenshots", headers={"Content-Type": content_type}, content=body,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": 'The Content-Disposition header field "name" must be provided.',
+    }
+    file, = multipart_tempfiles
+    assert file.closed
+
+
+async def test_screenshot_category_ids_uses_declared_multipart_charset(api, png_bytes):
+    headers, _, _ = await guest(api)
+    body, content_type = screenshot_form(
+        png_bytes, b"valid",
+        extra_parts=(b'Content-Disposition: form-data; name="category_ids"\r\n\r\n1\xc3\xbf',),
+    )
+    headers["Content-Type"] = content_type + "; charset=iso-8859-1"
+
+    response = await api.post("/api/v1/uploads/screenshots", headers=headers, content=body)
+
+    assert response.status_code == 422
+    error, = response.json()["detail"]
+    assert error["type"] == "int_parsing"
+    assert error["loc"] == ["body", "category_ids", 0]
+    assert error["input"] == "1Ã¿"
+
+
 @pytest.mark.parametrize("keyed", [False, True], ids=["keyless", "keyed"])
-@pytest.mark.parametrize("tag", [
-    pytest.param(b"\xed\xa0\xbd", id="surrogate-encoding"),
-    pytest.param(b"\xff", id="invalid-byte"),
-    pytest.param(b"\xe2\x82", id="truncated"),
-    pytest.param(b"a\x00b", id="nul"),
+@pytest.mark.parametrize(("tag", "charset"), [
+    pytest.param(b"\xed\xa0\xbd", "", id="surrogate-encoding"),
+    pytest.param(b"\xff", "", id="invalid-byte"),
+    pytest.param(b"\xff", "; charset=iso-8859-1", id="invalid-byte-with-charset"),
+    pytest.param(b"\xe2\x82", "", id="truncated"),
+    pytest.param(b"a\x00b", "", id="nul"),
 ])
 async def test_screenshot_invalid_tag_leaves_no_rows_or_original(
-    api, database_connection, png_bytes, tmp_path, keyed, tag,
+    api, database_connection, png_bytes, tmp_path, multipart_tempfiles, keyed, tag, charset,
 ):
     headers, _, user = await guest(api)
     body, content_type = screenshot_form(png_bytes, b"valid", tag)
-    headers = with_submission_key({**headers, "Content-Type": content_type}, keyed)
+    headers = with_submission_key({**headers, "Content-Type": content_type + charset}, keyed)
 
     assets_before = await count_rows(database_connection, ContentAsset)
 
@@ -271,16 +342,19 @@ async def test_screenshot_invalid_tag_leaves_no_rows_or_original(
         assert await count_rows(database_connection, model, model.user_id == user["id"]) == 0
     assert await count_rows(database_connection, ContentAsset) == assets_before
     assert not any(path.is_file() for path in tmp_path.rglob("*"))
+    file, = multipart_tempfiles
+    assert file.closed
 
 
 @pytest.mark.parametrize("keyed", [False, True], ids=["keyless", "keyed"])
+@pytest.mark.parametrize("charset", ["", "; charset=iso-8859-1"], ids=["default", "declared"])
 async def test_screenshot_valid_utf8_tags_are_saved_as_sent(
-    api, database_connection, png_bytes, keyed,
+    api, database_connection, png_bytes, keyed, charset,
 ):
     headers, _, user = await guest(api)
     tags = ["ÿ", "😀", "한글"]
     body, content_type = screenshot_form(png_bytes, *(tag.encode() for tag in tags))
-    headers = with_submission_key({**headers, "Content-Type": content_type}, keyed)
+    headers = with_submission_key({**headers, "Content-Type": content_type + charset}, keyed)
 
     response = await api.post("/api/v1/uploads/screenshots", headers=headers, content=body)
 
