@@ -44,3 +44,16 @@
 ## 모델 선택
 
 사용자는 유튜브 기본 모델로 Flash-Lite(`gemini-3.5-flash-lite`)를 선택했습니다. 코드 기본값, 로컬 환경 예시와 기본 배포 안내에서 모델 ID가 일치함을 확인했습니다. 이번 결정으로 추가 모델 호출과 운영 설정 조회·변경은 발생하지 않았습니다.
+
+## 최종 로컬 검증
+
+검수 반영 뒤 설정·유튜브 클라이언트 부분 검사 78건과 별도 의존성 검사가 통과했습니다. 장부의 15건과 #456에 사용할 결과 파일의 수치를 대조했습니다. 전체 로컬 검증 12단계와 Flutter 자동 테스트 3,967건이 통과했습니다.
+
+```text
+pytest: 2963 passed, 50 skipped, 3 warnings in 408.66s (0:06:48)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+로컬에서 건너뛴 검사는 변경 범위 밖의 Docker 배포·복구 49건과 S3 CLI 검사 1건입니다. 원격 CI 결과는 최종 PR에서 확인합니다.
