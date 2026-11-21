@@ -154,10 +154,16 @@ async def test_gemini_is_asked_for_a_headline_and_points():
         ({"title": "제목 표식", "description": ["설명 표식"]}, ("제목 표식", None)),
         ({"title": None, "description": None}, (None, None)),
         ({"description": "가" * 2200 + "끝"}, (None, "가" * 2200)),
+        ({"title": "제목 표식", "description": " " * 2200 + "끝"}, ("제목 표식", None)),
+        (
+            {"title": "제목 표식", "description": " " * 2198 + "가 끝"},
+            ("제목 표식", " " * 2198 + "가 "),
+        ),
     ],
     ids=[
         "both", "missing-description", "empty-description", "missing-title", "empty-title",
         "neither", "blank", "numeric-title", "array-description", "nulls", "description-2201",
+        "description-blank-prefix", "description-content-in-prefix",
     ],
 )
 async def test_author_metadata_is_separate_user_data_alongside_the_video(metadata, expected):
