@@ -1,13 +1,16 @@
 import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import AsyncOpenAI
 from sqlalchemy import select
 
 from app.api.v1.endpoints import uploads
 from app.integrations.ocr_client import OCRClient
 from app.models.content_event import ContentEvent
 from tests.integration.helpers import guest, request
+from tests.integrations.test_instagram_summary_client import completion
 from tests.integrations.test_ocr_client import completed_response, config
 
 DEFAULT_TITLE = "저장한 콘텐츠"
@@ -135,3 +138,56 @@ async def test_screenshot_summary_from_ocr_to_saved_content(
     assert metadata["ocr_status"] == ocr_status
     assert metadata["ocr_failure_reason"] == failure_reason
     assert ocr.extracted_text == extracted_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,expected_summary,valid",
+    [
+        pytest.param(
+            {"headline": "가" * 994, "points": ["a", "뒤\x00"]},
+            "가" * 994 + "\n• a", True, id="sdk-returns-before-dropping-nul",
+        ),
+        pytest.param(
+            {"headline": "가" * 994, "points": ["a", "뒤\ud800"]},
+            DEFAULT_SUMMARY, False, id="sdk-rejects-before-dropping-point",
+        ),
+        pytest.param(
+            {"headline": "가" * 1000 + "\ud800", "points": []},
+            DEFAULT_SUMMARY, False, id="sdk-rejects-before-trimming-headline",
+        ),
+    ],
+)
+async def test_screenshot_sdk_parsing_preserves_the_original(
+    api, database_connection, monkeypatch, png_bytes, answer, expected_summary, valid,
+):
+    calls = []
+
+    def respond(req):
+        calls.append(req.method)
+        return completion(text=EXTRACTED_TEXT, title="화면 제목", **answer)
+
+    transport = httpx.MockTransport(respond)
+    async with AsyncOpenAI(
+        api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=transport),
+    ) as sdk:
+        ocr = ScreenshotOCRClient(config(), client=sdk)
+        monkeypatch.setattr(uploads, "get_ocr_client", lambda: ocr)
+        headers, _, _ = await guest(api)
+        content = await request(
+            api, "POST", "uploads/screenshots", headers=headers, status=201,
+            files={"file": ("screen.png", png_bytes, "image/png")},
+        )
+
+    assert calls == ["POST"]
+    assert content["title"] == ("화면 제목" if valid else DEFAULT_TITLE)
+    assert content["summary"] == expected_summary
+    (asset,) = content["assets"]
+    original = await api.get(asset["download_url"], headers=headers)
+    assert original.status_code == 200
+    assert original.content == png_bytes
+    metadata = json.loads(await database_connection.scalar(
+        select(ContentEvent.metadata_json).where(ContentEvent.content_id == content["id"])
+    ))
+    expected_ocr = ("success", None) if valid else ("failed", "invalid_response")
+    assert (metadata["ocr_status"], metadata["ocr_failure_reason"]) == expected_ocr

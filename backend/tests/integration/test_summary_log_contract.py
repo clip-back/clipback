@@ -630,3 +630,35 @@ async def test_generated_summary_text_finishes_the_job_with_usage(
     assert (job.attempts, job.lease_token, job.lease_expires_at) == (1, None, None)
     assert job.usage == [{"attempt": 1, "tokens": usage}]
     assert not await worker.run_once()
+
+
+async def test_instagram_sdk_parse_failure_finishes_without_provider_usage(
+    api, make_worker, database_connection,
+):
+    calls = []
+
+    def respond(req):
+        calls.append(req.method)
+        return completion(points=["요점"] * 5 + ["SDK-PARSE-FAIL\ud800"])
+
+    worker = make_worker(instagram=instagram_client(openai=respond))
+    headers, content = await save(api, REEL)
+
+    result = await result_of(worker)
+
+    detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+    assert detail["summary_status"] == "failed"
+    assert detail["summary_error_code"] == "invalid_response"
+    assert detail["summary"] == content["summary"]
+    assert (result["provider"], result["retryable"], result["usage"]) == ("openai", False, {})
+    assert result["error_code"] == "invalid_response"
+    assert "SDK-PARSE-FAIL" not in json.dumps(result)
+    job = (
+        await database_connection.execute(
+            select(SummaryJob).where(SummaryJob.content_id == content["id"])
+        )
+    ).one()
+    assert (job.attempts, job.lease_token, job.lease_expires_at) == (1, None, None)
+    assert job.usage == [{"attempt": 1, "tokens": {}}]
+    assert not await worker.run_once()
+    assert calls == ["POST"]
