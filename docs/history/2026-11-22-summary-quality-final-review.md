@@ -22,3 +22,17 @@
 - 실제 SDK와 가짜 HTTP 응답을 이은 회귀 검사에서 인스타그램 응답 본문에 짝 없는 서로게이트가 있으면 `failed / invalid_response`로 재시도 없이 종료하고 DB와 로그의 사용량은 `{}`로 남음을 확인했습니다. SDK가 반환한 NUL 응답의 실패에서는 사용량이 남는 기존 검사와 대조했습니다.
 - 사진은 SDK에서 파싱할 수 없는 문자가 잘려 나갈 요점이나 핵심 한 줄 끝에 있어도 기본 제목·요약으로 저장했습니다. 길이 판정으로 빠지는 NUL은 정상 요약을 저장했습니다. 두 경로 모두 업로드 HTTP 201과 다운로드한 원본 바이트 일치를 확인했습니다.
 - 로컬 PostgreSQL 부분 검사 204건, 변경 테스트 Ruff, 모델 예시 검사 25건이 통과했습니다. 모델 예시 검사는 셸을 실행하지 않고 `export` 인자 뒤쪽의 모델 대입과 지원하지 않는 표기를 검출합니다.
+
+### 재검수 반영 후 전체 로컬 검증
+
+작업 트리가 깨끗한 `931632b`에서 저장소 검사 12단계와 `python -m pip check`가 통과했습니다.
+Flutter 테스트는 3,967건 통과했습니다.
+
+```text
+pytest: 3027 passed, 50 skipped, 3 warnings in 385.44s (0:06:25)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+건너뛴 Docker 배포·복구 및 S3 CLI 검사는 재검수 변경 범위 밖입니다. 최종 기기 화면과 원격 CI는 별도 단계입니다.
