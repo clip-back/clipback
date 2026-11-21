@@ -674,7 +674,7 @@ void main() {
   }
 
   testWidgets(
-    'YouTube completion is read on the next detail entry without polling or classification PUT',
+    'YouTube completion is read by the open detail every 3 seconds without classification PUT',
     (tester) async {
       final server = _Server(
         source: 'youtube',
@@ -686,8 +686,8 @@ void main() {
         expect(find.text(_pendingMessage), findsOneWidget);
         final callsAfterSave = server.calls.length;
         await tester.pump(const Duration(seconds: 30));
-        expect(server.calls, hasLength(callsAfterSave));
-        expect(server.at('/api/v1/contents/7'), isEmpty);
+        expect(server.at('/api/v1/contents/7'), hasLength(10));
+        expect(server.calls, hasLength(callsAfterSave + 10));
         server.saved = {
           ...server.saved!,
           'summary_status': 'completed',
@@ -702,9 +702,17 @@ void main() {
               .summaryStatus,
           'queued',
         );
+        await tester.pump(const Duration(seconds: 3));
+        final refreshed = tester
+            .widget<DetailScreen>(find.byType(DetailScreen))
+            .content;
+        expect(refreshed.summaryStatus, 'completed');
+        expect(refreshed.category.id, _recommended['id']);
+        expect(server.at('/api/v1/contents/7'), hasLength(11));
         tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
         await tester.pumpAndSettle();
         final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        expect(home.contents.single.category.id, _recommended['id']);
         home.onOpenContent(home.contents.single);
         await tester.pumpAndSettle();
         final detail = tester
@@ -714,8 +722,58 @@ void main() {
         expect(detail.category.id, _recommended['id']);
         expect(find.text('서버 분류'), findsWidgets);
         expect(server.at(_contents), hasLength(1));
-        expect(server.at('/api/v1/contents/7'), hasLength(1));
+        expect(server.at('/api/v1/contents/7'), hasLength(12));
+        await tester.pump(const Duration(seconds: 30));
+        expect(server.at('/api/v1/contents/7'), hasLength(12));
         _expectNoClassificationWrites(server);
+      });
+    },
+  );
+
+  testWidgets(
+    'a backgrounded app pauses the detail re-read and reads at once on resume',
+    (tester) async {
+      final server = _Server(
+        source: 'youtube',
+        summaryStatus: 'processing',
+        category: _uncategorized,
+      );
+      await _withApp(tester, server, () async {
+        await _saveLink(tester, url: _videoUrl);
+        await tester.tap(find.text('저장 완료'));
+        await tester.pumpAndSettle();
+        final reads = server.at('/api/v1/contents/7').length;
+        for (final state in [
+          AppLifecycleState.inactive,
+          AppLifecycleState.hidden,
+          AppLifecycleState.paused,
+        ]) {
+          tester.binding.handleAppLifecycleStateChanged(state);
+        }
+        await tester.pump(const Duration(seconds: 30));
+        expect(server.at('/api/v1/contents/7'), hasLength(reads));
+        server.saved = {
+          ...server.saved!,
+          'summary_status': 'completed',
+          'summary': '완성된 영상 요약',
+        };
+        for (final state in [
+          AppLifecycleState.hidden,
+          AppLifecycleState.inactive,
+          AppLifecycleState.resumed,
+        ]) {
+          tester.binding.handleAppLifecycleStateChanged(state);
+        }
+        await tester.pump();
+        expect(server.at('/api/v1/contents/7'), hasLength(reads + 1));
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('detail-summary')))
+              .data,
+          '완성된 영상 요약',
+        );
+        await tester.pump(const Duration(seconds: 30));
+        expect(server.at('/api/v1/contents/7'), hasLength(reads + 1));
       });
     },
   );

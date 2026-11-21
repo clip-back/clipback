@@ -178,6 +178,7 @@ Future<void> _until(bool Function() ready) async {
 
 void main() {
   _originalLinkTests();
+  _summaryRefreshTests();
   test(
     'home preserves feed and scroll while sharing an additional request',
     () async {
@@ -949,4 +950,316 @@ void _originalLinkTests() {
       expect(_originalEvents(f).single['content_id'], 8);
     },
   );
+}
+
+/// #444: an open detail re-reads a pending summary every 3 seconds.
+void _summaryRefreshTests() {
+  const summaryCategory = {
+    'id': 3,
+    'name': '요약 분류',
+    'color': '#2563EB',
+    'is_default': false,
+    'content_count': 0,
+    'last_saved_at': null,
+  };
+  const step = Duration(seconds: 3);
+
+  Map<String, Object?> pending(String status, {int id = 7}) => {
+    ..._content(id: id),
+    'summary_status': status,
+  };
+
+  /// Detail GETs answer [answers] in order and repeat the last one.
+  _Fixture fixture(
+    List<Object> answers, {
+    List<Map<String, Object?>>? feed,
+    FutureOr<http.Response>? Function(http.Request)? extra,
+  }) {
+    var index = 0;
+    return _Fixture((request) {
+      final custom = extra?.call(request);
+      if (custom != null) return custom;
+      if (request.url.path == '/api/v1/feed') {
+        return _feed(feed ?? [pending('processing')]);
+      }
+      if (request.method == 'GET' &&
+          request.url.path.startsWith('/api/v1/contents/')) {
+        final answer =
+            answers[index < answers.length ? index : answers.length - 1];
+        index++;
+        if (answer is Exception) throw answer;
+        if (answer is http.Response) return answer;
+        return _json(answer);
+      }
+      return null;
+    });
+  }
+
+  int reads(_Fixture f, [int id = 7]) => f.requests
+      .where((r) => r.method == 'GET' && r.url.path == '/api/v1/contents/$id')
+      .length;
+
+  void finish(_Fixture f) {
+    if (!f.detail.isDisposed) f.detail.dispose();
+  }
+
+  Future<void> wait(WidgetTester tester, Duration duration) async {
+    // One timer at a time keeps every scheduled read inside the window.
+    for (var left = duration; left > Duration.zero; left -= step) {
+      await tester.pump(left < step ? left : step);
+    }
+  }
+
+  testWidgets(
+    'processing detail re-reads every 3 seconds until completion and updates home',
+    (tester) async {
+      final f = fixture([
+        pending('queued'),
+        pending('processing'),
+        {
+          ...pending('completed'),
+          'summary': '완성된 요약',
+          'categories': [summaryCategory],
+        },
+      ]);
+      await f.load();
+      f.open();
+      await tester.pump(const Duration(milliseconds: 2999));
+      expect(reads(f), 0);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(reads(f), 1);
+      expect(f.detail.content?.summaryStatus, 'queued');
+      await tester.pump(step);
+      expect(reads(f), 2);
+      expect(f.detail.content?.summaryStatus, 'processing');
+      await tester.pump(step);
+      expect(reads(f), 3);
+      for (final item in [f.detail.content!, f.home.page.items.single]) {
+        expect(item.summaryStatus, 'completed');
+        expect(item.summary, '완성된 요약');
+        expect(item.category.name, '요약 분류');
+      }
+      await wait(tester, const Duration(seconds: 30));
+      expect(reads(f), 3);
+      expect(f.detail.drainEffects().whereType<MessageEffect>(), isEmpty);
+      finish(f);
+    },
+  );
+
+  for (final status in ['failed', 'skipped', 'not_requested']) {
+    testWidgets('a $status re-read stops the refresh', (tester) async {
+      final f = fixture([pending(status)]);
+      await f.load();
+      f.open();
+      await wait(tester, const Duration(seconds: 33));
+      expect(reads(f), 1);
+      expect(f.detail.content?.summaryStatus, status);
+      finish(f);
+    });
+  }
+
+  testWidgets('an opening read adds to the 3 second refresh', (tester) async {
+    final f = fixture([pending('processing')]);
+    await f.load();
+    f.open(recordView: true);
+    await tester.pump();
+    expect(reads(f), 1);
+    await tester.pump(step);
+    expect(reads(f), 2);
+    await tester.pump(step);
+    expect(reads(f), 3);
+    finish(f);
+  });
+
+  final stops = <String, FutureOr<void> Function(_Fixture)>{
+    'close': (f) => f.detail.close(),
+    'dispose': (f) => f.detail.dispose(),
+    'delete': (f) => f.detail.deleteContent(f.detail.content!),
+    'account change': (f) =>
+        f.repository.resetAccount(f.repository.accountVersion + 1),
+  };
+  for (final MapEntry(key: name, value: stop) in stops.entries) {
+    testWidgets('$name cancels the next re-read', (tester) async {
+      final f = fixture(
+        [pending('processing')],
+        extra: (request) =>
+            request.method == 'DELETE' ? http.Response('', 204) : null,
+      );
+      await f.load();
+      f.open();
+      await tester.pump(step);
+      expect(reads(f), 1);
+      final stopping = stop(f);
+      await tester.pump();
+      await stopping;
+      await wait(tester, const Duration(seconds: 30));
+      expect(reads(f), 1);
+      finish(f);
+    });
+  }
+
+  testWidgets('moving to the next pending detail restarts its refresh', (
+    tester,
+  ) async {
+    final f = fixture(
+      [pending('processing')],
+      feed: [pending('processing'), pending('processing', id: 8)],
+    );
+    await f.load();
+    f.open();
+    await tester.pump(step);
+    expect(reads(f), 1);
+    await tester.pump(const Duration(milliseconds: 1500));
+    final moving = f.detail.move(1);
+    await tester.pump();
+    await moving;
+    expect(f.detail.content?.apiId, 8);
+    expect(reads(f, 8), 1, reason: 'the ordinary opening read');
+    await tester.pump(const Duration(milliseconds: 1500));
+    expect(reads(f), 1);
+    expect(reads(f, 8), 1);
+    await tester.pump(const Duration(milliseconds: 1500));
+    expect(reads(f, 8), 2);
+    expect(reads(f), 1);
+    finish(f);
+  });
+
+  testWidgets('a re-read answered after close changes nothing', (tester) async {
+    final held = Completer<http.Response>();
+    final f = fixture(
+      [],
+      extra: (request) {
+        if (request.method == 'GET' &&
+            request.url.path == '/api/v1/contents/7') {
+          return held.future;
+        }
+        return null;
+      },
+    );
+    await f.load();
+    f.open();
+    await tester.pump(step);
+    expect(reads(f), 1);
+    f.detail.close();
+    held.complete(_json({...pending('completed'), 'summary': '늦은 요약'}));
+    await tester.pump();
+    expect(f.detail.content, isNull);
+    expect(f.home.page.items.single.summaryStatus, 'processing');
+    expect(f.home.page.items.single.summary, '보존할 요약');
+    await wait(tester, const Duration(seconds: 30));
+    expect(reads(f), 1);
+    finish(f);
+  });
+
+  final endless = <String, Object>{
+    'processing': pending('processing'),
+    'error': _json({'detail': 'down'}, 503),
+  };
+  for (final MapEntry(key: name, value: answer) in endless.entries) {
+    testWidgets('$name re-reads stop after 100 reads', (tester) async {
+      final f = fixture([answer]);
+      await f.load();
+      f.open();
+      await wait(tester, const Duration(seconds: 330));
+      expect(reads(f), 100);
+      expect(f.detail.content?.summaryStatus, 'processing');
+      expect(f.detail.content?.summary, '보존할 요약');
+      expect(f.detail.drainEffects().whereType<MessageEffect>(), isEmpty);
+      finish(f);
+    });
+  }
+
+  testWidgets('failed re-reads count and the next one continues', (
+    tester,
+  ) async {
+    final f = fixture([
+      _json({'detail': 'down'}, 503),
+      http.ClientException('offline'),
+      _json({'detail': 'missing'}, 404),
+      {...pending('completed'), 'summary': '완성된 요약'},
+    ]);
+    await f.load();
+    f.open();
+    await wait(tester, const Duration(seconds: 9));
+    expect(reads(f), 3);
+    expect(f.detail.content?.summaryStatus, 'processing');
+    await tester.pump(step);
+    expect(reads(f), 4);
+    expect(f.detail.content?.summary, '완성된 요약');
+    await wait(tester, const Duration(seconds: 30));
+    expect(reads(f), 4);
+    expect(f.detail.drainEffects().whereType<MessageEffect>(), isEmpty);
+    finish(f);
+  });
+
+  testWidgets(
+    'background pauses re-reads and resume reads at once within the limit',
+    (tester) async {
+      final f = fixture([pending('processing')]);
+      await f.load();
+      f.open();
+      await wait(tester, const Duration(seconds: 6));
+      expect(reads(f), 2);
+      f.detail.foregroundChanged(false);
+      await wait(tester, const Duration(seconds: 60));
+      expect(reads(f), 2);
+      f.detail.foregroundChanged(true);
+      await tester.pump();
+      expect(reads(f), 3);
+      await tester.pump(const Duration(milliseconds: 2999));
+      expect(reads(f), 3);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(reads(f), 4);
+      await wait(tester, const Duration(seconds: 330));
+      expect(reads(f), 100);
+      f.detail.foregroundChanged(false);
+      f.detail.foregroundChanged(true);
+      await tester.pump();
+      expect(reads(f), 100);
+      finish(f);
+    },
+  );
+
+  testWidgets('a category chosen during the refresh is not overwritten', (
+    tester,
+  ) async {
+    final write = Completer<http.Response>();
+    final completed = {...pending('completed'), 'summary': '완성된 요약'};
+    // The server keeps its own category until the user's change lands.
+    var stored = pending('processing');
+    final f = fixture(
+      [completed],
+      extra: (request) {
+        switch (request.url.path) {
+          case '/api/v1/categories':
+            return _json([_category, summaryCategory]);
+          case '/api/v1/feed':
+            return _feed([stored]);
+          case '/api/v1/contents/7/categories':
+            return write.future;
+        }
+        return null;
+      },
+    );
+    await f.load();
+    f.open();
+    final change = f.detail.changeCategory(f.detail.content!, [3]);
+    await tester.pump(step);
+    expect(reads(f), 1);
+    expect(f.detail.content?.category.name, '요약 분류');
+    expect(f.detail.content?.summaryStatus, 'completed');
+    stored = {
+      ...completed,
+      'categories': [summaryCategory],
+    };
+    write.complete(_json(stored));
+    await tester.pump();
+    await change;
+    for (final item in [f.detail.content!, f.home.page.items.single]) {
+      expect(item.category.name, '요약 분류');
+      expect(item.summary, '완성된 요약');
+      expect(item.summaryStatus, 'completed');
+    }
+    finish(f);
+  });
 }

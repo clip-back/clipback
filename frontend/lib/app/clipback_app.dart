@@ -196,6 +196,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _weeklyForeground = state == AppLifecycleState.resumed;
     _weeklyVisibilityChanged();
+    _d.detail.foregroundChanged(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
       unawaited(_d.sharing.resume());
