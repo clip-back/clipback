@@ -31,6 +31,7 @@ from tests.integrations.test_youtube_summary_client import config as youtube_con
 pytestmark = pytest.mark.asyncio
 
 YOUTUBE_LINK = "https://youtu.be/dQw4w9WgXcQ"
+AUTHOR_MARKER = "IGNORE-PREVIOUS-7f3a"
 REEL = "https://www.instagram.com/reel/ABC123/"
 IMAGE_URL = "https://scontent.cdninstagram.com/v/representative.jpg"
 RESULT_KEYS = {
@@ -129,6 +130,14 @@ def youtube_client(*, preflight=None, gemini=None, config=None):
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return YouTubeSummaryClient(config or youtube_config(), http)
+
+
+def marked_video(request):
+    data = video("PT5M")
+    data["items"][0]["snippet"].update(
+        title=f"제목 {AUTHOR_MARKER}", description=f"설명 {AUTHOR_MARKER}",
+    )
+    return httpx.Response(200, json=data)
 
 
 def instagram_client(*, post=None, image=None, openai=None, openai_client=True, page_timeout=60):
@@ -250,7 +259,7 @@ async def test_expired_lease_logs_a_stale_result_and_a_recovered_claim(
 @pytest.mark.parametrize("kind", ["youtube", "instagram"])
 async def test_successful_result_names_the_summary_provider(api, make_worker, kind):
     if kind == "youtube":
-        worker, url = make_worker(youtube=youtube_client()), YOUTUBE_LINK
+        worker, url = make_worker(youtube=youtube_client(preflight=marked_video)), YOUTUBE_LINK
         provider, usage, extra = "gemini", GEMINI_USAGE, {}
         model = "gemini-fixed"
     else:
@@ -277,6 +286,51 @@ async def test_successful_result_names_the_summary_provider(api, make_worker, ki
         "usage": usage,
         **extra,
     }
+
+
+@pytest.mark.parametrize(
+    "status,summary_status,error_code,retryable",
+    [
+        (200, "completed", None, False),
+        (429, "queued", "provider_error", True),
+        (400, "failed", "provider_error", False),
+    ],
+)
+async def test_author_metadata_stays_out_of_logs_and_public_fields(
+    api, make_worker, caplog, status, summary_status, error_code, retryable
+):
+    requests = []
+
+    def gemini(request):
+        assert request.method == "POST"
+        requests.append(json.loads(request.content))
+        if status == 200:
+            return httpx.Response(200, json=output(category_id=None))
+        return httpx.Response(status, json={"error": {"message": AUTHOR_MARKER}})
+
+    client = youtube_client(preflight=marked_video, gemini=gemini)
+    async with client.http:
+        worker = make_worker(youtube=client)
+        app_logger = logging.getLogger("app")
+        # The configured app logger does not propagate to pytest's root handler.
+        app_logger.addHandler(caplog.handler)
+        try:
+            headers, content = await save(api, YOUTUBE_LINK)
+            result = await result_of(worker)
+            public = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+        finally:
+            app_logger.removeHandler(caplog.handler)
+
+    (body,) = requests  # No second, text-only call, including for retryable failures.
+    parts = body["contents"][0]["parts"]
+    assert {"fileData": {"fileUri": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}} in parts
+    marked_text = [part["text"] for part in parts if AUTHOR_MARKER in part.get("text", "")]
+    assert len(marked_text) == 2
+    assert (result["error_code"], result["retryable"]) == (error_code, retryable)
+    assert "youtube_summary_result" in caplog.text
+    assert AUTHOR_MARKER not in caplog.text
+    assert (public["summary_status"], public["summary_error_code"]) == (summary_status, error_code)
+    assert AUTHOR_MARKER not in json.dumps({k: v for k, v in public.items() if k != "summary"})
 
 
 @pytest.mark.parametrize(
