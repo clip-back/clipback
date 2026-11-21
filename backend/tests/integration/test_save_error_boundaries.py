@@ -139,9 +139,10 @@ def assert_plain_500(response):
 
 
 @pytest.mark.parametrize("kind", SAVE_PATHS)
-async def test_write_failure_returns_plain_500_without_app_log_details(
+async def test_inprocess_write_failure_preserves_plain_500_and_omits_app_log_details(
     api, monkeypatch, caplog, png_bytes, kind,
 ):
+    """Check the HTTP response and app logger through the in-process ASGI transport."""
     headers, _, _ = await guest(api)
     existing = await link(api, headers) if kind == "replacement" else None
     content_id = existing["id"] if existing else None

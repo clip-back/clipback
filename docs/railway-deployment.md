@@ -53,6 +53,7 @@ DB migration은 pre-deploy에서만 실행한다. 이 단계에는 볼륨이 없
 - `/api/v1/health`: 기존 liveness 응답 `200 {"status":"ok"}` 유지.
 - `/api/v1/health/ready`: DB `SELECT 1`과 선택한 저장소 확인 성공 시 200, 실패·3초 timeout 시 `503 {"status":"unavailable"}`. Bucket 선택 시 S3 공급자에 읽기 전용 목록 조회를 수행한다. AI/OCR·소셜 인증 공급자는 호출하지 않는다.
 - Railway healthcheck는 배포 준비 상태 확인이다. 배포 후 계속 호출하는 장애 감시 도구가 아니다. stdout/stderr 및 Railway 리소스 지표로 로그·디스크 사용량을 확인한다.
+- API 요청에서 처리되지 않은 예외가 `uvicorn.error`에 기록되면 `unhandled_error` 이벤트와 `exception_type`만 한 줄로 남는다. 이 기록에는 예외 메시지·traceback·SQL 값이 없으며, 요청 경로와 500 상태는 접근 로그에서 확인한다.
 
 ## Bucket 원본 보관
 

@@ -20,7 +20,8 @@ _unhandled_error_filter = _UnhandledErrorFilter()
 
 
 def configure_logging() -> None:
-    # Keep HTTP library logs disabled; they can include sensitive request URLs.
+    # Configure the app logger and uvicorn.error filter only.
+    # HTTP library loggers can expose request URLs, so leave their configuration alone.
     logger = logging.getLogger("app")
     logger.setLevel(logging.INFO)
     logger.propagate = False
