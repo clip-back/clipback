@@ -68,6 +68,10 @@ class ScreenshotOCRClient(OCRClient):
             "가" * 1000, "화면 제목", EXTRACTED_TEXT, id="trim-headline",
         ),
         pytest.param(
+            {"headline": "가" * 999 + "  나나", "points": []}, "success", None,
+            "가" * 999, "화면 제목", EXTRACTED_TEXT, id="normalize-saved-cutoff-space",
+        ),
+        pytest.param(
             {"title": "가" * 120 + "나"}, "success", None, "핵심\n• 요점",
             "가" * 120, EXTRACTED_TEXT, id="trim-title",
         ),

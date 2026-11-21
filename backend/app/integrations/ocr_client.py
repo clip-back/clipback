@@ -115,7 +115,9 @@ class OCRClient:
                                 f"최대 {MAX_OCR_TEXT_LENGTH:,}자까지 담는다. "
                                 "제목은 공백 포함 25자 안팎으로 핵심 대상만 밝힌다. "
                                 f"{SUMMARY_PROMPT} "
-                                "사진은 근거가 없으면 요점 없이 핵심 한 줄만 쓴다. "
+                                f"사진의 요점 개수는 0–{MAX_SUMMARY_POINTS}개다. "
+                                "근거가 없으면 요점 없이 핵심 한 줄만 쓴다. "
+                                "짧은 글의 사실이 핵심 한 줄에 모두 담겨도 요점은 쓰지 않는다. "
                                 "의미 있는 글자가 없으면 text, title, headline은 빈 문자열, "
                                 "points는 빈 목록으로 반환한다." + TAG_PROMPT
                             ),

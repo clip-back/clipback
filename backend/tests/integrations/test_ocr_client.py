@@ -277,6 +277,13 @@ async def test_empty_headline_empties_only_the_summary() -> None:
 
 
 @pytest.mark.asyncio
+async def test_photo_summary_keeps_the_space_at_the_headline_cutoff() -> None:
+    result = await extract_answer(headline="가" * 999 + "  나나", points=[])
+
+    assert result.summary == "가" * 999 + " "
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["youtube", "instagram"])
 @pytest.mark.parametrize(
     ("headline", "points"),
@@ -341,10 +348,14 @@ async def test_ocr_prompt_asks_for_the_link_summary_format() -> None:
         "핵심 대상",
     ]:
         assert phrase in prompt
-    before, separator, after = prompt.partition("요약은 headline(핵심 한 줄)")
-    assert separator
+    before, common_start, common_and_photo = prompt.partition("요약은 headline(핵심 한 줄)")
+    _, common_end, photo_only = common_and_photo.partition("확인되지 않은 내용을 추측하지 마라.")
+    assert common_start and common_end
     assert before.startswith("스크린샷 속 글자")
     assert "읽는 순서대로 추출" in before
-    assert "근거가 없으면 요점 없이 핵심 한 줄만" in after
-    assert "의미 있는 글자가 없으면 text, title, headline은 빈 문자열, points는 빈 목록" in after
+    assert "사진의 요점 개수는 0–10개" in photo_only
+    assert "근거가 없으면 요점 없이 핵심 한 줄만" in photo_only
+    assert "짧은 글의 사실이 핵심 한 줄에 모두 담겨도 요점은 쓰지 않는다" in photo_only
+    no_text = "의미 있는 글자가 없으면 text, title, headline은 빈 문자열, points는 빈 목록"
+    assert no_text in photo_only
     assert "성수동 카페 소개. 대표 메뉴와 영업시간 안내." not in prompt
