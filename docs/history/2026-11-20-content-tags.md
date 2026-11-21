@@ -122,3 +122,29 @@ VERIFY result=PASS scope=all checks=12 failed=0
 - 이슈 촬영표의 `detail-tags-3-normal-1.3` 확인 동작은 "줄바꿈"이었지만 실측은 iOS·Android 모두 한 줄(넘침 없음)이었습니다. 줄바꿈은 long40 상태로 확인했습니다(감독 판단, 보통 길이 입력은 바꾸지 않음).
 - 스크린샷은 작업 폴더 `.utmp/ticket-440/screens/`의 `ios-<상태>.png`·`android-<상태>.png`(각 `.json`에 촬영 조건)입니다. 사용자 시각 판정 결과는 아직 받지 않았습니다.
 - `02032fb`에서 [디자인 확인 필요](../figma-ui-alignment-plan.md#디자인-확인-필요) 표에 사용자 태그 편집·태그 누름 동작과 목록·카드 태그 표시·태그 빈 상태 4행을 더하고, `figma-pending-20` 행에 태그 기준 추천을 태그 누름 동작과 함께 정한다는 문장을 더했습니다. 문서만 바뀌어 전체 검증은 다시 돌리지 않았고, 코드가 같은 `0b7df64`의 VERIFY PASS가 근거입니다.
+
+## 최종 리뷰 반영
+
+2026-11-21, `0e18f99`를 기준으로 최종 리뷰의 백엔드·문서 지적 다섯 건을 반영했습니다.
+
+| 지적 | 커밋 | 반영과 확인 |
+| --- | --- | --- |
+| Standards 1 | `2c5d16b` | 과거 이미지 복원 검사의 Docker stdout을 UTF-8로 디코딩했습니다. 같은 행 단언이 로컬 바이트 대역에서 수정 전 실패, 수정 후 통과했습니다. 실제 복원은 PR CI의 `operator-recovery`에서 확인합니다. |
+| Spec 2 | `c02cb90` | 첫 조회에서 재사용 행을 `FOR KEY SHARE`로 잠근 뒤 필요한 태그를 정규화 키 순으로 한 번에 삽입합니다. 기존 ID와 표기, 새 태그의 요청 순서별 ID 배정을 유지합니다. 고아 정리와 두 작성자를 겹친 PostgreSQL 검사에서 수정 전과 옛 방식을 복원한 변형이 모두 교착으로 실패했습니다. 수정 후 #435의 기존 정리 검사와 #438의 역순 삽입 검사를 포함해 21건이 통과했습니다. |
+| Spec 3 | `dd21f0e` | 이미지 보관량을 검사하는 사용자 잠금을 `FOR NO KEY UPDATE`로 바꿨습니다. 서로 다른 PostgreSQL 연결에서 새 태그가 같은 스크린샷과 링크를 저장할 때 수정 전 링크는 HTTP 500이었고, 수정 후 둘 다 HTTP 201과 같은 태그 ID를 반환했습니다. 기존 동시 업로드 한도 검사를 포함해 61건이 통과했습니다. |
+| Spec 7 | `bf09bc3` | 유튜브 테스트는 후보 JSON을 파싱해 값을 비교합니다. 후보를 여러 줄로 들여쓰기한 변형에서 수정 전 실패, 수정 후 통과했습니다. 실제 프롬프트와 기존 스키마·문구 단언을 유지했으며 해당 테스트 파일 24건이 통과했습니다. |
+| Standards 4 | `f32eb07` | CHANGELOG와 요약 안내에 인스타그램 스토리의 일반 링크 규칙을 명시했습니다. 직접·공유 저장과 인스타그램 요약 켜짐·꺼짐 조합 4건에서 요약 건너뜀과 저장 추천 태그를 함께 확인했습니다. 기본 `origin/main` 기준 `check-changelog`를 통과했습니다. |
+
+- Spec 1 사용자 결정 “범위 밖으로 보고 (추천)”. 리뷰어가 PostgreSQL 쓰기 오류를 주입한 링크 저장에서 Uvicorn 오류 traceback에 SQL 바인딩 값과 태그 이름이 기록되는 것을 확인했습니다. PR 검토 사항으로 남깁니다.
+- Spec 4 사용자 결정 “알려진 한계로 기록 (추천)”. OpenAI 응답의 태그 배열에 이스케이프된 짝 없는 서로게이트가 있으면 SDK가 공용 태그 정리 전에 응답 전체를 거부할 수 있습니다. 리뷰어의 공급자 대역에서 저장 시 카테고리 추천, 스크린샷 글자 읽기, 인스타그램 자동 요약 세 경로가 영향을 받았고, Gemini 유튜브 요약은 정상 항목을 남겼습니다.
+
+### 최종 리뷰 반영 전체 검증
+
+`f32eb07`에서 로컬 PostgreSQL을 사용해 `verify.py`를 한 번 실행했습니다. 종료 코드 0, Flutter 3,943건 통과입니다. Docker 배포·복원과 S3 CLI 연동은 아래 조건으로 건너뛰었습니다. 실제 모델, 운영 서버, 기기 검증은 별도입니다.
+
+```text
+pytest: 2885 passed, 50 skipped, 3 warnings in 344.37s (0:05:44)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
