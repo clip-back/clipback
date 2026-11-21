@@ -87,3 +87,19 @@ pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled loc
 pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
+
+## #439 실제 모델 표본과 자동 태그 업데이트 내역
+
+- 같은 입력을 main 기준 `1e2e711`과 기능 브랜치 `4edacbf`에서 각각 저장해 유튜브·인스타그램·스크린샷·일반 링크 2쌍씩, 총 8쌍을 비교했습니다. 카테고리는 8쌍 모두 일치했습니다. 제목·핵심 한 줄의 유무는 8쌍, 요점의 유무는 8쌍에서 양쪽이 같았습니다.
+- 모델 예산 30회 중 26회를 사용한 것으로 보수적으로 집계했습니다. 비교용 24회에 계수기가 놓친 최초 main 인스타그램 추천의 2초 시간 초과 시도 1회와 이미 시작된 자동 요약 1회를 포함했습니다. 시간 초과 저장은 비교에서 제외했습니다. 감독 판단으로 OpenAI SDK와 Gemini의 전송 경로를 가짜 응답으로 검증한 뒤 같은 2초 설정으로 다시 측정했고, 이후 추천 시간 초과는 0건이었습니다.
+- 비교용 응답 24건 모두 HTTP 200과 사용량을 확인했습니다. 추천 응답 12건의 공급자 응답 시간은 904.88–1434.03ms, 최대 출력은 33토큰이었습니다. 브랜치에서만 새로 발생한 형식 실패·미분류·출력 잘림·시간 초과는 각각 0건이었고, 표본 실행을 멈춰야 하는 조건은 0건이었습니다.
+- 브랜치 표본 8건의 저장 태그 23개는 콘텐츠당 0–3개, 태그당 40자 이하, 앞 `#` 없음 조건을 충족했습니다. 브랜치 원시 출력에서 앞 `#`가 있거나 3개를 초과한 항목은 각각 0건이었습니다. 인스타그램 브랜치 2건은 저장 직후 각각 0개, 자동 요약 완료 뒤 각각 3개로 요약 출처를 확인했습니다. 인스타그램 비교 작업 4건의 기록 모델은 모두 `gpt-5.4-nano-2026-03-17`입니다.
+- 2026-11-21 사용자 판정은 “모두 맞음”(내용 적합성 8/8)이었습니다. 인스타그램 원문 해시태그를 판정표에서 따로 대조하지 않았고 사용자는 옮김 여부에 별도로 답하지 않았습니다(대조 0/2). [이슈 #439](https://github.com/clip-back/clipback/issues/439)
+- `8434265`에서 서버 업데이트 내역을 추가했고, `0b7df64`에서 검수에 따라 적용 조건과 배포 경계를 명시했습니다. 전체 검증은 `0b7df64`에서 12단계, Flutter 3,943건이 통과했습니다.
+
+```text
+pytest: 2883 passed, 50 skipped, 3 warnings in 357.37s (0:05:57)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
