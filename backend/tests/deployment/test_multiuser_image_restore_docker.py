@@ -5,6 +5,7 @@ import os
 
 import pytest
 
+from scripts.check_backup_restore import RestoreDrill, check
 from scripts.image_backup import materialize_backup
 from tests.deployment.test_backup_restore_docker import execute
 from tests.deployment.test_image_backup_docker import bucket_backup as bucket_backup
@@ -114,3 +115,90 @@ with urllib.request.urlopen(r) as response: print(json.dumps({'status':response.
     assert empty_owner["authentication_passed"] and empty_owner["live_deletion_ledger_verified"]
     assert not empty_owner["image_bytes_passed"] and empty_owner["image_get_skipped"]
     assert empty_owner["asset_count"] == 2 and empty_owner["deleted_content_count"] == 2
+
+
+@pytest.mark.parametrize(
+    "bucket_backup", [os.environ.get("CLIPBACK_LEGACY_API_IMAGE")], indirect=True,
+)
+def test_historical_image_replays_image_deletion_and_cleans_only_exclusive_tag(bucket_backup):
+    store, _, _, credentials, image = bucket_backup
+    assert image == os.environ["CLIPBACK_LEGACY_API_IMAGE"]
+    fixture = store.fixture_context
+    source_drill, source_api, state = fixture["drill"], fixture["api"], fixture["state"]
+
+    def start_source():
+        source_drill.docker("start", source_api)
+        source_drill.wait(
+            "exec", source_api, "python", "-c", "import urllib.request; "
+            "urllib.request.urlopen('http://127.0.0.1:8123/api/v1/health/ready')",
+        )
+
+    start_source()
+    survivor = execute(source_drill, source_api, """
+import asyncio, json, sys
+from app.db.session import AsyncSessionLocal
+from app.models.content import Content, ContentSource, ContentType
+from app.models.tag import Tag
+from app.repositories.content_repository import ContentRepository
+
+async def seed(data):
+    user_id = data["user_id"]
+    exclusive = Tag(user_id=user_id, name="exclusive", normalized_name="exclusive")
+    shared = Tag(user_id=user_id, name="shared", normalized_name="shared")
+    async with AsyncSessionLocal() as session:
+        repository = ContentRepository(session)
+        target = await repository.get_owned(user_id=user_id, content_id=data["content_id"])
+        await repository.replace_tags(content=target, tags=[exclusive, shared])
+        survivor = Content(
+            user_id=user_id, content_type=ContentType.LINK, source=ContentSource.WEB,
+            title="shared tag survivor", summary="", original_url="https://example.com/shared",
+            tags=[shared],
+        )
+        session.add(survivor)
+        await session.commit()
+        return survivor.id
+
+print(json.dumps(asyncio.run(seed(json.load(sys.stdin)))))
+""", {"content_id": state["content_id"], "user_id": state["user_id"]})
+    source_drill.docker("stop", source_api)
+    command([
+        "scripts.image_backup", "--backup-config-file", str(fixture["operator"]), "create",
+        "--backup-id", "legacy-tags", "--sample-file", str(fixture["sample"]),
+        "--app-commit", fixture["revision"], "--origin", "synthetic", "--writers-frozen",
+        "--capture-deletion-checkpoint", "--pg-dump", str(fixture["pg_dump"]),
+    ], fixture["env"])
+    directory = fixture["directory"] / "legacy-tags"
+    materialize_backup(store, "legacy-tags", directory)
+
+    start_source()
+    events = execute(source_drill, source_api, """
+import json, sys, urllib.request
+from app.integrations.deletion_ledger import get_deletion_ledger
+
+data = json.load(sys.stdin)
+request = urllib.request.Request(
+    "http://127.0.0.1:8123/api/v1/contents/" + str(data["content_id"]),
+    method="DELETE", headers={"Authorization": "Bearer " + data["token"]},
+)
+with urllib.request.urlopen(request) as response:
+    assert response.status == 204
+print(json.dumps(get_deletion_ledger().read_verified_events()))
+""", {"content_id": state["content_id"], "token": state["token"]})
+    source_drill.docker("stop", source_api)
+    assert [event["content_id"] for event in events] == [state["content_id"]]
+
+    class InspectRestoredTags(RestoreDrill):
+        def run(self, manifest, paths, credentials, image):
+            report = super().run(manifest, paths, credentials, image)
+            self.tag_links = self.docker(
+                "exec", self.owner + "-db", "psql", "-U", "postgres", "-d", "clipback",
+                "-At", "-c", "SELECT t.name, ct.content_id FROM tags t "
+                "LEFT JOIN content_tags ct ON ct.tag_id = t.id ORDER BY t.name",
+            ).decode("utf-8").splitlines()
+            return report
+
+    restore = InspectRestoredTags(deletion_events=events)
+    report = check(directory, credentials, image, restore)
+    assert report["passed"], report
+    assert report["deleted_content_count"] == 1
+    assert restore.tag_links == [f"shared|{survivor}"]

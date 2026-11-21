@@ -1,7 +1,9 @@
 import copy
 import hashlib
+import inspect
 import io
 import json
+import re
 import subprocess
 import tarfile
 from datetime import UTC, datetime
@@ -9,6 +11,7 @@ from datetime import UTC, datetime
 import pytest
 
 from scripts.check_backup_restore import (
+    DELETE_PROBE,
     REVISION_LABEL,
     SNAPSHOT_KEYS,
     CheckError,
@@ -18,7 +21,19 @@ from scripts.check_backup_restore import (
     private_json,
     sha256_file,
 )
+from scripts.image_backup_jobs import delete_orphan_tags
 from scripts.recovery_point import load_backup, validate_archive
+
+
+def test_replay_uses_the_same_orphan_tag_sql_as_maintain():
+    statements = re.compile(
+        r'text\("""\s*((?:SELECT t\.id FROM tags|DELETE FROM tags)\b.*?)"""\)', re.S,
+    )
+    source = inspect.getsource(delete_orphan_tags)
+    maintain = [" ".join(sql.split()) for sql in statements.findall(source)]
+    replay = [" ".join(sql.split()) for sql in statements.findall(DELETE_PROBE)]
+    assert len(maintain) == 2
+    assert replay == maintain
 
 
 def archive_file(path, entries):

@@ -25,8 +25,9 @@ class ImageUploadPolicy:
         self.storage = storage
 
     async def authorize(self, *, user_id: int, size_bytes: int) -> None:
+        # NO KEY UPDATE serializes uploads while allowing content and tag FK checks.
         user = await self.session.scalar(
-            select(User).where(User.id == user_id).with_for_update()
+            select(User).where(User.id == user_id).with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
         if user is None:

@@ -11,7 +11,10 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
 from app.schemas.content import ContentTagUpdate
 from app.services.content_service import ContentService
-from tests.repositories.test_category_concurrency import concurrent_data as concurrent_data
+from tests.repositories.test_category_concurrency import (
+    concurrent_data as concurrent_data,
+    wait_until_blocked,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -192,3 +195,62 @@ async def test_content_lock_does_not_block_another_contents_tags(concurrent_data
             if not task.done():
                 task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_concurrent_tag_creation_with_opposite_input_order(concurrent_data):
+    sessions, uid, _, _ = concurrent_data
+    async with sessions.begin() as setup:
+        await setup.execute(text("""
+            CREATE FUNCTION pause_tag_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                IF NEW.normalized_name = current_setting('clipback_test.pause_tag', true) THEN
+                    PERFORM pg_advisory_xact_lock_shared(438, NEW.user_id);
+                END IF;
+                RETURN NEW;
+            END
+            $$
+        """))
+        await setup.execute(text("""
+            CREATE TRIGGER pause_tag_insert BEFORE INSERT ON tags
+            FOR EACH ROW EXECUTE FUNCTION pause_tag_insert()
+        """))
+
+    async def create_tags(session, names):
+        tags = await TagRepository(session).get_or_create_many(user_id=uid, names=names)
+        await session.commit()
+        return [(tag.id, tag.name) for tag in tags]
+
+    try:
+        async with sessions() as gate, sessions() as first, sessions() as second:
+            await gate.execute(text("SELECT pg_advisory_lock(438, :uid)"), {"uid": uid})
+            first_pid = await first.scalar(text("SELECT pg_backend_pid()"))
+            second_pid = await second.scalar(text("SELECT pg_backend_pid()"))
+            await first.execute(text("SET LOCAL clipback_test.pause_tag = 'beta'"))
+            await second.execute(text("SET LOCAL clipback_test.pause_tag = 'alpha'"))
+
+            tasks = [asyncio.create_task(create_tags(first, ["Alpha", "Beta"]))]
+            try:
+                # The first writer holds alpha while paused at beta. Unsorted inserts
+                # let the second writer hold beta while paused at alpha.
+                await wait_until_blocked(sessions, first_pid)
+                tasks.append(asyncio.create_task(create_tags(second, ["beta", "alpha"])))
+                await wait_until_blocked(sessions, second_pid)
+                await gate.execute(text("SELECT pg_advisory_unlock(438, :uid)"), {"uid": uid})
+                first_tags, second_tags = await asyncio.wait_for(asyncio.gather(*tasks), 10)
+            finally:
+                await gate.execute(text("SELECT pg_advisory_unlock(438, :uid)"), {"uid": uid})
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        async with sessions.begin() as cleanup:
+            await cleanup.execute(text("DROP TRIGGER pause_tag_insert ON tags"))
+            await cleanup.execute(text("DROP FUNCTION pause_tag_insert()"))
+
+    assert [name for _, name in first_tags] == ["Alpha", "Beta"]
+    assert second_tags == list(reversed(first_tags))
+
+    async with sessions() as session:
+        reverse_order = await create_tags(session, ["Zeta", "Eta"])
+    assert [name for _, name in sorted(reverse_order)] == ["Zeta", "Eta"]

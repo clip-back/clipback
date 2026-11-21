@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 
@@ -37,6 +37,7 @@ class CategoryRecommendationResult:
     category_id: int | None
     assignment_method: CategoryAssignmentMethod
     failure_reason: CategoryRecommendationFailureReason | None
+    tag_names: list[str] = field(default_factory=list)
 
 
 class CategoryRecommendationService:
@@ -67,7 +68,7 @@ class CategoryRecommendationService:
 
         candidate_pairs = [(category.id, category.name) for category in candidates]
         try:
-            category_id = await self.ai_client.suggest_category_id(
+            suggestion = await self.ai_client.suggest_category_id(
                 title=title,
                 description=description,
                 source=payload.source.value,
@@ -82,24 +83,29 @@ class CategoryRecommendationService:
         except AIClientError:
             return self._fallback(CategoryRecommendationFailureReason.ERROR)
 
+        category_id = suggestion.category_id
+        tag_names = suggestion.tag_names
         if category_id is None:
-            return self._fallback(CategoryRecommendationFailureReason.NO_MATCH)
+            return self._fallback(CategoryRecommendationFailureReason.NO_MATCH, tag_names)
         if category_id not in {candidate_id for candidate_id, _ in candidate_pairs}:
-            return self._fallback(CategoryRecommendationFailureReason.INVALID_RESPONSE)
+            return self._fallback(CategoryRecommendationFailureReason.INVALID_RESPONSE, tag_names)
         return CategoryRecommendationResult(
             category_id=category_id,
             assignment_method=CategoryAssignmentMethod.AI,
             failure_reason=None,
+            tag_names=tag_names,
         )
 
     @staticmethod
     def _fallback(
         reason: CategoryRecommendationFailureReason,
+        tag_names: list[str] | None = None,
     ) -> CategoryRecommendationResult:
         return CategoryRecommendationResult(
             category_id=None,
             assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
             failure_reason=reason,
+            tag_names=tag_names or [],
         )
 
     @staticmethod

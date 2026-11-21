@@ -15,7 +15,9 @@ from openai import (
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import Settings, settings
+from app.integrations.ai_tags import TAG_PROMPT, AIResponseTags
 from app.integrations.summary import join_headline_and_points
+from app.schemas.tag import clean_ai_tag_names
 
 MAX_OCR_TEXT_LENGTH = 5_000
 MAX_OCR_TITLE_LENGTH = 120
@@ -44,6 +46,7 @@ class ScreenshotOCRResult(BaseModel):
     text: str
     title: str
     summary: str
+    tag_names: list[str] = Field(default_factory=list)
 
 
 class ScreenshotOCROutput(BaseModel):
@@ -59,6 +62,7 @@ class ScreenshotOCROutput(BaseModel):
     points: list[str] = Field(
         json_schema_extra={"items": {"type": "string", "maxLength": 60}, "maxItems": 5}
     )
+    tags: AIResponseTags = None
 
 
 class OCRClient:
@@ -125,7 +129,7 @@ class OCRClient:
                                 "Do not copy facts from this example into the summary. "
                                 "If there is no meaningful visible text, return empty "
                                 "strings for text, title, and headline and an empty list "
-                                "for points."
+                                "for points." + TAG_PROMPT
                             ),
                         },
                         {
@@ -187,6 +191,7 @@ class OCRClient:
             summary=join_headline_and_points(parsed.headline, parsed.points)[
                 :MAX_OCR_SUMMARY_LENGTH
             ],
+            tag_names=clean_ai_tag_names(parsed.tags),
         )
 
     async def close(self) -> None:

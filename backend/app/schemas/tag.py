@@ -1,9 +1,11 @@
 import re
 import unicodedata
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MAX_TAGS_PER_CONTENT = 10
+MAX_AI_TAGS = 3
 MAX_TAG_NAME_LENGTH = 40
 WHITESPACE_PATTERN = re.compile(r"\s+")
 LEADING_HASH_PATTERN = re.compile(r"^(?:#\s*)+")
@@ -11,6 +13,7 @@ LEADING_HASH_PATTERN = re.compile(r"^(?:#\s*)+")
 
 def normalize_tag_name(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value)
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
     normalized = WHITESPACE_PATTERN.sub(" ", normalized).strip()
     normalized = LEADING_HASH_PATTERN.sub("", normalized).strip()
     if not normalized:
@@ -23,10 +26,36 @@ def normalize_tag_name(value: str) -> str:
 
 
 def normalize_tag_names(values: list[str]) -> list[str]:
+    return _unique_tag_names(normalize_tag_name(value) for value in values)
+
+
+def clean_ai_tag_names(value: object) -> list[str]:
+    """Return up to three usable tag names from an optional AI response field."""
+    if not isinstance(value, list):
+        return []
+
+    normalized_names: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        try:
+            display_name = normalize_tag_name(item)
+        except ValueError:
+            continue
+        # PostgreSQL text cannot store NUL or unpaired surrogates.
+        if "\x00" in display_name or any(
+            unicodedata.category(char) == "Cs" for char in display_name
+        ):
+            continue
+        normalized_names.append(display_name)
+
+    return _unique_tag_names(normalized_names)[:MAX_AI_TAGS]
+
+
+def _unique_tag_names(display_names: Iterable[str]) -> list[str]:
     normalized_names: list[str] = []
     seen: set[str] = set()
-    for value in values:
-        display_name = normalize_tag_name(value)
+    for display_name in display_names:
         normalized_name = display_name.casefold()
         if normalized_name in seen:
             continue

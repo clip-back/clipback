@@ -156,8 +156,9 @@ async def test_gpt_is_asked_for_a_headline_and_points():
             "category_id": {
                 "anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Category Id",
             },
+            "tags": {"title": "Tags", "type": "array", "items": {"type": "string"}},
         },
-        "required": ["title", "headline", "points", "category_id"],
+        "required": ["title", "headline", "points", "category_id", "tags"],
         "additionalProperties": False,
     }
     prompt = body["input"][0]["content"]

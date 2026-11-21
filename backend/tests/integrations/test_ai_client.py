@@ -80,7 +80,7 @@ async def test_structured_response_request_uses_fixed_operational_options() -> N
         candidates=[(3, "공부")],
     )
 
-    assert result == 3
+    assert result.category_id == 3
     assert responses.kwargs is not None
     assert responses.kwargs["model"] == "gpt-5.4-nano-2026-03-17"
     assert responses.kwargs["text_format"] is CategorySuggestion

@@ -7,7 +7,7 @@ from app.integrations.metadata_client import MetadataClient
 from app.models.content import Content
 from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
-from tests.integration.helpers import guest, request
+from tests.integration.helpers import guest, link, request
 
 pytestmark = pytest.mark.asyncio
 
@@ -80,3 +80,26 @@ async def test_invalid_key_is_rejected_and_headerless_saves_stay_separate(
     second = await request(api, "POST", "contents", status=201, headers=headers, json=BODY)
     assert first["id"] != second["id"]
     assert await count(database_connection, Content, user_id=user["id"]) == 2
+
+
+async def test_link_tag_names_remove_format_characters(api):
+    headers, _, _ = await guest(api)
+    await request(
+        api, "POST", "contents", status=422, headers=headers,
+        json={**BODY, "tag_names": ["\u200b"]},
+    )
+    content = await link(api, headers, tag_names=["요\u200b리"])
+    detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+    assert [tag["name"] for tag in content["tags"]] == ["요리"]
+    assert detail["tags"] == content["tags"]
+
+
+async def test_empty_tag_names_replay_same_submission(api):
+    headers, _, _ = await guest(api)
+    writes = {**headers, "Idempotency-Key": str(uuid4())}
+    first = await request(api, "POST", "contents", status=201, headers=writes, json=BODY)
+    replay = await request(
+        api, "POST", "contents", status=201, headers=writes, json={**BODY, "tag_names": []},
+    )
+    assert first["tags"] == []
+    assert replay == first

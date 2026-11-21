@@ -1,7 +1,9 @@
 """Summary result, error and result validation shared by every summary client, whatever the kind."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from app.schemas.tag import clean_ai_tag_names
 
 # The one place for both limits (#158): both prompts and the YouTube response schema take the
 # title limit, validated_result() checks both.
@@ -30,17 +32,19 @@ class SummaryResult:
     category_id: int | None
     usage: dict
     image: dict | None = None
+    tag_names: list[str] = field(default_factory=list)
 
 
 def validated_result(
-    title, headline, points, category_id, categories: list[dict], usage: dict
+    title, headline, points, category_id, categories: list[dict], usage: dict, *,
+    tags: object = None,
 ) -> SummaryResult:
     """Judge a model answer each client has already parsed its own way.
 
     The values arrive untyped because the parsing differs: YouTube passes the decoded JSON
     as is, Instagram the Pydantic-converted values. The headline and points are cleaned and
     joined into the summary; an empty or too long title or joined summary fails; a category
-    that is not an int candidate is dropped.
+    that is not an int candidate is dropped. Malformed tags are discarded independently.
     """
     summary = _joined_summary(headline, points)
     title = title.strip()
@@ -48,7 +52,7 @@ def validated_result(
         raise SummaryError("invalid_response")
     if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
         category_id = None
-    return SummaryResult(title, summary, category_id, usage)
+    return SummaryResult(title, summary, category_id, usage, tag_names=clean_ai_tag_names(tags))
 
 
 # `•`/`·` go whatever follows; `-`, `*`, `1.`, `1)` only before a space or the end, so

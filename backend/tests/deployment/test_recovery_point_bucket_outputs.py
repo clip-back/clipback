@@ -17,6 +17,7 @@ import json
 import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import boto3
 import pytest
@@ -185,7 +186,7 @@ def maintenance_runtime(monkeypatch, tmp_path):
     ledger.initialize()
 
     class Runtime:
-        config = sessions = engine = None
+        config = engine = None
 
         async def close(self):
             pass
@@ -193,6 +194,11 @@ def maintenance_runtime(monkeypatch, tmp_path):
     @asynccontextmanager
     async def unlocked(*args, **kwargs):
         yield
+
+    Runtime.sessions = SimpleNamespace(begin=unlocked)
+
+    async def no_orphans(session):
+        return 0
 
     async def nothing_disposed(*args, **kwargs):
         return {"deletion_records_pruned": 0, "deletion_records_overdue": 0,
@@ -204,6 +210,7 @@ def maintenance_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(maintenance, "MaintenanceGate", lambda sessions: OpenUnitGate())
     monkeypatch.setattr(jobs, "source_lock", unlocked)
     monkeypatch.setattr(jobs, "dispose_deletion_records", nothing_disposed)
+    monkeypatch.setattr(jobs, "delete_orphan_tags", no_orphans)
 
 
 def run(main, argv, monkeypatch, capsys):
@@ -271,6 +278,7 @@ def retention(expired, removed, retained):
         "deletion_records_pruned": 0, "expired_points": expired, "freshness_met": True,
         "passed": True, "removed_originals": removed, "retained_points": retained,
         "retention_overdue": 0, "deletion_records_overdue": 0, "image_deletion_rows_pruned": 0,
+        "orphan_tags_deleted": 0,
     }
 
 

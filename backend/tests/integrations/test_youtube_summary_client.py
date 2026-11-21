@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 import pytest
@@ -120,8 +121,9 @@ async def test_gemini_is_asked_for_a_headline_and_points():
                 "maxItems": 5,
             },
             "category_id": {"type": ["integer", "null"]},
+            "tags": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["title", "headline", "points", "category_id"],
+        "required": ["title", "headline", "points", "category_id", "tags"],
         "additionalProperties": False,
     }
     prompt = bodies[0]["systemInstruction"]["parts"][0]["text"]
@@ -130,6 +132,10 @@ async def test_gemini_is_asked_for_a_headline_and_points():
         "추측하지", "신뢰하지 않는", "공백 포함 25자 안팎", "핵심 대상", "제목은 120자 이내.",
     ]:
         assert phrase in prompt
+    candidate_start = re.search(r"(?m)^[ \t]*(?=\[)", prompt)
+    assert candidate_start is not None
+    candidates, _ = json.JSONDecoder().raw_decode(prompt, candidate_start.end())
+    assert candidates == [{"id": 1}]
 
 
 @pytest.mark.asyncio
