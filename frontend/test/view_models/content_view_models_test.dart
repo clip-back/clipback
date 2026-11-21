@@ -1101,9 +1101,23 @@ void _summaryRefreshTests() {
   testWidgets('moving to the next pending detail restarts its refresh', (
     tester,
   ) async {
+    var eightReads = 0;
     final f = fixture(
       [pending('processing')],
       feed: [pending('processing'), pending('processing', id: 8)],
+      extra: (request) {
+        if (request.method != 'GET' ||
+            request.url.path != '/api/v1/contents/8') {
+          return null;
+        }
+        return ++eightReads == 1
+            ? _json(pending('processing', id: 8))
+            : _json({
+                ...pending('completed', id: 8),
+                'summary': '8번 요약',
+                'categories': [summaryCategory],
+              });
+      },
     );
     await f.load();
     f.open();
@@ -1115,12 +1129,144 @@ void _summaryRefreshTests() {
     await moving;
     expect(f.detail.content?.apiId, 8);
     expect(reads(f, 8), 1, reason: 'the ordinary opening read');
+    expect(f.detail.content?.summaryStatus, 'processing');
     await tester.pump(const Duration(milliseconds: 1500));
     expect(reads(f), 1);
     expect(reads(f, 8), 1);
     await tester.pump(const Duration(milliseconds: 1500));
     expect(reads(f, 8), 2);
     expect(reads(f), 1);
+    final moved = f.home.page.items.firstWhere((item) => item.apiId == 8);
+    for (final item in [f.detail.content!, moved]) {
+      expect(item.apiId, 8);
+      expect(item.summaryStatus, 'completed');
+      expect(item.summary, '8번 요약');
+      expect(item.category.name, '요약 분류');
+    }
+    expect(
+      f.home.page.items.firstWhere((item) => item.apiId == 7).summaryStatus,
+      'processing',
+    );
+    await wait(tester, const Duration(seconds: 30));
+    expect(reads(f, 8), 2);
+    expect(reads(f), 1);
+    finish(f);
+  });
+
+  for (final metadata in [false, true]) {
+    testWidgets(
+      'a late ${metadata ? 'metadata' : 'opening'} read cannot undo a newer completed re-read',
+      (tester) async {
+        final held = Completer<http.Response>();
+        var count = 0;
+        final f = fixture(
+          [],
+          extra: (request) {
+            if (request.method != 'GET' ||
+                request.url.path != '/api/v1/contents/7') {
+              return null;
+            }
+            if (++count == 1) return held.future;
+            return _json({...pending('completed'), 'summary': '완성된 요약'});
+          },
+        );
+        await f.load();
+        if (metadata) {
+          f.open();
+          unawaited(
+            f.repository.refreshDetail(f.repository.currentDetailHandle!),
+          );
+        } else {
+          f.open(recordView: true);
+        }
+        await tester.pump();
+        expect(reads(f), 1);
+        await tester.pump(step);
+        expect(reads(f), 2);
+        expect(f.detail.content?.summaryStatus, 'completed');
+        held.complete(_json(pending('processing')));
+        await tester.pump();
+        for (final item in [f.detail.content!, f.home.page.items.single]) {
+          expect(item.summaryStatus, 'completed');
+          expect(item.summary, '완성된 요약');
+        }
+        await wait(tester, const Duration(seconds: 30));
+        expect(reads(f), 2);
+        finish(f);
+      },
+    );
+  }
+
+  testWidgets('one visit keeps its 100 read budget across a restart', (
+    tester,
+  ) async {
+    final f = fixture([
+      for (var i = 0; i < 50; i++) pending('processing'),
+      pending('completed'),
+      pending('processing'),
+    ]);
+    await f.load();
+    f.open();
+    await wait(tester, const Duration(seconds: 160));
+    expect(reads(f), 51);
+    expect(f.detail.content?.summaryStatus, 'completed');
+    await f.repository.refreshDetail(f.repository.currentDetailHandle!);
+    expect(reads(f), 52);
+    expect(f.detail.content?.summaryStatus, 'processing');
+    await wait(tester, const Duration(seconds: 330));
+    expect(reads(f), 101, reason: '100 re-reads plus the outside read');
+    finish(f);
+  });
+
+  testWidgets('resume during a read sends a new read and drops the old reply', (
+    tester,
+  ) async {
+    final held = Completer<http.Response>();
+    var count = 0;
+    final f = fixture(
+      [],
+      extra: (request) {
+        if (request.method != 'GET' ||
+            request.url.path != '/api/v1/contents/7') {
+          return null;
+        }
+        if (++count == 1) return held.future;
+        return _json({...pending('completed'), 'summary': '완성된 요약'});
+      },
+    );
+    await f.load();
+    f.open();
+    await tester.pump(step);
+    expect(reads(f), 1);
+    f.detail.foregroundChanged(false);
+    f.detail.foregroundChanged(true);
+    await tester.pump();
+    expect(reads(f), 2);
+    expect(f.detail.content?.summaryStatus, 'completed');
+    held.complete(_json(pending('processing')));
+    await tester.pump();
+    expect(f.detail.content?.summaryStatus, 'completed');
+    expect(f.home.page.items.single.summaryStatus, 'completed');
+    await wait(tester, const Duration(seconds: 30));
+    expect(reads(f), 2);
+    finish(f);
+  });
+
+  testWidgets('reads sent on resume count toward the 100 read budget', (
+    tester,
+  ) async {
+    final f = fixture([pending('processing')]);
+    await f.load();
+    f.open();
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(step);
+      f.detail.foregroundChanged(false);
+      f.detail.foregroundChanged(true);
+      await tester.pump();
+    }
+    expect(reads(f), 20);
+    await wait(tester, const Duration(seconds: 330));
+    expect(reads(f), 100);
     finish(f);
   });
 

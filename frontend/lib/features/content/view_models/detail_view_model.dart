@@ -36,7 +36,8 @@ class DetailViewModel extends ContentViewModel {
   Timer? _summaryTimer;
   DetailHandle? _summaryHandle;
   int _summaryReads = 0;
-  DetailHandle? _summaryReading;
+  DetailHandle? _summaryBudget;
+  Object? _summaryRead;
   bool _foreground = true;
   bool get isToday => _todayContext != null;
   WeeklyNavigationOrigin? get weeklyOrigin => _weeklyOrigin;
@@ -96,8 +97,13 @@ class DetailViewModel extends ContentViewModel {
       _stopSummaryRefresh();
       _summaryHandle = handle;
     }
+    // One visit has one budget, even if its refresh stops and starts again.
+    if (!identical(_summaryBudget, handle)) {
+      _summaryBudget = handle;
+      _summaryReads = 0;
+    }
     if (_summaryTimer == null &&
-        !identical(_summaryReading, handle) &&
+        _summaryRead == null &&
         _foreground &&
         _summaryReads < _summaryReadLimit) {
       _summaryTimer = Timer(_summaryInterval, _readSummary);
@@ -108,19 +114,22 @@ class DetailViewModel extends ContentViewModel {
     _summaryTimer?.cancel();
     _summaryTimer = null;
     _summaryHandle = null;
-    _summaryReads = 0;
+    _summaryRead = null;
   }
 
   void _readSummary() {
+    _summaryTimer?.cancel();
     _summaryTimer = null;
     final handle = _summaryHandle;
     if (handle == null) return;
     _summaryReads++;
-    _summaryReading = handle;
-    // Failures count as a read; refreshDetail drops answers for a closed detail.
+    final read = Object();
+    _summaryRead = read;
+    // Failures count as a read; refreshDetail drops closed or outdated replies.
     unawaited(
       repository.refreshDetail(handle).whenComplete(() {
-        if (identical(_summaryReading, handle)) _summaryReading = null;
+        if (!identical(_summaryRead, read)) return;
+        _summaryRead = null;
         _syncSummaryRefresh();
       }),
     );
@@ -134,8 +143,8 @@ class DetailViewModel extends ContentViewModel {
     _summaryTimer = null;
     if (!foreground) return;
     _syncSummaryRefresh();
-    if (_summaryTimer != null) {
-      _summaryTimer!.cancel();
+    // Read at once on return, even while an earlier reply is still on its way.
+    if (_summaryHandle != null && _summaryReads < _summaryReadLimit) {
       _readSummary();
     }
   }

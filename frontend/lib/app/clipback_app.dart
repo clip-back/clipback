@@ -168,6 +168,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       weeklyHome: () => _weeklyHome,
       weeklyVisible: () => _weeklyVisible,
     );
+    _d.detail.foregroundChanged(_weeklyForeground);
     _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {

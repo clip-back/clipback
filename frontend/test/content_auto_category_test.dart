@@ -779,6 +779,39 @@ void main() {
   );
 
   testWidgets(
+    'an app started in the background waits for resume before re-reading',
+    (tester) async {
+      final server = _Server(
+        source: 'youtube',
+        summaryStatus: 'processing',
+        category: _uncategorized,
+      );
+      // Inactive keeps frames running; hidden or paused would stop the UI.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      await _withApp(tester, server, () async {
+        await _saveLink(tester, url: _videoUrl);
+        await tester.tap(find.text('저장 완료'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DetailScreen), findsOneWidget);
+        await tester.pump(const Duration(seconds: 30));
+        expect(server.at('/api/v1/contents/7'), isEmpty);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(server.at('/api/v1/contents/7'), hasLength(1));
+        await tester.pump(const Duration(seconds: 3));
+        expect(server.at('/api/v1/contents/7'), hasLength(2));
+      });
+    },
+  );
+
+  testWidgets(
     'processing summary notice is replaced by the completed summary on the next detail entry',
     (tester) async {
       final server = _Server(
