@@ -31,6 +31,10 @@
   pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
   ```
 
+- 최종 전체 검사: 서버 변경 #446(`7626740`)을 합친 깨끗한 병합 커밋 `ec25deb`에서
+  `VERIFY result=PASS scope=all checks=12 failed=0`. 서버 pytest 2,906건 통과·50건 건너뜀, Flutter 3,967건 통과.
+  건너뛴 배포·복구 49건과 S3 연동 1건의 사유는 위와 같다. 병합 전후 `frontend/`의 차이는 없었다.
+
 ## 로컬 기기에서 확인한 동작
 
 시작 커밋 `96745b3`과 반영 커밋 `aaac645`을 같은 로컬 메모리 서버 조건으로 각각 촬영했다.
