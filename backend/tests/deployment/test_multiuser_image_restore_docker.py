@@ -194,7 +194,7 @@ print(json.dumps(get_deletion_ledger().read_verified_events()))
                 "exec", self.owner + "-db", "psql", "-U", "postgres", "-d", "clipback",
                 "-At", "-c", "SELECT t.name, ct.content_id FROM tags t "
                 "LEFT JOIN content_tags ct ON ct.tag_id = t.id ORDER BY t.name",
-            ).splitlines()
+            ).decode("utf-8").splitlines()
             return report
 
     restore = InspectRestoredTags(deletion_events=events)
