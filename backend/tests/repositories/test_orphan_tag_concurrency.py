@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from sqlalchemy import insert, select, text
 
+from app.models.content import Content, ContentSource, ContentType
 from app.models.tag import Tag
 from app.repositories.content_repository import ContentRepository
 from app.repositories.tag_repository import TagRepository
@@ -116,3 +117,55 @@ async def test_cleanup_rechecks_after_writer_commits_between_snapshot_and_tag_lo
     async with sessions() as session:
         saved = await ContentRepository(session).get_owned(user_id=user_id, content_id=content_id)
         assert [tag.id for tag in saved.tags] == [tag_id]
+
+
+async def test_orphan_recreation_and_new_tags_share_one_insert_order(concurrent_data, monkeypatch):
+    sessions, user_id, _, content_id = concurrent_data
+    old_id = await seed_tag(sessions, user_id, "Alpha")
+    async with sessions.begin() as setup:
+        other = Content(
+            user_id=user_id, title="Other", summary="",
+            content_type=ContentType.LINK, source=ContentSource.WEB,
+        )
+        setup.add(other)
+        await setup.flush()
+        other_id = other.id
+
+    reached_lookup, release = asyncio.Event(), asyncio.Event()
+    async with sessions() as first, sessions() as second:
+        first_pid = await first.scalar(text("SELECT pg_backend_pid()"))
+        second_pid = await second.scalar(text("SELECT pg_backend_pid()"))
+
+        original_scalars = first.scalars
+
+        async def scalars(statement):
+            sql = str(statement.compile(dialect=first.bind.dialect))
+            if "FOR KEY SHARE" in sql and not reached_lookup.is_set():
+                reached_lookup.set()
+                await asyncio.wait_for(release.wait(), 10)
+            return await original_scalars(statement)
+
+        # Pause before the first locking read. Inserting Beta before this read
+        # would let the second writer claim Alpha while waiting for Beta.
+        monkeypatch.setattr(first, "scalars", scalars)
+        tasks = [asyncio.create_task(replace(first, user_id, content_id, ["Alpha", "Beta"]))]
+        try:
+            await asyncio.wait_for(reached_lookup.wait(), 10)
+            async with sessions.begin() as cleaner:
+                await delete_orphan_tags(cleaner)
+                assert await cleaner.get(Tag, old_id) is None
+            tasks.append(asyncio.create_task(replace(second, user_id, other_id, ["Alpha", "Beta"])))
+            await wait_for_block_or_completion(sessions, tasks[1], second_pid, first_pid)
+            release.set()
+            first_result, second_result = await asyncio.wait_for(asyncio.gather(*tasks), 10)
+        finally:
+            release.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert [tag.name for tag in first_result.tags] == ["Alpha", "Beta"]
+    assert first_result.tags == second_result.tags
+    assert first_result.tags[0].id != old_id
+    assert first_result.tags[0].id < first_result.tags[1].id

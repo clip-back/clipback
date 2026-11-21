@@ -17,32 +17,21 @@ class TagRepository:
 
         normalized_to_name = {name.casefold(): name for name in names}
         normalized_names = list(normalized_to_name)
+        # Lock reusable rows before inserting anything so cleanup cannot turn
+        # an existing key into a second, out-of-order batch of inserts.
         existing = await self._list_by_normalized_names(
             user_id=user_id,
             normalized_names=normalized_names,
         )
-        existing_names = {tag.normalized_name for tag in existing}
-        await self._insert_missing(
-            user_id,
-            {key: name for key, name in normalized_to_name.items() if key not in existing_names},
-        )
-
-        tags = await self._list_by_normalized_names(
-            user_id=user_id,
-            normalized_names=normalized_names,
-            lock=True,
-        )
-        tags_by_name = {tag.normalized_name: tag for tag in tags}
-        # Cleanup can remove a previously seen orphan before the locking lookup.
+        tags_by_name = {tag.normalized_name: tag for tag in existing}
         missing = {key: name for key, name in normalized_to_name.items() if key not in tags_by_name}
         if missing:
             await self._insert_missing(user_id, missing)
-            recreated = await self._list_by_normalized_names(
+            inserted_or_reused = await self._list_by_normalized_names(
                 user_id=user_id,
                 normalized_names=list(missing),
-                lock=True,
             )
-            tags_by_name.update((tag.normalized_name, tag) for tag in recreated)
+            tags_by_name.update((tag.normalized_name, tag) for tag in inserted_or_reused)
         return [tags_by_name[normalized_name] for normalized_name in normalized_names]
 
     async def _insert_missing(self, user_id: int, names: dict[str, str]) -> None:
@@ -80,12 +69,10 @@ class TagRepository:
         *,
         user_id: int,
         normalized_names: Sequence[str],
-        lock: bool = False,
     ) -> list[Tag]:
-        statement = select(Tag).where(
-            Tag.user_id == user_id,
-            Tag.normalized_name.in_(normalized_names),
+        statement = (
+            select(Tag)
+            .where(Tag.user_id == user_id, Tag.normalized_name.in_(normalized_names))
+            .with_for_update(read=True, key_share=True)
         )
-        if lock:
-            statement = statement.with_for_update(read=True, key_share=True)
         return list(await self.session.scalars(statement))
