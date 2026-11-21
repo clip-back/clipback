@@ -33,6 +33,12 @@ class DetailViewModel extends ContentViewModel {
   Object? _todayPending;
   Object _todayAttempt = Object();
   Object? _todayRequest;
+  Timer? _summaryTimer;
+  DetailHandle? _summaryHandle;
+  int _summaryReads = 0;
+  DetailHandle? _summaryBudget;
+  Object? _summaryRead;
+  bool _foreground = true;
   bool get isToday => _todayContext != null;
   WeeklyNavigationOrigin? get weeklyOrigin => _weeklyOrigin;
 
@@ -68,7 +74,79 @@ class DetailViewModel extends ContentViewModel {
         if (sameAccount) emitEffect(const DetailDeletedEffect());
       }
     }
+    _syncSummaryRefresh();
     super.repositoryChanged();
+  }
+
+  static const _summaryInterval = Duration(seconds: 3);
+  static const _summaryReadLimit = 100;
+
+  /// Re-reads the open detail while its summary is queued or processing (#444).
+  void _syncSummaryRefresh() {
+    final handle = _handle;
+    final status = repository.selectedContent?.summaryStatus;
+    if (isDisposed ||
+        !_active ||
+        handle == null ||
+        !repository.isCurrentDetail(handle) ||
+        (status != 'queued' && status != 'processing')) {
+      _stopSummaryRefresh();
+      return;
+    }
+    if (!identical(_summaryHandle, handle)) {
+      _stopSummaryRefresh();
+      _summaryHandle = handle;
+    }
+    // One visit has one budget, even if its refresh stops and starts again.
+    if (!identical(_summaryBudget, handle)) {
+      _summaryBudget = handle;
+      _summaryReads = 0;
+    }
+    if (_summaryTimer == null &&
+        _summaryRead == null &&
+        _foreground &&
+        _summaryReads < _summaryReadLimit) {
+      _summaryTimer = Timer(_summaryInterval, _readSummary);
+    }
+  }
+
+  void _stopSummaryRefresh() {
+    _summaryTimer?.cancel();
+    _summaryTimer = null;
+    _summaryHandle = null;
+    _summaryRead = null;
+  }
+
+  void _readSummary() {
+    _summaryTimer?.cancel();
+    _summaryTimer = null;
+    final handle = _summaryHandle;
+    if (handle == null) return;
+    _summaryReads++;
+    final read = Object();
+    _summaryRead = read;
+    // Failures count as a read; refreshDetail drops closed or outdated replies.
+    unawaited(
+      repository.refreshDetail(handle).whenComplete(() {
+        if (!identical(_summaryRead, read)) return;
+        _summaryRead = null;
+        _syncSummaryRefresh();
+      }),
+    );
+  }
+
+  /// Pauses re-reads in the background and reads at once on return.
+  void foregroundChanged(bool foreground) {
+    if (_foreground == foreground) return;
+    _foreground = foreground;
+    _summaryTimer?.cancel();
+    _summaryTimer = null;
+    if (!foreground) return;
+    _syncSummaryRefresh();
+    // Read at once on return, even while an earlier reply is still on its way.
+    if (_summaryHandle != null && _summaryReads < _summaryReadLimit) {
+      _readSummary();
+    }
   }
 
   /// Returns whether a current item was selected; rejected opens leave it unchanged.
@@ -101,6 +179,7 @@ class DetailViewModel extends ContentViewModel {
     moving = false;
     _handle = repository.openDetail(current);
     notifyListeners();
+    _syncSummaryRefresh();
     if (recordView) {
       unawaited(repository.refreshDetail(_handle!));
       final origin = _weeklyOrigin;
@@ -125,6 +204,7 @@ class DetailViewModel extends ContentViewModel {
     _sourcePage = null;
     _navigationVersion++;
     moving = false;
+    _stopSummaryRefresh();
     repository.closeDetail();
     notifyListeners();
   }
@@ -449,6 +529,7 @@ class DetailViewModel extends ContentViewModel {
     _navigationVersion++;
     _active = false;
     _handle = null;
+    _stopSummaryRefresh();
     super.dispose();
   }
 }

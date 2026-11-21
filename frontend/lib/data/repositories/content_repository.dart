@@ -199,6 +199,8 @@ class RemoteContentRepository extends ContentRepository {
   ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
+  int _detailReadOrder = 0;
+  int _detailAppliedRead = 0;
   ApiContent? _selectedContent;
   DetailHandle? _detailHandle;
   ApiWeeklyRecommendation? _weekly;
@@ -1129,10 +1131,15 @@ class RemoteContentRepository extends ContentRepository {
   Future<bool> refreshDetail(DetailHandle handle) async {
     if (!isCurrentDetail(handle)) return true;
     final refresh = _refreshVersion;
+    // Detail reads apply in send order; a reply older than an applied one loses.
+    final order = ++_detailReadOrder;
     final read = _beginContentRead();
     try {
       final response = await _api.readContent(handle.contentId);
-      if (isCurrentDetail(handle) && refresh == _refreshVersion) {
+      if (isCurrentDetail(handle) &&
+          refresh == _refreshVersion &&
+          order > _detailAppliedRead) {
+        _detailAppliedRead = order;
         final updated = _reconcileContentRead(response, read.version);
         if (updated != null) _replaceContent(updated);
       }

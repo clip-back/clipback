@@ -108,6 +108,27 @@ void main() {
       });
     },
   );
+  testWidgets('a pending Today detail re-reads 3 seconds after its preflight', (
+    t,
+  ) async {
+    await withHome(t, (s) async {
+      final index = s.records.indexWhere((r) => r['id'] == 606);
+      s.records[index] = {...s.records[index], 'summary_status': 'processing'};
+      Iterable<Object?> reads() =>
+          s.calls.where((c) => c['path'] == '/api/v1/contents/606');
+      home(t).onOpenToday();
+      await t.pumpAndSettle();
+      expect(detail(t).content.apiId, 606);
+      expect(reads(), hasLength(1), reason: 'the preflight');
+      s.records[index] = {...s.records[index], 'summary_status': 'completed'};
+      await t.pump(const Duration(seconds: 3));
+      expect(reads(), hasLength(2));
+      expect(detail(t).content.summaryStatus, 'completed');
+      await t.pump(const Duration(seconds: 30));
+      expect(reads(), hasLength(2));
+      expect(views(s), hasLength(1));
+    });
+  });
   testWidgets('no recommendation and failure stay home, manual retry works', (
     t,
   ) async {

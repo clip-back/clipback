@@ -168,6 +168,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       weeklyHome: () => _weeklyHome,
       weeklyVisible: () => _weeklyVisible,
     );
+    _d.detail.foregroundChanged(_weeklyForeground);
     _archiveStorageAccountGeneration = _d.app.accountGeneration;
     _d.app.addListener(_onChanged);
     for (final viewModel in _d.featureViewModels) {
@@ -196,6 +197,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _weeklyForeground = state == AppLifecycleState.resumed;
     _weeklyVisibilityChanged();
+    _d.detail.foregroundChanged(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
       unawaited(_d.sharing.resume());
