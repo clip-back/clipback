@@ -1,5 +1,8 @@
 """The kind-neutral summary result and error that every summary client shares."""
 
+import json
+import re
+
 import httpx
 import pytest
 
@@ -42,3 +45,36 @@ async def test_both_kinds_raise_the_shared_summary_error():
         await summarize_youtube(httpx.Response(500))
     with pytest.raises(summary.SummaryError):
         await summarize_instagram(instagram_client)
+
+
+@pytest.mark.asyncio
+async def test_youtube_and_instagram_send_the_same_summary_instructions():
+    gemini_requests = []
+
+    def gemini(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=video("PT5M"))
+        gemini_requests.append(json.loads(request.content))
+        return httpx.Response(200, json=output())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(gemini)) as http:
+        await youtube.YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
+    instagram_client, seen = build(lambda r: page(), lambda r: completion())
+    await summarize_instagram(instagram_client)
+
+    (gemini_body,) = gemini_requests
+    (openai_request,) = seen["openai"]
+    youtube_prompt = gemini_body["systemInstruction"]["parts"][0]["text"]
+    instagram_prompt = json.loads(openai_request.content)["input"][0]["content"]
+    common_section = r"요약은 headline\(핵심 한 줄\).*?확인되지 않은 내용을 추측하지 마라\."
+    youtube_section = re.search(common_section, youtube_prompt, re.DOTALL)
+    instagram_section = re.search(common_section, instagram_prompt, re.DOTALL)
+
+    assert youtube_section is not None
+    assert instagram_section is not None
+    assert youtube_section[0] == instagram_section[0]
+    for phrase in [
+        "핵심 한 줄", "요점", "1–10개", "80자", "명사형", "마침표", "기호",
+        "번호", "마크다운", "되풀이", "재료", "단계", "추측",
+    ]:
+        assert phrase in youtube_section[0]

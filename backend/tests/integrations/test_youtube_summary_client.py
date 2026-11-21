@@ -116,9 +116,9 @@ async def test_gemini_is_asked_for_a_headline_and_points():
             "headline": {"type": "string", "maxLength": 40},
             "points": {
                 "type": "array",
-                "items": {"type": "string", "maxLength": 60},
+                "items": {"type": "string", "maxLength": 80},
                 "minItems": 1,
-                "maxItems": 5,
+                "maxItems": 10,
             },
             "category_id": {"type": ["integer", "null"]},
             "tags": {"type": "array", "items": {"type": "string"}},
@@ -128,7 +128,8 @@ async def test_gemini_is_asked_for_a_headline_and_points():
     }
     prompt = bodies[0]["systemInstruction"]["parts"][0]["text"]
     for phrase in [
-        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–5개", "되풀이",
+        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–10개", "되풀이",
+        "80자", "재료", "단계",
         "추측하지", "신뢰하지 않는", "공백 포함 25자 안팎", "핵심 대상", "제목은 120자 이내.",
     ]:
         assert phrase in prompt
@@ -164,7 +165,7 @@ async def test_http_errors(status, code, retry):
     [
         output(headline=" "),
         output(title="a" * 121),
-        output(headline="a" * 501),
+        output(headline="a" * 1001),
         {"candidates": [{"finishReason": "SAFETY"}]},
         {},
     ],

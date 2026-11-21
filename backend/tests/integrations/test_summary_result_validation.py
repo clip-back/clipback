@@ -126,10 +126,10 @@ async def test_category_value_pydantic_cannot_read_fails_only_the_instagram_summ
 
 FIVE = ["요점1", "요점2", "요점3", "요점4", "요점5"]
 FIVE_JOINED = "핵심\n• 요점1\n• 요점2\n• 요점3\n• 요점4\n• 요점5"
-# Headline 45 + five times ("\n• " 3 + point 88) = 500; one more headline character is 501.
-POINTS_88 = ["나" * 88] * 5
-JOINED_500 = "\n".join(["가" * 45, *[f"• {'나' * 88}"] * 5])
-assert len(JOINED_500) == 500
+ELEVEN = [*FIVE, "요점6", "요점7", "요점8", "요점9", "요점10", "요점11"]
+TEN_JOINED = FIVE_JOINED + "\n• 요점6\n• 요점7\n• 요점8\n• 요점9\n• 요점10"
+JOINED_1000 = f"h\n• {'가' * 996}"
+assert len(JOINED_1000) == 1000
 
 
 def point(text):
@@ -174,11 +174,23 @@ def point(text):
         ({"headline": "핵심  추가"}, "핵심 추가\n• 요점"),
         ({"headline": "  핵심 \n"}, "핵심\n• 요점"),
         ({"headline": "- 핵심"}, "- 핵심\n• 요점"),
-        ({"points": [*FIVE, "요점6"]}, FIVE_JOINED),
+        ({"points": [*FIVE, "요점6"]}, FIVE_JOINED + "\n• 요점6"),
         ({"points": ["", *FIVE]}, FIVE_JOINED),
-        ({"points": [*FIVE, "다" * 500]}, FIVE_JOINED),
+        ({"points": [*FIVE, "다" * 500]}, FIVE_JOINED + f"\n• {'다' * 500}"),
         ({"headline": "가" * 41, "points": ["나" * 61]}, f"{'가' * 41}\n• {'나' * 61}"),
-        ({"headline": "가" * 45, "points": POINTS_88}, JOINED_500),
+        ({"headline": "h", "points": ["가" * 996]}, JOINED_1000),
+        ({"headline": "h", "points": ["가" * 497]}, f"h\n• {'가' * 497}"),
+        ({"points": ELEVEN}, TEN_JOINED),
+        ({"points": ["", *ELEVEN]}, TEN_JOINED),
+        ({"headline": "가" * 989, "points": ["a", "b", "c"]}, f"{'가' * 989}\n• a\n• b"),
+        ({"headline": "가" * 989, "points": ["c", "b", "a"]}, f"{'가' * 989}\n• c\n• b"),
+        ({"headline": "가" * 994, "points": ["a", "b", "c"]}, f"{'가' * 994}\n• a"),
+        ({"headline": "h", "points": ["x", "가" * 997]}, "h\n• x"),
+        (point("  1. 양파 볶기"), "핵심\n• 양파 볶기"),
+        (
+            {"points": ["1. 양파 볶기", "2) 간장", "1단계 끓이기", "2)내용", "-12% 하락"]},
+            "핵심\n• 양파 볶기\n• 간장\n• 1단계 끓이기\n• 2)내용\n• -12% 하락",
+        ),
     ],
     ids=[
         "plain", "mark-bullet", "mark-middle-dot", "mark-dash", "mark-star", "mark-number-dot",
@@ -189,8 +201,10 @@ def point(text):
         "point-crlf", "point-cr", "point-double-lf", "point-spaced-lf", "point-two-spaces",
         "point-three-spaces", "dash-two-spaces", "headline-lf", "headline-crlf",
         "headline-double-lf", "headline-two-spaces", "headline-trimmed", "headline-mark-kept",
-        "six-points-first-five", "blank-then-five", "five-then-very-long", "over-hint-lengths",
-        "exactly-500",
+        "six-points-kept", "blank-then-five", "five-then-very-long", "over-hint-lengths",
+        "exactly-1000", "exactly-501", "first-ten-of-eleven", "drop-blank-before-cap",
+        "drop-c", "drop-a", "drop-two-points",
+        "drop-long-last-point", "space-then-number-dot", "recipe-markers",
     ],
 )
 @pytest.mark.parametrize("kind", KINDS)
@@ -202,9 +216,9 @@ async def test_headline_and_points_are_cleaned_and_joined(kind, answer, summary)
 
 @pytest.mark.parametrize("kind", KINDS)
 async def test_title_and_joined_summary_at_the_length_limit_are_kept_trimmed(kind):
-    result = await summarize(kind, title=f"  {TITLE_120} ", headline="가" * 45, points=POINTS_88)
+    result = await summarize(kind, title=f"  {TITLE_120} ", headline="h", points=["가" * 996])
 
-    assert (result.title, result.summary) == (TITLE_120, JOINED_500)
+    assert (result.title, result.summary) == (TITLE_120, JOINED_1000)
 
 
 @pytest.mark.parametrize(
@@ -217,7 +231,11 @@ async def test_title_and_joined_summary_at_the_length_limit_are_kept_trimmed(kin
         {"points": ["- "]},
         {"points": ["•"]},
         {"points": ["", " "]},
-        {"headline": "가" * 46, "points": POINTS_88},
+        {"headline": "h", "points": ["가" * 997]},
+        {"headline": "h", "points": ["가" * 997, "x"]},
+        {"headline": "가" * 1001, "points": []},
+        {"points": [*ELEVEN[:10], None]},
+        {"points": [None, *FIVE]},
         {"points": [*FIVE, 7]},
         {"points": [*FIVE, None]},
         {"headline": None},
@@ -239,7 +257,9 @@ async def test_title_and_joined_summary_at_the_length_limit_are_kept_trimmed(kin
     ],
     ids=[
         "empty-headline", "blank-headline", "line-break-headline", "no-points", "dash-only",
-        "bullet-only", "blank-points-only", "joined-501", "five-then-number", "five-then-null",
+        "bullet-only", "blank-points-only", "joined-1001", "long-first-point",
+        "long-headline-without-points",
+        "eleventh-point-null", "first-point-null", "five-then-number", "five-then-null",
         "headline-null", "headline-number", "headline-bool", "headline-array", "headline-object",
         "points-null", "points-number", "points-string", "points-object", "point-number",
         "point-null", "point-object", "point-array", "empty-title", "blank-title", "title-121",

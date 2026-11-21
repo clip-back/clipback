@@ -140,6 +140,7 @@ async def test_gpt_is_asked_for_a_headline_and_points():
     await summarize(client)
 
     body = json.loads(seen["openai"][0].content)
+    assert body["max_output_tokens"] == 4000
     assert body["text"]["format"]["schema"] == {
         "type": "object",
         "title": "SummaryOutput",
@@ -149,9 +150,9 @@ async def test_gpt_is_asked_for_a_headline_and_points():
             "points": {
                 "type": "array",
                 "title": "Points",
-                "items": {"type": "string", "maxLength": 60},
+                "items": {"type": "string", "maxLength": 80},
                 "minItems": 1,
-                "maxItems": 5,
+                "maxItems": 10,
             },
             "category_id": {
                 "anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Category Id",
@@ -163,7 +164,8 @@ async def test_gpt_is_asked_for_a_headline_and_points():
     }
     prompt = body["input"][0]["content"]
     for phrase in [
-        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–5개", "되풀이",
+        "핵심 한 줄", "요점", "명사형", "마침표", "기호", "번호", "마크다운", "1–10개", "되풀이",
+        "80자", "재료", "단계",
         "추측하지", "신뢰하지 않는", "제공된 캡션과 이미지 1장만 근거",
         "공백 포함 25자 안팎", "핵심 대상", "제목은 120자 이내.",
     ]:
@@ -207,7 +209,7 @@ async def test_no_caption_skips_without_calling_gpt(response):
     "overrides",
     [
         {"title": "가" * 121},
-        {"headline": "가" * 501},
+        {"headline": "가" * 1001},
         {"title": "  "},
         {"headline": ""},
     ],
