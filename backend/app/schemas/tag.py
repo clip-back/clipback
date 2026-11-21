@@ -4,17 +4,19 @@ from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.text import contains_unstorable_text
+
 MAX_TAGS_PER_CONTENT = 10
 MAX_AI_TAGS = 3
 MAX_TAG_NAME_LENGTH = 40
+UNSUPPORTED_TAG_CHARACTERS = "Tag name contains unsupported characters"
 WHITESPACE_PATTERN = re.compile(r"\s+")
 LEADING_HASH_PATTERN = re.compile(r"^(?:#\s*)+")
 
 
 def normalize_tag_name(value: str) -> str:
-    # PostgreSQL text cannot store NUL or unpaired surrogates.
-    if "\x00" in value or any(unicodedata.category(char) == "Cs" for char in value):
-        raise ValueError("Tag name contains unsupported characters")
+    if contains_unstorable_text(value):
+        raise ValueError(UNSUPPORTED_TAG_CHARACTERS)
     normalized = unicodedata.normalize("NFKC", value)
     normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
     normalized = WHITESPACE_PATTERN.sub(" ", normalized).strip()

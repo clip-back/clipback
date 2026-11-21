@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app.integrations.metadata_client import UnsafeUrlError
 from app.schemas.content import (
     MAX_CONTENT_URL_LENGTH,
-    ContentCreate,
+    ContentSaveInput,
     ContentShareCreate,
     ContentSource,
     ContentType,
@@ -28,7 +28,7 @@ class ShareIntakeService:
 
     async def prepare_link(
         self, payload: ContentShareCreate,
-    ) -> tuple[ContentCreate, SharedLinkContext]:
+    ) -> tuple[ContentSaveInput, SharedLinkContext]:
         """공유 입력의 URL을 해석해 저장할 링크 입력과 공유 맥락을 만든다."""
         url, url_source = self._select_url(payload)
         youtube_url = is_youtube_url(url)
@@ -51,7 +51,7 @@ class ShareIntakeService:
             else:
                 normalized_url = normalize_instagram_url(url)
         try:
-            content_payload = ContentCreate(
+            content_payload = ContentSaveInput(
                 content_type=ContentType.LINK,
                 source=ContentSource.YOUTUBE if youtube_url else ContentSource.INSTAGRAM,
                 original_url=normalized_url,

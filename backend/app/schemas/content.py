@@ -3,10 +3,11 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from app.schemas.category import CategoryRead
 from app.schemas.tag import TagNamesPayload, TagRead
+from app.schemas.text import reject_unstorable_text
 
 MAX_CONTENT_URL_LENGTH = 2048
 
@@ -31,7 +32,7 @@ class ContentAssetType(StrEnum):
     OCR_TEXT = "ocr_text"
 
 
-class ContentCreate(TagNamesPayload):
+class ContentSaveInput(TagNamesPayload):
     content_type: ContentType = ContentType.LINK
     category_ids: list[int] = Field(default_factory=list)
     original_url: HttpUrl | None = Field(default=None, max_length=MAX_CONTENT_URL_LENGTH)
@@ -39,6 +40,11 @@ class ContentCreate(TagNamesPayload):
     title: str | None = Field(default=None, max_length=120)
     summary: str | None = None
     is_favorite: bool = False
+
+
+class ContentCreate(ContentSaveInput):
+    # Only direct request text is subject to this check; OCR and metadata use ContentSaveInput.
+    _storable = field_validator("title", "summary")(reject_unstorable_text)
 
 
 class ContentCategoryUpdate(BaseModel):

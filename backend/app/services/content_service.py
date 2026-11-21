@@ -31,9 +31,9 @@ from app.schemas.content import (
     ContentAssetRead,
     ContentAssetType,
     ContentCategoryUpdate,
-    ContentCreate,
     ContentFavoriteUpdate,
     ContentRead,
+    ContentSaveInput,
     ContentSource,
     ContentTagUpdate,
     ContentType,
@@ -105,7 +105,7 @@ def content_to_read(content: Content) -> ContentRead:
 @dataclass(frozen=True)
 class PreparedContent:
     user_id: int
-    payload: ContentCreate
+    payload: ContentSaveInput
     categories: list[Category]
     tag_names: list[str]
     metadata_json: str
@@ -165,7 +165,7 @@ class ContentService:
         self,
         *,
         user_id: int,
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         share: SharedLinkContext | None = None,
     ) -> PreparedContent:
         if payload.content_type == ContentType.LINK and payload.original_url is None:
@@ -229,7 +229,7 @@ class ContentService:
         shared_text = ocr.text or None
         return await self._prepare(
             user_id=user_id,
-            payload=ContentCreate(
+            payload=ContentSaveInput(
                 content_type=ContentType.SCREENSHOT,
                 source=ContentSource.SCREENSHOT,
                 category_ids=category_ids,
@@ -249,7 +249,7 @@ class ContentService:
         self,
         *,
         user_id: int,
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         recommend: bool,
         shared_text: str | None,
         summary_typed: tuple[bool, bool] | None,
@@ -349,7 +349,7 @@ class ContentService:
         *,
         user_id: int,
         category_ids: list[int],
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         shared_text: str | None,
         recommend: bool,
     ) -> tuple[list[Category], CategoryRecommendationResult]:
@@ -397,7 +397,7 @@ class ContentService:
         )
 
     @staticmethod
-    def _normalize_youtube(payload: ContentCreate) -> tuple[ContentCreate, str]:
+    def _normalize_youtube(payload: ContentSaveInput) -> tuple[ContentSaveInput, str]:
         url, video_id = normalize_youtube_url(str(payload.original_url))
         return (
             payload.model_copy(update={"original_url": url, "source": ContentSource.YOUTUBE}),
@@ -665,7 +665,7 @@ class ContentService:
         self,
         *,
         user_id: int,
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         shared_text: str | None,
     ) -> CategoryRecommendationResult:
         if self.category_recommendation_service is None:

@@ -12,7 +12,7 @@ from app.integrations.ai_client import (
     AIClientTimeoutError,
 )
 from app.repositories.category_repository import CategoryRepository
-from app.schemas.content import ContentCreate
+from app.schemas.content import ContentSaveInput
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -53,7 +53,7 @@ class CategoryRecommendationService:
         self,
         *,
         user_id: int,
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         shared_text: str | None = None,
     ) -> CategoryRecommendationResult:
         candidates = await self.category_repository.list_recommendation_candidates(user_id)

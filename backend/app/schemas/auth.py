@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.text import reject_unstorable_text
+
 
 class TokenSocialProvider(StrEnum):
     GOOGLE = "google"
@@ -33,6 +35,8 @@ class AppleTokenRequest(SocialTokenRequest):
     authorization_code: str = Field(min_length=1, max_length=8192)
     challenge_id: UUID
     display_name: str | None = Field(default=None, max_length=80)
+
+    _storable = field_validator("display_name")(reject_unstorable_text)
 
     @field_validator("authorization_code")
     @classmethod

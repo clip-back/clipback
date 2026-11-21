@@ -1,9 +1,15 @@
+from collections.abc import Awaitable, Callable
+from contextlib import aclosing
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Header, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import ValidationError
+from python_multipart.multipart import parse_options_header
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
 from app.integrations.ai_client import get_ai_client
@@ -15,7 +21,7 @@ from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
 from app.schemas.content import ContentAssetAccess, ContentRead
-from app.schemas.tag import TagNamesPayload
+from app.schemas.tag import UNSUPPORTED_TAG_CHARACTERS, TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
@@ -24,10 +30,53 @@ from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
 from app.services.usage_limits import DailySummaryLimit
 
+
+class _ScreenshotMultipartParser(MultiPartParser):
+    def on_part_end(self) -> None:
+        part = self._current_part
+        if part.file is None and part.field_name == "tag_names":
+            # Starlette falls back to Latin-1. Check the original bytes before that decode.
+            self.items.append((part.field_name, part.data.decode("utf-8")))
+            return
+        super().on_part_end()
+
+
+class _ScreenshotRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            content_type, _ = parse_options_header(request.headers.get("content-type"))
+            if content_type == b"multipart/form-data":
+                try:
+                    async with aclosing(request.stream()) as stream:
+                        form = await _ScreenshotMultipartParser(request.headers, stream).parse()
+                except UnicodeDecodeError as exc:
+                    error = ValidationError.from_exception_data("TagNamesPayload", [{
+                        "type": "value_error",
+                        "loc": ("tag_names",),
+                        "input": None,
+                        "ctx": {"error": ValueError(UNSUPPORTED_TAG_CHARACTERS)},
+                    }])
+                    raise RequestValidationError(error.errors()) from exc
+                except MultiPartException as exc:
+                    raise HTTPException(status_code=400, detail=exc.message) from exc
+                except HTTPException:
+                    raise
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=400, detail="There was an error parsing the body",
+                    ) from exc
+                # FastAPI reuses the parsed form and registers its normal UploadFile cleanup.
+                request._form = form
+            return await handler(request)
+
+        return handle
+
+
 router = APIRouter()
 
 
-@router.post("/screenshots", response_model=ContentRead, status_code=status.HTTP_201_CREATED)
 async def upload_screenshot(
     request: Request,
     db: DatabaseSession,
@@ -51,6 +100,16 @@ async def upload_screenshot(
         category_ids=category_ids,
         tag_names=normalized_tag_names,
     )
+
+
+router.add_api_route(
+    "/screenshots",
+    upload_screenshot,
+    methods=["POST"],
+    response_model=ContentRead,
+    status_code=status.HTTP_201_CREATED,
+    route_class_override=_ScreenshotRoute,
+)
 
 
 @router.get(
