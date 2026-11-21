@@ -1,8 +1,12 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Query
+from pydantic import AfterValidator
 
 from app.api.deps import CurrentUserId, DatabaseSession
 from app.repositories.content_repository import ContentRepository
 from app.schemas.feed import MAX_FEED_CURSOR_LENGTH, FeedResponse, FeedSort
+from app.schemas.text import reject_unstorable_text
 from app.services.feed_service import FeedService
 
 router = APIRouter()
@@ -12,7 +16,9 @@ router = APIRouter()
 async def read_feed(
     db: DatabaseSession,
     current_user_id: CurrentUserId,
-    q: str | None = Query(default=None, max_length=100),
+    q: Annotated[
+        str | None, Query(max_length=100), AfterValidator(reject_unstorable_text)
+    ] = None,
     category_id: int | None = Query(default=None),
     is_favorite: bool | None = Query(default=None),
     sort: FeedSort = Query(default="latest"),

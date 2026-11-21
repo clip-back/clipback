@@ -18,7 +18,7 @@ from app.integrations.ocr_client import ScreenshotOCRResult
 from app.integrations.storage_client import StorageUnavailableError
 from app.repositories.content_repository import ContentRepository
 from app.repositories.share_receipt_repository import PendingShareReceipt, ShareReceiptRepository
-from app.schemas.content import ContentCreate, ContentRead, ContentShareCreate
+from app.schemas.content import ContentRead, ContentSaveInput, ContentShareCreate
 from app.services.content_service import (
     ContentService,
     PendingContentAsset,
@@ -64,7 +64,7 @@ class ContentSaveFlow:
         self.uploads = uploads
 
     async def save_link(
-        self, *, user_id: int, payload: ContentCreate, idempotency_key: UUID | None = None,
+        self, *, user_id: int, payload: ContentSaveInput, idempotency_key: UUID | None = None,
     ) -> ContentRead:
         submission = None
         if idempotency_key is not None:
@@ -98,7 +98,7 @@ class ContentSaveFlow:
         self,
         *,
         user_id: int,
-        payload: ContentCreate,
+        payload: ContentSaveInput,
         share: SharedLinkContext | None = None,
         submission: _Submission | None = None,
     ) -> ContentRead:

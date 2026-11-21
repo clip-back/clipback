@@ -4,6 +4,8 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
+from app.schemas.text import reject_unstorable_text
+
 
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=40)
@@ -16,6 +18,8 @@ class CategoryCreate(BaseModel):
         if not normalized:
             raise ValueError("Category name cannot be blank")
         return normalized
+
+    _storable = field_validator("name", "color")(reject_unstorable_text)
 
 
 class CategoryRead(BaseModel):
@@ -47,6 +51,8 @@ class CategoryUpdate(BaseModel):
         if value is None:
             raise ValueError("Category name cannot be null")
         return CategoryCreate.normalize_name(value)
+
+    _storable = field_validator("name", "color")(reject_unstorable_text)
 
     @model_validator(mode="after")
     def require_changes(self) -> "CategoryUpdate":

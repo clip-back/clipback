@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
-from app.schemas.content import MAX_CONTENT_URL_LENGTH, ContentCreate, ContentSource
+from app.schemas.content import MAX_CONTENT_URL_LENGTH, ContentSaveInput, ContentSource
 from app.services.link_url import infer_content_source, is_instagram_url, normalize_instagram_url
 
 MAX_EVENT_METADATA_LENGTH = 1000
@@ -53,7 +53,7 @@ class ExtractionService:
             user_agent=settings.metadata_user_agent,
         )
 
-    async def enrich_link(self, payload: ContentCreate) -> ExtractionResult:
+    async def enrich_link(self, payload: ContentSaveInput) -> ExtractionResult:
         if payload.original_url is None:
             raise HTTPException(status_code=422, detail="original_url is required for link content")
 
@@ -83,7 +83,7 @@ class ExtractionService:
         )
 
     @staticmethod
-    def apply_to_payload(payload: ContentCreate, result: ExtractionResult) -> ContentCreate:
+    def apply_to_payload(payload: ContentSaveInput, result: ExtractionResult) -> ContentSaveInput:
         values = payload.model_dump()
         values.update(
             original_url=result.resolved_url,
@@ -92,7 +92,7 @@ class ExtractionService:
             source=result.source,
         )
         try:
-            return ContentCreate.model_validate(values)
+            return ContentSaveInput.model_validate(values)
         except ValidationError as exc:
             if all(error["loc"] == ("original_url",) for error in exc.errors()):
                 raise HTTPException(
