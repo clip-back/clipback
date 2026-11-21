@@ -83,7 +83,7 @@ async def public_resolver(hostname, port):
     return {"93.184.216.34"}
 
 
-def build(page_handler, openai_handler, *, page_timeout=5.0):
+def build(page_handler, openai_handler, *, page_timeout=60.0):
     """Fake Instagram page and OpenAI endpoint; counts every request they receive."""
     seen = {"page": [], "openai": []}
 

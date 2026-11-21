@@ -37,6 +37,7 @@ void main() {
               as Map;
       expect((first['items'] as List).length, 5);
       expect(first['next_cursor'], '5');
+      expect(first['total_count'], 6);
       final last =
           jsonDecode(
                 (await s.client.get(

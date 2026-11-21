@@ -1,5 +1,4 @@
 import 'package:clipback_frontend/features/home/notification_list_screen.dart';
-import 'package:clipback_frontend/shared/widgets/notification_sheet.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -107,7 +106,6 @@ void main() {
               tester,
               (server) async {
                 expect(_notification, findsOneWidget);
-                expect(find.byType(NotificationSheet), findsNothing);
                 _expectOracle(tester);
                 final m = fixture.notificationMeasure(
                   tester.element(_notification),

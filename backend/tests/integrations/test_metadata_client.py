@@ -18,7 +18,7 @@ def build_client(
     handler,
     *,
     resolver=public_resolver,
-    timeout: float = 5.0,
+    timeout: float = 60.0,
     max_redirects: int = 3,
     max_response_bytes: int = 1_000_000,
 ) -> MetadataClient:

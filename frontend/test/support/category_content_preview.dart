@@ -345,6 +345,7 @@ Future<void> runChecks() async {
   );
   await more();
   await tapText('삭제');
+  await tapKey('content-delete-confirm');
   await wait(
     () =>
         !_archive.feed!.loading &&

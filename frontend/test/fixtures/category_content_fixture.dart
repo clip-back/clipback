@@ -114,6 +114,16 @@ class CategoryContentServer {
       return json({
         'items': selected.sublist(start, end),
         'next_cursor': end < selected.length ? '$end' : null,
+        'total_count': selected.length,
+      });
+    }
+    if (r.method == 'GET' && p == '/api/v1/recommendations/weekly') {
+      return json({
+        'period_start': '2026-10-19T00:00:00Z',
+        'period_end': '2026-10-26T00:00:00Z',
+        'batch_id': null,
+        'generated_at': null,
+        'items': <Object>[],
       });
     }
     if (p == '/api/v1/auth/share-credential') {
@@ -331,7 +341,10 @@ Map<String, Object?> f01Measure(Element root) {
     'randomHit': f01Rect(f01Box(random)),
     'headerTitle': f01Paragraph(header, w.activeCategoryName!),
     'randomLabel': f01Paragraph(random, '랜덤 보기'),
-    'countLabel': f01Paragraph(toolbar, '총 ${w.contents.length}개'),
+    'countLabel': f01Paragraph(
+      toolbar,
+      '총 ${w.feed?.displayTotalCount ?? w.contents.length}개',
+    ),
     'sortLabel': f01Paragraph(toolbar, w.bookmarkedFirst ? '즐겨찾기 우선' : '최신순'),
     'headerAssets': [
       for (final e in f01Elements(header))
