@@ -889,9 +889,9 @@ failed-upload cleanup, and the limits of already-issued signed URLs.
 `POST /api/v1/uploads/screenshots` accepts one PNG, JPEG, or WebP image up to
 10MiB as multipart form data and returns the saved content with its asset metadata.
 Each multipart `tag_names` value must be valid UTF-8 regardless of the
-`Content-Type` charset parameter. After form parsing and authorization succeed,
-invalid tag bytes return `422` with `detail[0].loc` set to `["tag_names"]` and
-`detail[0].msg` set to
+`Content-Type` charset parameter. Invalid tag bytes return `422` after form parsing,
+authentication and authorization, and validation of the other body and header fields
+succeed. The error has `detail[0].loc` set to `["tag_names"]` and `detail[0].msg` set to
 `Value error, Tag name contains unsupported characters`. NUL in a decoded tag
 is rejected by the same tag name rules used for other saves.
 Images with invalid structure or undecodable pixel data return
