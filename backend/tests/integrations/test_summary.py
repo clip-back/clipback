@@ -78,3 +78,8 @@ async def test_youtube_and_instagram_send_the_same_summary_instructions():
         "번호", "마크다운", "되풀이", "재료", "단계", "추측",
     ]:
         assert phrase in youtube_section[0]
+    for instruction in [
+        "근거가 적으면 적게 쓰고 요점을 지어내지 마라",
+        "핵심 사실·수치·조건을 유지하라",
+    ]:
+        assert instruction in youtube_section[0]
