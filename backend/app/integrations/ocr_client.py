@@ -21,9 +21,11 @@ from app.integrations.summary import (
     MAX_POINT_LENGTH,
     MAX_SUMMARY_POINTS,
     SUMMARY_PROMPT,
+    SummaryError,
     join_headline_and_points,
 )
 from app.schemas.tag import clean_ai_tag_names
+from app.schemas.text import contains_unstorable_text
 
 MAX_OCR_TEXT_LENGTH = 5_000
 MAX_OCR_TITLE_LENGTH = 120
@@ -175,10 +177,17 @@ class OCRClient:
         text = self._normalize_ocr_text(parsed.text)
         if not text:
             return ScreenshotOCRResult(text="", title="", summary="")
+        title = self._normalize_inline_text(parsed.title, MAX_OCR_TITLE_LENGTH)
+        if contains_unstorable_text(title):
+            raise OCRClientInvalidResponseError
+        try:
+            summary = join_headline_and_points(parsed.headline, parsed.points, for_link=False)
+        except SummaryError as exc:
+            raise OCRClientInvalidResponseError from exc
         return ScreenshotOCRResult(
             text=text,
-            title=self._normalize_inline_text(parsed.title, MAX_OCR_TITLE_LENGTH),
-            summary=join_headline_and_points(parsed.headline, parsed.points, for_link=False),
+            title=title,
+            summary=summary,
             tag_names=clean_ai_tag_names(parsed.tags),
         )
 

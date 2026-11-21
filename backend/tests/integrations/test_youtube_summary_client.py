@@ -204,6 +204,45 @@ async def test_author_metadata_is_separate_user_data_alongside_the_video(metadat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title,description,expected",
+    [
+        ("OMIT-TITLE\ud800", "유효한 설명😀", ["유효한 설명😀"]),
+        ("유효한 제목", "OMIT-DESCRIPTION\udfff", ["유효한 제목"]),
+        ("OMIT-TITLE\ud800", "OMIT-DESCRIPTION\udfff", []),
+        (None, "가" * 2200 + "OMIT-TAIL\ud800", ["가" * 2200]),
+    ],
+)
+async def test_unencodable_author_metadata_does_not_block_the_video(
+    title, description, expected, caplog,
+):
+    preflight = video()
+    preflight["items"][0]["snippet"].update(title=title, description=description)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.method == "GET":
+            # A JSON escape can represent the lone surrogate in the upstream response.
+            return httpx.Response(200, content=json.dumps(preflight).encode("ascii"))
+        assert request.method == "POST"
+        return httpx.Response(200, json=output())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
+
+    preflight_request, gemini_request = requests
+    assert (preflight_request.method, gemini_request.method) == ("GET", "POST")
+    body = json.loads(gemini_request.content)
+    video_part, *text_parts = body["contents"][0]["parts"]
+    assert video_part == {"fileData": {"fileUri": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}}
+    assert [part["text"].split("\n", 1)[1] for part in text_parts] == expected
+    assert "OMIT-" not in gemini_request.content.decode("utf-8")
+    assert "OMIT-" not in caplog.text
+    assert result.summary == "핵심 내용\n• 세부 사항"
+
+
+@pytest.mark.asyncio
 async def test_gemini_title_instruction_uses_the_original_topic_without_copying():
     bodies = []
 

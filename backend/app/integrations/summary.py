@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.schemas.tag import clean_ai_tag_names
+from app.schemas.text import contains_unstorable_text
 
 MAX_TITLE_LENGTH = 120
 MAX_HEADLINE_LENGTH = 40
@@ -17,7 +18,8 @@ SUMMARY_PROMPT = (
     f"points는 주요 사실·수치·조건을 하나에 {MAX_POINT_LENGTH}자 안팎으로, "
     f"근거만큼 1–{MAX_SUMMARY_POINTS}개 쓰고 핵심 한 줄을 되풀이하지 마라. "
     "근거가 적으면 적게 쓰고 요점을 지어내지 마라. 핵심 사실·수치·조건을 유지하라. "
-    "레시피는 재료를 한 요점에 묶고 조리 단계는 번호 없이 순서대로 쓴다. "
+    "레시피는 근거에 있는 재료와 분량을 한 요점에 묶고 "
+    "조리 단계는 번호 없이 순서대로 한 요점씩 쓴다. "
     "모두 간결한 정보형·명사형 메모체로 쓰고 끝에 마침표를 찍지 마라. "
     "글머리 기호·번호·마크다운을 붙이지 마라. "
     '예: headline "성수동 카페 소개", points ["대표 메뉴와 가격", "영업시간과 휴무일"]. '
@@ -65,7 +67,7 @@ def validated_result(
     """
     summary = _joined_summary(headline, points)
     title = title.strip()
-    if not title or len(title) > MAX_TITLE_LENGTH:
+    if not title or len(title) > MAX_TITLE_LENGTH or contains_unstorable_text(title):
         raise SummaryError("invalid_response")
     if type(category_id) is not int or category_id not in {c["id"] for c in categories}:
         category_id = None
@@ -114,5 +116,7 @@ def join_headline_and_points(headline: str, points: list[str], *, for_link: bool
     if len(summary) > MAX_SUMMARY_LENGTH:
         if for_link:
             raise SummaryError("invalid_response")
-        return headline[:MAX_SUMMARY_LENGTH]
+        summary = headline[:MAX_SUMMARY_LENGTH]
+    if contains_unstorable_text(summary):
+        raise SummaryError("invalid_response")
     return summary

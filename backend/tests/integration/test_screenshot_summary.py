@@ -37,6 +37,30 @@ class ScreenshotOCRClient(OCRClient):
             DEFAULT_TITLE, None, id="parse-error",
         ),
         pytest.param(
+            {"points": ["요점"] * 5 + ["여섯째\x00요점"]}, "failed", "invalid_response",
+            DEFAULT_SUMMARY, DEFAULT_TITLE, None, id="retained-point-nul",
+        ),
+        pytest.param(
+            {"headline": "핵심\ud800"}, "failed", "invalid_response",
+            DEFAULT_SUMMARY, DEFAULT_TITLE, None, id="retained-headline-surrogate",
+        ),
+        pytest.param(
+            {"title": "생성\x00제목"}, "failed", "invalid_response",
+            DEFAULT_SUMMARY, DEFAULT_TITLE, None, id="retained-title-nul",
+        ),
+        pytest.param(
+            {"headline": "가" * 994, "points": ["a", "뒤\x00"]}, "success", None,
+            "가" * 994 + "\n• a", "화면 제목", EXTRACTED_TEXT, id="discarded-point-nul",
+        ),
+        pytest.param(
+            {"headline": "가" * 1000 + "\ud800", "points": []}, "success", None,
+            "가" * 1000, "화면 제목", EXTRACTED_TEXT, id="discarded-headline-surrogate",
+        ),
+        pytest.param(
+            {"title": "가" * 120 + "\x00"}, "success", None,
+            "핵심\n• 요점", "가" * 120, EXTRACTED_TEXT, id="discarded-title-nul",
+        ),
+        pytest.param(
             {"text": " \r\n "}, "no_text", None, DEFAULT_SUMMARY,
             DEFAULT_TITLE, "", id="no-text",
         ),

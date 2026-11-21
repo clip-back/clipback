@@ -578,3 +578,55 @@ async def test_nothing_is_logged_during_maintenance(api, make_worker):
     assert records == []
     detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
     assert detail["summary_status"] == "queued"
+
+
+@pytest.mark.parametrize("kind", ["youtube", "instagram"])
+@pytest.mark.parametrize(
+    "answer,expected_summary",
+    [
+        pytest.param({"points": ["요점"] * 5 + ["BAD-POINT\x00"]}, None, id="retained-nul"),
+        pytest.param({"title": "BAD-TITLE\x00"}, None, id="retained-title-nul"),
+        pytest.param(
+            {"headline": "가" * 994, "points": ["a", "DROPPED-POINT\x00"]},
+            "가" * 994 + "\n• a", id="dropped-nul",
+        ),
+    ],
+)
+async def test_generated_summary_text_finishes_the_job_with_usage(
+    api, make_worker, database_connection, kind, answer, expected_summary,
+):
+    if kind == "youtube":
+        client = youtube_client(gemini=lambda r: httpx.Response(200, json=output(**answer)))
+        url, usage = YOUTUBE_LINK, GEMINI_USAGE
+        provider = None if expected_summary is None else "gemini"
+    else:
+        client = instagram_client(openai=lambda r: completion(**answer))
+        url, provider, usage = REEL, "openai", OPENAI_USAGE
+    worker = make_worker(**{kind: client})
+    headers, content = await save(api, url)
+
+    result = await result_of(worker)
+
+    detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+    if expected_summary is None:
+        status, code = "failed", "invalid_response"
+        expected_summary = content["summary"]
+    else:
+        status, code = "completed", None
+    assert (detail["summary_status"], detail["summary_error_code"]) == (status, code)
+    assert detail["summary"] == expected_summary
+    assert (result["provider"], result["usage"], result["retryable"]) == (provider, usage, False)
+    assert result["error_code"] == code
+    serialized_result = json.dumps(result)
+    assert all(
+        marker not in serialized_result for marker in ("BAD-POINT", "BAD-TITLE", "DROPPED-POINT")
+    )
+
+    job = (
+        await database_connection.execute(
+            select(SummaryJob).where(SummaryJob.content_id == content["id"])
+        )
+    ).one()
+    assert (job.attempts, job.lease_token, job.lease_expires_at) == (1, None, None)
+    assert job.usage == [{"attempt": 1, "tokens": usage}]
+    assert not await worker.run_once()

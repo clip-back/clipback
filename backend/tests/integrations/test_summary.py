@@ -86,5 +86,7 @@ async def test_youtube_and_instagram_send_the_same_summary_instructions():
     for instruction in [
         "근거가 적으면 적게 쓰고 요점을 지어내지 마라",
         "핵심 사실·수치·조건을 유지하라",
+        "근거에 있는 재료와 분량을 한 요점에 묶고",
+        "조리 단계는 번호 없이 순서대로 한 요점씩 쓴다",
     ]:
         assert instruction in youtube_section[0]
