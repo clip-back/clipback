@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.models.auth_session import AuthSession
 from app.models.user import User
+from app.services.usage_limits import GUEST_SUMMARY_MONTHLY_LIMIT
 from tests.integration import test_youtube_summary
 from tests.integration.helpers import guest, request
 
@@ -48,9 +49,9 @@ async def test_guest_rejection_does_not_create_rows(api, database_connection):
     ] == before
 
 
-@pytest.mark.parametrize("logged_in,limit", [(False, 20), (True, 100)])
+@pytest.mark.parametrize("logged_in,limit", [(False, 20), (True, 30)])
 @pytest.mark.parametrize("shared", [False, True])
-async def test_daily_summary_boundary(api, monkeypatch, logged_in, limit, shared):
+async def test_monthly_summary_boundary(api, monkeypatch, logged_in, limit, shared):
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
     if logged_in:
         tokens = await request(api, "POST", "auth/social/kakao", json={"token": "daily-user"})
@@ -60,11 +61,11 @@ async def test_daily_summary_boundary(api, monkeypatch, logged_in, limit, shared
     for _ in range(limit):
         assert_summary(await save(api, headers, shared=shared))
     skipped = await save(api, headers, shared=shared)
-    assert_summary(skipped, "skipped", "daily_limit_exceeded")
+    assert_summary(skipped, "skipped", "monthly_limit_exceeded")
     assert_summary(
         await request(api, "GET", f"contents/{skipped['id']}", headers=headers),
         "skipped",
-        "daily_limit_exceeded",
+        "monthly_limit_exceeded",
     )
     other, _, _ = await guest(api)
     assert_summary(await save(api, other, shared=shared))
@@ -73,20 +74,20 @@ async def test_daily_summary_boundary(api, monkeypatch, logged_in, limit, shared
 async def test_daily_summary_kst_midnight(api, monkeypatch):
     from app.services import usage_limits
 
-    clock = [datetime(2026, 11, 16, 14, 59, 59, tzinfo=UTC)]
+    clock = [datetime(2026, 11, 30, 14, 59, 59, tzinfo=UTC)]
     monkeypatch.setattr(usage_limits, "now", lambda: clock[0])
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
     headers, _, _ = await guest(api)
     for _ in range(20):
         assert_summary(await save(api, headers))
-    assert_summary(await save(api, headers), "skipped", "daily_limit_exceeded")
-    clock[0] = datetime(2026, 11, 16, 15, 0, tzinfo=UTC)
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
+    clock[0] = datetime(2026, 11, 30, 15, 0, tzinfo=UTC)
     assert_summary(await save(api, headers))
 
 
 async def test_only_new_queued_jobs_count(api, monkeypatch, png_bytes):
     headers, _, _ = await guest(api)
-    # Disabled jobs, unsupported stories and inputs without jobs leave today's capacity intact.
+    # Disabled jobs, unsupported stories and inputs without jobs leave monthly capacity intact.
     assert_summary(await save(api, headers), "skipped", "disabled")
     monkeypatch.setattr(settings, "instagram_summary_enabled", True)
     assert_summary(
@@ -110,9 +111,9 @@ async def test_only_new_queued_jobs_count(api, monkeypatch, png_bytes):
     assert_summary(first)
     assert (await save(api, headers, key=key))["id"] == first["id"]
     await request(api, "DELETE", f"contents/{first['id']}", headers=headers, status=204)
-    for _ in range(19):
+    for _ in range(GUEST_SUMMARY_MONTHLY_LIMIT - 1):
         assert_summary(await save(api, headers))
-    assert_summary(await save(api, headers), "skipped", "daily_limit_exceeded")
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
 
 
 async def test_upgrade_preserves_count_with_logged_in_limit(api, monkeypatch):
@@ -120,15 +121,15 @@ async def test_upgrade_preserves_count_with_logged_in_limit(api, monkeypatch):
     headers, _, before = await guest(api)
     for _ in range(20):
         assert_summary(await save(api, headers))
-    assert_summary(await save(api, headers), "skipped", "daily_limit_exceeded")
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
     tokens = await request(
         api, "POST", "auth/social/kakao/upgrade", headers=headers, json={"token": "upgrade-daily"}
     )
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     assert (await request(api, "GET", "users/me", headers=headers))["id"] == before["id"]
-    for _ in range(80):
+    for _ in range(10):
         assert_summary(await save(api, headers))
-    assert_summary(await save(api, headers), "skipped", "daily_limit_exceeded")
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
 
 
 async def test_worker_retry_does_not_use_new_summary_capacity(api, worker):
@@ -141,16 +142,16 @@ async def test_worker_retry_does_not_use_new_summary_capacity(api, worker):
     assert await run.run_once()
     retried = await request(api, "GET", f"contents/{first['id']}", headers=headers)
     assert_summary(retried, "queued", "timeout")
-    for _ in range(19):
+    for _ in range(GUEST_SUMMARY_MONTHLY_LIMIT - 1):
         assert_summary(await save(api, headers))
-    assert_summary(await save(api, headers), "skipped", "daily_limit_exceeded")
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
 
 
 async def test_summary_kinds_and_save_entries_share_daily_count(api, monkeypatch):
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
     monkeypatch.setattr(settings, "instagram_summary_enabled", True)
     headers, _, _ = await guest(api)
-    for index in range(20):
+    for index in range(GUEST_SUMMARY_MONTHLY_LIMIT):
         assert_summary(
             await save(
                 api,
@@ -162,7 +163,7 @@ async def test_summary_kinds_and_save_entries_share_daily_count(api, monkeypatch
     assert_summary(
         await save(api, headers, url="https://instagram.com/p/XYZ789/"),
         "skipped",
-        "daily_limit_exceeded",
+        "monthly_limit_exceeded",
     )
 
 

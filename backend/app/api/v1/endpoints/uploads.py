@@ -28,7 +28,6 @@ from app.services.content_service import ContentService
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
-from app.services.usage_limits import DailySummaryLimit
 
 
 class _ScreenshotMultipartParser(MultiPartParser):
@@ -103,10 +102,7 @@ async def upload_screenshot(
         normalized_tag_names = TagNamesPayload(tag_names=tag_names).tag_names
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
-    return await _build_save_flow(
-        db,
-        summary_limit=request.app.state.daily_summary_limit,
-    ).save_screenshot(
+    return await _build_save_flow(db).save_screenshot(
         **({"idempotency_key": idempotency_key} if idempotency_key else {}),
         user_id=current_user_id,
         file=file,
@@ -181,12 +177,11 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
     )
 
 
-def _build_save_flow(db: AsyncSession, *, summary_limit: DailySummaryLimit) -> ContentSaveFlow:
+def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
     uploads = _build_upload_service(db)
     category_repository = CategoryRepository(db)
     return ContentSaveFlow(
         ContentService(
-            summary_limit=summary_limit,
             content_repository=ContentRepository(db),
             category_repository=category_repository,
             event_repository=EventRepository(db),

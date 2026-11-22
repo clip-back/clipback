@@ -43,8 +43,8 @@
   See [YouTube API, worker and rollout guide](../youtube-summary.md); enabled by default; Gemini and YouTube API keys are required.
 - Summarize saved Instagram reels/posts (`/reel/`, `/p/`, `/tv/`) asynchronously from the public page caption with OpenAI;
   disabled by default (`INSTAGRAM_SUMMARY_ENABLED`), see the Instagram section of the same guide.
-  저장 시 새로 `queued`로 만드는 자동 요약은 계정별 KST 하루 게스트 20개·로그인 100개까지이며, 초과해도 저장은 201로 성공하고 `skipped`·`daily_limit_exceeded`를 반환한다. 재시도는 세지 않는다.
-  `summary_error_code` also returns `content_unavailable`, `unsupported_content`, `insufficient_content` and `daily_limit_exceeded` (always `skipped`).
+  저장 시 새로 `queued`로 만드는 링크 자동 요약의 한도는 계정별 한국 시간 달력 월 기준으로 게스트 20건·로그인 30건이다. 한도에 도달해도 저장은 201로 성공하고 `skipped`·`monthly_limit_exceeded`를 반환한다. 재요청과 요약 재시도는 기록을 추가하지 않는다.
+  `summary_error_code`에는 `content_unavailable`, `unsupported_content`, `insufficient_content`, `monthly_limit_exceeded`가 포함된다. 기존 `skipped` 작업에서는 `daily_limit_exceeded`도 반환할 수 있다.
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.

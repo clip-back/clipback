@@ -23,6 +23,7 @@ from app.models.share_receipt import ShareReceipt
 from app.models.social_identity import SocialIdentity, SocialProvider
 from app.models.summary_job import SummaryJob
 from app.models.tag import Tag
+from app.models.usage_record import UsageRecord
 from app.models.user import User
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "SocialProvider",
     "Tag",
     "SummaryJob",
+    "UsageRecord",
     "User",
     "content_categories",
     "content_tags",

@@ -91,7 +91,7 @@ async def test_queued_summary_adds_tags_to_detail_without_logging_them(
 
 
 @pytest.mark.parametrize(
-    "reason,status", [("disabled", "skipped"), ("daily_limit_exceeded", "skipped"),
+    "reason,status", [("disabled", "skipped"), ("monthly_limit_exceeded", "skipped"),
                       ("video_unavailable", "skipped"), ("invalid_response", "failed")],
 )
 async def test_skipped_and_failed_summaries_do_not_add_tags(
@@ -105,8 +105,8 @@ async def test_skipped_and_failed_summaries_do_not_add_tags(
     headers, _, user = await guest(api)
     if reason == "disabled":
         monkeypatch.setattr(settings, "youtube_summary_enabled", False)
-    elif reason == "daily_limit_exceeded":
-        monkeypatch.setattr(usage_limits, "GUEST_SUMMARY_DAILY_LIMIT", 1)
+    elif reason == "monthly_limit_exceeded":
+        monkeypatch.setattr(usage_limits, "GUEST_SUMMARY_MONTHLY_LIMIT", 1)
         await link(api, headers, original_url=REEL)
         monkeypatch.setattr(settings, "instagram_summary_enabled", False)
     content = await link(api, headers, original_url=YOUTUBE_LINK)

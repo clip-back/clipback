@@ -34,18 +34,23 @@ si/list 등은 제거하며 Gemini에는 재생 시점 없는 전체 영상 URL�
 직접 입력의 비어 있지 않은 제목·요약은 보존하고, 사용자가 선택한 카테고리는 자동 결과로 덮어쓰지 않는다.
 
 오류 코드는 timeout, provider_error, invalid_response, configuration_error,
-video_unavailable, duration_exceeded, live_not_supported, disabled, daily_limit_exceeded와
+video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limit_exceeded, 호환용 daily_limit_exceeded와
 인스타그램용 content_unavailable, unsupported_content, insufficient_content로 제한된다.
 일시 장애 재시도 대기 중에는 queued와 직전 오류 코드가 반환될 수 있다.
 
-## 하루 자동 요약 상한
+## AI 요약 월 한도
 
-KST 자정 기준으로 저장 시 새로 `queued`에 들어간 작업만 계정별로 센다(게스트 20개·로그인 100개).
-초과해도 링크 저장은 성공하며 작업은 `skipped`·`daily_limit_exceeded`가 된다.
-종류 스위치로 제외된 작업·지원하지 않는 스토리·요약 대상이 아닌 입력·같은 제출 키 재요청·worker 재시도는 세지 않는다.
-콘텐츠를 지워도 수는 줄지 않고, 저장 트랜잭션 실패 시에도 이미 센 수를 되돌리지 않는다.
-게스트가 로그인 계정으로 전환되면 같은 계정의 수를 이어서 로그인 상한을 적용한다.
-API 프로세스 메모리의 수는 재시작 때 비워진다. 앱은 기존 `skipped` 표시를 사용하며 새 오류 코드를 읽지 않는 배포 앱과도 호환된다.
+유튜브와 인스타그램 링크를 저장할 때 새로 `queued`가 된 작업을 계정별로 같은 수에 합산한다.
+판정 시각의 한국 시간 달력 월을 기준으로 게스트는 20건, 로그인 계정은 30건까지 허용한다.
+한도에 도달해도 링크 저장은 성공하며 작업은 `skipped`·`monthly_limit_exceeded`가 된다.
+서로 다른 제출이 동시에 같은 건수를 보면 한도를 넘길 수 있다.
+꺼진 종류, 지원하지 않는 스토리, 요약 대상이 아닌 입력, 같은 제출 키 재요청, worker 재시도는 기록을 추가하지 않는다.
+
+사용 기록은 콘텐츠·이벤트·작업과 같은 DB 트랜잭션에 저장해 재시작 뒤에도 이어진다.
+저장 트랜잭션이 실패하면 기록도 함께 되돌린다. 작업이 최종 실패하거나 건너뛰면 같은 트랜잭션에서 기록을 지운다.
+콘텐츠 삭제 시 기록을 유지하고, 계정 삭제 시 함께 지운다. 게스트가 로그인으로 전환되면 건수를 이어서 로그인 한도를 적용한다.
+새 사용 기록을 남길 때 그 계정에서 지난달 1일 0시(한국 시간) 이전의 기록을 지운다.
+배포 앱은 기존 `skipped` 표시를 사용한다.
 
 ## 분석 조건
 

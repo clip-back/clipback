@@ -19,6 +19,7 @@ from app.repositories.category_repository import CategoryRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
+from app.repositories.usage_record_repository import UsageRecordRepository
 from app.services.summary_kinds import summary_kinds
 
 # The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
@@ -69,6 +70,7 @@ class SummaryWorker:
             if job.attempts >= 2:
                 job.status, job.error_code = "failed", "timeout"
                 job.lease_token = job.lease_expires_at = None
+                await UsageRecordRepository(session).release_summary(job.content_id)
                 return None
             recovered = job.status == "processing"
             job.status = "processing"
@@ -210,6 +212,7 @@ class SummaryWorker:
                     job.next_run_at = now + timedelta(seconds=30)
                 else:
                     job.status = "skipped" if error.skipped else "failed"
+                    await UsageRecordRepository(session).release_summary(content_id)
                 return
             if result is None:
                 raise ValueError("Summary result is required")

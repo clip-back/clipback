@@ -1,20 +1,21 @@
-"""API 프로세스 수명 동안의 게스트 발급·저장 시 자동 요약 상한."""
+"""게스트 발급 상한과 계정별 AI 요약 월 한도."""
 
 import json
 import logging
 import time
 from collections import Counter, deque
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Address, ip_address
 
 from fastapi import HTTPException, Request
 
 from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
+from app.repositories.usage_record_repository import AI_SUMMARY, UsageRecordRepository
 
 GUEST_IP_HOURLY_LIMIT = 20
 GUEST_GLOBAL_HOURLY_LIMIT = 300
-GUEST_SUMMARY_DAILY_LIMIT = 20
-MEMBER_SUMMARY_DAILY_LIMIT = 100
+GUEST_SUMMARY_MONTHLY_LIMIT = 20
+MEMBER_SUMMARY_MONTHLY_LIMIT = 30
 GUEST_LIMIT_MESSAGE = "지금은 게스트로 시작할 수 없어요. 잠시 후 다시 시도해 주세요."
 logger = logging.getLogger(__name__)
 
@@ -64,19 +65,30 @@ class GuestIssuanceLimit:
             self._issued.append((monotonic(), ip))
 
 
-class DailySummaryLimit:
-    def __init__(self):
-        self._day = None
-        self._counts: Counter[int] = Counter()
+def month_start(at: datetime) -> datetime:
+    return at.astimezone(RECOMMENDATION_TIMEZONE).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0,
+    )
 
-    def admit(self, user_id: int, *, is_guest: bool) -> bool:
-        day = now().astimezone(RECOMMENDATION_TIMEZONE).date()
-        if day != self._day:
-            self._counts.clear()
-            self._day = day
-        limit = GUEST_SUMMARY_DAILY_LIMIT if is_guest else MEMBER_SUMMARY_DAILY_LIMIT
-        if self._counts[user_id] >= limit:
-            logger.info(json.dumps({"event": "summary_daily_limit_exceeded", "user_id": user_id}))
-            return False
-        self._counts[user_id] += 1
-        return True
+
+class MonthlySummaryLimit:
+    def __init__(self, records: UsageRecordRepository) -> None:
+        self.records = records
+
+    async def admit(self, user_id: int, *, is_guest: bool, kind: str) -> datetime | None:
+        decided_at = now()
+        start = month_start(decided_at)
+        end = month_start(start + timedelta(days=31))
+        limit = GUEST_SUMMARY_MONTHLY_LIMIT if is_guest else MEMBER_SUMMARY_MONTHLY_LIMIT
+        if await self.records.count(user_id, kind=AI_SUMMARY, start=start, end=end) >= limit:
+            logger.info(json.dumps({
+                "event": "summary_monthly_limit_exceeded", "user_id": user_id, "kind": kind,
+            }))
+            return None
+        return decided_at
+
+    async def record(self, user_id: int, *, content_id: int, decided_at: datetime) -> None:
+        await self.records.add(
+            user_id=user_id, kind=AI_SUMMARY, recorded_at=decided_at, content_id=content_id,
+            retain_from=month_start(month_start(decided_at) - timedelta(days=1)),
+        )

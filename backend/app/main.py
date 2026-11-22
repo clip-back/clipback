@@ -85,10 +85,9 @@ def create_app(*, maintenance=None) -> FastAPI:
     from app.middleware.body_size_limit import BodySizeLimitMiddleware
     from app.middleware.maintenance import MaintenanceMiddleware
     from app.services.maintenance import default_gate
-    from app.services.usage_limits import DailySummaryLimit, GuestIssuanceLimit
+    from app.services.usage_limits import GuestIssuanceLimit
 
     app.state.guest_issuance_limit = GuestIssuanceLimit()
-    app.state.daily_summary_limit = DailySummaryLimit()
     app.state.maintenance = maintenance or default_gate()
     app.add_middleware(
         CORSMiddleware,

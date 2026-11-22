@@ -51,7 +51,7 @@ from app.services.extraction_service import ExtractionService, serialize_event_m
 from app.services.image_deletion_service import delete_image_content
 from app.services.link_url import instagram_post_type
 from app.services.summary_kinds import new_summary_job
-from app.services.usage_limits import DailySummaryLimit
+from app.services.usage_limits import MonthlySummaryLimit
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -146,7 +146,7 @@ class ContentService:
         storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
         extraction_service: ExtractionService | None = None,
-        summary_limit: DailySummaryLimit | None = None,
+        summary_limit: MonthlySummaryLimit | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -315,9 +315,16 @@ class ContentService:
             if job is not None:
                 if job.status == "queued" and self.summary_limit is not None:
                     user = await UserRepository(self.content_repository.session).get(user_id)
-                    if not self.summary_limit.admit(user_id, is_guest=user.is_guest):
+                    decided_at = await self.summary_limit.admit(
+                        user_id, is_guest=user.is_guest, kind=job.kind,
+                    )
+                    if decided_at is None:
                         job.status = "skipped"
-                        job.error_code = "daily_limit_exceeded"
+                        job.error_code = "monthly_limit_exceeded"
+                    else:
+                        await self.summary_limit.record(
+                            user_id, content_id=content.id, decided_at=decided_at,
+                        )
                 self.content_repository.session.add(job)
         if asset is not None:
             await self.content_asset_repository.create(
