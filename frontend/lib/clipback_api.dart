@@ -725,6 +725,23 @@ class ClipbackApi {
   Future<ApiUserStats> readStats() async =>
       ApiUserStats.fromJson(await _json('GET', '/users/me/stats'));
 
+  /// [readMe] and [readStats] for a background re-read (#460): sent once with
+  /// the current access token; a 401 fails without refreshing the login or
+  /// ending the session.
+  Future<ApiUser> readMeOnce() async {
+    final generation = _sessionGeneration;
+    final user = ApiUser.fromJson(
+      await _json('GET', '/users/me', retryUnauthorized: false),
+    );
+    _checkSessionGeneration(generation);
+    _assetUserId = user.id;
+    return user;
+  }
+
+  Future<ApiUserStats> readStatsOnce() async => ApiUserStats.fromJson(
+    await _json('GET', '/users/me/stats', retryUnauthorized: false),
+  );
+
   /// Only 204 deletes. A 401 has already gone through the usual session
   /// invalidation. The whole submission, refresh and resend included, ends at
   /// 60 seconds; a later answer is ignored (U5, R4).
@@ -883,8 +900,17 @@ class ClipbackApi {
   Future<void> recordContentView(int contentId) =>
       _json('POST', '/contents/$contentId/view');
 
-  Future<List<ApiCategory>> listCategories() async {
-    final response = await _request('GET', '/categories');
+  Future<List<ApiCategory>> listCategories() async =>
+      _parseCategories(await _request('GET', '/categories'));
+
+  /// [listCategories] for a background re-read (#460): sent once with the
+  /// current access token; a 401 fails without refreshing the login or
+  /// ending the session.
+  Future<List<ApiCategory>> listCategoriesOnce() async => _parseCategories(
+    await _request('GET', '/categories', retryUnauthorized: false),
+  );
+
+  List<ApiCategory> _parseCategories(http.Response response) {
     _throwForError(response);
     final body = jsonDecode(response.body);
     if (body is! List) throw const FormatException('Invalid category list');
@@ -1366,6 +1392,37 @@ class ClipbackApi {
     if (cursor != null) parameters['cursor'] = cursor;
     final queryString = Uri(queryParameters: parameters).query;
     return ApiFeed.fromJson(await _json('GET', '/feed?$queryString'));
+  }
+
+  /// [readFeed] for a background re-read (#460): a 200 reply without an
+  /// `items` list is a failure, not an empty page, and a 401 fails without
+  /// refreshing the login or ending the session (sent once with the current
+  /// access token). [readFeed] keeps its parsing and login refresh for every
+  /// other caller.
+  Future<ApiFeed> readFeedStrict({
+    String? query,
+    int? categoryId,
+    bool? isFavorite,
+    String? sort,
+    int limit = 100,
+    String? cursor,
+  }) async {
+    final parameters = <String, String>{'limit': '$limit'};
+    if (query != null && query.isNotEmpty) parameters['q'] = query;
+    if (categoryId != null) parameters['category_id'] = '$categoryId';
+    if (isFavorite != null) parameters['is_favorite'] = '$isFavorite';
+    if (sort != null) parameters['sort'] = sort;
+    if (cursor != null) parameters['cursor'] = cursor;
+    final queryString = Uri(queryParameters: parameters).query;
+    final json = await _json(
+      'GET',
+      '/feed?$queryString',
+      retryUnauthorized: false,
+    );
+    if (json['items'] is! List) {
+      throw const ClipbackApiException('Malformed feed response');
+    }
+    return ApiFeed.fromJson(json);
   }
 
   Future<void> createCategoryFilterEvent(int categoryId) => _json(

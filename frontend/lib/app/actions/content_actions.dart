@@ -49,6 +49,27 @@ class ContentActions {
     return current();
   }
 
+  /// Re-reads the shown lists on resume or home/archive re-entry (#460).
+  /// Waiting and failure stay silent; the next resume or re-entry retries.
+  Future<void> refreshInBackground() async {
+    if (_disposed) return;
+    final generation = content.accountVersion;
+    // A My stats read already running now, or started from here on, wins over
+    // this follow-up whichever finishes first (its success, failure or retry
+    // stays). Background stats never set the loading state, so it marks a
+    // user read.
+    final statsReadSince = users.statsReadVersion;
+    final statsReadRunning = users.statsStatus == UserStatsStatus.loading;
+    if (!await content.refreshInBackground()) return;
+    bool current() => _current(generation);
+    if (!current() || statsReadRunning) return;
+    // A stats read the user started wins; failures stay silent.
+    await users.refreshInBackground(
+      isCurrent: current,
+      statsReadSince: statsReadSince,
+    );
+  }
+
   Future<void> refresh(ContentFeedback feedback) async {
     if (_disposed) return;
     final ticket = content.beginRefresh();
