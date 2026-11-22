@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 
@@ -42,6 +42,15 @@ class CategoryRecommendationResult:
     assignment_method: CategoryAssignmentMethod
     failure_reason: CategoryRecommendationFailureReason | None
     tag_names: list[str] = field(default_factory=list)
+    elapsed_seconds: float | None = field(default=None, compare=False, repr=False)
+
+
+def log_category_recommendation(result: CategoryRecommendationResult) -> None:
+    if result.elapsed_seconds is not None:
+        log_save_step(
+            logger, "category_recommendation", result.elapsed_seconds,
+            result.assignment_method, result.failure_reason,
+        )
 
 
 class CategoryRecommendationService:
@@ -107,11 +116,7 @@ class CategoryRecommendationService:
                     failure_reason=None,
                     tag_names=tag_names,
                 )
-        log_save_step(
-            logger, "category_recommendation", elapsed_seconds,
-            result.assignment_method, result.failure_reason,
-        )
-        return result
+        return replace(result, elapsed_seconds=elapsed_seconds)
 
     @staticmethod
     def _fallback(

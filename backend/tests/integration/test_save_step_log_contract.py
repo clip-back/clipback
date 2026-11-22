@@ -10,10 +10,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select
 
+from app.api.v1.endpoints import uploads
+from app.core.config import Settings
 from app.integrations.metadata_client import MetadataClient, MetadataResult, UnsafeUrlError
 from app.models.category import Category
 from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent, ContentEventType
+from app.repositories.category_repository import CategoryRepository
 from app.services import (
     category_recommendation_service,
     extraction_service,
@@ -135,16 +138,18 @@ def upstream(save_provider, monkeypatch):
     def monotonic():
         return now
 
-    def spend_time():
+    def spend_time(seconds=0.12345):
         nonlocal now
-        now += 0.12345
+        now += seconds
 
     for module in (
         extraction_service, share_intake_service, category_recommendation_service, upload_service,
     ):
         monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=monotonic), raising=False)
 
-    state = SimpleNamespace(provider=save_provider, metadata_calls=[], metadata_reason=None)
+    state = SimpleNamespace(
+        provider=save_provider, metadata_calls=[], metadata_reason=None, spend_time=spend_time,
+    )
     save_provider.recommendation = {"tags": [TAG], "extra": RAW_RESPONSE}
     save_provider.ocr = {
         "text": OCR_TEXT, "title": OCR_TITLE, "headline": OCR_SUMMARY, "points": [],
@@ -246,24 +251,33 @@ async def test_rejected_link_logs_the_attempted_step(
     pytest.param("no-text", [("screenshot_ocr", "no_text", None)], id="no-text"),
     pytest.param("timeout", [("screenshot_ocr", "failed", "timeout")], id="timeout"),
     pytest.param("missing-field", [("screenshot_ocr", "failed", "invalid_response")], id="invalid"),
+    pytest.param("connection", [("screenshot_ocr", "failed", "error")], id="error"),
+    pytest.param(
+        "not-configured", [("screenshot_ocr", "failed", "not_configured")], id="not-configured",
+    ),
 ])
 async def test_screenshot_save_steps_match_event_metadata(
-    api, upstream, save_logs, png_bytes, database_connection, case, expected,
+    api, upstream, save_logs, png_bytes, database_connection, monkeypatch, case, expected,
 ):
     headers, _, _ = await guest(api)
     if case == "no-text":
         upstream.provider.ocr["text"] = ""
-    elif case == "timeout":
-        upstream.provider.error = "timeout"
+    elif case in ("timeout", "connection"):
+        upstream.provider.error = case
     elif case == "missing-field":
         del upstream.provider.ocr["text"]
+    elif case == "not-configured":
+        ocr = ProviderOCR(Settings(app_environment="test", openai_api_key=None, _env_file=None))
+        monkeypatch.setattr(uploads, "get_ocr_client", lambda: ocr)
     image = png_bytes + IMAGE
     saved = await request(
         api, "POST", "uploads/screenshots", headers=headers, status=201,
         files={"file": ("image.png", image, "image/png")},
     )
 
-    assert upstream.provider.calls == (["ocr", "recommend"] if case == "text" else ["ocr"])
+    expected_calls = {"text": ["ocr", "recommend"], "not-configured": []}
+    assert upstream.provider.calls == expected_calls.get(case, ["ocr"])
+    assert save_logs.rendered.getvalue().count("Screenshot OCR failed") == (case == "connection")
     metadata = await created_metadata(database_connection, saved["id"])
     assert (metadata["ocr_status"], metadata["ocr_failure_reason"]) == expected[0][1:]
     asset = (await database_connection.execute(
@@ -303,6 +317,68 @@ async def test_recommendation_log_matches_event_metadata(
     assert (
         metadata["category_assignment_method"], metadata["category_recommendation_failure_reason"],
     ) == expected[1:]
+
+
+@pytest.mark.parametrize("error,reason", [("timeout", "timeout"), ("connection", "error")])
+async def test_recommendation_client_error_logs_once(
+    api, upstream, save_logs, database_connection, error, reason,
+):
+    headers, _, _ = await guest(api)
+    upstream.provider.error = error
+    saved = await request(
+        api, "POST", "contents", headers=headers, status=201, json={"original_url": WEB},
+    )
+
+    assert_steps(save_logs, [LINK_OK, ("category_recommendation", "uncategorized", reason)])
+    assert upstream.provider.calls == ["recommend"]
+    metadata = await created_metadata(database_connection, saved["id"])
+    assert metadata["category_assignment_method"] == "uncategorized"
+    assert metadata["category_recommendation_failure_reason"] == reason
+
+
+@pytest.mark.parametrize("route,prior_steps,tags", [
+    pytest.param("contents", [LINK_OK], [TAG], id="link"),
+    pytest.param("contents/share", [SHARE_OK, LINK_OK], [], id="share"),
+    pytest.param("uploads/screenshots", [OCR_OK], [TAG], id="screenshot"),
+])
+async def test_recommendation_log_uses_final_category_when_recheck_misses(
+    api, upstream, save_logs, database_connection, monkeypatch, png_bytes, route, prior_steps, tags,
+):
+    headers, _, user = await guest(api)
+    category = await request(
+        api, "POST", "categories", headers=headers, status=201, json={"name": CATEGORY},
+    )
+    category_id = category["id"]
+    upstream.provider.recommendation["category_id"] = category_id
+    list_available = CategoryRepository.list_available_by_ids
+    rechecks = []
+
+    async def delete_before_recheck(repository, *, user_id, category_ids):
+        assert user_id == user["id"]
+        assert category_ids == [category_id]
+        assert upstream.provider.calls[-1:] == ["recommend"]
+        rechecks.append([record["step"] for _, _, record in save_logs.records])
+        upstream.spend_time(5.0)
+        await repository.session.execute(delete(Category).where(Category.id == category_id))
+        return await list_available(repository, user_id=user_id, category_ids=category_ids)
+
+    monkeypatch.setattr(CategoryRepository, "list_available_by_ids", delete_before_recheck)
+    arguments = {
+        "contents": {"json": {"original_url": WEB}},
+        "contents/share": {"json": {"url": SHARE}},
+        "uploads/screenshots": {"files": {"file": ("image.png", png_bytes, "image/png")}},
+    }
+    saved = await request(api, "POST", route, headers=headers, status=201, **arguments[route])
+
+    expected = ("category_recommendation", "uncategorized", "error")
+    assert_steps(save_logs, [*prior_steps, expected])
+    assert rechecks == [[step for step, _, _ in prior_steps]]
+    assert [category["name"] for category in saved["categories"]] == ["미분류"]
+    assert [tag["name"] for tag in saved["tags"]] == tags
+    metadata = await created_metadata(database_connection, saved["id"])
+    assert metadata["recommended_category_id"] == category_id
+    assert metadata["category_assignment_method"] == expected[1]
+    assert metadata["category_recommendation_failure_reason"] == expected[2]
 
 
 @pytest.mark.parametrize("absent", ["candidates", "input"])
