@@ -209,6 +209,10 @@ class RemoteContentRepository extends ContentRepository {
   // user read of one of its lists, cancels it so its replies are discarded.
   int _backgroundGeneration = 0;
   Set<FeedKey> _backgroundTargets = const {};
+  // Owns the background re-read's HTTP requests. Cancelling it stops a
+  // discarded read before it refreshes the login or ends the session; a
+  // refresh shared with a live user request stays with that request.
+  ApiRequestScope? _backgroundScope;
   ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
@@ -506,6 +510,8 @@ class RemoteContentRepository extends ContentRepository {
   void _cancelBackground() {
     _backgroundGeneration++;
     _backgroundTargets = const {};
+    _backgroundScope?.cancel();
+    _backgroundScope = null;
   }
 
   @override
@@ -529,7 +535,8 @@ class RemoteContentRepository extends ContentRepository {
     ];
     if (targets.isEmpty) return false;
     // A newer re-entry replaces an older background read still waiting.
-    final generation = ++_backgroundGeneration;
+    _cancelBackground();
+    final generation = _backgroundGeneration;
     _backgroundTargets = {for (final target in targets) target.key};
     final account = _accountVersion;
     final refreshVersion = _refreshVersion;
@@ -544,15 +551,28 @@ class RemoteContentRepository extends ContentRepository {
               target.page.version == target.version &&
               target.page.filter == target.filter,
         );
+    final scope = ApiRequestScope(isCurrent: current);
+    _backgroundScope = scope;
     final read = _beginContentRead();
     try {
       final staged = await Future.wait([
-        for (final target in targets) _readShownPages(target.page, current),
+        for (final target in targets)
+          scope.run(() => _readShownPages(target.page, current)),
       ]);
       if (!current()) return false;
       // Read directly: a user category read is neither cancelled nor
       // superseded, and nothing is published before the lists.
-      final categories = await _api.listCategories();
+      final categories = await scope.run(_api.listCategories);
+      // A user category read that started earlier publishes first; this
+      // newer batch follows it so an older count cannot overwrite it.
+      for (
+        var user = _categoryReadScope;
+        user != null;
+        user = _categoryReadScope
+      ) {
+        await user.cancelled;
+        if (!current()) return false;
+      }
       if (!current() || categoryRead != _categoryReadVersion) return false;
       // A newer detail, today or change reply replaced a shown item; this
       // older snapshot must not undo it.
@@ -591,13 +611,17 @@ class RemoteContentRepository extends ContentRepository {
       return false;
     } finally {
       _endContentRead(read.key);
-      if (generation == _backgroundGeneration) _backgroundTargets = const {};
+      scope.cancel();
+      if (generation == _backgroundGeneration) {
+        _backgroundTargets = const {};
+        _backgroundScope = null;
+      }
     }
   }
 
   /// Reads the shown extent of one list for a background re-read. Checks the
   /// generation before every request and after every reply, and fails when a
-  /// page makes no progress (its next cursor is the cursor just sent).
+  /// page makes no progress (a next cursor this list already used).
   Future<(List<ApiContent>, String?, int?, bool)> _readShownPages(
     _FeedState page,
     bool Function() current,
@@ -607,9 +631,11 @@ class RemoteContentRepository extends ContentRepository {
     String? cursor;
     int? totalCount;
     var hasMore = true;
+    final used = <String>{};
     do {
       if (!current()) throw const _BackgroundCancelled();
       final sent = cursor;
+      if (sent != null) used.add(sent);
       final response = await _api.readFeedStrict(
         limit: 20,
         query: page.query,
@@ -623,7 +649,7 @@ class RemoteContentRepository extends ContentRepository {
       totalCount = response.totalCount;
       cursor = response.nextCursor;
       hasMore = cursor != null;
-      if (hasMore && cursor == sent) {
+      if (hasMore && used.contains(cursor)) {
         throw StateError('Feed cursor made no progress');
       }
     } while (hasMore && (items.isEmpty || items.length < targetCount));

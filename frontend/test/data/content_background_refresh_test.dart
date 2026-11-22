@@ -372,9 +372,13 @@ void main() {
             ++reads == 1 ? [await gate.future] : [_travel];
         final user = repo.readCurrentCategories();
         final bg = repo.refreshInBackground();
-        expect(await bg, isTrue);
+        // 배경은 먼저 시작한 사용자 읽기의 게시를 기다린다(그 요청을 취소·대체하지 않는다).
+        await Future<void>.delayed(Duration.zero);
+        expect(reads, 2);
         gate.complete(_study);
         expect((await user).categories.single.id, 1);
+        expect(await bg, isTrue);
+        expect(repo.categories.single.id, 2, reason: '나중 묶음이 뒤에 게시');
       },
     );
 
@@ -451,5 +455,77 @@ void main() {
       expect(cursors, [null, 'same']);
       expect(titles(FeedKey.home), ['original']);
     });
+
+    // 최종 재검수 Spec 4: 두 커서가 번갈아 나와도 이미 쓴 커서면 멈춘다.
+    test('alternating cursors A, B, A end the background read', () async {
+      final cursors = <String?>[];
+      api.onFeed = (r) async {
+        cursors.add(r.cursor);
+        if (cursors.length == 6) throw StateError('test fuse');
+        return ApiFeed(items: [], nextCursor: r.cursor == 'A' ? 'B' : 'A');
+      };
+      expect(await repo.refreshInBackground(), isFalse);
+      expect(cursors, [null, 'A', 'B']);
+      expect(titles(FeedKey.home), ['original']);
+    });
+
+    // 최종 재검수 Spec 3: 먼저 시작한 사용자 카테고리 읽기가 게시된 뒤 배경 묶음이 게시된다.
+    // 검수 원본은 배경 완료를 먼저 기다린 뒤 사용자 응답을 풀었다. 이 설계에서는 배경이 사용자
+    // 응답 게시를 기다리므로, 배경이 응답을 다 받은 뒤 사용자 응답을 풀어 최종 상태를 본다.
+    test(
+      'an earlier user category read publishes first; the newer batch follows',
+      () async {
+        ApiCategory counted(int n) => ApiCategory(
+          id: 3,
+          name: '미분류',
+          color: null,
+          isDefault: true,
+          contentCount: n,
+        );
+        final gate = Completer<List<ApiCategory>>();
+        var calls = 0;
+        api.onCategories = () =>
+            ++calls == 1 ? gate.future : Future.value([counted(1)]);
+        final user = repo.readCurrentCategories();
+        api.onFeed = (_) async => ApiFeed(items: [_item(title: 'done')]);
+        final bg = repo.refreshInBackground();
+        await Future<void>.delayed(Duration.zero);
+        expect(calls, 2, reason: '배경도 카테고리를 읽었다');
+        expect(titles(FeedKey.home), ['original'], reason: '사용자 읽기 게시 전');
+        gate.complete([counted(2)]);
+        expect((await user).current, isTrue);
+        expect(await bg, isTrue);
+        expect(repo.categories.single.contentCount, 1);
+        expect(titles(FeedKey.home), ['done']);
+      },
+    );
+
+    // 최종 재검수 Standards 1: 첫 알림에서 모든 대상 목록과 카테고리가 함께 바뀌어 있다.
+    test(
+      'every target list and the categories change at the single notification',
+      () async {
+        await repo.loadNext(FeedKey.archive);
+        final categoriesBefore = repo.categories.length;
+        api.onFeed = (_) async => ApiFeed(items: [_item(title: 'done')]);
+        api.onCategories = () async => const [_travel];
+        final seen = <List<Object>>[];
+        repo.addListener(
+          () => seen.add([
+            titles(FeedKey.home).single,
+            titles(FeedKey.archive).single,
+            repo.categories.map((c) => c.id).toList(),
+          ]),
+        );
+        expect(await repo.refreshInBackground(), isTrue);
+        expect(categoriesBefore, 0);
+        expect(seen, [
+          [
+            'done',
+            'done',
+            [2],
+          ],
+        ]);
+      },
+    );
   });
 }

@@ -91,6 +91,10 @@ class _Server {
   // While set, every feed read waits for it. The reply carries the items as
   // they were when the request arrived; failures are judged after the wait.
   Completer<void>? feedGate;
+  // While set, the first GET /users/me/stats waits for it and succeeds;
+  // later stats reads answer 503 (a competing second read would fail).
+  Completer<void>? statsGate;
+  int gatedStats = 0;
   // A malformed 200 body for every feed read while set.
   Map<String, Object?>? invalidFeed;
 
@@ -179,6 +183,13 @@ class _Server {
           'linked_providers': <String>[],
         });
       case _stats:
+        if (statsGate != null) {
+          if (++gatedStats == 1) {
+            await statsGate!.future;
+          } else {
+            return _json({'detail': 'temporary'}, 503);
+          }
+        }
         return _json({
           'saved_count': items.length,
           'reopened_count': 0,
@@ -862,4 +873,37 @@ void main() {
       });
     });
   }
+
+  testWidgets(
+    '18 a My stats read the user started survives a background read finishing',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        final feed = Completer<void>();
+        server.feedGate = feed;
+        await _background(tester);
+        await _foreground(tester, settle: false);
+        await tester.pump();
+        final stats = Completer<void>();
+        server.statsGate = stats;
+        await tester.tap(
+          find.descendant(
+            of: find.byType(ClipbackNavigationBar),
+            matching: find.text('마이'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(server.gatedStats, 1);
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        server.feedGate = null;
+        feed.complete();
+        await tester.pumpAndSettle();
+        expect(server.gatedStats, 1, reason: '배경 후속이 통계를 다시 읽지 않는다');
+        stats.complete();
+        await tester.pumpAndSettle();
+        expect(find.text('마지막 확인값 · 새로 불러오지 못했어요'), findsNothing);
+        expect(server.gatedStats, 1);
+      });
+    },
+  );
 }
