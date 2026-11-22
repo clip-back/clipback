@@ -209,10 +209,14 @@ class RemoteContentRepository extends ContentRepository {
   // user read of one of its lists, cancels it so its replies are discarded.
   int _backgroundGeneration = 0;
   Set<FeedKey> _backgroundTargets = const {};
-  // Owns the background re-read's HTTP requests. Cancelling it stops a
-  // discarded read before it refreshes the login or ends the session; a
-  // refresh shared with a live user request stays with that request.
+  // Owns the background re-read's HTTP requests. Its GETs never refresh the
+  // login (decision A: a 401 just ends them); cancelling the scope ends the
+  // requests still waiting, its sibling lists and the wait for an earlier
+  // user category read, so a batch that can no longer be published stops.
   ApiRequestScope? _backgroundScope;
+  // Whether the running background batch could still be published. Checked
+  // on every change notice so the events that make it unpublishable cancel it.
+  bool Function()? _backgroundPublishable;
   ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
@@ -260,12 +264,22 @@ class RemoteContentRepository extends ContentRepository {
   bool isCategoryDeleted(int id) => _deletedCategoryIds.contains(id);
 
   void _notify() {
+    _recheckBackground();
     if (!_disposed) notifyListeners();
+  }
+
+  // An account reset, filter change, list reset, refresh, category read or a
+  // replaced shown card makes the background batch unpublishable: end its
+  // requests and waits now instead of when a late reply arrives.
+  void _recheckBackground() {
+    final publishable = _backgroundPublishable;
+    if (publishable != null && !publishable()) _cancelBackground();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _cancelBackground();
     _categoryReadScope?.cancel();
     _detailHandle = null;
     super.dispose();
@@ -325,6 +339,8 @@ class RemoteContentRepository extends ContentRepository {
   }) async {
     final account = _accountVersion;
     final read = ++_categoryReadVersion;
+    // A user category read wins over a background batch.
+    _recheckBackground();
     final owner = ApiRequestScope.current;
     _categoryReadScope?.cancel();
     bool current() =>
@@ -510,6 +526,7 @@ class RemoteContentRepository extends ContentRepository {
   void _cancelBackground() {
     _backgroundGeneration++;
     _backgroundTargets = const {};
+    _backgroundPublishable = null;
     _backgroundScope?.cancel();
     _backgroundScope = null;
   }
@@ -567,6 +584,7 @@ class RemoteContentRepository extends ContentRepository {
         current() && categoryRead == _categoryReadVersion && unchanged();
     final scope = ApiRequestScope(isCurrent: publishable);
     _backgroundScope = scope;
+    _backgroundPublishable = publishable;
     final read = _beginContentRead();
     try {
       // One failing list ends the batch at once; the scope then ends the
@@ -591,6 +609,8 @@ class RemoteContentRepository extends ContentRepository {
         await Future.any([user.cancelled, scope.cancelled]);
       }
       if (!publishable()) return false;
+      // The batch publishes now; its own change notice must not cancel it.
+      _backgroundPublishable = null;
       _categories
         ..clear()
         ..addAll(_reconcileCategoryList(categories));
@@ -623,6 +643,7 @@ class RemoteContentRepository extends ContentRepository {
       if (generation == _backgroundGeneration) {
         _backgroundTargets = const {};
         _backgroundScope = null;
+        _backgroundPublishable = null;
       }
     }
   }

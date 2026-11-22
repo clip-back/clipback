@@ -933,4 +933,39 @@ void main() {
       });
     },
   );
+
+  // 검수 Spec 1: 배경 목록을 기다리는 동안 끝난 마이 통계 실패는 늦은 배경 후속이 덮지 않는다.
+  testWidgets(
+    '20 a My stats failure finished while the background list waits keeps its retry state',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        final feed = Completer<void>();
+        server.feedGate = feed;
+        final initialFeed = server.count(_feed);
+        await _background(tester);
+        await _foreground(tester, settle: false);
+        await tester.pump();
+        expect(server.count(_feed), initialFeed + 1);
+        server.failLists = true;
+        final before = server.count(_stats);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(ClipbackNavigationBar),
+            matching: find.text('마이'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final error = find.text('마지막 확인값 · 새로 불러오지 못했어요');
+        expect(error, findsOneWidget);
+        server
+          ..failLists = false
+          ..feedGate = null;
+        feed.complete();
+        await tester.pumpAndSettle();
+        expect(server.count(_stats), before + 1, reason: '사용자 통계 1회뿐');
+        expect(error, findsOneWidget);
+      });
+    },
+  );
 }

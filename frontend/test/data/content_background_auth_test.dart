@@ -40,6 +40,11 @@ class _Server {
   String valid = 'a', refreshValid = 'refresh-a';
   int refreshes = 0, rejections = 0, invalidations = 0, saves = 0;
   int statsValue = 1;
+  // 갱신: 서버가 회전을 확정하면 rotated, rotationGate가 있으면 응답을 보류한다.
+  final rotated = Completer<void>();
+  Completer<void>? rotationGate;
+  // 401로 답한 요청(경로 + 토큰).
+  final unauthorized = <String>[];
   // 다음 GET(경로별)을 붙잡는다. 응답 판정은 풀린 시점의 토큰으로 한다.
   final gates = <String, Completer<void>>{};
   // 이 경로만 503.
@@ -66,6 +71,8 @@ class _Server {
       }
       valid = 'b';
       refreshValid = 'refresh-b';
+      if (!rotated.isCompleted) rotated.complete();
+      await rotationGate?.future;
       return _json({
         'access_token': 'b',
         'refresh_token': 'refresh-b',
@@ -84,7 +91,10 @@ class _Server {
     }
     await _hold(path);
     if (failing.contains(path)) return _json({'detail': 'down'}, 503);
-    if (auth != 'Bearer $valid') return _json({'detail': 'expired'}, 401);
+    if (auth != 'Bearer $valid') {
+      unauthorized.add('$path $auth');
+      return _json({'detail': 'expired'}, 401);
+    }
     switch (path) {
       case '/feed':
         final cursor = r.url.queryParameters['cursor'];
@@ -378,5 +388,114 @@ void main() {
         expect(users.stats!.savedCount, 3);
       },
     );
+  });
+
+  // 검수(.utmp/review-460-option-a.md) Standards 1: 실제 HTTP 경계에서 경로·토큰·401 응답 수.
+  group('wire', () {
+    for (final path in [
+      '/feed',
+      '/categories',
+      '/users/me/stats',
+      '/users/me',
+    ]) {
+      test(
+        '$path: sent once with the current token, one 401, no refresh, save or invalidation',
+        () async {
+          final gate = Completer<void>();
+          server.gates[path] = gate;
+          final before = server.sent.length;
+          final saves = server.saves;
+          final Future<Object?> request = path.startsWith('/users')
+              ? users.refreshInBackground(isCurrent: () => true)
+              : repo.refreshInBackground();
+          while (server.gates.containsKey(path)) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          server.valid = 'b';
+          gate.complete();
+          await request;
+          final batch = server.sent.skip(before).toList();
+          expect(batch.where((v) => v == 'GET $path  Bearer a'), hasLength(1));
+          expect(batch.where((v) => v.startsWith('GET $path ')), hasLength(1));
+          expect(server.unauthorized, ['$path Bearer a']);
+          expect(server.auth, [0, 0, 0]);
+          expect(server.saves, saves);
+        },
+      );
+    }
+
+    test(
+      'a user rotation the server already accepted: the background tries once with the old token; the user keeps the new one',
+      () async {
+        server
+          ..valid = 'b'
+          ..rotationGate = Completer<void>();
+        final saves = server.saves;
+        final user = users.loadStats(); // 사용자: 401 → 갱신(서버 회전 확정 뒤 응답 보류)
+        await server.rotated.future;
+        final before = server.sent.length;
+        expect(
+          await repo.refreshInBackground().timeout(const Duration(seconds: 1)),
+          isFalse,
+        );
+        expect(server.sent.skip(before), ['GET /feed  Bearer a']);
+        expect(server.auth, [1, 0, 0]);
+        expect(server.saves, saves);
+        server.rotationGate!.complete();
+        await user;
+        expect(server.sent.last, 'GET /users/me/stats  Bearer b');
+        expect(server.saves, saves + 1);
+        expect(server.auth, [1, 0, 0]);
+      },
+    );
+
+    // 검수 Spec 2: 게시할 수 없게 만든 사건에서 배경은 늦은 응답을 기다리지 않고 끝난다.
+    for (final cause in [
+      'detail',
+      'categories',
+      'dispose',
+      'account',
+      'filter',
+      'refresh',
+    ]) {
+      test(
+        'an unpublishable batch ends before its held GET is released ($cause)',
+        () async {
+          final hold = Completer<void>();
+          server.gates['/feed'] = hold;
+          final bg = repo.refreshInBackground();
+          while (server.gates.containsKey('/feed')) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          switch (cause) {
+            case 'detail':
+              await repo.refreshDetail(
+                repo.openDetail(repo.feed(FeedKey.home).items.single),
+              );
+            case 'categories':
+              expect((await repo.readCurrentCategories()).current, isTrue);
+            case 'dispose':
+              repo.dispose();
+            case 'account':
+              repo.resetAccount(2);
+            case 'filter':
+              repo.configureFeed(FeedKey.home, query: 'x');
+            case 'refresh':
+              repo.beginRefresh();
+          }
+          final ended = await Future.any([
+            bg.then((_) => true),
+            Future<bool>.delayed(
+              const Duration(milliseconds: 100),
+              () => false,
+            ),
+          ]);
+          hold.complete();
+          expect(await bg, isFalse);
+          expect(ended, isTrue);
+          expect(server.auth, [0, 0, 0]);
+        },
+      );
+    }
   });
 }

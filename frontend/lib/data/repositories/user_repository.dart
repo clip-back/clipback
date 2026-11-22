@@ -18,11 +18,19 @@ abstract class UserRepository extends ChangeNotifier {
   Future<ApiUserStats> loadStats();
   Future<void> refresh({required bool Function() isCurrent});
 
+  /// Counts the stats reads started outside a background re-read (My entry,
+  /// retry, account load, share or change refresh).
+  int get statsReadVersion;
+
   /// Stats and profile after a background list re-read (#460). Each GET is
   /// sent once with the current access token; failure keeps the previous
-  /// values silently. A stats read the user started wins, and a newer
-  /// background call replaces an older one.
-  Future<void> refreshInBackground({required bool Function() isCurrent});
+  /// values silently. A stats read started since [statsReadSince] (the
+  /// [statsReadVersion] when the list re-read began) wins, finished or not,
+  /// and a newer background call replaces an older one.
+  Future<void> refreshInBackground({
+    required bool Function() isCurrent,
+    int? statsReadSince,
+  });
   Future<int?> readDeletionContentCount();
   Future<int> readDeletionCategoryCount();
   Future<AccountDeletionResult> deleteAccount(
@@ -182,8 +190,17 @@ class RemoteUserRepository extends UserRepository {
   }
 
   @override
-  Future<void> refreshInBackground({required bool Function() isCurrent}) async {
+  int get statsReadVersion => _statsVersion;
+
+  @override
+  Future<void> refreshInBackground({
+    required bool Function() isCurrent,
+    int? statsReadSince,
+  }) async {
     if (_disposed || !isCurrent()) return;
+    // A stats read started while the list re-read waited (it may already have
+    // shown its success, failure or retry) keeps its result.
+    if (statsReadSince != null && statsReadSince != _statsVersion) return;
     // A stats read the user started (My entry, retry) is neither cancelled
     // nor repeated; it shows its own result.
     if (_statsScope?.isActive == true && _statsRequest != null) return;

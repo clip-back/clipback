@@ -558,5 +558,36 @@ void main() {
         expect((await user).current, isTrue);
       },
     );
+
+    // 검수 Spec 2: 사용자 카테고리 응답만 기다리던 배경도 상세 교체로 바로 끝난다.
+    test(
+      'a batch waiting for an earlier user category read ends when a detail reply replaces a shown card',
+      () async {
+        final first = Completer<List<ApiCategory>>();
+        final second = Completer<void>();
+        var reads = 0;
+        api.onCategories = () {
+          if (++reads == 1) return first.future;
+          second.complete();
+          return Future.value(_categories);
+        };
+        final user = repo.readCurrentCategories();
+        final bg = repo.refreshInBackground();
+        await second.future;
+        await Future<void>.delayed(Duration.zero);
+        api.onDetail = (_) async => _item(title: 'detail');
+        await repo.refreshDetail(
+          repo.openDetail(repo.feed(FeedKey.home).items.single),
+        );
+        var finished = false;
+        unawaited(bg.then((_) => finished = true));
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isTrue, reason: '사용자 응답 전에 끝남');
+        first.complete(_categories);
+        expect((await user).current, isTrue);
+        expect(await bg, isFalse);
+        expect(titles(FeedKey.home), ['detail']);
+      },
+    );
   });
 }

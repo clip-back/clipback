@@ -54,11 +54,16 @@ class ContentActions {
   Future<void> refreshInBackground() async {
     if (_disposed) return;
     final generation = content.accountVersion;
+    // A My stats read started from here on wins over this follow-up.
+    final statsReadSince = users.statsReadVersion;
     if (!await content.refreshInBackground()) return;
     bool current() => _current(generation);
     if (!current()) return;
     // A stats read the user started wins; failures stay silent.
-    await users.refreshInBackground(isCurrent: current);
+    await users.refreshInBackground(
+      isCurrent: current,
+      statsReadSince: statsReadSince,
+    );
   }
 
   Future<void> refresh(ContentFeedback feedback) async {
