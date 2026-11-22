@@ -29,7 +29,7 @@ from app.services.content_service import ContentService
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
-from app.services.usage_limits import MonthlySummaryLimit
+from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
 
 
 class _ScreenshotMultipartParser(MultiPartParser):
@@ -195,6 +195,7 @@ def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
             category_recommendation_service=CategoryRecommendationService(
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
+                daily_limit=DailyRecommendationLimit(db),
             ),
             tag_repository=TagRepository(db),
             summary_limit=summary_limit,

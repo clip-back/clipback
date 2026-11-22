@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -13,9 +14,11 @@ from app.integrations.ai_client import (
 )
 from app.repositories.category_repository import CategoryRepository
 from app.schemas.content import ContentSaveInput
+from app.services.usage_limits import DailyRecommendationLimit
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
+logger = logging.getLogger(__name__)
 
 
 class CategoryAssignmentMethod(StrEnum):
@@ -30,6 +33,7 @@ class CategoryRecommendationFailureReason(StrEnum):
     TIMEOUT = "timeout"
     INVALID_RESPONSE = "invalid_response"
     ERROR = "error"
+    DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
 
 
 @dataclass(frozen=True)
@@ -45,9 +49,12 @@ class CategoryRecommendationService:
         self,
         category_repository: CategoryRepository,
         ai_client: AIClient,
+        *,
+        daily_limit: DailyRecommendationLimit | None = None,
     ) -> None:
         self.category_repository = category_repository
         self.ai_client = ai_client
+        self.daily_limit = daily_limit
 
     async def recommend(
         self,
@@ -67,12 +74,26 @@ class CategoryRecommendationService:
             return self._fallback(CategoryRecommendationFailureReason.INSUFFICIENT_INPUT)
 
         candidate_pairs = [(category.id, category.name) for category in candidates]
+        url = self._sanitize_url(str(payload.original_url)) if payload.original_url else None
+        if self.daily_limit is not None:
+            if not self.ai_client.is_configured:
+                return self._fallback(CategoryRecommendationFailureReason.ERROR)
+            try:
+                admitted = await self.daily_limit.admit(user_id)
+            except Exception as exc:
+                logger.warning(
+                    "Unable to record category recommendation attempt (%s)", type(exc).__name__,
+                )
+                return self._fallback(CategoryRecommendationFailureReason.ERROR)
+            if not admitted:
+                return self._fallback(CategoryRecommendationFailureReason.DAILY_LIMIT_EXCEEDED)
+
         try:
             suggestion = await self.ai_client.suggest_category_id(
                 title=title,
                 description=description,
                 source=payload.source.value,
-                url=self._sanitize_url(str(payload.original_url)) if payload.original_url else None,
+                url=url,
                 shared_text=normalized_shared_text,
                 candidates=candidate_pairs,
             )

@@ -27,7 +27,7 @@ from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
-from app.services.usage_limits import MonthlySummaryLimit
+from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
 
 router = APIRouter()
 
@@ -168,6 +168,7 @@ def _build_content_service(
         category_recommendation_service=CategoryRecommendationService(
             category_repository=category_repository,
             ai_client=get_ai_client(),
+            daily_limit=DailyRecommendationLimit(db),
         ),
         tag_repository=TagRepository(db),
         storage_client=get_storage_client(),

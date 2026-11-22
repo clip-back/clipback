@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.usage_record import UsageRecord
 
 AI_SUMMARY = "ai_summary"
+CATEGORY_RECOMMENDATION = "category_recommendation"
 
 
 class UsageRecordRepository:

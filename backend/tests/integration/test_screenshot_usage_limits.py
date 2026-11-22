@@ -65,6 +65,14 @@ async def seed_usage(db, user_id, count):
     ])
 
 
+async def summary_usage_rows(db, user_id):
+    return (await db.execute(
+        select(UsageRecord.kind, UsageRecord.recorded_at, UsageRecord.content_id)
+        .where(UsageRecord.user_id == user_id, UsageRecord.kind == "ai_summary")
+        .order_by(UsageRecord.recorded_at, UsageRecord.id)
+    )).all()
+
+
 async def upgrade(api, headers):
     tokens = await request(
         api, "POST", "auth/social/kakao/upgrade", headers=headers, json={"token": str(uuid4())},
@@ -145,7 +153,7 @@ async def test_e1_p1_ocr_success_records_usage_and_recommends(
     assert len(ocr_probe.calls) == external_responses.ai_calls == 1
     meta = await ocr_metadata(database_connection, saved["id"])
     assert (meta["ocr_status"], meta["ocr_failure_reason"]) == ("success", None)
-    rows = await usage_rows(database_connection, user["id"])
+    rows = await summary_usage_rows(database_connection, user["id"])
     assert len(rows) == 30 and rows[-1] == ("ai_summary", NOW, saved["id"])
 
 
@@ -252,7 +260,7 @@ async def test_decision_time_is_kept_when_ocr_finishes_in_next_kst_month(
     monkeypatch.setattr(OCRClient, "extract", ocr)
     saved = await screenshot(api, headers, png_bytes)
     assert_summary(saved, "not_requested")
-    assert await usage_rows(database_connection, user["id"]) == [
+    assert await summary_usage_rows(database_connection, user["id"]) == [
         ("ai_summary", decided_at, saved["id"]),
     ]
     assert await UsageRecordRepository(database_connection).count(
@@ -272,7 +280,7 @@ async def test_p5_rejected_commit_rolls_back_summary_usage_and_original(
         nonlocal fail_next_commit
         if fail_next_commit and session in flow.request_sessions:
             fail_next_commit = False
-            uncommitted_usage.extend(await usage_rows(session, flow.user_id))
+            uncommitted_usage.extend(await summary_usage_rows(session, flow.user_id))
             raise ConnectionError("injected commit acknowledgement failure")
         await REAL_COMMIT(session)
 
@@ -286,7 +294,7 @@ async def test_p5_rejected_commit_rolls_back_summary_usage_and_original(
     assert uncommitted_usage[0].kind == "ai_summary" and uncommitted_usage[0].recorded_at == NOW
     assert stored_objects(flow) == {}
     async with flow.sessions() as session:
-        assert await usage_rows(session, flow.user_id) == []
+        assert await summary_usage_rows(session, flow.user_id) == []
         assert await session.scalar(select(Content.id).where(
             Content.user_id == flow.user_id,
         )) is None
@@ -296,7 +304,7 @@ async def test_p5_rejected_commit_rolls_back_summary_usage_and_original(
     )
     assert_summary(retry, "not_requested")
     async with flow.sessions() as session:
-        assert await usage_rows(session, flow.user_id) == [("ai_summary", NOW, retry["id"])]
+        assert await summary_usage_rows(session, flow.user_id) == [("ai_summary", NOW, retry["id"])]
     assert len(ocr_probe.calls) == 2
     assert list(stored_objects(flow).values()) == [png_bytes]
 
@@ -340,7 +348,7 @@ async def test_r5_lost_http_response_replays_without_new_ocr_usage_or_original(
         await asyncio.wait_for(finished.wait(), TIME_LIMIT)
         async with flow.sessions() as session:
             rows_before = await usage_rows(session, flow.user_id)
-        assert len(rows_before) == len(calls) == 1
+        assert len(rows_before) == 2 and len(calls) == 1
         originals_before = stored_objects(flow)
         assert list(originals_before.values()) == [png_bytes]
         assert flow.errors == []
@@ -349,7 +357,10 @@ async def test_r5_lost_http_response_replays_without_new_ocr_usage_or_original(
             client, "POST", path, status=201, headers=headers, **payload(png_bytes),
         )
         assert_summary(retry, "not_requested")
-        assert rows_before == [("ai_summary", NOW, retry["id"])]
+        assert rows_before == [
+            ("category_recommendation", NOW, None),
+            ("ai_summary", NOW, retry["id"]),
+        ]
         async with flow.sessions() as session:
             assert await usage_rows(session, flow.user_id) == rows_before
         assert len(calls) == 1 and stored_objects(flow) == originals_before
@@ -401,7 +412,7 @@ async def test_overlapping_screenshots_share_one_remaining_summary(
         assert holder != waiter
         await wait_until_blocked(sessions, holder, waiter)
         async with sessions() as session:
-            assert len(await usage_rows(session, user_id)) == 29
+            assert len(await summary_usage_rows(session, user_id)) == 29
         assert len(calls) == 1 and not second.done()
         release.set()
 
@@ -414,7 +425,7 @@ async def test_overlapping_screenshots_share_one_remaining_summary(
         assert_summary(second_saved, "skipped", REASON)
     assert len(calls) == external_responses.ai_calls == 1
     async with sessions() as session:
-        rows = await usage_rows(session, user_id)
+        rows = await summary_usage_rows(session, user_id)
         saved_ids = set(await session.scalars(select(Content.id).where(Content.user_id == user_id)))
     assert len(rows) == 30
     assert [row.content_id for row in rows if row.content_id is not None] == [first_saved["id"]]
@@ -455,14 +466,14 @@ async def test_x3_overlapping_screenshot_and_youtube_can_both_use_last_slot(
         assert_summary(link)
         assert not photo.done()
         async with sessions() as session:
-            assert len(await usage_rows(session, user_id)) == 30
+            assert len(await summary_usage_rows(session, user_id)) == 30
         assert metadata_calls == [] and external_responses.ai_calls == 0
         release.set()
 
     assert_summary(photo.result(), "not_requested")
     assert len(ocr_calls) == external_responses.ai_calls == 1
     async with sessions() as session:
-        rows = await usage_rows(session, user_id)
+        rows = await summary_usage_rows(session, user_id)
     assert len(rows) == 31
     assert {row.content_id for row in rows if row.content_id is not None} == {
         link["id"], photo.result()["id"],

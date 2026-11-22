@@ -5,7 +5,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from PIL import Image
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -15,6 +15,7 @@ from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.integrations.ocr_client import OCRClient, OCRClientTimeoutError, ScreenshotOCRResult
 from app.integrations.social_auth_client import SocialAuthClient, SocialProfile
 from app.main import create_app
+from app.services import usage_limits
 
 
 @pytest.fixture
@@ -51,6 +52,7 @@ def external_responses(monkeypatch):
 
     monkeypatch.setattr(MetadataClient, "extract_from_url", metadata)
     monkeypatch.setattr(AIClient, "suggest_category_id", recommend)
+    monkeypatch.setattr(AIClient, "is_configured", property(lambda self: True))
     monkeypatch.setattr(OCRClient, "extract", ocr)
     monkeypatch.setattr(SocialAuthClient, "verify", verify)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", block)
@@ -81,6 +83,16 @@ async def api(database_connection, external_responses, monkeypatch, tmp_path, ap
     from app.services.maintenance import MaintenanceGate
     gate = MaintenanceGate(async_sessionmaker(database_connection.engine, expire_on_commit=False))
     app = create_app(maintenance=gate)
+
+    independent_recommendation_session = usage_limits.recommendation_session
+
+    def recommendation_session(save_session):
+        if isinstance(save_session.bind, AsyncConnection):
+            # Accounts in the outer transaction are visible only on this connection.
+            return AsyncSession(save_session.bind, join_transaction_mode="create_savepoint")
+        return independent_recommendation_session(save_session)
+
+    monkeypatch.setattr(usage_limits, "recommendation_session", recommendation_session)
 
     async def request_session():
         async with AsyncSession(
