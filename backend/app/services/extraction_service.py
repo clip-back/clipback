@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -10,7 +12,9 @@ from app.core.config import settings
 from app.integrations.metadata_client import MetadataClient, UnsafeUrlError
 from app.schemas.content import MAX_CONTENT_URL_LENGTH, ContentSaveInput, ContentSource
 from app.services.link_url import infer_content_source, is_instagram_url, normalize_instagram_url
+from app.services.save_step_log import log_save_step
 
+logger = logging.getLogger(__name__)
 MAX_EVENT_METADATA_LENGTH = 1000
 
 
@@ -67,10 +71,18 @@ class ExtractionService:
                 "after normalization",
             )
 
+        started_at = time.monotonic()
         try:
             metadata = await self.metadata_client.extract_from_url(request_url)
         except UnsafeUrlError as exc:
+            log_save_step(
+                logger, "link_metadata", time.monotonic() - started_at, "failed", "unsafe_url",
+            )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        log_save_step(
+            logger, "link_metadata", time.monotonic() - started_at,
+            metadata.status, metadata.failure_reason,
+        )
 
         resolved_url = request_url if instagram_url else metadata.resolved_url
         return ExtractionResult(
