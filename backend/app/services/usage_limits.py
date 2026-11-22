@@ -8,10 +8,10 @@ from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Address, ip_address
 
 from fastapi import HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
+from app.db.session import RecommendationSessionLocal
 from app.repositories.usage_record_repository import (
     AI_SUMMARY,
     CATEGORY_RECOMMENDATION,
@@ -108,19 +108,10 @@ class MonthlySummaryLimit:
         )
 
 
-def recommendation_session(save_session: AsyncSession) -> AsyncSession:
-    # The attempt must survive a save rollback. The usage FK takes KEY SHARE,
-    # which can coexist with the screenshot save's NO KEY UPDATE on the user.
-    bind = save_session.bind
-    return AsyncSession(bind.engine if isinstance(bind, AsyncConnection) else bind)
-
-
 class DailyRecommendationLimit:
-    def __init__(self, save_session: AsyncSession) -> None:
-        self.save_session = save_session
-
     async def admit(self, user_id: int) -> bool:
-        async with recommendation_session(self.save_session) as session, session.begin():
+        # The usage FK takes KEY SHARE, compatible with the photo save's NO KEY UPDATE.
+        async with RecommendationSessionLocal() as session, session.begin():
             user = await UserRepository(session).get(user_id)
             if user is None:
                 raise NotFoundError("User not found")

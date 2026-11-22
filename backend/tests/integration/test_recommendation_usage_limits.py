@@ -15,6 +15,8 @@ from app.models.category import Category
 from app.models.content import Content
 from app.models.content_event import ContentEvent
 from app.models.usage_record import UsageRecord
+from app.models.user import User
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.usage_record_repository import UsageRecordRepository
 from app.services import usage_limits
@@ -65,6 +67,35 @@ async def event_metadata(sessions, content_id):
         return json.loads(await session.scalar(
             select(ContentEvent.metadata_json).where(ContentEvent.content_id == content_id),
         ))
+
+
+async def test_recommendation_records_with_all_save_connections_checked_out(
+    independent_api, recommendation_provider, monkeypatch,
+):
+    api, headers, user_id, sessions, request_pids, _ = independent_api
+    concurrent_saves = 15
+    barrier = asyncio.Barrier(concurrent_saves)
+    candidates = CategoryRepository.list_recommendation_candidates
+    recommendation_provider.recommendation["tags"] = []
+
+    async def hold_save_connection(repository, user_id):
+        result = await candidates(repository, user_id)
+        await barrier.wait()
+        return result
+
+    monkeypatch.setattr(
+        CategoryRepository, "list_recommendation_candidates", hold_save_connection,
+    )
+    async with asyncio.timeout(10):
+        saved = await asyncio.gather(*(
+            link(api, headers, original_url=f"https://example.com/article/{index}")
+            for index in range(concurrent_saves)
+        ))
+
+    assert len(set(request_pids[-concurrent_saves:])) == concurrent_saves
+    assert all([cat["name"] for cat in item["categories"]] == ["취업"] for item in saved)
+    assert recommendation_provider.calls == ["recommend"] * concurrent_saves
+    assert len(await recorded(sessions, user_id, RECOMMENDATION)) == concurrent_saves
 
 
 @pytest.mark.parametrize("start,calls,name,tags,reason", [
@@ -119,24 +150,54 @@ async def test_screenshot_keeps_ocr_and_its_tags_at_recommendation_boundary(
     assert len(await recorded(sessions, user_id, RECOMMENDATION)) == 50
 
 
+@pytest.mark.parametrize(
+    "chosen_category", [None, "공부"], ids=["auto-category", "manual-category"],
+)
+async def test_c2_keeps_manual_tags_and_category_at_daily_limit(
+    independent_api, recommendation_provider, chosen_category,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    await seed(sessions, user_id, 50, RECOMMENDATION)
+    before = await recorded(sessions, user_id, RECOMMENDATION)
+    payload = {"tag_names": ["직접 추가"]}
+    if chosen_category is not None:
+        available = await request(api, "GET", "categories", headers=headers)
+        payload["category_ids"] = [next(
+            cat["id"] for cat in available if cat["name"] == chosen_category
+        )]
+
+    saved = await link(api, headers, **payload)
+
+    assert [cat["name"] for cat in saved["categories"]] == [chosen_category or "미분류"]
+    assert [tag["name"] for tag in saved["tags"]] == ["직접 추가"]
+    assert recommendation_provider.calls == []
+    metadata = await event_metadata(sessions, saved["id"])
+    expected_reason = "daily_limit_exceeded" if chosen_category is None else None
+    assert metadata["category_recommendation_failure_reason"] == expected_reason
+    after = await recorded(sessions, user_id, RECOMMENDATION)
+    assert [row.id for row in after] == [row.id for row in before]
+    assert await recorded(sessions, user_id, "ai_summary") == []
+
+
+@pytest.mark.parametrize("at_limit", [False, True], ids=["below-limit", "at-limit"])
 @pytest.mark.parametrize("case,reason", [
     pytest.param("no-candidates", "no_match", id="E12"),
     ("empty-input", "insufficient_input"),
     ("not-configured", "error"),
     ("chosen-category", None),
     ("youtube", None),
-    ("no-text-photo", None),
 ])
 async def test_c3_without_provider_attempt_does_not_count(
-    independent_api, recommendation_provider, external_responses, monkeypatch, png_bytes,
+    independent_api, recommendation_provider, external_responses, monkeypatch, at_limit,
     case, reason,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
-    used = 49 if case == "no-candidates" else 0
+    used = 50 if at_limit else {"no-candidates": 49}.get(case, 0)
+    if used:
+        await seed(sessions, user_id, used, RECOMMENDATION)
     expected_name = "미분류"
     payload = {}
     if case == "no-candidates":
-        await seed(sessions, user_id, used, RECOMMENDATION)
         async with sessions.begin() as session:
             await session.execute(delete(Category).where(Category.user_id == user_id))
     elif case == "empty-input":
@@ -157,16 +218,8 @@ async def test_c3_without_provider_attempt_does_not_count(
     elif case == "youtube":
         payload["original_url"] = YOUTUBE
 
-    if case == "no-text-photo":
-        recommendation_provider.ocr["text"] = ""
-        saved = await request(
-            api, "POST", "uploads/screenshots", status=201, headers=headers,
-            files={"file": ("image.png", png_bytes, "image/png")},
-        )
-        assert recommendation_provider.calls == ["ocr"]
-    else:
-        saved = await link(api, headers, **payload)
-        assert recommendation_provider.calls == []
+    saved = await link(api, headers, **payload)
+    assert recommendation_provider.calls == []
     assert external_responses.ai_calls == 0
     assert [category["name"] for category in saved["categories"]] == [expected_name]
     assert saved["tags"] == []
@@ -174,6 +227,50 @@ async def test_c3_without_provider_attempt_does_not_count(
         "category_recommendation_failure_reason"
     ] == reason
     assert len(await recorded(sessions, user_id, RECOMMENDATION)) == used
+
+
+@pytest.mark.parametrize("used", [0, 50], ids=["below-limit", "at-limit"])
+async def test_c3_screenshot_without_ocr_text_does_not_recommend(
+    independent_api, recommendation_provider, png_bytes, used,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    if used:
+        await seed(sessions, user_id, used, RECOMMENDATION)
+    recommendation_provider.ocr["text"] = ""
+    saved = await request(
+        api, "POST", "uploads/screenshots", status=201, headers=headers,
+        files={"file": ("image.png", png_bytes, "image/png")},
+    )
+
+    assert [cat["name"] for cat in saved["categories"]] == ["미분류"]
+    assert saved["tags"] == []
+    assert recommendation_provider.calls == ["ocr"]
+    metadata = await event_metadata(sessions, saved["id"])
+    assert metadata["category_recommendation_failure_reason"] is None
+    assert metadata["ocr_status"] == "no_text"
+    assert len(await recorded(sessions, user_id, RECOMMENDATION)) == used
+    assert await recorded(sessions, user_id, "ai_summary") == []
+
+
+async def test_c3_screenshot_skipping_ocr_keeps_monthly_reason_at_daily_limit(
+    independent_api, recommendation_provider, png_bytes,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    await seed(sessions, user_id, 50, RECOMMENDATION)
+    await seed(sessions, user_id, 20, "ai_summary")
+    saved = await request(
+        api, "POST", "uploads/screenshots", status=201, headers=headers,
+        files={"file": ("image.png", png_bytes, "image/png")},
+    )
+
+    assert_summary(saved, "skipped", "monthly_limit_exceeded")
+    assert [cat["name"] for cat in saved["categories"]] == ["미분류"]
+    assert saved["tags"] == []
+    assert recommendation_provider.calls == []
+    metadata = await event_metadata(sessions, saved["id"])
+    assert metadata["category_recommendation_failure_reason"] is None
+    assert len(await recorded(sessions, user_id, RECOMMENDATION)) == 50
+    assert len(await recorded(sessions, user_id, "ai_summary")) == 20
 
 
 @pytest.mark.parametrize("failure,reason", [
@@ -489,3 +586,40 @@ async def test_recommendation_prunes_usage_before_previous_kst_month(
         cutoff, december,
     ]
     assert [row.recorded_at for row in await recorded(sessions, user_id, "ai_summary")] == [cutoff]
+
+
+async def test_missing_account_at_recommendation_record_skips_provider(
+    independent_api, recommendation_provider, monkeypatch,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    admit = usage_limits.DailyRecommendationLimit.admit
+    recommend = CategoryRecommendationService.recommend
+    reasons = []
+
+    async def remove_before_admit(limit, candidate):
+        assert candidate == user_id
+        async with sessions.begin() as session:
+            await session.execute(delete(Category).where(Category.user_id == user_id))
+            await session.execute(delete(User).where(User.id == user_id))
+        return await admit(limit, candidate)
+
+    async def observe_result(service, **kwargs):
+        result = await recommend(service, **kwargs)
+        reasons.append(result.failure_reason)
+        return result
+
+    monkeypatch.setattr(usage_limits.DailyRecommendationLimit, "admit", remove_before_admit)
+    monkeypatch.setattr(CategoryRecommendationService, "recommend", observe_result)
+
+    async with asyncio.timeout(10):
+        response = await api.post("/api/v1/contents", headers=headers, json={"original_url": WEB})
+
+    assert (response.status_code, response.text) == (500, "Internal Server Error")
+    assert reasons == ["error"]
+    assert recommendation_provider.calls == []
+    assert await recorded(sessions, user_id, RECOMMENDATION) == []
+    async with sessions() as session:
+        assert await session.scalar(select(Content.id).where(Content.user_id == user_id)) is None
+        assert await session.scalar(select(ContentEvent.id).where(
+            ContentEvent.user_id == user_id,
+        )) is None

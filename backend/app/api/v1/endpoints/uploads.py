@@ -195,7 +195,7 @@ def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
             category_recommendation_service=CategoryRecommendationService(
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
-                daily_limit=DailyRecommendationLimit(db),
+                daily_limit=DailyRecommendationLimit(),
             ),
             tag_repository=TagRepository(db),
             summary_limit=summary_limit,

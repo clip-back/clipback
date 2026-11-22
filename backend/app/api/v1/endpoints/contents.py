@@ -168,7 +168,7 @@ def _build_content_service(
         category_recommendation_service=CategoryRecommendationService(
             category_repository=category_repository,
             ai_client=get_ai_client(),
-            daily_limit=DailyRecommendationLimit(db),
+            daily_limit=DailyRecommendationLimit(),
         ),
         tag_repository=TagRepository(db),
         storage_client=get_storage_client(),

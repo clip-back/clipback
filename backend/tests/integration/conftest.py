@@ -1,3 +1,4 @@
+import os
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -5,10 +6,10 @@ import httpx
 import pytest
 import pytest_asyncio
 from PIL import Image
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.db.session import get_db
+from app.db.session import create_recommendation_engine, get_db
 from app.integrations.ai_client import AIClient, AIClientError, CategorySuggestion
 from app.integrations.deletion_ledger import get_deletion_ledger
 from app.integrations.metadata_client import MetadataClient, MetadataResult
@@ -18,8 +19,22 @@ from app.main import create_app
 from app.services import usage_limits
 
 
+@pytest_asyncio.fixture
+async def recommendation_database(monkeypatch):
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        yield
+        return
+    engine = create_recommendation_engine(url)
+    monkeypatch.setattr(usage_limits, "RecommendationSessionLocal", async_sessionmaker(engine))
+    try:
+        yield
+    finally:
+        await engine.dispose()
+
+
 @pytest.fixture
-def external_responses(monkeypatch):
+def external_responses(monkeypatch, recommendation_database):
     state = SimpleNamespace(ai_fails=False, ocr_fails=False, ai_calls=0, network_calls=[])
 
     async def metadata(self, url):
@@ -84,15 +99,10 @@ async def api(database_connection, external_responses, monkeypatch, tmp_path, ap
     gate = MaintenanceGate(async_sessionmaker(database_connection.engine, expire_on_commit=False))
     app = create_app(maintenance=gate)
 
-    independent_recommendation_session = usage_limits.recommendation_session
-
-    def recommendation_session(save_session):
-        if isinstance(save_session.bind, AsyncConnection):
-            # Accounts in the outer transaction are visible only on this connection.
-            return AsyncSession(save_session.bind, join_transaction_mode="create_savepoint")
-        return independent_recommendation_session(save_session)
-
-    monkeypatch.setattr(usage_limits, "recommendation_session", recommendation_session)
+    # Legacy API tests share an uncommitted outer transaction with their assertions.
+    monkeypatch.setattr(usage_limits, "RecommendationSessionLocal", async_sessionmaker(
+        database_connection, join_transaction_mode="create_savepoint",
+    ))
 
     async def request_session():
         async with AsyncSession(
