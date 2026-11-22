@@ -56,14 +56,9 @@ class ContentActions {
     final generation = content.accountVersion;
     if (!await content.refreshInBackground()) return;
     bool current() => _current(generation);
-    // A stats read the user started (My entry, retry) wins; this follow-up
-    // must not cancel or repeat it.
-    if (!current() || users.statsStatus == UserStatsStatus.loading) return;
-    try {
-      await users.refresh(isCurrent: current);
-    } catch (_) {
-      // Silent like the list read; the stats keep their own state.
-    }
+    if (!current()) return;
+    // A stats read the user started wins; failures stay silent.
+    await users.refreshInBackground(isCurrent: current);
   }
 
   Future<void> refresh(ContentFeedback feedback) async {

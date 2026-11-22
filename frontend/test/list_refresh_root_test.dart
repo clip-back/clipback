@@ -906,4 +906,31 @@ void main() {
       });
     },
   );
+
+  // 직전 검수 Spec 3: 첫 배경 통계가 걸려 있어도 다음 복귀의 배경은 자기 통계를 읽는다.
+  testWidgets(
+    '19 a second resume reads its own stats while the first background stats read is pending',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        final gate = Completer<void>();
+        server.statsGate = gate;
+        await _background(tester);
+        await _foreground(tester);
+        expect(server.gatedStats, 1);
+        final before = server.listCounts();
+        server
+          ..statsGate = null
+          ..complete();
+        await _background(tester);
+        await _foreground(tester);
+        _expectCard(done: true);
+        final after = server.listCounts();
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(after[_stats], before[_stats]! + 1);
+        expect(after[_profile], before[_profile]! + 1);
+      });
+    },
+  );
 }

@@ -17,6 +17,12 @@ abstract class UserRepository extends ChangeNotifier {
   Future<void> verifySession();
   Future<ApiUserStats> loadStats();
   Future<void> refresh({required bool Function() isCurrent});
+
+  /// Stats and profile after a background list re-read (#460). Each GET is
+  /// sent once with the current access token; failure keeps the previous
+  /// values silently. A stats read the user started wins, and a newer
+  /// background call replaces an older one.
+  Future<void> refreshInBackground({required bool Function() isCurrent});
   Future<int?> readDeletionContentCount();
   Future<int> readDeletionCategoryCount();
   Future<AccountDeletionResult> deleteAccount(
@@ -36,6 +42,7 @@ class RemoteUserRepository extends UserRepository {
   int _statsVersion = 0;
   int _accountVersion = 0;
   int _refreshVersion = 0;
+  int _backgroundVersion = 0;
   bool _disposed = false;
 
   @override
@@ -169,6 +176,43 @@ class RemoteUserRepository extends UserRepository {
       }
     } catch (_) {
       if (current()) rethrow;
+    } finally {
+      scope.cancel();
+    }
+  }
+
+  @override
+  Future<void> refreshInBackground({required bool Function() isCurrent}) async {
+    if (_disposed || !isCurrent()) return;
+    // A stats read the user started (My entry, retry) is neither cancelled
+    // nor repeated; it shows its own result.
+    if (_statsScope?.isActive == true && _statsRequest != null) return;
+    final generation = _accountVersion;
+    final version = ++_backgroundVersion;
+    // A user stats read started later bumps this and wins.
+    final stats = _statsVersion;
+    bool current() =>
+        _current(generation) &&
+        version == _backgroundVersion &&
+        stats == _statsVersion &&
+        isCurrent();
+    final scope = ApiRequestScope(
+      timeout: const Duration(seconds: 10),
+      isCurrent: current,
+    );
+    try {
+      final value = await scope.run(_api.readStatsOnce);
+      if (!current()) return;
+      _stats = value;
+      _statsStatus = UserStatsStatus.success;
+      notifyListeners();
+      final user = await scope.run(_api.readMeOnce);
+      if (current()) {
+        _user = user;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Silent: the previous stats, status and profile stay.
     } finally {
       scope.cancel();
     }

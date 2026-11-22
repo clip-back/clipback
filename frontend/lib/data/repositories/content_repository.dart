@@ -551,38 +551,46 @@ class RemoteContentRepository extends ContentRepository {
               target.page.version == target.version &&
               target.page.filter == target.filter,
         );
-    final scope = ApiRequestScope(isCurrent: current);
+    // A newer detail, today or change reply replaced a shown item; this
+    // older snapshot must not undo it.
+    bool unchanged() => targets.every((target) {
+      final items = target.page.items;
+      if (items.length != target.shown.length) return false;
+      for (var i = 0; i < items.length; i++) {
+        if (!identical(items[i], target.shown[i])) return false;
+      }
+      return true;
+    });
+    // Ends the requests as soon as this batch can no longer be published:
+    // replaced, a user category read started, or a shown card was replaced.
+    bool publishable() =>
+        current() && categoryRead == _categoryReadVersion && unchanged();
+    final scope = ApiRequestScope(isCurrent: publishable);
     _backgroundScope = scope;
     final read = _beginContentRead();
     try {
+      // One failing list ends the batch at once; the scope then ends the
+      // sibling requests still waiting.
       final staged = await Future.wait([
         for (final target in targets)
-          scope.run(() => _readShownPages(target.page, current)),
-      ]);
-      if (!current()) return false;
-      // Read directly: a user category read is neither cancelled nor
-      // superseded, and nothing is published before the lists.
-      final categories = await scope.run(_api.listCategories);
+          scope.run(() => _readShownPages(target.page, publishable)),
+      ], eagerError: true);
+      if (!publishable()) return false;
+      // Read directly, once with the current access token: a user category
+      // read is neither cancelled nor superseded, and nothing is published
+      // before the lists.
+      final categories = await scope.run(_api.listCategoriesOnce);
       // A user category read that started earlier publishes first; this
-      // newer batch follows it so an older count cannot overwrite it.
+      // newer batch follows it so an older count cannot overwrite it. A
+      // cancelled batch stops waiting at once.
       for (
         var user = _categoryReadScope;
-        user != null;
+        user != null && publishable();
         user = _categoryReadScope
       ) {
-        await user.cancelled;
-        if (!current()) return false;
+        await Future.any([user.cancelled, scope.cancelled]);
       }
-      if (!current() || categoryRead != _categoryReadVersion) return false;
-      // A newer detail, today or change reply replaced a shown item; this
-      // older snapshot must not undo it.
-      for (final target in targets) {
-        final items = target.page.items;
-        if (items.length != target.shown.length) return false;
-        for (var i = 0; i < items.length; i++) {
-          if (!identical(items[i], target.shown[i])) return false;
-        }
-      }
+      if (!publishable()) return false;
       _categories
         ..clear()
         ..addAll(_reconcileCategoryList(categories));

@@ -95,6 +95,10 @@ class _Api extends ClipbackApi {
   @override
   Future<List<ApiCategory>> listCategories() =>
       onCategories?.call() ?? Future.value(_categories);
+
+  // 배경 다시 읽기가 쓰는 한 번만 보내는 읽기(결정 A). 같은 응답을 준다.
+  @override
+  Future<List<ApiCategory>> listCategoriesOnce() => listCategories();
   @override
   Future<ApiContent> updateContentFavorite(int contentId, bool favorite) =>
       Future.value(_item(id: contentId, favorite: favorite));
@@ -525,6 +529,33 @@ void main() {
             [2],
           ],
         ]);
+      },
+    );
+
+    // 직전 검수 Spec 4: 명시적으로 취소된 배경 묶음은 사용자 카테고리 응답을 기다리지 않고 끝난다.
+    test(
+      'a cancelled batch stops waiting for an earlier user category read',
+      () async {
+        final first = Completer<List<ApiCategory>>();
+        final second = Completer<void>();
+        var reads = 0;
+        api.onCategories = () {
+          if (++reads == 1) return first.future;
+          second.complete();
+          return Future.value(_categories);
+        };
+        final user = repo.readCurrentCategories();
+        final bg = repo.refreshInBackground();
+        await second.future;
+        await Future<void>.delayed(Duration.zero);
+        await repo.loadNext(FeedKey.home, reset: true); // 사용자 읽기가 배경을 취소
+        var finished = false;
+        unawaited(bg.then((_) => finished = true));
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isTrue, reason: '사용자 카테고리 응답 전에 끝남');
+        expect(await bg, isFalse);
+        first.complete(_categories);
+        expect((await user).current, isTrue);
       },
     );
   });
