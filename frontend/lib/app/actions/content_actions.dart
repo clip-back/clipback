@@ -54,11 +54,15 @@ class ContentActions {
   Future<void> refreshInBackground() async {
     if (_disposed) return;
     final generation = content.accountVersion;
-    // A My stats read started from here on wins over this follow-up.
+    // A My stats read already running now, or started from here on, wins over
+    // this follow-up whichever finishes first (its success, failure or retry
+    // stays). Background stats never set the loading state, so it marks a
+    // user read.
     final statsReadSince = users.statsReadVersion;
+    final statsReadRunning = users.statsStatus == UserStatsStatus.loading;
     if (!await content.refreshInBackground()) return;
     bool current() => _current(generation);
-    if (!current()) return;
+    if (!current() || statsReadRunning) return;
     // A stats read the user started wins; failures stay silent.
     await users.refreshInBackground(
       isCurrent: current,

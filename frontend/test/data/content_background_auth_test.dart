@@ -142,6 +142,23 @@ class _Server {
   List<int> get auth => [refreshes, rejections, invalidations];
 }
 
+/// [path]의 GET이 서버에 도착할 때(그 문을 가져갈 때)까지 또는 [request]가 먼저 끝날 때까지
+/// 기다린다. 보내지 않고 끝났거나 2초 안에 오지 않으면 바로 실패한다. 문은 호출자가 finally에서 푼다.
+Future<void> _arrived(_Server s, String path, Future<Object?> request) async {
+  var ended = false;
+  unawaited(request.then((_) => ended = true, onError: (_) => ended = true));
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  while (s.gates.containsKey(path) && !ended) {
+    if (DateTime.now().isAfter(deadline)) fail('GET $path never arrived');
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+  if (s.gates.containsKey(path)) fail('request ended before sending GET $path');
+}
+
+void release(Completer<void> gate) {
+  if (!gate.isCompleted) gate.complete();
+}
+
 void main() {
   late _Server server;
   late RemoteContentRepository repo;
@@ -251,15 +268,19 @@ void main() {
     );
 
     test(
-      'a user refresh in flight is neither joined nor cancelled by a background 401',
+      'while a user list GET is held, the background sends nothing; the user 401 refreshes once',
       () async {
         server.valid = 'b';
         final hold = Completer<void>();
         server.holdFeed[server.feedCalls + 1] = hold;
-        final user = repo.loadNext(FeedKey.bookmark); // 사용자 GET: 붙잡힘 → 401 → 갱신
+        final user = repo.loadNext(
+          FeedKey.bookmark,
+        ); // 사용자 첫 GET: 붙잡힘 → 풀리면 401 → 갱신
         await tick();
-        // 배경 GET은 바로 401로 끝난다(갱신 시작·합류 없음).
+        // 사용자 목록 읽기가 진행 중이라 배경은 시작하지 않는다(발송 0). 회전 중 경합은 'wire'에서 본다.
+        final sent = server.sent.length;
         expect(await repo.refreshInBackground(), isFalse);
+        expect(server.sent.length, sent);
         expect(server.auth, [0, 0, 0]);
         hold.complete();
         await user;
@@ -401,25 +422,28 @@ void main() {
       test(
         '$path: sent once with the current token, one 401, no refresh, save or invalidation',
         () async {
+          final s = server; // 이 사례의 서버(늦은 콜백이 다음 사례 서버를 쓰지 않게)
           final gate = Completer<void>();
-          server.gates[path] = gate;
-          final before = server.sent.length;
-          final saves = server.saves;
+          s.gates[path] = gate;
+          final before = s.sent.length;
+          final saves = s.saves;
           final Future<Object?> request = path.startsWith('/users')
               ? users.refreshInBackground(isCurrent: () => true)
               : repo.refreshInBackground();
-          while (server.gates.containsKey(path)) {
-            await Future<void>.delayed(Duration.zero);
+          try {
+            await _arrived(s, path, request);
+            s.valid = 'b';
+          } finally {
+            s.gates.remove(path);
+            release(gate);
           }
-          server.valid = 'b';
-          gate.complete();
           await request;
-          final batch = server.sent.skip(before).toList();
+          final batch = s.sent.skip(before).toList();
           expect(batch.where((v) => v == 'GET $path  Bearer a'), hasLength(1));
           expect(batch.where((v) => v.startsWith('GET $path ')), hasLength(1));
-          expect(server.unauthorized, ['$path Bearer a']);
-          expect(server.auth, [0, 0, 0]);
-          expect(server.saves, saves);
+          expect(s.unauthorized, ['$path Bearer a']);
+          expect(s.auth, [0, 0, 0]);
+          expect(s.saves, saves);
         },
       );
     }
@@ -461,11 +485,16 @@ void main() {
       test(
         'an unpublishable batch ends before its held GET is released ($cause)',
         () async {
+          final s = server;
           final hold = Completer<void>();
-          server.gates['/feed'] = hold;
+          s.gates['/feed'] = hold;
           final bg = repo.refreshInBackground();
-          while (server.gates.containsKey('/feed')) {
-            await Future<void>.delayed(Duration.zero);
+          try {
+            await _arrived(s, '/feed', bg);
+          } catch (_) {
+            s.gates.remove('/feed');
+            release(hold);
+            rethrow;
           }
           switch (cause) {
             case 'detail':
@@ -490,10 +519,10 @@ void main() {
               () => false,
             ),
           ]);
-          hold.complete();
+          release(hold);
           expect(await bg, isFalse);
           expect(ended, isTrue);
-          expect(server.auth, [0, 0, 0]);
+          expect(s.auth, [0, 0, 0]);
         },
       );
     }

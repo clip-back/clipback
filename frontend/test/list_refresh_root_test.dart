@@ -95,6 +95,8 @@ class _Server {
   // later stats reads answer 503 (a competing second read would fail).
   Completer<void>? statsGate;
   int gatedStats = 0;
+  // The gated first stats read answers 503 instead of succeeding.
+  bool statsGateFails = false;
   // A malformed 200 body for every feed read while set.
   Map<String, Object?>? invalidFeed;
 
@@ -186,6 +188,7 @@ class _Server {
         if (statsGate != null) {
           if (++gatedStats == 1) {
             await statsGate!.future;
+            if (statsGateFails) return _json({'detail': 'my failed'}, 503);
           } else {
             return _json({'detail': 'temporary'}, 503);
           }
@@ -964,6 +967,50 @@ void main() {
         feed.complete();
         await tester.pumpAndSettle();
         expect(server.count(_stats), before + 1, reason: '사용자 통계 1회뿐');
+        expect(error, findsOneWidget);
+      });
+    },
+  );
+
+  // 검수(.utmp/review-460-option-a-reflection.md) Spec 1: 목록 재진입 전에 이미 진행 중이던 마이 통계가
+  // 목록 대기 중 실패로 끝나면, 늦은 배경 후속은 통계를 다시 읽지 않고 실패 표시가 남는다.
+  testWidgets(
+    '21 a My stats read already running before the list re-entry keeps its failure',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        final stats = Completer<void>(), feed = Completer<void>();
+        final before = server.count(_stats), beforeFeed = server.count(_feed);
+        server
+          ..statsGate = stats
+          ..statsGateFails = true;
+        Future<void> openMy() async {
+          await tester.tap(
+            find.descendant(
+              of: find.byType(ClipbackNavigationBar),
+              matching: find.text('마이'),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+
+        await openMy();
+        expect(find.text('마지막 확인값 · 새로 불러오는 중'), findsOneWidget);
+        expect(server.count(_stats), before + 1);
+        server.feedGate = feed;
+        await _tab(tester, 0);
+        expect(server.count(_feed), beforeFeed + 1);
+        await openMy();
+        expect(server.count(_stats), before + 1, reason: '마이 재진입은 진행 중 요청에 합류');
+        server.statsGate = null;
+        stats.complete();
+        await tester.pumpAndSettle();
+        final error = find.text('마지막 확인값 · 새로 불러오지 못했어요');
+        expect(error, findsOneWidget);
+        server.feedGate = null;
+        feed.complete();
+        await tester.pumpAndSettle();
+        expect(server.count(_stats), before + 1);
         expect(error, findsOneWidget);
       });
     },
