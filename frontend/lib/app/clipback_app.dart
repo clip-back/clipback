@@ -101,6 +101,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   bool _noticesFromHome = false;
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
   AppRoute _statsRoute = AppRoute.splash;
+  AppRoute _listRefreshRoute = AppRoute.splash;
   bool _weeklyForeground = true;
   bool _weeklyVisibilityScheduled = false;
   late final _WeeklyOverlayObserver _weeklyObserver = _WeeklyOverlayObserver(
@@ -200,7 +201,13 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _d.detail.foregroundChanged(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
-      unawaited(_d.sharing.resume());
+      // The share receipt refresh runs first; a list refresh started while it
+      // is in flight would make it fail and show its notice.
+      unawaited(
+        _d.sharing.resume().then((_) {
+          if (mounted) _refreshProcessingLists();
+        }),
+      );
     }
   }
 
@@ -223,6 +230,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _syncPermissionGuideVisit();
     _syncMyNoticeStorage();
     _syncMyStatsEntry();
+    _syncListEntry();
     if (_archiveStorageAccountGeneration != _d.app.accountGeneration) {
       _archiveStorageAccountGeneration = _d.app.accountGeneration;
       _archivePageStorageBucket = PageStorageBucket();
@@ -242,6 +250,39 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
         !_d.session.pendingSessionClear) {
       unawaited(_d.account.retryStats());
     }
+  }
+
+  // Entering home or archive from another route re-reads the loaded lists once
+  // when they show a summary still being made. No periodic polling (DEC-03).
+  void _syncListEntry() {
+    final route = _d.app.route;
+    final entering = _isListRoute(route) && _listRefreshRoute != route;
+    _listRefreshRoute = route;
+    if (entering) _refreshProcessingLists();
+  }
+
+  bool _isListRoute(AppRoute route) =>
+      route == AppRoute.home || route == AppRoute.archive;
+
+  void _refreshProcessingLists() {
+    if (!_canUseAccountActions ||
+        !_isListRoute(_d.app.route) ||
+        _d.sharing.busy ||
+        !_d.session.hasSession ||
+        _d.session.pendingSessionClear) {
+      return;
+    }
+    final processing = [FeedKey.home, FeedKey.archive].any(
+      (key) => _d.content
+          .feed(key)
+          .items
+          .any(
+            (item) =>
+                item.summaryStatus == 'queued' ||
+                item.summaryStatus == 'processing',
+          ),
+    );
+    if (processing) unawaited(_d.contentActions.refreshInBackground());
   }
 
   VoidCallback _statsRetryAction() {

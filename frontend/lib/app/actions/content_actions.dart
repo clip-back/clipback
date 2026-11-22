@@ -49,6 +49,26 @@ class ContentActions {
     return current();
   }
 
+  /// Re-reads the shown lists on resume or home/archive re-entry (#460).
+  /// Waiting and failure stay silent; the next resume or re-entry retries.
+  Future<void> refreshInBackground() async {
+    if (_disposed) return;
+    final ticket = content.beginBackgroundRefresh();
+    final result = await content.refresh(ticket);
+    bool current() => !_disposed && content.isCurrentRefresh(ticket);
+    if (!current() ||
+        !result.current ||
+        result.metadataFailed ||
+        result.feedFailed) {
+      return;
+    }
+    try {
+      await users.refresh(isCurrent: current);
+    } catch (_) {
+      // Silent like the list read; the stats keep their own state.
+    }
+  }
+
   Future<void> refresh(ContentFeedback feedback) async {
     if (_disposed) return;
     final ticket = content.beginRefresh();

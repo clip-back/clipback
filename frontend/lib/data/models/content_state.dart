@@ -99,11 +99,16 @@ class RefreshResult {
     required this.current,
     required this.metadataFailed,
     required this.categoryDetailsRequired,
+    this.feedFailed = false,
   });
 
   final bool current;
   final bool metadataFailed;
   final bool categoryDetailsRequired;
+
+  /// A list read failed. Background refreshes report it here instead of
+  /// setting the page error.
+  final bool feedFailed;
 }
 
 class DetailHandle {

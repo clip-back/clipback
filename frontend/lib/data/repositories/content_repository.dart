@@ -47,6 +47,7 @@ abstract class ContentRepository extends ChangeNotifier {
   Future<void> loadNext(FeedKey key, {bool reset = false});
   void ensureFeed(FeedKey key);
   RefreshTicket beginRefresh({bool preserveViewport = false});
+  RefreshTicket beginBackgroundRefresh();
   Future<RefreshResult> refresh(
     RefreshTicket ticket, {
     bool includeCategories = true,
@@ -132,6 +133,9 @@ class _FeedState {
   int version = 0;
   int viewportVersion = 0;
   Future<void>? pending;
+  // A background refresh is reading this shown page. It blocks loadNext like
+  // loading does, but the snapshot keeps showing the previous cards.
+  bool backgroundRefresh = false;
 
   void reset({bool preserveViewport = false}) {
     version++;
@@ -144,6 +148,7 @@ class _FeedState {
     }
     items.clear();
     loading = false;
+    backgroundRefresh = false;
     error = null;
     pending = null;
   }
@@ -378,7 +383,9 @@ class RemoteContentRepository extends ContentRepository {
     if (reset) page.reset();
     if (page.pending != null) return page.pending!;
     // Metadata is still loading for a write-triggered first-page refresh.
-    if (page.loading || !page.hasMore || _disposed) return Future.value();
+    if (page.loading || page.backgroundRefresh || !page.hasMore || _disposed) {
+      return Future.value();
+    }
     final version = page.version;
     final account = _accountVersion;
     bool current() =>
@@ -447,7 +454,17 @@ class RemoteContentRepository extends ContentRepository {
   }
 
   @override
-  RefreshTicket beginRefresh({bool preserveViewport = false}) {
+  RefreshTicket beginRefresh({bool preserveViewport = false}) =>
+      _beginRefresh(preserveViewport: preserveViewport, background: false);
+
+  @override
+  RefreshTicket beginBackgroundRefresh() =>
+      _beginRefresh(preserveViewport: true, background: true);
+
+  RefreshTicket _beginRefresh({
+    required bool preserveViewport,
+    required bool background,
+  }) {
     if (_disposed) {
       return RefreshTicket(
         accountVersion: _accountVersion,
@@ -468,12 +485,19 @@ class RemoteContentRepository extends ContentRepository {
     for (final entry in pages) {
       final page = entry.value;
       final previousItems = List<ApiContent>.of(page.items);
+      // Only a settled page keeps its cards; a first or failed read keeps its
+      // own spinner and error as before.
+      final quiet = background && page.initialized && page.error == null;
       // Older pages must be invalidated before category metadata is requested.
       final previousTotalCount = page.totalCount;
       page.reset(preserveViewport: preserveViewport);
       page.totalCount = previousTotalCount;
       page.items.addAll(previousItems);
-      page.loading = true;
+      if (quiet) {
+        page.backgroundRefresh = true;
+      } else {
+        page.loading = true;
+      }
       versions[entry.key] = page.version;
     }
     final ticket = RefreshTicket(
@@ -499,10 +523,12 @@ class RemoteContentRepository extends ContentRepository {
     bool includeCategories = true,
   }) async {
     var metadataFailed = false;
+    var feedFailed = false;
     RefreshResult result() => RefreshResult(
       current: isCurrentRefresh(ticket),
       metadataFailed: metadataFailed,
       categoryDetailsRequired: ticket.categoryDetailsRequired,
+      feedFailed: feedFailed,
     );
     if (!isCurrentRefresh(ticket)) return result();
     if (includeCategories) {
@@ -521,7 +547,11 @@ class RemoteContentRepository extends ContentRepository {
           .where((entry) => _feeds[entry.key]!.version == entry.value)
           .map((entry) {
             if (ticket.preserveViewport) {
-              return _refreshVisiblePages(entry.key, entry.value, ticket);
+              return _refreshVisiblePages(
+                entry.key,
+                entry.value,
+                ticket,
+              ).then((ok) => feedFailed |= !ok);
             }
             _feeds[entry.key]!.loading = false;
             return loadNext(entry.key);
@@ -541,7 +571,8 @@ class RemoteContentRepository extends ContentRepository {
 
   /// Read the already visible extent off-screen, then replace it atomically.
   /// Keeping old items until all pages arrive avoids scroll clamping mid-refresh.
-  Future<void> _refreshVisiblePages(
+  /// Returns false when a read failed.
+  Future<bool> _refreshVisiblePages(
     FeedKey key,
     int version,
     RefreshTicket ticket,
@@ -564,13 +595,13 @@ class RemoteContentRepository extends ContentRepository {
           sort: page.bookmarkedFirst ? 'favorites_first' : null,
           cursor: cursor,
         );
-        if (!current()) return;
+        if (!current()) return true;
         items.addAll(response.items);
         totalCount = response.totalCount;
         cursor = response.nextCursor;
         hasMore = cursor != null;
       } while (hasMore && (items.isEmpty || items.length < targetCount));
-      if (!current()) return;
+      if (!current()) return true;
       final reconciled = <int, ApiContent>{};
       for (final raw in items) {
         final item = _reconcileContentRead(raw, read.version);
@@ -586,10 +617,14 @@ class RemoteContentRepository extends ContentRepository {
       page.nextCursor = cursor;
       page.hasMore = hasMore;
       page.initialized = true;
+      return true;
     } catch (error) {
-      if (current()) page.error = error;
+      // A background read keeps the previous cards, cursor and count silently.
+      if (current() && !page.backgroundRefresh) page.error = error;
+      return false;
     } finally {
       _endContentRead(read.key);
+      if (page.version == version) page.backgroundRefresh = false;
       if (current()) {
         page.loading = false;
         _notify();
