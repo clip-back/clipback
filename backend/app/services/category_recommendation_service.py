@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import re
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 
@@ -13,7 +15,9 @@ from app.integrations.ai_client import (
 )
 from app.repositories.category_repository import CategoryRepository
 from app.schemas.content import ContentSaveInput
+from app.services.save_step_log import log_save_step
 
+logger = logging.getLogger(__name__)
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
@@ -38,6 +42,15 @@ class CategoryRecommendationResult:
     assignment_method: CategoryAssignmentMethod
     failure_reason: CategoryRecommendationFailureReason | None
     tag_names: list[str] = field(default_factory=list)
+    elapsed_seconds: float | None = field(default=None, compare=False, repr=False)
+
+
+def log_category_recommendation(result: CategoryRecommendationResult) -> None:
+    if result.elapsed_seconds is not None:
+        log_save_step(
+            logger, "category_recommendation", result.elapsed_seconds,
+            result.assignment_method, result.failure_reason,
+        )
 
 
 class CategoryRecommendationService:
@@ -67,34 +80,43 @@ class CategoryRecommendationService:
             return self._fallback(CategoryRecommendationFailureReason.INSUFFICIENT_INPUT)
 
         candidate_pairs = [(category.id, category.name) for category in candidates]
+        url = self._sanitize_url(str(payload.original_url)) if payload.original_url else None
+        started_at = time.monotonic()
         try:
-            suggestion = await self.ai_client.suggest_category_id(
-                title=title,
-                description=description,
-                source=payload.source.value,
-                url=self._sanitize_url(str(payload.original_url)) if payload.original_url else None,
-                shared_text=normalized_shared_text,
-                candidates=candidate_pairs,
-            )
+            try:
+                suggestion = await self.ai_client.suggest_category_id(
+                    title=title,
+                    description=description,
+                    source=payload.source.value,
+                    url=url,
+                    shared_text=normalized_shared_text,
+                    candidates=candidate_pairs,
+                )
+            finally:
+                elapsed_seconds = time.monotonic() - started_at
         except AIClientTimeoutError:
-            return self._fallback(CategoryRecommendationFailureReason.TIMEOUT)
+            result = self._fallback(CategoryRecommendationFailureReason.TIMEOUT)
         except AIClientInvalidResponseError:
-            return self._fallback(CategoryRecommendationFailureReason.INVALID_RESPONSE)
+            result = self._fallback(CategoryRecommendationFailureReason.INVALID_RESPONSE)
         except AIClientError:
-            return self._fallback(CategoryRecommendationFailureReason.ERROR)
-
-        category_id = suggestion.category_id
-        tag_names = suggestion.tag_names
-        if category_id is None:
-            return self._fallback(CategoryRecommendationFailureReason.NO_MATCH, tag_names)
-        if category_id not in {candidate_id for candidate_id, _ in candidate_pairs}:
-            return self._fallback(CategoryRecommendationFailureReason.INVALID_RESPONSE, tag_names)
-        return CategoryRecommendationResult(
-            category_id=category_id,
-            assignment_method=CategoryAssignmentMethod.AI,
-            failure_reason=None,
-            tag_names=tag_names,
-        )
+            result = self._fallback(CategoryRecommendationFailureReason.ERROR)
+        else:
+            category_id = suggestion.category_id
+            tag_names = suggestion.tag_names
+            if category_id is None:
+                result = self._fallback(CategoryRecommendationFailureReason.NO_MATCH, tag_names)
+            elif category_id not in {candidate_id for candidate_id, _ in candidate_pairs}:
+                result = self._fallback(
+                    CategoryRecommendationFailureReason.INVALID_RESPONSE, tag_names,
+                )
+            else:
+                result = CategoryRecommendationResult(
+                    category_id=category_id,
+                    assignment_method=CategoryAssignmentMethod.AI,
+                    failure_reason=None,
+                    tag_names=tag_names,
+                )
+        return replace(result, elapsed_seconds=elapsed_seconds)
 
     @staticmethod
     def _fallback(
