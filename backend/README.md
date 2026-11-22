@@ -123,6 +123,10 @@ Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQ
 이미 준비된 링크·스크린샷 입력은 `save_prepared_link`·`save_prepared_screenshot`이 다시 검증하지 않고 받아 확정한다. 콘텐츠 조회·수정·삭제·열람 기록의 트랜잭션은 `content_service.py`에 있다.
 재시도·실패 흐름의 고정 테스트는 `tests/integration/test_content_save_flow_contract.py`다.
 
+저장 중 링크 정보 읽기·인스타그램 공유 주소 풀기·카테고리 추천·OCR을 호출하면 각각 INFO 수준의 JSON 로그를 한 줄 남깁니다.
+`event`는 `content_save_step`이고, 나머지 필드는 `step`, `elapsed_seconds`(초, 소수 셋째 자리), `status`, `failure_reason`(실패 사유가 없으면 `null`)입니다.
+이 로그에는 URL, 제목·설명·공유 글·OCR 글자·요약, 태그·카테고리·사용자 정보, 이미지·해시·저장 키, 예외 메시지·공급자 응답 원문을 담지 않습니다.
+
 ## 회원 탈퇴
 
 `DELETE /api/v1/users/me`는 계정과 그 계정의 서비스 데이터를 그 자리에서 지운다.
