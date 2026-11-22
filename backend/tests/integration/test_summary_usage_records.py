@@ -61,6 +61,20 @@ async def test_youtube_at_the_monthly_limit_stays_uncategorized(
     assert len(await usage_rows(database_connection, user["id"])) == 30
 
 
+async def test_guest_monthly_summary_count_survives_kst_midnight(
+    api, database_connection, monkeypatch, worker,
+):
+    headers, _, user = await guest(api)
+    before_midnight = datetime(2026, 11, 16, 14, 59, 59, tzinfo=UTC)
+    monkeypatch.setattr(usage_limits, "now", lambda: before_midnight)
+    for _ in range(20):
+        assert_summary(await save(api, headers))
+
+    monkeypatch.setattr(usage_limits, "now", lambda: before_midnight + timedelta(seconds=1))
+    assert_summary(await save(api, headers), "skipped", "monthly_limit_exceeded")
+    assert len(await usage_rows(database_connection, user["id"])) == 20
+
+
 async def test_screenshot_without_ocr_configuration_does_not_create_summary_usage(
     api, database_connection, monkeypatch, png_bytes,
 ):
