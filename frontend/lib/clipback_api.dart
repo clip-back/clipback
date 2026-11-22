@@ -393,6 +393,9 @@ class ClipbackApi {
        _onSessionInvalidated = onSessionInvalidated;
 
   static const _requestTimeout = Duration(seconds: 10);
+  // Photo upload waits longer: the server reads, summarizes and tags the
+  // image before answering (#459). Applies to the answer head and body each.
+  static const _uploadTimeout = Duration(seconds: 30);
   static const _baseUrl = String.fromEnvironment(
     'CLIPBACK_API_BASE_URL',
     defaultValue: 'https://clipback-production.up.railway.app/api/v1',
@@ -1085,10 +1088,10 @@ class ClipbackApi {
         }
         final streamedResponse = await _client
             .send(request)
-            .timeout(_requestTimeout);
+            .timeout(_uploadTimeout);
         return http.Response.fromStream(
           streamedResponse,
-        ).timeout(_requestTimeout);
+        ).timeout(_uploadTimeout);
       });
     } on TimeoutException {
       throw const ClipbackApiException('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');

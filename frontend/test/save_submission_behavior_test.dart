@@ -1111,8 +1111,8 @@ void main() {
           await tester.pumpAndSettle();
           if (photo) {
             await _submitAppPhoto(tester);
-            // The photo request keeps its own 10s wait for the answer.
-            await tester.pump(const Duration(seconds: 10));
+            // The photo request keeps its own 30s wait for the answer.
+            await tester.pump(const Duration(seconds: 30));
           } else {
             await _submitAppLink(tester);
             await tester.pump(const Duration(seconds: 20));

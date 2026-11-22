@@ -479,7 +479,7 @@ void main() {
         tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).enabled,
         isFalse,
       );
-      await tester.pump(const Duration(seconds: 11));
+      await tester.pump(const Duration(seconds: 31));
       await tester.pump();
       _expectSelection(tester);
       expect(find.text('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
@@ -502,6 +502,32 @@ void main() {
       await tester.pumpAndSettle();
       final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
       expect(home.contents.where((item) => item.apiId == 7), hasLength(1));
+    });
+  });
+
+  testWidgets('photo answered at 29 seconds shows the saved result', (
+    tester,
+  ) async {
+    final answer = Completer<http.Response?>();
+    final keys = <String?>[];
+    final server = _Server(
+      respond: (call) async {
+        if (call.request.url.path != _upload) return null;
+        keys.add(call.request.headers['Idempotency-Key']);
+        return answer.future;
+      },
+    );
+    await _withApp(tester, server, () async {
+      await _selectPhoto(tester);
+      await tester.tap(find.text('허투루에 저장하기'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 29));
+      answer.complete(_json(_content(), 201));
+      await tester.pumpAndSettle();
+      expect(find.byType(SavedContentConfirmation), findsOneWidget);
+      expect(find.text('서버 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'), findsNothing);
+      _expectSavedPhotoResult(tester);
+      expect(keys, hasLength(1));
     });
   });
 
@@ -777,7 +803,7 @@ void main() {
             find.byKey(const ValueKey('photo-pending-skeleton')),
             findsOneWidget,
           );
-          await tester.pump(const Duration(seconds: 11));
+          await tester.pump(const Duration(seconds: 31));
           await tester.pump();
           _expectSelection(tester);
           await tester.tap(find.text('허투루에 저장하기'));
@@ -1364,7 +1390,7 @@ void main() {
   );
 
   for (final phase in ['send', 'body']) {
-    testWidgets('upload $phase times out after ten seconds without retry', (
+    testWidgets('upload $phase times out after thirty seconds without retry', (
       tester,
     ) async {
       final pendingSend = Completer<http.Response?>();
@@ -1394,7 +1420,7 @@ void main() {
         return result;
       });
       await tester.pump();
-      await tester.pump(const Duration(seconds: 9));
+      await tester.pump(const Duration(seconds: 29));
       expect(settled, isFalse);
       await tester.pump(const Duration(seconds: 1));
       expect(
