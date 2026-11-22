@@ -16,6 +16,7 @@ GUEST_IP_HOURLY_LIMIT = 20
 GUEST_GLOBAL_HOURLY_LIMIT = 300
 GUEST_SUMMARY_MONTHLY_LIMIT = 20
 MEMBER_SUMMARY_MONTHLY_LIMIT = 30
+MONTHLY_SUMMARY_LIMIT_EXCEEDED = "monthly_limit_exceeded"
 GUEST_LIMIT_MESSAGE = "지금은 게스트로 시작할 수 없어요. 잠시 후 다시 시도해 주세요."
 logger = logging.getLogger(__name__)
 

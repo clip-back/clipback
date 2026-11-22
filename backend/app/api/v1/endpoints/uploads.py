@@ -20,6 +20,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
+from app.repositories.usage_record_repository import UsageRecordRepository
 from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import UNSUPPORTED_TAG_CHARACTERS, TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
@@ -28,6 +29,7 @@ from app.services.content_service import ContentService
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
+from app.services.usage_limits import MonthlySummaryLimit
 
 
 class _ScreenshotMultipartParser(MultiPartParser):
@@ -166,7 +168,9 @@ async def asset_access(
     )
 
 
-def _build_upload_service(db: AsyncSession) -> UploadService:
+def _build_upload_service(
+    db: AsyncSession, *, summary_limit: MonthlySummaryLimit | None = None,
+) -> UploadService:
     storage = get_storage_client()
     return UploadService(
         content_asset_repository=ContentAssetRepository(db),
@@ -174,11 +178,13 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
         ocr_client=get_ocr_client(),
         image_storage_control=ImageUploadControl(db),
         image_upload_policy=ImageUploadPolicy(db, storage),
+        summary_limit=summary_limit,
     )
 
 
 def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
-    uploads = _build_upload_service(db)
+    summary_limit = MonthlySummaryLimit(UsageRecordRepository(db))
+    uploads = _build_upload_service(db, summary_limit=summary_limit)
     category_repository = CategoryRepository(db)
     return ContentSaveFlow(
         ContentService(
@@ -191,6 +197,7 @@ def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
                 ai_client=get_ai_client(),
             ),
             tag_repository=TagRepository(db),
+            summary_limit=summary_limit,
         ),
         uploads=uploads,
     )

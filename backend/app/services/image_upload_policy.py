@@ -24,7 +24,7 @@ class ImageUploadPolicy:
         self.session = session
         self.storage = storage
 
-    async def authorize(self, *, user_id: int, size_bytes: int) -> None:
+    async def authorize(self, *, user_id: int, size_bytes: int) -> User:
         # NO KEY UPDATE serializes uploads while allowing content and tag FK checks.
         user = await self.session.scalar(
             select(User).where(User.id == user_id).with_for_update(key_share=True)
@@ -58,3 +58,4 @@ class ImageUploadPolicy:
                 "message": "이미지 보관 한도에 도달했어요. "
                 "기존 이미지를 삭제한 뒤 다시 저장해 주세요.",
             })
+        return user

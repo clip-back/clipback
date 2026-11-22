@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
+from app.integrations.ocr_client import OCRClient, OCRClientNotConfiguredError
 from app.models.auth_session import AuthSession
 from app.models.user import User
 from app.services.usage_limits import GUEST_SUMMARY_MONTHLY_LIMIT
@@ -96,14 +97,20 @@ async def test_only_new_queued_jobs_count(api, monkeypatch, png_bytes):
         "unsupported_content",
     )
     assert_summary(await save(api, headers, url="https://example.com/article"), "not_requested")
-    image = await request(
-        api,
-        "POST",
-        "uploads/screenshots",
-        status=201,
-        headers=headers,
-        files={"file": ("image.png", png_bytes, "image/png")},
-    )
+
+    async def ocr_not_configured(self, **kwargs):
+        raise OCRClientNotConfiguredError()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(OCRClient, "extract", ocr_not_configured)
+        image = await request(
+            api,
+            "POST",
+            "uploads/screenshots",
+            status=201,
+            headers=headers,
+            files={"file": ("image.png", png_bytes, "image/png")},
+        )
     assert_summary(image, "not_requested")
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
     key = str(uuid4())

@@ -8,7 +8,8 @@ URL 해석·OCR·원본 쓰기와 저장할 내용의 준비·DB 반영은 기�
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
@@ -146,6 +147,8 @@ class ContentSaveFlow:
                 ocr_metadata=original.ocr_metadata,
                 asset=self.uploads.asset_for(original),
                 submission=submission,
+                summary_decided_at=original.summary_decided_at,
+                summary_skip_reason=original.summary_skip_reason,
             )
         except Exception:
             # _commit이 원 트랜잭션을 rollback한 뒤에만 별도 연결로 같은 잠금을 다시 잡는다.
@@ -176,12 +179,19 @@ class ContentSaveFlow:
         ocr_metadata: dict[str, str | None],
         asset: PendingContentAsset,
         submission: _Submission | None = None,
+        summary_decided_at: datetime | None = None,
+        summary_skip_reason: str | None = None,
     ) -> ContentRead:
         """저장한 원본과 OCR 결과를 그대로 받아 스크린샷 콘텐츠를 저장하고 확정한다."""
         prepared = await self.content_service.prepare_screenshot(
             user_id=user_id, category_ids=category_ids, tag_names=tag_names,
             ocr=ocr, ocr_metadata=ocr_metadata, asset=asset,
         )
+        if summary_decided_at is not None or summary_skip_reason is not None:
+            prepared = replace(
+                prepared, screenshot_summary_decided_at=summary_decided_at,
+                screenshot_summary_skip_reason=summary_skip_reason,
+            )
         return await self._commit(prepared, submission)
 
     async def _begin(
