@@ -102,6 +102,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   AppRoute _categoryManagementReturnRoute = AppRoute.my;
   AppRoute _statsRoute = AppRoute.splash;
   AppRoute _listRefreshRoute = AppRoute.splash;
+  int _lifecycleSerial = 0;
   bool _weeklyForeground = true;
   bool _weeklyVisibilityScheduled = false;
   late final _WeeklyOverlayObserver _weeklyObserver = _WeeklyOverlayObserver(
@@ -196,16 +197,25 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final serial = ++_lifecycleSerial;
     _weeklyForeground = state == AppLifecycleState.resumed;
     _weeklyVisibilityChanged();
     _d.detail.foregroundChanged(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       unawaited(_d.app.checkAppleCredential());
       // The share receipt refresh runs first; a list refresh started while it
-      // is in flight would make it fail and show its notice.
+      // is in flight would make it fail and show its notice. A resume that a
+      // later lifecycle change or account change replaced does not read.
+      final generation = _d.app.accountGeneration;
       unawaited(
         _d.sharing.resume().then((_) {
-          if (mounted) _refreshProcessingLists();
+          if (mounted &&
+              serial == _lifecycleSerial &&
+              generation == _d.app.accountGeneration &&
+              WidgetsBinding.instance.lifecycleState ==
+                  AppLifecycleState.resumed) {
+            _refreshProcessingLists();
+          }
         }),
       );
     }

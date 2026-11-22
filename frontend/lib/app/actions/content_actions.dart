@@ -53,15 +53,10 @@ class ContentActions {
   /// Waiting and failure stay silent; the next resume or re-entry retries.
   Future<void> refreshInBackground() async {
     if (_disposed) return;
-    final ticket = content.beginBackgroundRefresh();
-    final result = await content.refresh(ticket);
-    bool current() => !_disposed && content.isCurrentRefresh(ticket);
-    if (!current() ||
-        !result.current ||
-        result.metadataFailed ||
-        result.feedFailed) {
-      return;
-    }
+    final generation = content.accountVersion;
+    if (!await content.refreshInBackground()) return;
+    bool current() => _current(generation);
+    if (!current()) return;
     try {
       await users.refresh(isCurrent: current);
     } catch (_) {

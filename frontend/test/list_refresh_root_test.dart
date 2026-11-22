@@ -85,6 +85,8 @@ class _Server {
   final calls = <(String, String, Map<String, String>)>[];
   final unexpected = <String>[];
   bool failLists = false;
+  bool failCategories = false;
+  int failFeeds = 0; // 다음 N번의 GET /feed를 503으로
   Completer<void>? logoutGate;
   // While set, every feed read waits for it (then answers by failLists).
   Completer<void>? feedGate;
@@ -100,7 +102,9 @@ class _Server {
     };
   }
 
-  int count(String path) => calls.where((c) => c.$2 == path).length;
+  // 목록 네 경로는 GET만 받는다. 세는 것도 GET + 경로다.
+  int count(String path) =>
+      calls.where((c) => c.$1 == 'GET' && c.$2 == path).length;
   Map<String, int> listCounts() => {for (final p in _listPaths) p: count(p)};
 
   int _members(int id) => items
@@ -118,8 +122,17 @@ class _Server {
   late final client = MockClient((r) async {
     final path = r.url.path, q = r.url.queryParameters;
     calls.add((r.method, path, q));
+    if (_listPaths.contains(path) && r.method != 'GET') {
+      unexpected.add('${r.method} $path');
+      return _json({'detail': 'GET only'}, 405);
+    }
     if (path == _feed) await feedGate?.future;
-    if (failLists && _listPaths.contains(path)) {
+    if ((failLists && _listPaths.contains(path)) ||
+        (failCategories && path == _categories)) {
+      return _json({'detail': 'temporary'}, 503);
+    }
+    if (path == _feed && failFeeds > 0) {
+      failFeeds--;
       return _json({'detail': 'temporary'}, 503);
     }
     switch (path) {
@@ -693,4 +706,99 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    '12 a category-only failure keeps the card processing and the next entry reads both',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _tab(tester, 1);
+        await _tab(tester, 0);
+        server
+          ..complete()
+          ..failCategories = true;
+        final before = server.count(_categories);
+        await _background(tester);
+        await _foreground(tester);
+        expect(server.count(_categories), greaterThan(before));
+        _expectCard(done: false);
+        _expectNoListNotice();
+        server.failCategories = false;
+        final categories = server.count(_categories);
+        await _tab(tester, 1);
+        expect(server.count(_categories), categories + 1);
+        await _categoryTab(tester);
+        _expectArchiveCounts(tester, unclassified: 1, daily: 2);
+        await _tab(tester, 0);
+        _expectCard(done: true);
+      });
+    },
+  );
+
+  testWidgets(
+    '13 a failed share refresh keeps its inline error and retry; no background read follows',
+    (tester) async {
+      final server = _Server();
+      final share = _Share();
+      await _withApp(tester, server, share: share, () async {
+        share.receipts = [
+          {'id': 'share-processing', 'userId': 1},
+        ];
+        server.failFeeds = 1;
+        final before = server.count(_feed);
+        await _background(tester);
+        await _foreground(tester);
+        expect(server.count(_feed), before + 1, reason: '공유 새로고침만');
+        expect(find.text('콘텐츠를 더 불러오지 못했어요.'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(FeedStatus),
+            matching: find.text('다시 시도'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('공유한 항목의 최신 정보'), findsOneWidget);
+        expect(share.receipts, hasLength(1));
+        expect(share.acknowledgements, isEmpty);
+      });
+    },
+  );
+
+  testWidgets(
+    '14 a resume that went back to the background before the share step ends reads nothing',
+    (tester) async {
+      final server = _Server();
+      final share = _Share();
+      await _withApp(tester, server, share: share, () async {
+        final gate = Completer<void>();
+        share.stateGate = gate;
+        await _background(tester);
+        await _foreground(tester, settle: false);
+        await _background(tester);
+        final lists = server.listCounts();
+        gate.complete();
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(server.listCounts(), lists);
+        // 다시 앞으로 오면 그 복귀가 읽는다.
+        server.complete();
+        await _foreground(tester);
+        _expectCard(done: true);
+      });
+    },
+  );
+
+  testWidgets('15 the server double refuses non-GET list requests', (
+    tester,
+  ) async {
+    final server = _Server();
+    await http.runWithClient(() async {
+      final response = await http.post(
+        Uri.parse('https://example.invalid$_feed'),
+      );
+      expect(response.statusCode, 405);
+    }, () => server.client);
+    expect(server.count(_feed), 0);
+    expect(server.unexpected, ['POST $_feed']);
+  });
 }
