@@ -11,8 +11,8 @@ const _captureKey = ValueKey('shimmer-capture');
 const _barWidth = 200;
 const _barHeight = 20;
 
-Widget _bar() => Container(
-  width: _barWidth.toDouble(),
+Widget _bar({double width = 200}) => Container(
+  width: width,
   height: _barHeight.toDouble(),
   color: AppColors.faint,
 );
@@ -60,6 +60,16 @@ double? _bandCenter(ByteData bytes, {int y = _barHeight ~/ 2}) {
   return total == 0 ? null : weighted / total;
 }
 
+List<int> _rgba(ByteData bytes, int x, {int y = _barHeight ~/ 2}) {
+  final offset = (y * _barWidth + x) * 4;
+  return [for (var i = 0; i < 4; i++) bytes.getUint8(offset + i)];
+}
+
+final _platforms = TargetPlatformVariant({
+  TargetPlatform.iOS,
+  TargetPlatform.android,
+});
+
 void main() {
   testWidgets('the band moves left to right and repeats every 1.5 seconds', (
     tester,
@@ -89,46 +99,52 @@ void main() {
     await tester.pumpWidget(_singleBar());
     await tester.pump(const Duration(milliseconds: 750));
     final bytes = await _capture(tester);
-    final faint = (AppColors.faint.r * 255).round();
-    final bg = (AppColors.bg.r * 255).round();
-    final row = [
-      for (var x = 0; x < _barWidth; x++)
-        bytes.getUint8((_barHeight ~/ 2 * _barWidth + x) * 4),
-    ];
 
-    expect(row.reduce((a, b) => a < b ? a : b), faint);
-    expect(row.reduce((a, b) => a > b ? a : b), closeTo(bg, 1));
+    // At the middle of the sweep the band spans x 60–140 of the 200 bar.
+    expect(_rgba(bytes, 5), [0xE4, 0xE4, 0xE4, 0xFF]);
+    expect(_rgba(bytes, 195), [0xE4, 0xE4, 0xE4, 0xFF]);
+    final center = _rgba(bytes, 100);
+    for (final channel in center.take(3)) {
+      expect(channel, closeTo(0xF5, 1));
+    }
+    expect(center[3], 0xFF);
 
     await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }, variant: _platforms);
 
-  testWidgets('bar groups under one shimmer share the same phase', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _harness(
-        child: SkeletonShimmer(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SkeletonShimmerBars(child: _bar()),
-              SkeletonShimmerBars(child: _bar()),
-            ],
+  testWidgets(
+    'bars of different width and start share one band in area coordinates',
+    (tester) async {
+      await tester.pumpWidget(
+        _harness(
+          child: SkeletonShimmer(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SkeletonShimmerBars(child: _bar()),
+                Padding(
+                  padding: const EdgeInsets.only(left: 40),
+                  child: SkeletonShimmerBars(child: _bar(width: 160)),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 700));
+      );
+      await tester.pump(const Duration(milliseconds: 750));
 
-    final bytes = await _capture(tester);
-    final first = _bandCenter(bytes, y: _barHeight ~/ 2);
-    final second = _bandCenter(bytes, y: _barHeight + _barHeight ~/ 2);
+      final bytes = await _capture(tester);
+      final first = _bandCenter(bytes, y: _barHeight ~/ 2);
+      final second = _bandCenter(bytes, y: _barHeight + _barHeight ~/ 2);
 
-    expect(first, isNotNull);
-    expect(second, closeTo(first!, 1));
+      expect(first, closeTo(100, 2));
+      expect(second, closeTo(first!, 1));
 
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: _platforms,
+  );
 
   for (final signal in ['disableAnimations', 'reduceMotion']) {
     testWidgets('$signal alone stops the band with no scheduled frame', (
