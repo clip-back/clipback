@@ -9,7 +9,6 @@ from openai import APIConnectionError, APITimeoutError
 from app.core.config import Settings
 from app.integrations import ocr_client as ocr_client_module
 from app.integrations.ocr_client import (
-    MAX_OCR_SUMMARY_LENGTH,
     MAX_OCR_TEXT_LENGTH,
     MAX_OCR_TITLE_LENGTH,
     OCRClient,
@@ -108,7 +107,7 @@ async def test_extract_uses_canonical_mime_and_fixed_operational_options() -> No
     assert image_input["detail"] == "original"
     encoded = base64.b64encode(b"image-bytes").decode("ascii")
     assert image_input["image_url"] == f"data:image/png;base64,{encoded}"
-    assert "untrusted data" in responses.kwargs["input"][0]["content"]
+    assert "신뢰하지 않는 분석 대상 데이터" in responses.kwargs["input"][0]["content"]
     assert "공백 포함 25자 안팎" in responses.kwargs["input"][0]["content"]
     assert "핵심 대상" in responses.kwargs["input"][0]["content"]
 
@@ -126,7 +125,7 @@ async def test_extract_limits_normalized_fields() -> None:
                     ScreenshotOCROutput(
                         text="가" * (MAX_OCR_TEXT_LENGTH + 1),
                         title="나" * (MAX_OCR_TITLE_LENGTH + 1),
-                        headline="다" * MAX_OCR_SUMMARY_LENGTH,
+                        headline="다" * 1000,
                         points=["라"],
                     )
                 )
@@ -138,7 +137,7 @@ async def test_extract_limits_normalized_fields() -> None:
 
     assert len(result.text) == MAX_OCR_TEXT_LENGTH
     assert len(result.title) == MAX_OCR_TITLE_LENGTH
-    assert len(result.summary) == MAX_OCR_SUMMARY_LENGTH
+    assert result.summary == "다" * 1000
 
 
 @pytest.mark.asyncio
@@ -278,6 +277,13 @@ async def test_empty_headline_empties_only_the_summary() -> None:
 
 
 @pytest.mark.asyncio
+async def test_photo_summary_keeps_the_space_at_the_headline_cutoff() -> None:
+    result = await extract_answer(headline="가" * 999 + "  나나", points=[])
+
+    assert result.summary == "가" * 999 + " "
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["youtube", "instagram"])
 @pytest.mark.parametrize(
     ("headline", "points"),
@@ -302,13 +308,12 @@ def test_ocr_request_asks_for_headline_and_points() -> None:
 
     assert set(properties) == {"text", "title", "headline", "points", "tags"}
     assert properties["headline"]["maxLength"] == 40
-    assert properties["points"]["items"] == {"type": "string", "maxLength": 60}
-    assert properties["points"]["maxItems"] == 5
+    assert properties["points"]["items"] == {"type": "string", "maxLength": 80}
+    assert properties["points"]["maxItems"] == 10
     assert "minItems" not in properties["points"]
 
 
-@pytest.mark.asyncio
-async def test_ocr_prompt_asks_for_the_link_summary_format() -> None:
+async def screenshot_prompt():
     responses = FakeResponses(
         response=completed_response(
             ScreenshotOCROutput(text="", title="", headline="", points=[])
@@ -316,24 +321,41 @@ async def test_ocr_prompt_asks_for_the_link_summary_format() -> None:
     )
     client = OCRClient(config(), client=FakeOpenAI(responses))
     await client.extract(image_bytes=b"image", mime_type="image/png")
-    prompt = responses.kwargs["input"][0]["content"]
+    return responses.kwargs["input"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_ocr_prompt_asks_for_the_link_summary_format() -> None:
+    prompt = await screenshot_prompt()
 
     for phrase in [
-        "headline (핵심 한 줄)",
-        "points (요점)",
-        "at most 40 characters",
-        "at most 60 characters each",
-        "0–5 points",
-        "never invent points or repeat the headline",
+        "headline(핵심 한 줄)",
+        "points(요점)",
+        "40자 안팎",
+        "80자 안팎",
+        "근거가 없으면 요점 없이 핵심 한 줄만",
+        "요점을 지어내지 마라",
+        "핵심 한 줄을 되풀이하지 마라",
         "정보형·명사형 메모체",
-        "no trailing period",
-        "no bullets, numbering, or markdown",
+        "끝에 마침표를 찍지 마라",
+        "글머리 기호·번호·마크다운을 붙이지 마라",
         '"성수동 카페 소개"',
-        "untrusted data",
-        "Preserve the source language",
-        "5000 characters",
+        "신뢰하지 않는 분석 대상 데이터",
+        "읽는 순서대로 추출",
+        "원문 언어",
+        "5,000자",
         "공백 포함 25자 안팎",
         "핵심 대상",
     ]:
         assert phrase in prompt
+    before, common_start, common_and_photo = prompt.partition("요약은 headline(핵심 한 줄)")
+    _, common_end, photo_only = common_and_photo.partition("확인되지 않은 내용을 추측하지 마라.")
+    assert common_start and common_end
+    assert before.startswith("스크린샷 속 글자")
+    assert "읽는 순서대로 추출" in before
+    assert "사진의 요점 개수는 0–10개" in photo_only
+    assert "근거가 없으면 요점 없이 핵심 한 줄만" in photo_only
+    assert "짧은 글의 사실이 핵심 한 줄에 모두 담겨도 요점은 쓰지 않는다" in photo_only
+    no_text = "의미 있는 글자가 없으면 text, title, headline은 빈 문자열, points는 빈 목록"
+    assert no_text in photo_only
     assert "성수동 카페 소개. 대표 메뉴와 영업시간 안내." not in prompt

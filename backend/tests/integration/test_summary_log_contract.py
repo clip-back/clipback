@@ -31,6 +31,7 @@ from tests.integrations.test_youtube_summary_client import config as youtube_con
 pytestmark = pytest.mark.asyncio
 
 YOUTUBE_LINK = "https://youtu.be/dQw4w9WgXcQ"
+AUTHOR_MARKER = "IGNORE-PREVIOUS-7f3a"
 REEL = "https://www.instagram.com/reel/ABC123/"
 IMAGE_URL = "https://scontent.cdninstagram.com/v/representative.jpg"
 RESULT_KEYS = {
@@ -129,6 +130,14 @@ def youtube_client(*, preflight=None, gemini=None, config=None):
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return YouTubeSummaryClient(config or youtube_config(), http)
+
+
+def marked_video(request):
+    data = video("PT5M")
+    data["items"][0]["snippet"].update(
+        title=f"제목 {AUTHOR_MARKER}", description=f"설명 {AUTHOR_MARKER}",
+    )
+    return httpx.Response(200, json=data)
 
 
 def instagram_client(*, post=None, image=None, openai=None, openai_client=True, page_timeout=60):
@@ -250,7 +259,7 @@ async def test_expired_lease_logs_a_stale_result_and_a_recovered_claim(
 @pytest.mark.parametrize("kind", ["youtube", "instagram"])
 async def test_successful_result_names_the_summary_provider(api, make_worker, kind):
     if kind == "youtube":
-        worker, url = make_worker(youtube=youtube_client()), YOUTUBE_LINK
+        worker, url = make_worker(youtube=youtube_client(preflight=marked_video)), YOUTUBE_LINK
         provider, usage, extra = "gemini", GEMINI_USAGE, {}
         model = "gemini-fixed"
     else:
@@ -277,6 +286,51 @@ async def test_successful_result_names_the_summary_provider(api, make_worker, ki
         "usage": usage,
         **extra,
     }
+
+
+@pytest.mark.parametrize(
+    "status,summary_status,error_code,retryable",
+    [
+        (200, "completed", None, False),
+        (429, "queued", "provider_error", True),
+        (400, "failed", "provider_error", False),
+    ],
+)
+async def test_author_metadata_stays_out_of_logs_and_public_fields(
+    api, make_worker, caplog, status, summary_status, error_code, retryable
+):
+    requests = []
+
+    def gemini(request):
+        assert request.method == "POST"
+        requests.append(json.loads(request.content))
+        if status == 200:
+            return httpx.Response(200, json=output(category_id=None))
+        return httpx.Response(status, json={"error": {"message": AUTHOR_MARKER}})
+
+    client = youtube_client(preflight=marked_video, gemini=gemini)
+    async with client.http:
+        worker = make_worker(youtube=client)
+        app_logger = logging.getLogger("app")
+        # The configured app logger does not propagate to pytest's root handler.
+        app_logger.addHandler(caplog.handler)
+        try:
+            headers, content = await save(api, YOUTUBE_LINK)
+            result = await result_of(worker)
+            public = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+        finally:
+            app_logger.removeHandler(caplog.handler)
+
+    (body,) = requests  # No second, text-only call, including for retryable failures.
+    parts = body["contents"][0]["parts"]
+    assert {"fileData": {"fileUri": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}} in parts
+    marked_text = [part["text"] for part in parts if AUTHOR_MARKER in part.get("text", "")]
+    assert len(marked_text) == 2
+    assert (result["error_code"], result["retryable"]) == (error_code, retryable)
+    assert "youtube_summary_result" in caplog.text
+    assert AUTHOR_MARKER not in caplog.text
+    assert (public["summary_status"], public["summary_error_code"]) == (summary_status, error_code)
+    assert AUTHOR_MARKER not in json.dumps(public)
 
 
 @pytest.mark.parametrize(
@@ -524,3 +578,87 @@ async def test_nothing_is_logged_during_maintenance(api, make_worker):
     assert records == []
     detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
     assert detail["summary_status"] == "queued"
+
+
+@pytest.mark.parametrize("kind", ["youtube", "instagram"])
+@pytest.mark.parametrize(
+    "answer,expected_summary",
+    [
+        pytest.param({"points": ["요점"] * 5 + ["BAD-POINT\x00"]}, None, id="retained-nul"),
+        pytest.param({"title": "BAD-TITLE\x00"}, None, id="retained-title-nul"),
+        pytest.param(
+            {"headline": "가" * 994, "points": ["a", "DROPPED-POINT\x00"]},
+            "가" * 994 + "\n• a", id="dropped-nul",
+        ),
+    ],
+)
+async def test_generated_summary_text_finishes_the_job_with_usage(
+    api, make_worker, database_connection, kind, answer, expected_summary,
+):
+    if kind == "youtube":
+        client = youtube_client(gemini=lambda r: httpx.Response(200, json=output(**answer)))
+        url, usage = YOUTUBE_LINK, GEMINI_USAGE
+        provider = None if expected_summary is None else "gemini"
+    else:
+        client = instagram_client(openai=lambda r: completion(**answer))
+        url, provider, usage = REEL, "openai", OPENAI_USAGE
+    worker = make_worker(**{kind: client})
+    headers, content = await save(api, url)
+
+    result = await result_of(worker)
+
+    detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+    if expected_summary is None:
+        status, code = "failed", "invalid_response"
+        expected_summary = content["summary"]
+    else:
+        status, code = "completed", None
+    assert (detail["summary_status"], detail["summary_error_code"]) == (status, code)
+    assert detail["summary"] == expected_summary
+    assert (result["provider"], result["usage"], result["retryable"]) == (provider, usage, False)
+    assert result["error_code"] == code
+    serialized_result = json.dumps(result)
+    assert all(
+        marker not in serialized_result for marker in ("BAD-POINT", "BAD-TITLE", "DROPPED-POINT")
+    )
+
+    job = (
+        await database_connection.execute(
+            select(SummaryJob).where(SummaryJob.content_id == content["id"])
+        )
+    ).one()
+    assert (job.attempts, job.lease_token, job.lease_expires_at) == (1, None, None)
+    assert job.usage == [{"attempt": 1, "tokens": usage}]
+    assert not await worker.run_once()
+
+
+async def test_instagram_sdk_parse_failure_finishes_without_provider_usage(
+    api, make_worker, database_connection,
+):
+    calls = []
+
+    def respond(req):
+        calls.append(req.method)
+        return completion(points=["요점"] * 5 + ["SDK-PARSE-FAIL\ud800"])
+
+    worker = make_worker(instagram=instagram_client(openai=respond))
+    headers, content = await save(api, REEL)
+
+    result = await result_of(worker)
+
+    detail = await request(api, "GET", f"contents/{content['id']}", headers=headers)
+    assert detail["summary_status"] == "failed"
+    assert detail["summary_error_code"] == "invalid_response"
+    assert detail["summary"] == content["summary"]
+    assert (result["provider"], result["retryable"], result["usage"]) == ("openai", False, {})
+    assert result["error_code"] == "invalid_response"
+    assert "SDK-PARSE-FAIL" not in json.dumps(result)
+    job = (
+        await database_connection.execute(
+            select(SummaryJob).where(SummaryJob.content_id == content["id"])
+        )
+    ).one()
+    assert (job.attempts, job.lease_token, job.lease_expires_at) == (1, None, None)
+    assert job.usage == [{"attempt": 1, "tokens": {}}]
+    assert not await worker.run_once()
+    assert calls == ["POST"]
