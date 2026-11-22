@@ -181,6 +181,11 @@ async def test_e3_and_r1_limited_screenshot_keeps_manual_choices_and_replays_cur
     )
     assert [category["id"] for category in recategorized["categories"]] == [changed["id"]]
     assert_summary(recategorized, "skipped", REASON)
+    retagged = await request(
+        api, "PUT", f"{path}/tags", headers=headers, json={"tag_names": ["현재 태그"]},
+    )
+    assert [tag["name"] for tag in retagged["tags"]] == ["현재 태그"]
+    assert_summary(retagged, "skipped", REASON)
     favorited = await request(
         api, "PUT", f"{path}/favorite", headers=headers, json={"is_favorite": True},
     )

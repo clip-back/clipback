@@ -22,3 +22,24 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 로컬 원본은 `.utmp/ticket-463/20261122T213225-07c9c40caa46/`에 보관했습니다. Docker 배포·복구와 S3 CLI는 위 조건으로 건너뛰었습니다. 원격 CI는 PR 단계이며 운영과 실제 AI 호출은 이 작업의 검증 범위 밖입니다.
+
+## #464 사진의 AI 요약 월 한도
+
+2026-11-23, `d3c450d`를 기준으로 사진 저장에 링크와 같은 월 한도를 적용했습니다. 기존 사용자 행 잠금을 얻고 원본 보관 한도를 확인한 뒤 글자 읽기 전에 판정합니다. 글자 읽기에 성공하면 판정 시각으로 저장 트랜잭션에 건수를 기록합니다. 한도에 도달하면 원본과 직접 고른 카테고리·태그를 저장하고 응답에 `skipped`·`monthly_limit_exceeded`를 반환합니다.
+
+- PostgreSQL에서 사진 두 건이 서로 다른 제출 키와 같은 제출 키로 겹칠 때 각각 기록 30건, 사진과 링크가 겹칠 때 기록 31건을 확인했습니다. 글자 읽기 도중 한국 시간으로 다음 달이 되어도 지난달에 기록되고, 응답 유실 후 같은 키로 재확인하면 새 호출이나 기록 없이 원본이 보존됩니다.
+- 기존 링크 한도 검사 1건의 대역은 글자 읽기 성공을 반환해 사진이 한도를 사용했습니다. 시작점에서 해당 검사 1건이 통과함을 확인했고 사용자 승인에 따라 그 사진 요청에만 글자 읽기 미설정을 적용했습니다. 기존 이름·기대값·단언과 공용 대역을 유지했고, 단독 검사 1건과 관련 검사 455건이 통과했습니다.
+- 검수에서 태그 변경 요청의 응답과 같은 키로 다시 저장할 때 반환하는 현재 콘텐츠에 한도 사유가 이어지는지 확인했습니다. 사진 준비 서비스와 콘텐츠 저장소의 기존 호출 규약을 유지했습니다. 이어지는 PostgreSQL 부분 검사에서 20건이 통과했고 실패·skip은 0건이었습니다.
+
+### 검증
+
+일반·maintenance PostgreSQL의 `alembic upgrade head`와 `alembic check`가 통과했습니다. 같은 DB에서 사진 사유 마이그레이션을 내린 뒤 사용 기록 마이그레이션을 이어서 내리는 통합 테스트도 통과했습니다. Flutter 테스트는 3,967건이 통과했고 이 티켓 대상 skip은 0건입니다.
+
+```text
+pytest: 3062 passed, 50 skipped, 3 warnings in 414.98s (0:06:54)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+이번 실행의 로그와 결과는 `.utmp/ticket-464/20261123T023953-dcf8cc8d6ed6/`에 보관했습니다. 위 skip은 PR 단계의 CI에서 대조합니다.
