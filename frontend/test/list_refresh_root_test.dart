@@ -88,8 +88,11 @@ class _Server {
   bool failCategories = false;
   int failFeeds = 0; // 다음 N번의 GET /feed를 503으로
   Completer<void>? logoutGate;
-  // While set, every feed read waits for it (then answers by failLists).
+  // While set, every feed read waits for it. The reply carries the items as
+  // they were when the request arrived; failures are judged after the wait.
   Completer<void>? feedGate;
+  // A malformed 200 body for every feed read while set.
+  Map<String, Object?>? invalidFeed;
 
   void complete() {
     final i = items.indexWhere((v) => v['id'] == 7);
@@ -126,7 +129,9 @@ class _Server {
       unexpected.add('${r.method} $path');
       return _json({'detail': 'GET only'}, 405);
     }
+    final requested = [for (final v in items) Map<String, Object?>.of(v)];
     if (path == _feed) await feedGate?.future;
+    if (path == _feed && invalidFeed != null) return _json(invalidFeed!);
     if ((failLists && _listPaths.contains(path)) ||
         (failCategories && path == _categories)) {
       return _json({'detail': 'temporary'}, 503);
@@ -148,7 +153,7 @@ class _Server {
       case _feed:
         final category = q['category_id'];
         final rows = [
-          for (final v in items)
+          for (final v in requested)
             if (category == null ||
                 (v['categories'] as List).any(
                   (c) => (c as Map)['id'].toString() == category,
@@ -801,4 +806,60 @@ void main() {
     expect(server.count(_feed), 0);
     expect(server.unexpected, ['POST $_feed']);
   });
+
+  testWidgets(
+    '16 a newer re-entry wins over an older read still waiting with processing items',
+    (tester) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _tab(tester, 1);
+        await _tab(tester, 0);
+        final gate = Completer<void>();
+        server.feedGate = gate;
+        await _background(tester);
+        await _foreground(tester, settle: false);
+        await tester.pump();
+        final first = server.count(_feed);
+        server
+          ..feedGate = null
+          ..complete();
+        await _tab(tester, 1);
+        await _tab(tester, 0);
+        expect(server.count(_feed), greaterThan(first), reason: '재진입마다 GET');
+        gate.complete();
+        await tester.pumpAndSettle();
+        _expectCard(done: true);
+        _expectNoListNotice();
+      });
+    },
+  );
+
+  for (final body in <Map<String, Object?>>[
+    {},
+    {'items': null},
+    {'items': 5},
+  ]) {
+    testWidgets('17 a malformed feed reply $body keeps the cards', (
+      tester,
+    ) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        _expectCard(done: false);
+        server.invalidFeed = body;
+        final before = server.count(_feed);
+        await _background(tester);
+        await _foreground(tester);
+        expect(server.count(_feed), greaterThan(before));
+        _expectCard(done: false);
+        _expectNoListNotice();
+        // 정상 응답이 돌아오면 다음 진입에서 반영한다.
+        server
+          ..invalidFeed = null
+          ..complete();
+        await _tab(tester, 1);
+        await _tab(tester, 0);
+        _expectCard(done: true);
+      });
+    });
+  }
 }

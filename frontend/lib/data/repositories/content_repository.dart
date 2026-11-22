@@ -137,13 +137,10 @@ class _FeedState {
   int version = 0;
   int viewportVersion = 0;
   Future<void>? pending;
-  // A background re-read owns this shown page. loadNext waits for it.
-  Completer<void>? background;
 
-  void endBackground() {
-    background?.complete();
-    background = null;
-  }
+  // Filter identity for a background re-read; a change cancels it.
+  (String?, int?, bool?, bool) get filter =>
+      (query, categoryId, isFavorite, bookmarkedFirst);
 
   void reset({bool preserveViewport = false}) {
     version++;
@@ -158,7 +155,6 @@ class _FeedState {
     loading = false;
     error = null;
     pending = null;
-    endBackground();
   }
 
   FeedSnapshot snapshot() => FeedSnapshot(
@@ -209,6 +205,10 @@ class RemoteContentRepository extends ContentRepository {
   int _accountVersion = 0;
   int _refreshVersion = 0;
   int _categoryReadVersion = 0;
+  // Background re-reads (#460): each one gets a generation; a newer one, or a
+  // user read of one of its lists, cancels it so its replies are discarded.
+  int _backgroundGeneration = 0;
+  Set<FeedKey> _backgroundTargets = const {};
   ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
@@ -389,10 +389,9 @@ class RemoteContentRepository extends ContentRepository {
     if (_disposed) return Future.value();
     final page = _feeds[key]!;
     if (reset) page.reset();
-    // An explicit next page waits for the background re-read, then continues
-    // from the cursor it left.
-    final background = page.background;
-    if (background != null) return background.future.then((_) => loadNext(key));
+    // A user read wins over a background re-read of the same list: cancel it
+    // and continue from the shown items and cursor.
+    if (_backgroundTargets.contains(key)) _cancelBackground();
     if (page.pending != null) return page.pending!;
     // Metadata is still loading for a write-triggered first-page refresh.
     if (page.loading || !page.hasMore || _disposed) return Future.value();
@@ -504,44 +503,72 @@ class RemoteContentRepository extends ContentRepository {
     return ticket;
   }
 
+  void _cancelBackground() {
+    _backgroundGeneration++;
+    _backgroundTargets = const {};
+  }
+
   @override
   Future<bool> refreshInBackground() async {
     if (_disposed ||
-        _feeds.values.any(
-          (page) =>
-              page.loading || page.pending != null || page.background != null,
-        )) {
-      // Another read owns the lists; it shows its own result.
+        _feeds.values.any((page) => page.loading || page.pending != null)) {
+      // A user or caller read owns the lists; it shows its own result.
       return false;
     }
     // A failed page keeps its error and retry; an unread page stays unread.
-    final targets = {
+    final targets = [
       for (final entry in _feeds.entries)
         if (entry.value.initialized && entry.value.error == null)
-          entry.key: (entry.value, entry.value.version),
-    };
+          (
+            key: entry.key,
+            page: entry.value,
+            version: entry.value.version,
+            filter: entry.value.filter,
+            shown: List<ApiContent>.of(entry.value.items),
+          ),
+    ];
     if (targets.isEmpty) return false;
+    // A newer re-entry replaces an older background read still waiting.
+    final generation = ++_backgroundGeneration;
+    _backgroundTargets = {for (final target in targets) target.key};
     final account = _accountVersion;
     final refreshVersion = _refreshVersion;
-    for (final (page, _) in targets.values) {
-      page.background = Completer<void>();
-    }
+    final categoryRead = _categoryReadVersion;
     bool current() =>
         !_disposed &&
+        generation == _backgroundGeneration &&
         account == _accountVersion &&
         refreshVersion == _refreshVersion &&
-        targets.values.every((target) => target.$1.version == target.$2);
+        targets.every(
+          (target) =>
+              target.page.version == target.version &&
+              target.page.filter == target.filter,
+        );
     final read = _beginContentRead();
     try {
       final staged = await Future.wait([
-        for (final (page, _) in targets.values) _readShownPages(page),
+        for (final target in targets) _readShownPages(target.page, current),
       ]);
       if (!current()) return false;
-      await _loadCategories(isCurrent: current);
-      if (!current()) return false;
-      var i = 0;
-      for (final (page, _) in targets.values) {
-        final (items, cursor, totalCount, hasMore) = staged[i++];
+      // Read directly: a user category read is neither cancelled nor
+      // superseded, and nothing is published before the lists.
+      final categories = await _api.listCategories();
+      if (!current() || categoryRead != _categoryReadVersion) return false;
+      // A newer detail, today or change reply replaced a shown item; this
+      // older snapshot must not undo it.
+      for (final target in targets) {
+        final items = target.page.items;
+        if (items.length != target.shown.length) return false;
+        for (var i = 0; i < items.length; i++) {
+          if (!identical(items[i], target.shown[i])) return false;
+        }
+      }
+      _categories
+        ..clear()
+        ..addAll(_reconcileCategoryList(categories));
+      for (var i = 0; i < targets.length; i++) {
+        final page = targets[i].page;
+        final (items, cursor, totalCount, hasMore) = staged[i];
         final reconciled = <int, ApiContent>{};
         for (final raw in items) {
           final item = _reconcileContentRead(raw, read.version);
@@ -557,21 +584,23 @@ class RemoteContentRepository extends ContentRepository {
         page.nextCursor = cursor;
         page.hasMore = hasMore;
       }
+      _notify();
       return true;
     } catch (_) {
       // Keep every list as shown; the next resume or re-entry tries again.
       return false;
     } finally {
       _endContentRead(read.key);
-      for (final (page, version) in targets.values) {
-        if (page.version == version) page.endBackground();
-      }
-      _notify();
+      if (generation == _backgroundGeneration) _backgroundTargets = const {};
     }
   }
 
+  /// Reads the shown extent of one list for a background re-read. Checks the
+  /// generation before every request and after every reply, and fails when a
+  /// page makes no progress (its next cursor is the cursor just sent).
   Future<(List<ApiContent>, String?, int?, bool)> _readShownPages(
     _FeedState page,
+    bool Function() current,
   ) async {
     final targetCount = page.items.length;
     final items = <ApiContent>[];
@@ -579,18 +608,24 @@ class RemoteContentRepository extends ContentRepository {
     int? totalCount;
     var hasMore = true;
     do {
-      final response = await _api.readFeed(
+      if (!current()) throw const _BackgroundCancelled();
+      final sent = cursor;
+      final response = await _api.readFeedStrict(
         limit: 20,
         query: page.query,
         categoryId: page.categoryId,
         isFavorite: page.isFavorite,
         sort: page.bookmarkedFirst ? 'favorites_first' : null,
-        cursor: cursor,
+        cursor: sent,
       );
+      if (!current()) throw const _BackgroundCancelled();
       items.addAll(response.items);
       totalCount = response.totalCount;
       cursor = response.nextCursor;
       hasMore = cursor != null;
+      if (hasMore && cursor == sent) {
+        throw StateError('Feed cursor made no progress');
+      }
     } while (hasMore && (items.isEmpty || items.length < targetCount));
     return (items, cursor, totalCount, hasMore);
   }
@@ -1583,3 +1618,7 @@ ApiContent _copyContent(
   lastViewedAt: value.lastViewedAt,
   summaryStatus: value.summaryStatus,
 );
+
+class _BackgroundCancelled implements Exception {
+  const _BackgroundCancelled();
+}

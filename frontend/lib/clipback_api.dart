@@ -1365,6 +1365,31 @@ class ClipbackApi {
     return ApiFeed.fromJson(await _json('GET', '/feed?$queryString'));
   }
 
+  /// [readFeed] for a background re-read (#460): a 200 reply without an
+  /// `items` list is a failure, not an empty page. [readFeed] keeps its
+  /// lenient parsing for every other caller.
+  Future<ApiFeed> readFeedStrict({
+    String? query,
+    int? categoryId,
+    bool? isFavorite,
+    String? sort,
+    int limit = 100,
+    String? cursor,
+  }) async {
+    final parameters = <String, String>{'limit': '$limit'};
+    if (query != null && query.isNotEmpty) parameters['q'] = query;
+    if (categoryId != null) parameters['category_id'] = '$categoryId';
+    if (isFavorite != null) parameters['is_favorite'] = '$isFavorite';
+    if (sort != null) parameters['sort'] = sort;
+    if (cursor != null) parameters['cursor'] = cursor;
+    final queryString = Uri(queryParameters: parameters).query;
+    final json = await _json('GET', '/feed?$queryString');
+    if (json['items'] is! List) {
+      throw const ClipbackApiException('Malformed feed response');
+    }
+    return ApiFeed.fromJson(json);
+  }
+
   Future<void> createCategoryFilterEvent(int categoryId) => _json(
     'POST',
     '/metrics/events',
