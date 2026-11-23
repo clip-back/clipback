@@ -113,4 +113,8 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
-로그는 `.utmp/ticket-467/20261123T162559-3f9b6039a62b/`에 보관했습니다. Docker 배포·복구와 S3 CLI skip은 PR 단계의 원격 CI와 대조합니다. 배포 전 운영 읽기 전용 집계는 사용자 실행과 판정을 기다리며, 배포 후 재집계·운영 한도·실기기 낭독 확인은 배포 뒤 사용자 단계입니다. [#467 절차 댓글](https://github.com/clip-back/clipback/issues/467#issuecomment-7094087770)
+로그는 `.utmp/ticket-467/20261123T162559-3f9b6039a62b/`에 보관했습니다. Docker 배포·복구와 S3 CLI skip은 PR 단계의 원격 CI와 대조합니다. 배포 후 재집계·운영 한도·실기기 낭독 확인은 배포 뒤 사용자 단계입니다. [#467 절차 댓글](https://github.com/clip-back/clipback/issues/467#issuecomment-7094087770)
+
+### 운영 읽기 집계(사용자 실행)
+
+사용자가 운영 읽기 집계를 실행했고 해석 불가 메타데이터는 없었습니다. 집계값은 비공개이며 독립 대조는 하지 않았습니다.
