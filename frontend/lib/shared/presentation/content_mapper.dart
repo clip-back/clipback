@@ -73,6 +73,7 @@ ContentItem contentFromApi(
     isScreenshot: content.contentType == 'screenshot',
     assets: List.unmodifiable(content.assets),
     summaryStatus: content.summaryStatus,
+    summaryErrorCode: content.summaryErrorCode,
     isMutating: isMutating,
     mutationLabel: mutationLabel,
   );

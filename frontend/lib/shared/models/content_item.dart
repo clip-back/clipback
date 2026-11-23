@@ -20,6 +20,7 @@ class ContentItem {
     this.isScreenshot = false,
     this.assets = const [],
     this.summaryStatus = 'not_requested',
+    this.summaryErrorCode,
     this.isMutating = false,
     this.mutationLabel,
   }) : assert(mutationLabel == null || isMutating),
@@ -47,6 +48,7 @@ class ContentItem {
   final bool isScreenshot;
   final List<ApiAsset> assets;
   final String summaryStatus;
+  final String? summaryErrorCode;
 
   /// A write for this content is in flight: its star, more menu and
   /// management actions stay locked until the write and its reload finish.
@@ -85,6 +87,7 @@ class ContentItem {
       isScreenshot: isScreenshot,
       assets: assets,
       summaryStatus: summaryStatus,
+      summaryErrorCode: summaryErrorCode,
       isMutating: isMutating ?? this.isMutating,
       mutationLabel: clearMutationLabel
           ? null
