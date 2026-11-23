@@ -43,3 +43,24 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 이번 실행의 로그와 결과는 `.utmp/ticket-464/20261123T023953-dcf8cc8d6ed6/`에 보관했습니다. 위 skip은 PR 단계의 CI에서 대조합니다.
+
+## #465 카테고리 추천 하루 상한
+
+추천 공급자를 호출하기 직전에 시도 1회를 저장과 별도 트랜잭션으로 확정합니다. 한국 시간 기준 하루 상한은 로그인 200회, 게스트 50회입니다. 직접 고른 카테고리나 추천 입력이 없는 경우에는 호출도 집계도 하지 않습니다. 호출 뒤 저장이 실패하면 추천 기록은 남고, 저장이 끝난 제출 키의 재요청은 추천을 다시 호출하지 않습니다.
+
+검수에서 저장 요청이 보유한 연결 풀에서 다시 연결을 기다리는 상황을 확인해 추천 기록 전용 풀을 분리했습니다. 전용 연결의 끊김 확인과 기록 트랜잭션의 잠금 대기 제한을 추가했습니다. 로컬 검사로 다른 계정의 추천과 기록, 끊긴 연결에서의 복구, 앱 종료 시 풀 정리를 확인했습니다.
+
+### 검증
+
+전체 검사 1회 실패, 단독·비교 44회와 재실행 통과, 원인 미확정. 첫 전체 검사에서는 동시 저장 테스트에서 추천 기록용 연결을 얻지 못한 3건이 미분류로 저장됐습니다. 대상 테스트는 시작점과 반영분에서 각각 단독 20회와 전체 pytest 안 2회씩 통과했습니다. 진단의 전체 pytest에는 Flutter와 maintenance DB 검증이 포함되지 않았습니다.
+
+첫 실패 로그는 `.utmp/ticket-465-retry/first-failure/backend-pytest.log`에 보존했습니다. 제품 변경 없이 일반·maintenance DB와 Flutter를 포함한 전체 검사를 한 번 재실행했습니다. Flutter 3,967건 통과, 종료 코드 0입니다.
+
+```text
+pytest: 3102 passed, 50 skipped, 3 warnings in 388.27s (0:06:28)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+재실행 로그는 `.utmp/ticket-465-retry/verify/20261123T134429-50ce613db4d9/`에 보관했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 단계의 원격 CI와 대조합니다.

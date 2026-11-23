@@ -21,7 +21,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.usage_record_repository import UsageRecordRepository
 from app.services import usage_limits
 from app.services.category_recommendation_service import CategoryRecommendationService
-from tests.integration.helpers import link, request
+from tests.integration.helpers import guest, link, request
 from tests.integration.test_save_ai_tags import provider as provider
 from tests.integration.test_screenshot_usage_limits import upgrade
 from tests.integration.test_share_write_concurrency import independent_api as independent_api
@@ -96,6 +96,76 @@ async def test_recommendation_records_with_all_save_connections_checked_out(
     assert all([cat["name"] for cat in item["categories"]] == ["취업"] for item in saved)
     assert recommendation_provider.calls == ["recommend"] * concurrent_saves
     assert len(await recorded(sessions, user_id, RECOMMENDATION)) == concurrent_saves
+
+
+async def test_account_lock_releases_recommendation_connections_for_other_users(
+    independent_api, recommendation_provider, monkeypatch,
+):
+    api, other_headers, other_id, sessions, _, _ = independent_api
+    locked_headers, _, locked_user = await guest(api)
+    locked_id = locked_user["id"]
+    add = UsageRecordRepository.add
+    both_recording = asyncio.Event()
+    locked_attempts = 0
+
+    async def observe_attempt(repository, **kwargs):
+        nonlocal locked_attempts
+        if kwargs["user_id"] == locked_id:
+            locked_attempts += 1
+            if locked_attempts == 2:
+                both_recording.set()
+        await add(repository, **kwargs)
+
+    monkeypatch.setattr(UsageRecordRepository, "add", observe_attempt)
+    recommendation_provider.recommendation["tags"] = []
+    try:
+        async with asyncio.timeout(10), sessions() as holder, asyncio.TaskGroup() as tasks:
+            await holder.execute(select(User.id).where(User.id == locked_id).with_for_update())
+            blocked = [tasks.create_task(link(api, locked_headers)) for _ in range(2)]
+            await both_recording.wait()
+            try:
+                other = await link(api, other_headers)
+            finally:
+                await holder.rollback()
+        assert [cat["name"] for cat in other["categories"]] == ["취업"]
+        assert (await event_metadata(sessions, other["id"]))[
+            "category_recommendation_failure_reason"
+        ] is None
+        assert recommendation_provider.calls == ["recommend"]
+        assert len(await recorded(sessions, other_id, RECOMMENDATION)) == 1
+        assert await recorded(sessions, locked_id, RECOMMENDATION) == []
+        for task in blocked:
+            saved = task.result()
+            assert [cat["name"] for cat in saved["categories"]] == ["미분류"]
+            assert (await event_metadata(sessions, saved["id"]))[
+                "category_recommendation_failure_reason"
+            ] == "error"
+    finally:
+        async with sessions.begin() as session:
+            for model in (ContentEvent, Content, Category, User):
+                column = model.id if model is User else model.user_id
+                await session.execute(delete(model).where(column == locked_id))
+
+
+async def test_recommendation_reconnects_after_idle_connection_is_terminated(
+    independent_api, recommendation_provider,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    async with usage_limits.RecommendationSessionLocal() as session:
+        stale_pid = await session.scalar(select(func.pg_backend_pid()))
+    async with sessions.begin() as session:
+        assert await session.scalar(select(func.pg_terminate_backend(stale_pid, 2000))) is True
+
+    saved = await link(api, headers)
+
+    assert [cat["name"] for cat in saved["categories"]] == ["취업"]
+    assert (await event_metadata(sessions, saved["id"]))[
+        "category_recommendation_failure_reason"
+    ] is None
+    assert recommendation_provider.calls == ["recommend"]
+    assert len(await recorded(sessions, user_id, RECOMMENDATION)) == 1
+    async with usage_limits.RecommendationSessionLocal() as session:
+        assert await session.scalar(select(func.pg_backend_pid())) != stale_pid
 
 
 @pytest.mark.parametrize("start,calls,name,tags,reason", [
@@ -180,19 +250,19 @@ async def test_c2_keeps_manual_tags_and_category_at_daily_limit(
 
 
 @pytest.mark.parametrize("at_limit", [False, True], ids=["below-limit", "at-limit"])
-@pytest.mark.parametrize("case,reason", [
-    pytest.param("no-candidates", "no_match", id="E12"),
-    ("empty-input", "insufficient_input"),
-    ("not-configured", "error"),
-    ("chosen-category", None),
-    ("youtube", None),
+@pytest.mark.parametrize("case,reason,below_limit_used", [
+    pytest.param("no-candidates", "no_match", 49, id="E12"),
+    ("empty-input", "insufficient_input", 0),
+    ("not-configured", "error", 0),
+    ("chosen-category", None, 0),
+    ("youtube", None, 0),
 ])
 async def test_c3_without_provider_attempt_does_not_count(
     independent_api, recommendation_provider, external_responses, monkeypatch, at_limit,
-    case, reason,
+    case, reason, below_limit_used,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
-    used = 50 if at_limit else {"no-candidates": 49}.get(case, 0)
+    used = 50 if at_limit else below_limit_used
     if used:
         await seed(sessions, user_id, used, RECOMMENDATION)
     expected_name = "미분류"

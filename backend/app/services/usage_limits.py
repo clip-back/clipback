@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Address, ip_address
 
 from fastapi import HTTPException, Request
+from sqlalchemy import text
 
 from app.core.exceptions import NotFoundError
 from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
@@ -112,6 +113,9 @@ class DailyRecommendationLimit:
     async def admit(self, user_id: int) -> bool:
         # The usage FK takes KEY SHARE, compatible with the photo save's NO KEY UPDATE.
         async with RecommendationSessionLocal() as session, session.begin():
+            # Release a connection blocked by a conflicting account operation before
+            # other requests exhaust their wait for a slot in the recommendation pool.
+            await session.execute(text("SET LOCAL lock_timeout = '500ms'"))
             user = await UserRepository(session).get(user_id)
             if user is None:
                 raise NotFoundError("User not found")

@@ -16,7 +16,9 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 def create_recommendation_engine(database_url: str) -> AsyncEngine:
     # A save already holds a connection. Recommendation recording must have its own pool.
-    return create_async_engine(database_url, pool_size=2, max_overflow=0, pool_timeout=2)
+    return create_async_engine(
+        database_url, pool_size=2, max_overflow=0, pool_timeout=2, pool_pre_ping=True,
+    )
 
 
 recommendation_engine = create_recommendation_engine(settings.database_url)
