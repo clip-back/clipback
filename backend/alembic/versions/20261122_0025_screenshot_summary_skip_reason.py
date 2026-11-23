@@ -27,5 +27,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Restore the old server's response value before removing the screenshot reason.
+    op.execute(sa.text("""
+        UPDATE summary_jobs SET error_code = 'daily_limit_exceeded'
+        WHERE error_code = 'monthly_limit_exceeded'
+    """))
     op.drop_constraint("ck_contents_screenshot_summary_skip_reason", "contents", type_="check")
     op.drop_column("contents", "screenshot_summary_skip_reason")

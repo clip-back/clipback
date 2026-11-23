@@ -88,6 +88,76 @@ SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상�
 현재 저장소의 로컬 테스트와 빌드는 운영 적용을 뜻하지 않습니다. 실제 배포 SHA·migration·검증은
 [배포 기록](release-process.md)에 별도로 남깁니다. 상세 계약은 [API 안내](backend/api-contracts.md#카테고리-생성수정-제출-복구)를 따릅니다.
 
+## 월 AI 요약 한도 전환
+
+### 배포 전 읽기 전용 확인
+
+1. 사용자가 Railway SQL 콘솔에서 [대상 집계 SQL 전문](../backend/alembic/sql/check_monthly_summary_backfill.sql)을 실행한다.
+2. `photo_events`(이번 달에 저장 이벤트가 있고 원본 콘텐츠가 남은 사진 이벤트 수), `unparseable_metadata`(비어 있거나 JSON으로 해석할 수 없는 이벤트 수), `eligible_links`(채우기 대상 링크 수), `eligible_screenshots`(채우기 대상 사진 콘텐츠 수)를 기록한다. 사진 이벤트가 여러 개여도 채우기 대상은 콘텐츠당 한 번 센다.
+3. `unparseable_metadata`가 0보다 크거나 집계가 예상과 다르면 전환을 멈추고 결과를 확인한다.
+
+### 배포와 재집계
+
+1. main 병합 뒤 Railway의 pre-deploy `alembic upgrade head`가 사용 기록 표와 사진 사유 칸을 만들고 리비전 `202611230026`에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 실행한다. 이번 달은 실행 시각의 한국 시간 기준이다.
+2. 사용자가 Railway에서 새 서버 배포 완료와 옛 서버 종료를 확인한다. 공존 중 옛 서버가 저장한 링크·사진에는 사용 기록이 없고, 옛 worker가 최종 실패시킨 링크의 채운 기록은 남을 수 있다. 옛 서버가 새 사유를 먼저 읽으면 해당 목록·상세 요청이 실패할 수 있다.
+3. 아래 집계 SQL을 실행해 결과를 기록한다. 같은 SQL 콘솔에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 그대로 붙여 넣어 한 번 더 실행한다. `inserted`와 `removed`를 기록한 뒤 집계 SQL을 다시 실행해 전후 값을 남긴다. 추천 기록은 배포 시점부터 센다.
+
+```sql
+WITH month_kst AS (
+    SELECT date_trunc('month', statement_timestamp() AT TIME ZONE 'Asia/Seoul') AS month_start
+)
+SELECT count(*) FILTER (WHERE kind = 'ai_summary') AS ai_summary_records,
+       count(*) FILTER (WHERE kind = 'category_recommendation') AS recommendation_records
+FROM usage_records
+CROSS JOIN month_kst
+WHERE recorded_at >= month_start AT TIME ZONE 'Asia/Seoul'
+  AND recorded_at < (month_start + interval '1 month') AT TIME ZONE 'Asia/Seoul';
+```
+
+### 운영 한도와 실기기 확인
+
+1. 운영 테스트 계정 ID로 아래 `0`을 바꾼 뒤 SQL을 실행한다. 결과로 받은 `test_record_ids`를 정리 단계에 사용한다. 게스트는 20건, 로그인 계정은 30건이 추가된다.
+
+```sql
+WITH target AS (
+    SELECT id, CASE WHEN is_guest THEN 20 ELSE 30 END AS monthly_limit
+    FROM users WHERE id = 0
+),
+seeded AS (
+    INSERT INTO usage_records (user_id, kind, recorded_at)
+    SELECT target.id, 'ai_summary', statement_timestamp()
+    FROM target
+    CROSS JOIN LATERAL generate_series(1, target.monthly_limit)
+    RETURNING id
+)
+SELECT array_agg(id ORDER BY id) AS test_record_ids FROM seeded;
+```
+
+2. 같은 계정으로 유튜브 링크 1건과 사진 1건을 저장한다. 두 저장 응답이 `skipped`와 `monthly_limit_exceeded`인지 확인한다.
+3. 아래 `0`을 같은 계정 ID로 바꾸고 `{}`를 1단계에서 받은 `test_record_ids`로 바꿔 실행한다. 삭제 건수를 기록한다.
+
+```sql
+WITH removed AS (
+    DELETE FROM usage_records
+    WHERE user_id = 0 AND id = ANY('{}'::bigint[])
+      AND kind = 'ai_summary' AND content_id IS NULL
+    RETURNING id
+)
+SELECT count(*) AS removed_test_records FROM removed;
+```
+
+4. 1.0.0 후보 빌드 실기기에서 같은 계정으로 2단계에서 저장한 링크·사진 상세를 연다. AI 요약 한도 문구와 iOS VoiceOver·Android TalkBack 실제 낭독을 확인한다.
+
+### 이전 서버로 되돌리기
+
+1. 옛 이미지를 재배포하기 전에 사용자가 SQL 콘솔에서 [되돌리기 SQL 전문](../backend/alembic/sql/rollback_monthly_summary_limit.sql)을 실행한다. 옛 서버의 pre-deploy는 모르는 리비전에서 중단된다. SQL은 현재 리비전이 `202611230026`일 때 작업 사유를 `daily_limit_exceeded`로 바꾸고, 사진 사유 칸과 사용 기록 표를 지운 뒤 리비전을 `202611170023`으로 내린다. 새 서버는 이 단계부터 재배포 완료까지 읽기나 저장에 실패할 수 있다.
+2. Railway에서 이전 서버 이미지를 재배포한다. pre-deploy 성공과 옛 서버 준비 상태를 확인한다.
+3. 이전 서버가 뜬 뒤 아래 SQL을 한 번 더 실행해 교체 중 다시 쓰인 사유를 정리한다. 목록과 링크·사진 상세가 열리는지 확인한다.
+
+```sql
+UPDATE summary_jobs SET error_code = 'daily_limit_exceeded' WHERE error_code = 'monthly_limit_exceeded';
+```
+
 ## 데이터 영속성 및 백업
 
 현재 기존 Volume 원본의 첫 실제 백업·격리 복원은 [운영 실행 체크리스트](backend/image-operator-first-run.md)를 따른다.
