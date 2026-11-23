@@ -17,6 +17,7 @@ from sqlalchemy.engine import make_url
 BACKEND = Path(__file__).resolve().parents[2]
 SQL = BACKEND / "alembic" / "sql"
 PREVIOUS = "202611220025"
+LINK_LIMIT = "202611220024"
 LEGACY = "202611170023"
 KST = ZoneInfo("Asia/Seoul")
 
@@ -52,6 +53,7 @@ async def migration_database():
                 )
                 output, _ = await process.communicate()
                 assert process.returncode == 0, output.decode()
+                return output.decode()
 
             async def connect():
                 return await asyncpg.connect(database=name, **arguments)
@@ -213,6 +215,35 @@ async def rollback_state(connection):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("target", [LINK_LIMIT, "-2"])
+async def test_link_limit_reason_survives_partial_downgrade_and_reupgrade(
+    migration_database, target,
+):
+    connection, migrate, _ = migration_database
+    await migrate("upgrade", "head")
+    await connection.execute("INSERT INTO users (id, display_name) VALUES (1, 'synthetic owner')")
+    await insert_content(connection, 11, "link", datetime.now(KST))
+    await insert_job(connection, 11, "skipped", "monthly_limit_exceeded")
+    await connection.execute("""
+        INSERT INTO usage_records (user_id, kind, recorded_at)
+        VALUES (1, 'ai_summary', now())
+    """)
+    before = await usage(connection)
+    check_state = first_runbook_query("이전 서버로 되돌리기")
+    reason = "SELECT error_code FROM summary_jobs WHERE content_id = 11"
+
+    await migrate("downgrade", target)
+    assert tuple(await connection.fetchrow(check_state)) == (LINK_LIMIT, True, False)
+    assert await connection.fetchval(reason) == "monthly_limit_exceeded"
+    assert await usage(connection) == before
+
+    await migrate("upgrade", "head")
+    assert tuple(await connection.fetchrow(check_state)) == ("202611230026", True, True)
+    assert await connection.fetchval(reason) == "monthly_limit_exceeded"
+    assert await usage(connection) == before
+
+
+@pytest.mark.asyncio
 async def test_console_rollback_matches_alembic_downgrade(migration_database):
     connection, migrate, connect = migration_database
     await migrate("upgrade", "head")
@@ -228,6 +259,11 @@ async def test_console_rollback_matches_alembic_downgrade(migration_database):
     """)
 
     console_sql = (SQL / "rollback_monthly_summary_limit.sql").read_text(encoding="utf-8")
+    downgrade_sql = await migrate("downgrade", "202611230026:202611170023", "--sql")
+    convert = downgrade_sql.index("UPDATE summary_jobs SET error_code = 'daily_limit_exceeded'")
+    drop_photo = downgrade_sql.index("DROP COLUMN screenshot_summary_skip_reason")
+    drop_usage = downgrade_sql.index("DROP TABLE usage_records")
+    assert convert < drop_photo < drop_usage
     check_state = first_runbook_query("이전 서버로 되돌리기")
     original = await rollback_state(connection)
     peer = await connect()
