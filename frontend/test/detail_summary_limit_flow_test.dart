@@ -93,6 +93,15 @@ class _Server {
   final reads = <int>[];
   Completer<void>? writeGate;
 
+  /// Feed rows omit the reason so only a detail response can supply it.
+  bool hideFeedReason = false;
+
+  /// Title sent only by detail and write responses, to prove they were applied.
+  String? detailTitle;
+
+  Map<String, Object?> _feedRow(Map<String, Object?> record) =>
+      hideFeedReason ? ({...record}..remove('summary_error_code')) : record;
+
   late final client = MockClient((request) async {
     final path = request.url.path;
     switch (path) {
@@ -124,7 +133,11 @@ class _Server {
             {...category, 'content_count': 1, 'last_saved_at': null},
         ]);
       case '/api/v1/feed':
-        return _json({'items': records, 'next_cursor': null});
+        return _json({
+          'items': records.map(_feedRow).toList(),
+          'next_cursor': null,
+          'total_count': records.length,
+        });
       case '/api/v1/recommendations/weekly':
         return _json({
           'period_start': '2026-10-19T00:00:00Z',
@@ -156,7 +169,10 @@ class _Server {
               .toList(),
       };
     }
-    return _json(records[index]);
+    return _json({
+      ...records[index],
+      if (detailTitle != null) 'title': detailTitle,
+    });
   });
 }
 
@@ -210,36 +226,71 @@ void main() {
     testWidgets('$kind limit copy survives reread, category and favorite', (
       tester,
     ) async {
-      final record = build(id: 7);
-      final server = _Server([record]);
+      final server = _Server([build(id: 7)])
+        ..hideFeedReason = true
+        ..detailTitle = '$kind 첫 상세 응답';
       await _withApp(tester, server, () async {
         await _open(tester, 7);
-        expect(_slot(tester), _limit);
+        expect(
+          _detail(tester).content.title,
+          '$kind 첫 상세 응답',
+          reason: 'first detail response',
+        );
+        expect(_slot(tester), _limit, reason: 'first detail response');
         expect(find.text(saved), findsNothing);
 
+        server
+          ..hideFeedReason = false
+          ..detailTitle = '$kind 다시 읽은 응답';
         final readsBefore = server.reads.length;
         _detail(tester).onBack();
         await tester.pumpAndSettle();
         await _open(tester, 7);
         expect(server.reads.length, greaterThan(readsBefore));
-        expect(_slot(tester), _limit);
+        expect(
+          _detail(tester).content.title,
+          '$kind 다시 읽은 응답',
+          reason: 'reread response',
+        );
+        expect(_slot(tester), _limit, reason: 'reread response');
 
         server.writeGate = Completer<void>();
         final detail = _detail(tester);
         detail.onChangeCategory(detail.content, [202]);
         await tester.pump();
-        expect(_slot(tester), _limit, reason: 'while category write runs');
+        const categoryWrite = 'while category write runs';
+        expect(
+          _detail(tester).content.isMutating,
+          isTrue,
+          reason: categoryWrite,
+        );
+        expect(_detail(tester).content.category.id, 202, reason: categoryWrite);
+        expect(_slot(tester), _limit, reason: categoryWrite);
         server.writeGate!.complete();
         await tester.pumpAndSettle();
+        expect(_detail(tester).content.isMutating, isFalse);
         expect(_detail(tester).content.category.id, 202);
+        expect(
+          (server.records.single['categories'] as List).single,
+          containsPair('id', 202),
+        );
         expect(_slot(tester), _limit);
 
         server.writeGate = Completer<void>();
         _detail(tester).onToggleBookmark(_detail(tester).content);
         await tester.pump();
-        expect(_slot(tester), _limit, reason: 'while favorite write runs');
+        const favoriteWrite = 'while favorite write runs';
+        expect(
+          _detail(tester).content.isMutating,
+          isTrue,
+          reason: favoriteWrite,
+        );
+        expect(_detail(tester).bookmarked, isTrue, reason: favoriteWrite);
+        expect(_slot(tester), _limit, reason: favoriteWrite);
         server.writeGate!.complete();
         await tester.pumpAndSettle();
+        expect(_detail(tester).content.isMutating, isFalse);
+        expect(_detail(tester).bookmarked, isTrue);
         expect(server.records.single['is_favorite'], isTrue);
         expect(_slot(tester), _limit);
         expect(find.text(saved), findsNothing);
@@ -250,9 +301,15 @@ void main() {
       tester,
     ) async {
       final record = build(id: 7)..remove('summary_error_code');
-      await _withApp(tester, _Server([record]), () async {
+      final server = _Server([record])..detailTitle = '$kind 옛 상세 응답';
+      await _withApp(tester, server, () async {
         await _open(tester, 7);
-        expect(_slot(tester), saved);
+        expect(
+          _detail(tester).content.title,
+          '$kind 옛 상세 응답',
+          reason: 'old detail response',
+        );
+        expect(_slot(tester), saved, reason: 'old detail response');
       });
     });
   }
@@ -262,8 +319,10 @@ void main() {
       tester,
     ) async {
       final record = _link(id: 7)..['summary_error_code'] = value;
-      await _withApp(tester, _Server([record]), () async {
+      final server = _Server([record])..detailTitle = '이상한 사유 상세 응답';
+      await _withApp(tester, server, () async {
         await _open(tester, 7);
+        expect(_detail(tester).content.title, '이상한 사유 상세 응답');
         expect(_slot(tester), _linkSaved);
       });
     });
