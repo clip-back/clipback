@@ -136,6 +136,7 @@ class _FeedState {
   Object? error;
   int version = 0;
   int viewportVersion = 0;
+  int foregroundReads = 0;
   Future<void>? pending;
 
   // Filter identity for a background re-read; a change cancels it.
@@ -170,6 +171,7 @@ class _FeedState {
     hasMore: hasMore,
     error: error,
     version: viewportVersion,
+    foregroundReads: foregroundReads,
   );
 }
 
@@ -784,6 +786,7 @@ class RemoteContentRepository extends ContentRepository {
       page.nextCursor = cursor;
       page.hasMore = hasMore;
       page.initialized = true;
+      page.foregroundReads++;
     } catch (error) {
       if (current()) page.error = error;
     } finally {

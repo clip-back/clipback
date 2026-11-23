@@ -31,11 +31,23 @@ const _daily = {
   'is_default': false,
 };
 
-Map<String, Object?> _item(int id) => {
+const _travel = {
+  'id': 102,
+  'name': '여행',
+  'color': '#5B9DD8',
+  'is_default': false,
+};
+
+Map<String, Object?> _item(
+  int id, {
+  String? title,
+  Map<String, Object?> category = _daily,
+  String status = 'completed',
+}) => {
   'id': id,
-  'title': '카드 $id',
+  'title': title ?? '카드 $id',
   'summary': '요약 $id',
-  'categories': [_daily],
+  'categories': [category],
   'tags': <Object>[],
   'assets': <Object>[],
   'content_type': 'link',
@@ -44,13 +56,27 @@ Map<String, Object?> _item(int id) => {
   'is_favorite': false,
   'saved_at': '2026-11-20T12:00:00Z',
   'last_viewed_at': null,
-  'summary_status': 'completed',
+  'summary_status': status,
 };
 
 class _Server {
-  final items = [_item(1), _item(2), _item(3)];
+  _Server({String firstStatus = 'completed', bool travel = false})
+    : items = [
+        _item(1, status: firstStatus),
+        _item(2),
+        _item(3),
+        if (travel) ...[
+          _item(10, category: _travel),
+          _item(11, category: _travel),
+        ],
+      ];
+
+  final List<Map<String, Object?>> items;
   Completer<void>? feedGate;
   bool failFeed = false;
+  // Saved elsewhere just after this save; the next feed reply lists it first.
+  Map<String, Object?>? newerAfterSave;
+  final feedCategories = <String?>[];
 
   http.Response _json(Object body, [int status = 200]) => http.Response(
     jsonEncode(body),
@@ -63,12 +89,25 @@ class _Server {
     if (path == '/api/v1/contents' && r.method == 'POST') {
       final saved = _item(300);
       items.insert(0, saved);
+      if (newerAfterSave != null) items.insert(0, newerAfterSave!);
       return _json(saved, 201);
     }
     if (path == _feedPath) {
+      final category = r.url.queryParameters['category_id'];
+      feedCategories.add(category);
       await feedGate?.future;
       if (failFeed) return _json({'detail': 'temporary'}, 503);
-      return _json({'items': items, 'next_cursor': null});
+      return _json({
+        'items': [
+          for (final item in items)
+            if (category == null ||
+                (item['categories'] as List).any(
+                  (c) => (c as Map)['id'].toString() == category,
+                ))
+              item,
+        ],
+        'next_cursor': null,
+      });
     }
     final detail = RegExp(r'^/api/v1/contents/(\d+)(/view)?$').firstMatch(path);
     if (detail != null) {
@@ -78,6 +117,7 @@ class _Server {
     return switch (path) {
       '/api/v1/categories' => _json([
         {..._daily, 'content_count': items.length, 'last_saved_at': null},
+        {..._travel, 'content_count': 2, 'last_saved_at': null},
       ]),
       '/api/v1/users/me' => _json({
         'id': 1,
@@ -113,6 +153,7 @@ class _Server {
 
 class _Share {
   var receipts = <Map<String, Object>>[];
+  final acknowledgements = <Object?>[];
   static const channel = MethodChannel('com.huturu.app/share');
 
   void install() {
@@ -124,6 +165,7 @@ class _Share {
             case 'publishCredential':
               return true;
             case 'acknowledgeReceipts':
+              acknowledgements.add((call.arguments as Map)['ids']);
               receipts = [];
               return null;
             case 'blockCredential':
@@ -187,6 +229,10 @@ Future<void> _resumeWithShareReceipt(WidgetTester tester, _Share share) async {
   share.receipts = [
     {'id': 'share-473', 'userId': 1},
   ];
+  await _resume(tester);
+}
+
+Future<void> _resume(WidgetTester tester) async {
   for (final state in [
     AppLifecycleState.inactive,
     AppLifecycleState.hidden,
@@ -218,6 +264,56 @@ void _expectRail(
   expect(rail.controller!.offset, offset);
   expect(find.byType(CircularProgressIndicator), findsNothing);
   expect(find.byType(HomeContentCardSkeleton), findsNothing);
+}
+
+int? _centeredId(WidgetTester tester) {
+  final center = tester.getCenter(find.byType(HomeContentPanel)).dx;
+  for (final element in find.byType(HomeContentCard).evaluate()) {
+    final box = element.renderObject! as RenderBox;
+    final middle = box.localToGlobal(box.size.center(Offset.zero)).dx;
+    if ((middle - center).abs() < 1) {
+      return (element.widget as HomeContentCard).content.apiId;
+    }
+  }
+  return null;
+}
+
+List<int?> _railIds(WidgetTester tester) => tester
+    .widget<HomeContentPanel>(find.byType(HomeContentPanel))
+    .contents
+    .take(4)
+    .map((item) => item.apiId)
+    .toList();
+
+String _selectedChip(WidgetTester tester) =>
+    tester.widget<CategoryChips>(find.byType(CategoryChips)).activeLabel;
+
+Future<void> _saveAndReturnHome(WidgetTester tester) async {
+  await tester.tap(
+    find.byWidgetPredicate((w) => w.runtimeType.toString() == 'NavAddButton'),
+  );
+  await tester.pump();
+  await tester.enterText(find.byType(TextField), 'https://example.com/new');
+  await tester.pump(const Duration(milliseconds: 400));
+  tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).onPressed();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 100));
+  // The save route waits for the re-read; closing it shows the detail that
+  // was opened underneath.
+  tester.widget<SaveContentTopBar>(find.byType(SaveContentTopBar)).onClose();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  expect(find.byType(SaveContentTopBar), findsNothing);
+  tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
+  await tester.pump(const Duration(milliseconds: 400));
+  expect(
+    tester
+        .widget<HomeContentPanel>(find.byType(HomeContentPanel))
+        .feed!
+        .loading,
+    isTrue,
+    reason: '재조회가 보류 중이다',
+  );
 }
 
 Finder _chip(String label) =>
@@ -408,41 +504,162 @@ void main() {
     });
   });
 
-  testWidgets('after a save, home returns on the saved card and first dot '
-      'while waiting and after the reply', (tester) async {
+  testWidgets('the same ids answered at once still return to the first card', (
+    tester,
+  ) async {
     final server = _Server();
-    await _withApp(tester, server, () async {
+    final share = _Share();
+    await _withApp(tester, server, share: share, () async {
       await _toSecondCard(tester);
-      final gate = server.feedGate = Completer<void>();
-      await tester.tap(
-        find.byWidgetPredicate(
-          (w) => w.runtimeType.toString() == 'NavAddButton',
-        ),
-      );
-      await tester.pump();
-      await tester.enterText(find.byType(TextField), 'https://example.com/new');
-      await tester.pump(const Duration(milliseconds: 400));
-      tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).onPressed();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      tester.widget<DetailScreen>(find.byType(DetailScreen)).onBack();
-      await tester.pump(const Duration(milliseconds: 400));
-
-      expect(
-        tester
-            .widget<HomeContentPanel>(find.byType(HomeContentPanel))
-            .feed!
-            .loading,
-        isTrue,
-      );
+      await _resumeWithShareReceipt(tester, share);
+      await tester.pumpAndSettle();
+      expect(share.acknowledgements, [
+        ['share-473'],
+      ]);
       _expectRail(tester, dot: 0, offset: 0);
-      _expectCentered(tester, '카드 300');
+      expect(_centeredId(tester), 1);
+    });
+  });
 
+  testWidgets('a failure answered at once leaves no stale dot for the next '
+      'read', (tester) async {
+    final server = _Server();
+    final share = _Share();
+    await _withApp(tester, server, share: share, () async {
+      await _toSecondCard(tester);
+      server.failFeed = true;
+      await _resumeWithShareReceipt(tester, share);
+      await tester.pumpAndSettle();
+      expect(find.text('콘텐츠를 더 불러오지 못했어요.'), findsOneWidget);
+      expect(share.acknowledgements, isEmpty);
+
+      server.failFeed = false;
+      final gate = server.feedGate = Completer<void>();
+      await _resume(tester);
+      _expectRail(tester, dot: 0, offset: 0);
       server.feedGate = null;
       gate.complete();
       await tester.pumpAndSettle();
       _expectRail(tester, dot: 0, offset: 0);
-      _expectCentered(tester, '카드 300');
+    });
+  });
+
+  group('a #460 background read is not a foreground re-read', () {
+    testWidgets('success keeps the second card', (tester) async {
+      final server = _Server(firstStatus: 'processing');
+      await _withApp(tester, server, () async {
+        await _toSecondCard(tester);
+        server.items[0] = _item(1);
+        final gate = server.feedGate = Completer<void>();
+        await _resume(tester);
+        _expectRail(tester, dot: 1, offset: 306);
+        server.feedGate = null;
+        gate.complete();
+        await tester.pumpAndSettle();
+        _expectRail(tester, dot: 1, offset: 306);
+        expect(_centeredId(tester), 2);
+      });
+    });
+
+    testWidgets('failure keeps the second card', (tester) async {
+      final server = _Server(firstStatus: 'processing');
+      await _withApp(tester, server, () async {
+        await _toSecondCard(tester);
+        server.failFeed = true;
+        await _resume(tester);
+        await tester.pumpAndSettle();
+        _expectRail(tester, dot: 1, offset: 306);
+        expect(find.textContaining('불러오지 못했어요'), findsNothing);
+      });
+    });
+
+    testWidgets('a chip switch cancels it and owns the rail', (tester) async {
+      final server = _Server(firstStatus: 'processing', travel: true);
+      await _withApp(tester, server, () async {
+        await _toSecondCard(tester);
+        final gate = server.feedGate = Completer<void>();
+        await _resume(tester);
+        await tester.tap(_chip('여행'));
+        await tester.pump();
+        expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+        server.feedGate = null;
+        gate.complete();
+        await tester.pumpAndSettle();
+        _expectRail(tester, dot: 0, offset: 0);
+        expect(_railIds(tester), [10, 11]);
+      });
+    });
+  });
+
+  group('after a save, home waits on the saved card', () {
+    testWidgets('then shows the reply first card when it is the saved one', (
+      tester,
+    ) async {
+      final server = _Server();
+      await _withApp(tester, server, () async {
+        await _toSecondCard(tester);
+        final gate = server.feedGate = Completer<void>();
+        await _saveAndReturnHome(tester);
+        expect(_centeredId(tester), 300);
+        _expectRail(tester, dot: 0, offset: 0);
+
+        server.feedGate = null;
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(_selectedChip(tester), '전체보기');
+        expect(server.feedCategories.last, isNull);
+        expect(_railIds(tester), [300, 1, 2, 3]);
+        expect(_centeredId(tester), 300);
+        _expectRail(tester, dot: 0, offset: 0);
+      });
+    });
+
+    testWidgets('a save outside the chip leaves it after the reply and stays '
+        'in the whole list', (tester) async {
+      final server = _Server(travel: true);
+      await _withApp(tester, server, () async {
+        await tester.tap(_chip('여행'));
+        await tester.pumpAndSettle();
+        await _toSecondCard(tester);
+        final gate = server.feedGate = Completer<void>();
+        await _saveAndReturnHome(tester);
+        expect(_selectedChip(tester), '여행');
+        expect(_centeredId(tester), 300);
+        _expectRail(tester, dot: 0, offset: 0);
+
+        server.feedGate = null;
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(_selectedChip(tester), '여행');
+        expect(server.feedCategories.last, '102');
+        expect(_railIds(tester), [10, 11]);
+        expect(_centeredId(tester), 10);
+        _expectRail(tester, dot: 0, offset: 0);
+
+        await tester.tap(_chip('전체보기'));
+        await tester.pumpAndSettle();
+        expect(_railIds(tester).first, 300);
+      });
+    });
+
+    testWidgets('a newer card with the same title comes first by id', (
+      tester,
+    ) async {
+      final server = _Server()..newerAfterSave = _item(301, title: '카드 300');
+      await _withApp(tester, server, () async {
+        await _toSecondCard(tester);
+        final gate = server.feedGate = Completer<void>();
+        await _saveAndReturnHome(tester);
+        expect(_centeredId(tester), 300);
+        _expectRail(tester, dot: 0, offset: 0);
+
+        server.feedGate = null;
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(_railIds(tester), [301, 300, 1, 2]);
+        expect(_centeredId(tester), 301);
+        _expectRail(tester, dot: 0, offset: 0);
+      });
     });
   });
 }

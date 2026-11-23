@@ -17,6 +17,7 @@ class FeedSnapshot {
     required this.hasMore,
     required this.error,
     required this.version,
+    this.foregroundReads = 0,
   }) : items = List.unmodifiable(items);
 
   final List<ApiContent> items;
@@ -31,6 +32,10 @@ class FeedSnapshot {
   final bool hasMore;
   final Object? error;
   final int version;
+
+  /// Counts committed foreground re-reads that keep [version]. Background
+  /// re-reads and dropped replies leave it unchanged.
+  final int foregroundReads;
 }
 
 enum ContentMutationKind { bookmark, category, delete }

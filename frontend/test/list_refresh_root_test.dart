@@ -10,6 +10,7 @@ import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/feed_status.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
+import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -399,7 +400,7 @@ Finder get _feedSpinner => find.descendant(
 
 void _expectNoListNotice() {
   expect(_feedSpinner, findsNothing);
-  expect(find.byType(HomeContentCardSkeleton), findsNothing);
+  expect(find.byType(SkeletonShimmer), findsNothing);
   expect(find.textContaining('불러오지 못했어요'), findsNothing);
   expect(find.text('다시 시도'), findsNothing);
   expect(find.byType(SnackBar), findsNothing);

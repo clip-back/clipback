@@ -432,6 +432,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
   int? _feedCategoryId;
   int? _feedVersion;
   bool _feedLoading = false;
+  int? _feedForegroundReads;
   int _activeIndex = 0;
   int _railGeneration = 0;
 
@@ -441,6 +442,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
     _feedCategoryId = widget.feed?.categoryId;
     _feedVersion = widget.feed?.version;
     _feedLoading = widget.feed?.loading ?? false;
+    _feedForegroundReads = widget.feed?.foregroundReads;
   }
 
   @override
@@ -460,6 +462,9 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
     if (_activeCategoryId != widget.activeCategoryId ||
         _feedCategoryId != widget.feed?.categoryId ||
         (_feedLoading && !loading) ||
+        // Start and reply can land in one frame, with no loading to observe.
+        _feedForegroundReads != widget.feed?.foregroundReads ||
+        (!loading && widget.feed?.error != null) ||
         (!keepPosition &&
             (_feedVersion != widget.feed?.version ||
                 !listEquals(_visibleIds, ids)))) {
