@@ -18,6 +18,7 @@ import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
 import 'package:clipback_frontend/shared/widgets/page_dots.dart';
 import 'package:clipback_frontend/shared/widgets/section_header.dart';
+import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -430,6 +431,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
   int? _activeCategoryId;
   int? _feedCategoryId;
   int? _feedVersion;
+  bool _feedLoading = false;
   int _activeIndex = 0;
   int _railGeneration = 0;
 
@@ -438,6 +440,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
     _activeCategoryId = widget.activeCategoryId;
     _feedCategoryId = widget.feed?.categoryId;
     _feedVersion = widget.feed?.version;
+    _feedLoading = widget.feed?.loading ?? false;
   }
 
   @override
@@ -451,10 +454,15 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
   void didUpdateWidget(covariant HomeContentPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     final ids = widget.contents.take(4).map((item) => item.id).toList();
+    final loading = widget.feed?.loading ?? false;
+    // A re-read keeps the card in view until its reply lands.
+    final keepPosition = loading && ids.isNotEmpty && _activeIndex < ids.length;
     if (_activeCategoryId != widget.activeCategoryId ||
         _feedCategoryId != widget.feed?.categoryId ||
-        _feedVersion != widget.feed?.version ||
-        !listEquals(_visibleIds, ids)) {
+        (_feedLoading && !loading) ||
+        (!keepPosition &&
+            (_feedVersion != widget.feed?.version ||
+                !listEquals(_visibleIds, ids)))) {
       _activeIndex = 0;
       _railGeneration++;
     }
@@ -490,6 +498,7 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
   @override
   Widget build(BuildContext context) {
     final filteredContents = widget.contents;
+    final loading = widget.feed?.loading ?? false;
 
     return Container(
       width: double.infinity,
@@ -528,12 +537,9 @@ class _HomeContentPanelState extends State<HomeContentPanel> {
               );
             },
           ),
-          if (widget.feed?.loading ?? false)
-            SizedBox(
-              height: HomeContentPanel.recentAreaHeight(context),
-              child: FeedStatus(page: widget.feed!, onRetry: widget.onRetry),
-            )
-          else if (widget.feed?.error != null)
+          if (loading && filteredContents.isEmpty)
+            const _HomeRailSkeleton()
+          else if (!loading && widget.feed?.error != null)
             FeedStatus(page: widget.feed!, onRetry: widget.onRetry)
           else if (filteredContents.isNotEmpty) ...[
             LayoutBuilder(
@@ -1122,6 +1128,115 @@ class HomeContentCard extends StatelessWidget {
                 enabled: !content.isMutating,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Two placeholder cards in the rail's centered layout: the first in the
+/// middle, the next cut off at the right edge. Never scrolls or takes taps.
+class _HomeRailSkeleton extends StatelessWidget {
+  const _HomeRailSkeleton();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    height: HomeContentPanel.recentAreaHeight(context),
+    child: LayoutBuilder(
+      builder: (context, constraints) => SkeletonShimmer(
+        child: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: 0,
+            maxWidth: double.infinity,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: math.max(0.0, (constraints.maxWidth - 298) / 2),
+                top: 16,
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  HomeContentCardSkeleton(),
+                  SizedBox(width: 8),
+                  HomeContentCardSkeleton(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// [HomeContentCard] shape with bars in place of the text. Needs a
+/// [SkeletonShimmer] above it.
+class HomeContentCardSkeleton extends StatelessWidget {
+  const HomeContentCardSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final barShape = BoxDecoration(
+      color: AppColors.faint,
+      borderRadius: BorderRadius.circular(4),
+    );
+    Widget lines(TextStyle style, int count) => SizedBox(
+      width: double.infinity,
+      height: _textHeight(
+        context,
+        List.filled(count, '한').join('\n'),
+        style,
+        maxLines: count,
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < count; index++)
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: index == count - 1 ? 0.6 : 1,
+                  child: Container(
+                    height: scaler.scale(style.fontSize!),
+                    decoration: barShape,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    return Container(
+      width: 298,
+      height: HomeContentCard.heightFor(context),
+      padding: const EdgeInsets.fromLTRB(16.5, 16, 15.5, 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [BoxShadow(color: Color(0x29000000), blurRadius: 2)],
+      ),
+      child: SkeletonShimmerBars(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: barShape,
+              child: Text(
+                '가나다라',
+                maxLines: 1,
+                style: _cardCategory.copyWith(color: Colors.transparent),
+              ),
+            ),
+            const SizedBox(height: 8),
+            lines(_cardTitle, 2),
+            const SizedBox(height: 8),
+            lines(_cardSummary, 3),
           ],
         ),
       ),

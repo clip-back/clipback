@@ -253,7 +253,8 @@ void main() {
         _expectHero(tester, _c01, 'empty category');
 
         await _tapChip(tester, '전체보기');
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         _expectHero(tester, _c01, 'all-chip loading');
         expect(_heroHeight(tester), height, reason: 'all-chip loading');
         final hero = tester.widget<HomeHero>(find.byType(HomeHero));
@@ -270,6 +271,7 @@ void main() {
         }
         await tester.pumpAndSettle();
         expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(HomeContentCardSkeleton), findsNothing);
         _expectHero(tester, _c01, 'all-chip $outcome');
         expect(_heroHeight(tester), height, reason: 'all-chip $outcome');
 
