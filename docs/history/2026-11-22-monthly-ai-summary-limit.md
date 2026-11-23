@@ -64,3 +64,26 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 재실행 로그는 `.utmp/ticket-465-retry/verify/20261123T134429-50ce613db4d9/`에 보관했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 단계의 원격 CI와 대조합니다.
+
+## #466 상세 화면의 AI 요약 한도 문구
+
+앱이 서버의 `summary_error_code`를 상세까지 전달합니다. `skipped`이면서 사유가 `monthly_limit_exceeded`인 링크와 사진은 요약 자리에 저장 글 대신 “이번 달 AI 요약을 모두 써서 요약하지 않았어요. 다음 달 1일부터 다시 요약해요.”를 같은 글자 모양으로 보입니다. 사유가 없거나 모르는 값, 문자열이 아닌 값은 무시하고 지금처럼 저장 글을 보입니다. 홈·아카이브 카드, 저장 직후 화면, 공유 저장 시트는 바꾸지 않았습니다.
+
+Figma는 2026-11-23 13:58 KST에 조회했습니다. F02 `111:3842`는 기본 상태, F04 `111:3909`는 연관 콘텐츠 없음 상태이고 둘 다 링크 형태이며, 조회한 섹션에 사진 상세 전용 원본은 없습니다. 사용자 결정에 따라 링크·사진 모두 F02 요약 영역(`111:3861`·`111:3862`)과 비교합니다. 사진은 글자 모양만 대조하고, 사진 상세 전체 레이아웃은 Figma 미검증입니다.
+
+### 검증
+
+검수에서 상세 응답을 적용하지 않거나 쓰기를 늦춰도 기존 데이터 경로 테스트가 통과하는 점을 확인해 테스트를 보강했습니다. 피드와 상세 응답을 구분해 처음 상세와 다시 읽기의 반영을 확인하고, 카테고리·즐겨찾기는 쓰기 중 상태와 바뀐 값, 문구를 함께 확인합니다. 제품 코드는 이 보강에서 바꾸지 않았습니다.
+
+변형 8종(사유 전달 4곳, 상세 응답 실패, 다시 읽기 미반영, 카테고리·즐겨찾기 쓰기 지연)이 모두 의도한 단언에서 실패했고, 변형마다 원복과 정상 대조를 확인했습니다.
+
+전체 검사는 `26728af`에서 통과했고 Flutter는 3994건 통과입니다.
+
+```text
+pytest: 3102 passed, 50 skipped, 3 warnings in 425.85s (0:07:05)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+이번 실행의 로그는 `.utmp/ticket-466/20261123T143419-6bbca47ead2d/`에 보관했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 단계의 원격 CI와 대조합니다. iOS Simulator·Android Emulator의 변경 전·후 비교와 사용자 화면 판정, 실기기의 문구 확인과 VoiceOver·TalkBack 낭독은 이 기록 시점에 끝나지 않았습니다.
