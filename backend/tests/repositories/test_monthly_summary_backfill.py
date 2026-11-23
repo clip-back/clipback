@@ -1,6 +1,7 @@
 """Exercise the deployed Alembic command and the operator's SQL against existing rows."""
 
 import asyncio
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -18,6 +19,12 @@ SQL = BACKEND / "alembic" / "sql"
 PREVIOUS = "202611220025"
 LEGACY = "202611170023"
 KST = ZoneInfo("Asia/Seoul")
+
+
+def first_runbook_query(heading):
+    docs = (BACKEND.parent / "docs" / "railway-deployment.md").read_text(encoding="utf-8")
+    section = docs.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]
+    return section.split("```sql\n", 1)[1].split("\n```", 1)[0]
 
 
 @pytest_asyncio.fixture
@@ -99,6 +106,8 @@ async def test_upgrade_backfills_only_eligible_current_kst_month_contents(migrat
     await connection.execute("INSERT INTO users (id, display_name) VALUES (1, 'synthetic owner')")
     start = datetime.now(KST).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     past = start - timedelta(microseconds=1)
+    end = (start + timedelta(days=31)).replace(day=1)
+    last = end - timedelta(microseconds=1)
 
     for content_id, status in enumerate(
         ("queued", "processing", "completed", "failed", "skipped", "completed"), start=1,
@@ -124,23 +133,34 @@ async def test_upgrade_backfills_only_eligible_current_kst_month_contents(migrat
             event="card_clicked" if content_id == 16 else "content_created",
         )
     await insert_event(connection, 7, '{"ocr_status":"success"}', start)
+    for content_id, saved_at in ((19, last), (20, end), (23, past)):
+        await insert_content(connection, content_id, "link", saved_at)
+        await insert_job(connection, content_id, "queued")
+    for content_id, saved_at in ((21, last), (22, end)):
+        await insert_content(connection, content_id, "screenshot", saved_at)
+        await insert_event(connection, content_id, '{"ocr_status":"success"}', saved_at)
     await connection.execute("""
         INSERT INTO usage_records (user_id, content_id, kind, recorded_at) VALUES
             (1, 4, 'ai_summary', $1), (1, 5, 'ai_summary', $1),
             (1, 1, 'category_recommendation', $1), (1, 4, 'category_recommendation', $1),
-            (1, NULL, 'ai_summary', $1)
-    """, start)
+            (1, NULL, 'ai_summary', $1),
+            (1, 6, 'ai_summary', $2), (1, 20, 'category_recommendation', $3)
+    """, start, past, end)
     preflight = (SQL / "check_monthly_summary_backfill.sql").read_text(encoding="utf-8")
-    assert tuple(await connection.fetchrow(preflight)) == (9, 3, 3, 2)
+    assert tuple(await connection.fetchrow(preflight)) == (10, 3, 4, 3)
 
     await migrate("upgrade", "head")
 
     assert await usage(connection) == [
         (1, "ai_summary", start), (1, "category_recommendation", start),
         (2, "ai_summary", start), (3, "ai_summary", start),
-        (4, "category_recommendation", start), (7, "ai_summary", start),
-        (8, "ai_summary", start), (None, "ai_summary", start),
+        (4, "category_recommendation", start), (6, "ai_summary", past),
+        (7, "ai_summary", start), (8, "ai_summary", start), (19, "ai_summary", last),
+        (20, "category_recommendation", end), (21, "ai_summary", last),
+        (None, "ai_summary", start),
     ]
+    recount_totals = first_runbook_query("배포와 재집계")
+    assert tuple(await connection.fetchrow(recount_totals)) == (8, 2)
 
     # An old server writes no usage, and its worker leaves a backfilled failed row behind.
     await insert_content(connection, 17, "link", start)
@@ -154,32 +174,47 @@ async def test_upgrade_backfills_only_eligible_current_kst_month_contents(migrat
     expected = [
         (1, "ai_summary", start), (1, "category_recommendation", start),
         (3, "ai_summary", start), (4, "category_recommendation", start),
-        (7, "ai_summary", start), (8, "ai_summary", start),
-        (17, "ai_summary", start), (18, "ai_summary", start), (None, "ai_summary", start),
+        (6, "ai_summary", past), (7, "ai_summary", start), (8, "ai_summary", start),
+        (17, "ai_summary", start), (18, "ai_summary", start), (19, "ai_summary", last),
+        (20, "category_recommendation", end), (21, "ai_summary", last),
+        (None, "ai_summary", start),
     ]
     assert await usage(connection) == expected
+    assert tuple(await connection.fetchrow(recount_totals)) == (9, 2)
     assert tuple(await connection.fetchrow(backfill)) == (0, 0)
     assert await usage(connection) == expected
 
 
 async def rollback_state(connection):
-    schema = await connection.fetch("""
+    columns = await connection.fetch("""
         SELECT table_name, column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_schema = 'public'
         ORDER BY table_name, ordinal_position
     """)
+    indexes = await connection.fetch("""
+        SELECT tablename, indexname, indexdef
+        FROM pg_indexes WHERE schemaname = 'public'
+        ORDER BY tablename, indexname
+    """)
+    constraints = await connection.fetch("""
+        SELECT c.conrelid::regclass::text AS relation, c.conname, pg_get_constraintdef(c.oid)
+        FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+        WHERE n.nspname = 'public'
+        ORDER BY relation, c.conname
+    """)
     return (
-        schema,
+        columns, indexes, constraints,
         await connection.fetchval("SELECT version_num FROM alembic_version"),
-        await connection.fetch("SELECT id, title FROM contents ORDER BY id"),
-        await connection.fetch("SELECT content_id, status, error_code FROM summary_jobs"),
+        # Keep the result type stable across DDL while comparing every field.
+        await connection.fetch("SELECT to_jsonb(c) FROM contents c ORDER BY c.id"),
+        await connection.fetch("SELECT to_jsonb(j) FROM summary_jobs j ORDER BY j.content_id"),
     )
 
 
 @pytest.mark.asyncio
 async def test_console_rollback_matches_alembic_downgrade(migration_database):
-    connection, migrate, _ = migration_database
+    connection, migrate, connect = migration_database
     await migrate("upgrade", "head")
     await connection.execute("INSERT INTO users (id, display_name) VALUES (1, 'synthetic owner')")
     now = datetime.now(KST)
@@ -193,21 +228,41 @@ async def test_console_rollback_matches_alembic_downgrade(migration_database):
     """)
 
     console_sql = (SQL / "rollback_monthly_summary_limit.sql").read_text(encoding="utf-8")
+    check_state = first_runbook_query("이전 서버로 되돌리기")
+    original = await rollback_state(connection)
+    peer = await connect()
+    try:
+        async with peer.transaction():
+            await peer.execute("LOCK TABLE usage_records IN ACCESS SHARE MODE")
+            with pytest.raises(asyncpg.LockNotAvailableError):
+                async with connection.transaction():
+                    await connection.execute("SET LOCAL lock_timeout = '100ms'")
+                    await connection.execute(console_sql)
+    finally:
+        await peer.close()
+    assert await rollback_state(connection) == original
+    assert tuple(await connection.fetchrow(check_state)) == ("202611230026", True, True)
+
     transaction = connection.transaction()
     await transaction.start()
     try:
         await connection.execute(console_sql)
         console = await rollback_state(connection)
+        assert tuple(await connection.fetchrow(check_state)) == (LEGACY, False, False)
     finally:
         await transaction.rollback()
     await migrate("downgrade", LEGACY)
     assert await rollback_state(connection) == console
-    schema, revision, contents, jobs = console
+    columns, _, _, revision, contents, jobs = console
     assert revision == LEGACY
-    assert "usage_records" not in {row["table_name"] for row in schema}
-    assert "screenshot_summary_skip_reason" not in {row["column_name"] for row in schema}
+    assert "usage_records" not in {row["table_name"] for row in columns}
+    assert "screenshot_summary_skip_reason" not in {row["column_name"] for row in columns}
+    contents = [json.loads(row[0]) for row in contents]
+    jobs = [json.loads(row[0]) for row in jobs]
     assert [row["id"] for row in contents] == [11, 12]
-    assert [tuple(row) for row in jobs] == [(11, "skipped", "daily_limit_exceeded")]
+    assert [(r["content_id"], r["status"], r["error_code"]) for r in jobs] == [
+        (11, "skipped", "daily_limit_exceeded")
+    ]
     with pytest.raises(asyncpg.PostgresError, match="Expected only Alembic revision"):
         await connection.execute(console_sql)
     assert await rollback_state(connection) == console

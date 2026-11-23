@@ -99,6 +99,7 @@ SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상�
 ### 배포와 재집계
 
 1. main 병합 뒤 Railway의 pre-deploy `alembic upgrade head`가 사용 기록 표와 사진 사유 칸을 만들고 리비전 `202611230026`에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 실행한다. 이번 달은 실행 시각의 한국 시간 기준이다.
+   - pre-deploy가 교착(`deadlock detected`)으로 실패하면 Railway 배포 로그에서 실패 원인을 확인한다. SQL 콘솔에서 `SELECT version_num FROM alembic_version;`를 실행해 이전 리비전 `202611170023`이 그대로인지 확인한 뒤 새 이미지를 다시 배포한다. 로그나 리비전이 이 조건과 다르면 원인을 확인하고 재배포 여부를 판단한다.
 2. 사용자가 Railway에서 새 서버 배포 완료와 옛 서버 종료를 확인한다. 공존 중 옛 서버가 저장한 링크·사진에는 사용 기록이 없고, 옛 worker가 최종 실패시킨 링크의 채운 기록은 남을 수 있다. 옛 서버가 새 사유를 먼저 읽으면 해당 목록·상세 요청이 실패할 수 있다.
 3. 아래 집계 SQL을 실행해 결과를 기록한다. 같은 SQL 콘솔에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 그대로 붙여 넣어 한 번 더 실행한다. `inserted`와 `removed`를 기록한 뒤 집계 SQL을 다시 실행해 전후 값을 남긴다. 추천 기록은 배포 시점부터 센다.
 
@@ -150,8 +151,22 @@ SELECT count(*) AS removed_test_records FROM removed;
 
 ### 이전 서버로 되돌리기
 
-1. 옛 이미지를 재배포하기 전에 사용자가 SQL 콘솔에서 [되돌리기 SQL 전문](../backend/alembic/sql/rollback_monthly_summary_limit.sql)을 실행한다. 옛 서버의 pre-deploy는 모르는 리비전에서 중단된다. SQL은 현재 리비전이 `202611230026`일 때 작업 사유를 `daily_limit_exceeded`로 바꾸고, 사진 사유 칸과 사용 기록 표를 지운 뒤 리비전을 `202611170023`으로 내린다. 새 서버는 이 단계부터 재배포 완료까지 읽기나 저장에 실패할 수 있다.
-2. Railway에서 이전 서버 이미지를 재배포한다. pre-deploy 성공과 옛 서버 준비 상태를 확인한다.
+1. 사용자가 SQL 콘솔에서 [되돌리기 SQL 전문](../backend/alembic/sql/rollback_monthly_summary_limit.sql)을 실행한다. SQL은 리비전 `202611230026`에서 작업 사유를 `daily_limit_exceeded`로 바꾸고, 사진 사유 칸과 사용 기록 표를 지운 뒤 리비전을 `202611170023`으로 내린다.
+   - 되돌리기 SQL 자체가 교착(`deadlock detected`)이나 잠금 시간 초과로 취소되면, SQL 콘솔의 실패 트랜잭션이 열린 경우 같은 세션에서 `ROLLBACK;`으로 정리한다. 아래 상태 확인 SQL로 리비전 `202611230026`과 두 칸의 `true`를 확인한 후 되돌리기 SQL 전문을 처음부터 다시 실행한다. 결과가 다르면 현재 상태부터 확인한다.
+   - 되돌리기와 동시에 실행된 저장 요청이 교착으로 실패할 수도 있다. 저장 오류만으로 되돌리기 결과를 판단할 수 없으므로 SQL 콘솔의 실행 결과와 아래 상태를 확인한다. 되돌리기가 적용된 뒤 옛 서버가 올라오기까지 새 서버의 조회나 저장이 실패할 수 있다.
+2. 되돌리기 SQL이 성공하고 콘솔에서 직접 열어 둔 트랜잭션이 있다면 `COMMIT;`을 실행한다. 새 트랜잭션에서 아래 SQL을 실행해 리비전 `202611170023`과 두 칸의 `false`를 확인한 뒤 Railway에서 이전 서버 이미지를 재배포한다. 이전 서버의 pre-deploy 성공과 준비 상태를 확인한다.
+
+```sql
+SELECT version_num,
+       to_regclass('usage_records') IS NOT NULL AS has_usage_records,
+       EXISTS (
+           SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass('contents')
+             AND attname = 'screenshot_summary_skip_reason' AND NOT attisdropped
+       ) AS has_screenshot_skip_reason
+FROM alembic_version;
+```
+
 3. 이전 서버가 뜬 뒤 아래 SQL을 한 번 더 실행해 교체 중 다시 쓰인 사유를 정리한다. 목록과 링크·사진 상세가 열리는지 확인한다.
 
 ```sql

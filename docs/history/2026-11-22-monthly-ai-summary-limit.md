@@ -93,3 +93,24 @@ VERIFY result=PASS scope=all checks=12 failed=0
 iPhone 16 Simulator(iOS 18.6)와 Medium_Phone Emulator(Android 16, API 36)에서 링크·사진 상세를 각각 1.0배와 1.3배로 열었습니다. 변경 전에는 `e2b93ea`의 상세 화면 파일을 사용했습니다. 동일한 콘텐츠와 맨 위 스크롤 위치에서 저장 글이 월 한도 문구로 바뀌고 두 배율에서 문장 끝까지 표시되는 것을 확인했습니다.
 
 플랫폼별 변경 전·후 원본 8장과 probe JSON은 `.utmp/ticket-466/screens/`에, F02와 나란히 놓은 비교 이미지는 `.utmp/ticket-466/compare-ios.png`와 `.utmp/ticket-466/compare-android.png`에 보관했습니다. F02 요약 영역(111:3861·111:3862)을 기준으로 삼았고 사진은 글자 모양만 대조했습니다. 사진 상세 전체 레이아웃은 Figma 미검증입니다. 2026-11-23 사용자가 양 플랫폼 비교 화면을 승인했습니다. 낱말 중간 줄바꿈은 기존 한글 줄바꿈 문제(팀 시트 85)와 같은 종류로 보이며 이번 범위 밖입니다. 실기기 문구 확인과 VoiceOver·TalkBack 실제 낭독은 배포 전 사용자 단계입니다.
+
+## #467 배포 전환과 되돌리기
+
+2026-11-23, 리비전 `202611230026`에 한국 시간 기준 이번 달 AI 요약 사용 기록을 채우는 SQL을 추가했습니다. Alembic과 배포 후 재집계가 같은 파일을 실행합니다. 새 기록은 콘텐츠 저장 시각을 쓰고, 옛 worker가 끝내 실패하거나 건너뛴 링크의 요약 기록을 정리합니다. [Railway 배포 전환 절차](../railway-deployment.md#월-ai-요약-한도-전환)
+
+로컬 PostgreSQL 17.7에서 사진 저장 이벤트의 압축 JSON이 `ocr_status=success`로 해석되는 것을 확인했습니다. 옛 서버 기준 `dbfafc4`의 pre-deploy는 새 DB 리비전 `202611220025`에서 중단됐습니다. 콘솔 되돌리기와 Alembic downgrade는 같은 스키마와 콘텐츠·작업 행을 남겼고, 되돌린 DB에서 옛 서버의 pre-deploy와 목록·링크·사진 상세 응답을 확인했습니다.
+
+검수 뒤 pre-deploy 교착 재배포 조건과 되돌리기 SQL의 재시도 절차를 배포 문서와 GitHub 절차 댓글에 반영했습니다. 두 세션으로 잠금 시간 초과와 재시도를 확인했습니다. 롤백 동등성 테스트가 인덱스·제약·콘텐츠·작업 값의 변형을 각각 잡았고, KST 월초와 다음 달 경계에서 사전 집계·채우기·배포 문서의 집계 결과를 대조했습니다. 관련 부분 검사 6건이 통과했습니다.
+
+### 검증
+
+첫 구현 `e06f78d`에 검수 반영을 더한 작업 트리에서 일반·maintenance 로컬 DB의 Alembic upgrade/check와 전체 검사를 통과했습니다. Flutter는 3994건 통과입니다.
+
+```text
+pytest: 3106 passed, 50 skipped, 3 warnings in 408.45s (0:06:48)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+로그는 `.utmp/ticket-467/20261123T162559-3f9b6039a62b/`에 보관했습니다. Docker 배포·복구와 S3 CLI skip은 PR 단계의 원격 CI와 대조합니다. 배포 전 운영 읽기 전용 집계는 사용자 실행과 판정을 기다리며, 배포 후 재집계·운영 한도·실기기 낭독 확인은 배포 뒤 사용자 단계입니다. [#467 절차 댓글](https://github.com/clip-back/clipback/issues/467#issuecomment-7094087770)
