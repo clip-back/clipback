@@ -133,3 +133,9 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 검사 로그는 `.utmp/final-462/verify/20261123T171603-cf0afb808122/`에 보관했습니다. 촬영 직전 다시 확인한 main은 `5fac2de`였습니다. iPhone 16(iOS 18.6)과 Medium_Phone(Android 16, API 36)에서 링크·사진 상세를 1.0배·1.3배로 열고, 한도 문구가 끝까지 보이는지 확인했습니다. 같은 상태의 #466 승인 이미지와 원본 픽셀을 대조한 결과 iOS 4장은 동일했고 Android 4장은 상단 OS 상태 표시줄에만 차이가 있었습니다. 최종 비교는 `.utmp/final-462/compare-ios.png`와 `.utmp/final-462/compare-android.png`입니다. 사진 상세 전체 레이아웃은 Figma 미검증이며 실기기 낭독은 배포 후 사용자 단계입니다.
+
+### PR #481 복구 검사 후속
+
+2026-11-24, 옛 이미지로 만든 복구 지점과 리비전을 보존하는 Docker 검사에서 현재 탈퇴 코드를 실행하기 직전에 원본 DB를 현재 Alembic head로 올리도록 했습니다. 로컬 합성 PostgreSQL에서는 업그레이드한 원본 DB에서 탈퇴가 완료됐고, 옛 DB 스냅샷은 리비전 0021과 기존 계정을 유지했습니다. CI에서 실패한 하위 프로세스의 stderr는 남아 있지 않았습니다.
+
+Railway 절차에는 새 서버의 점검 또는 확인된 중단, 운영자 탈퇴 금지, DB 롤백, 옛 서버 배포와 재개 순서를 명시했습니다. 로컬 점검 통합 검사 5건과 탈퇴 관련 검사 66건이 통과했습니다. 이 Mac에서 Docker CLI를 찾지 못해 전체 컨테이너 복구는 원격 operator-recovery 검증에 남았습니다. [Railway 되돌리기 절차](../railway-deployment.md#이전-서버로-되돌리기)
