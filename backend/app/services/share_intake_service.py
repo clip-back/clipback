@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
+import time
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -17,8 +19,10 @@ from app.schemas.content import (
 from app.services.content_service import SharedLinkContext
 from app.services.extraction_service import ExtractionService
 from app.services.link_url import INSTAGRAM_HOSTS, URL_TRAILING_CHARS, normalize_instagram_url
+from app.services.save_step_log import log_save_step
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
+logger = logging.getLogger(__name__)
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
 
 
@@ -39,10 +43,19 @@ class ShareIntakeService:
             if parsed.hostname in INSTAGRAM_HOSTS and parsed.path.startswith("/share/"):
                 if len(url) > MAX_CONTENT_URL_LENGTH:
                     raise HTTPException(status_code=422, detail="Shared URL is too long")
+                started_at = time.monotonic()
                 try:
                     metadata = await self.extraction_service.metadata_client.extract_from_url(url)
                 except UnsafeUrlError as exc:
+                    log_save_step(
+                        logger, "instagram_share_resolve", time.monotonic() - started_at,
+                        "failed", "unsafe_url",
+                    )
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
+                log_save_step(
+                    logger, "instagram_share_resolve", time.monotonic() - started_at,
+                    metadata.status, metadata.failure_reason,
+                )
                 if metadata.status != "success" and metadata.failure_reason != "metadata_missing":
                     raise HTTPException(
                         status_code=422, detail="Instagram share URL could not be resolved",

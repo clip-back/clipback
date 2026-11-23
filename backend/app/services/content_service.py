@@ -46,6 +46,7 @@ from app.services.category_recommendation_service import (
     CategoryRecommendationFailureReason,
     CategoryRecommendationResult,
     CategoryRecommendationService,
+    log_category_recommendation,
 )
 from app.services.extraction_service import ExtractionService, serialize_event_metadata
 from app.services.image_deletion_service import delete_image_content
@@ -404,6 +405,7 @@ class ContentService:
                         assignment_method=CategoryAssignmentMethod.UNCATEGORIZED,
                         failure_reason=CategoryRecommendationFailureReason.ERROR,
                     )
+            log_category_recommendation(recommendation)
             if not categories:
                 categories = [await self._get_uncategorized()]
             return categories, recommendation

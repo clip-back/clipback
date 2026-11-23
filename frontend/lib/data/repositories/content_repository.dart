@@ -47,6 +47,11 @@ abstract class ContentRepository extends ChangeNotifier {
   Future<void> loadNext(FeedKey key, {bool reset = false});
   void ensureFeed(FeedKey key);
   RefreshTicket beginRefresh({bool preserveViewport = false});
+
+  /// Re-reads the shown, settled lists and categories without spinner or
+  /// error state (#460). Applies them together only when every read succeeds;
+  /// returns false when it did not run or did not apply.
+  Future<bool> refreshInBackground();
   Future<RefreshResult> refresh(
     RefreshTicket ticket, {
     bool includeCategories = true,
@@ -133,6 +138,10 @@ class _FeedState {
   int viewportVersion = 0;
   Future<void>? pending;
 
+  // Filter identity for a background re-read; a change cancels it.
+  (String?, int?, bool?, bool) get filter =>
+      (query, categoryId, isFavorite, bookmarkedFirst);
+
   void reset({bool preserveViewport = false}) {
     version++;
     if (!preserveViewport) {
@@ -196,6 +205,18 @@ class RemoteContentRepository extends ContentRepository {
   int _accountVersion = 0;
   int _refreshVersion = 0;
   int _categoryReadVersion = 0;
+  // Background re-reads (#460): each one gets a generation; a newer one, or a
+  // user read of one of its lists, cancels it so its replies are discarded.
+  int _backgroundGeneration = 0;
+  Set<FeedKey> _backgroundTargets = const {};
+  // Owns the background re-read's HTTP requests. Its GETs never refresh the
+  // login (decision A: a 401 just ends them); cancelling the scope ends the
+  // requests still waiting, its sibling lists and the wait for an earlier
+  // user category read, so a batch that can no longer be published stops.
+  ApiRequestScope? _backgroundScope;
+  // Whether the running background batch could still be published. Checked
+  // on every change notice so the events that make it unpublishable cancel it.
+  bool Function()? _backgroundPublishable;
   ApiRequestScope? _categoryReadScope;
   int _contentVersion = 0;
   int _detailVersion = 0;
@@ -243,12 +264,22 @@ class RemoteContentRepository extends ContentRepository {
   bool isCategoryDeleted(int id) => _deletedCategoryIds.contains(id);
 
   void _notify() {
+    _recheckBackground();
     if (!_disposed) notifyListeners();
+  }
+
+  // An account reset, filter change, list reset, refresh, category read or a
+  // replaced shown card makes the background batch unpublishable: end its
+  // requests and waits now instead of when a late reply arrives.
+  void _recheckBackground() {
+    final publishable = _backgroundPublishable;
+    if (publishable != null && !publishable()) _cancelBackground();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _cancelBackground();
     _categoryReadScope?.cancel();
     _detailHandle = null;
     super.dispose();
@@ -308,6 +339,8 @@ class RemoteContentRepository extends ContentRepository {
   }) async {
     final account = _accountVersion;
     final read = ++_categoryReadVersion;
+    // A user category read wins over a background batch.
+    _recheckBackground();
     final owner = ApiRequestScope.current;
     _categoryReadScope?.cancel();
     bool current() =>
@@ -376,6 +409,9 @@ class RemoteContentRepository extends ContentRepository {
     if (_disposed) return Future.value();
     final page = _feeds[key]!;
     if (reset) page.reset();
+    // A user read wins over a background re-read of the same list: cancel it
+    // and continue from the shown items and cursor.
+    if (_backgroundTargets.contains(key)) _cancelBackground();
     if (page.pending != null) return page.pending!;
     // Metadata is still loading for a write-triggered first-page refresh.
     if (page.loading || !page.hasMore || _disposed) return Future.value();
@@ -485,6 +521,168 @@ class RemoteContentRepository extends ContentRepository {
     );
     _notify();
     return ticket;
+  }
+
+  void _cancelBackground() {
+    _backgroundGeneration++;
+    _backgroundTargets = const {};
+    _backgroundPublishable = null;
+    _backgroundScope?.cancel();
+    _backgroundScope = null;
+  }
+
+  @override
+  Future<bool> refreshInBackground() async {
+    if (_disposed ||
+        _feeds.values.any((page) => page.loading || page.pending != null)) {
+      // A user or caller read owns the lists; it shows its own result.
+      return false;
+    }
+    // A failed page keeps its error and retry; an unread page stays unread.
+    final targets = [
+      for (final entry in _feeds.entries)
+        if (entry.value.initialized && entry.value.error == null)
+          (
+            key: entry.key,
+            page: entry.value,
+            version: entry.value.version,
+            filter: entry.value.filter,
+            shown: List<ApiContent>.of(entry.value.items),
+          ),
+    ];
+    if (targets.isEmpty) return false;
+    // A newer re-entry replaces an older background read still waiting.
+    _cancelBackground();
+    final generation = _backgroundGeneration;
+    _backgroundTargets = {for (final target in targets) target.key};
+    final account = _accountVersion;
+    final refreshVersion = _refreshVersion;
+    final categoryRead = _categoryReadVersion;
+    bool current() =>
+        !_disposed &&
+        generation == _backgroundGeneration &&
+        account == _accountVersion &&
+        refreshVersion == _refreshVersion &&
+        targets.every(
+          (target) =>
+              target.page.version == target.version &&
+              target.page.filter == target.filter,
+        );
+    // A newer detail, today or change reply replaced a shown item; this
+    // older snapshot must not undo it.
+    bool unchanged() => targets.every((target) {
+      final items = target.page.items;
+      if (items.length != target.shown.length) return false;
+      for (var i = 0; i < items.length; i++) {
+        if (!identical(items[i], target.shown[i])) return false;
+      }
+      return true;
+    });
+    // Ends the requests as soon as this batch can no longer be published:
+    // replaced, a user category read started, or a shown card was replaced.
+    bool publishable() =>
+        current() && categoryRead == _categoryReadVersion && unchanged();
+    final scope = ApiRequestScope(isCurrent: publishable);
+    _backgroundScope = scope;
+    _backgroundPublishable = publishable;
+    final read = _beginContentRead();
+    try {
+      // One failing list ends the batch at once; the scope then ends the
+      // sibling requests still waiting.
+      final staged = await Future.wait([
+        for (final target in targets)
+          scope.run(() => _readShownPages(target.page, publishable)),
+      ], eagerError: true);
+      if (!publishable()) return false;
+      // Read directly, once with the current access token: a user category
+      // read is neither cancelled nor superseded, and nothing is published
+      // before the lists.
+      final categories = await scope.run(_api.listCategoriesOnce);
+      // A user category read that started earlier publishes first; this
+      // newer batch follows it so an older count cannot overwrite it. A
+      // cancelled batch stops waiting at once.
+      for (
+        var user = _categoryReadScope;
+        user != null && publishable();
+        user = _categoryReadScope
+      ) {
+        await Future.any([user.cancelled, scope.cancelled]);
+      }
+      if (!publishable()) return false;
+      // The batch publishes now; its own change notice must not cancel it.
+      _backgroundPublishable = null;
+      _categories
+        ..clear()
+        ..addAll(_reconcileCategoryList(categories));
+      for (var i = 0; i < targets.length; i++) {
+        final page = targets[i].page;
+        final (items, cursor, totalCount, hasMore) = staged[i];
+        final reconciled = <int, ApiContent>{};
+        for (final raw in items) {
+          final item = _reconcileContentRead(raw, read.version);
+          if (item != null) {
+            reconciled[item.id] = item;
+            _trackBookmark(item);
+          }
+        }
+        page.items
+          ..clear()
+          ..addAll(reconciled.values);
+        page.totalCount = totalCount ?? (!hasMore ? reconciled.length : null);
+        page.nextCursor = cursor;
+        page.hasMore = hasMore;
+      }
+      _notify();
+      return true;
+    } catch (_) {
+      // Keep every list as shown; the next resume or re-entry tries again.
+      return false;
+    } finally {
+      _endContentRead(read.key);
+      scope.cancel();
+      if (generation == _backgroundGeneration) {
+        _backgroundTargets = const {};
+        _backgroundScope = null;
+        _backgroundPublishable = null;
+      }
+    }
+  }
+
+  /// Reads the shown extent of one list for a background re-read. Checks the
+  /// generation before every request and after every reply, and fails when a
+  /// page makes no progress (a next cursor this list already used).
+  Future<(List<ApiContent>, String?, int?, bool)> _readShownPages(
+    _FeedState page,
+    bool Function() current,
+  ) async {
+    final targetCount = page.items.length;
+    final items = <ApiContent>[];
+    String? cursor;
+    int? totalCount;
+    var hasMore = true;
+    final used = <String>{};
+    do {
+      if (!current()) throw const _BackgroundCancelled();
+      final sent = cursor;
+      if (sent != null) used.add(sent);
+      final response = await _api.readFeedStrict(
+        limit: 20,
+        query: page.query,
+        categoryId: page.categoryId,
+        isFavorite: page.isFavorite,
+        sort: page.bookmarkedFirst ? 'favorites_first' : null,
+        cursor: sent,
+      );
+      if (!current()) throw const _BackgroundCancelled();
+      items.addAll(response.items);
+      totalCount = response.totalCount;
+      cursor = response.nextCursor;
+      hasMore = cursor != null;
+      if (hasMore && used.contains(cursor)) {
+        throw StateError('Feed cursor made no progress');
+      }
+    } while (hasMore && (items.isEmpty || items.length < targetCount));
+    return (items, cursor, totalCount, hasMore);
   }
 
   @override
@@ -1476,3 +1674,7 @@ ApiContent _copyContent(
   summaryStatus: value.summaryStatus,
   summaryErrorCode: value.summaryErrorCode,
 );
+
+class _BackgroundCancelled implements Exception {
+  const _BackgroundCancelled();
+}

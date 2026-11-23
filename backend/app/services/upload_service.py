@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import time
 import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,6 +28,7 @@ from app.schemas.content import ContentAssetAccess
 from app.services.content_service import PendingContentAsset
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
+from app.services.save_step_log import log_save_step
 from app.services.usage_limits import MONTHLY_SUMMARY_LIMIT_EXCEEDED, MonthlySummaryLimit
 
 logger = logging.getLogger(__name__)
@@ -162,41 +164,41 @@ class UploadService:
         content: bytes,
         mime_type: str,
     ) -> tuple[ScreenshotOCRResult, dict[str, str | None]]:
+        started_at = time.monotonic()
         try:
-            result = await self.ocr_client.extract(
-                image_bytes=content,
-                mime_type=mime_type,
-            )
+            try:
+                result = await self.ocr_client.extract(
+                    image_bytes=content,
+                    mime_type=mime_type,
+                )
+            finally:
+                elapsed_seconds = time.monotonic() - started_at
         except OCRClientNotConfiguredError:
-            return self._ocr_fallback(ScreenshotOCRFailureReason.NOT_CONFIGURED)
+            reason = ScreenshotOCRFailureReason.NOT_CONFIGURED
         except OCRClientTimeoutError:
-            return self._ocr_fallback(ScreenshotOCRFailureReason.TIMEOUT)
+            reason = ScreenshotOCRFailureReason.TIMEOUT
         except OCRClientInvalidResponseError:
-            return self._ocr_fallback(ScreenshotOCRFailureReason.INVALID_RESPONSE)
+            reason = ScreenshotOCRFailureReason.INVALID_RESPONSE
         except OCRClientError:
             logger.warning("Screenshot OCR failed", exc_info=True)
-            return self._ocr_fallback(ScreenshotOCRFailureReason.ERROR)
+            reason = ScreenshotOCRFailureReason.ERROR
         except Exception:
             logger.exception("Unexpected screenshot OCR failure")
-            return self._ocr_fallback(ScreenshotOCRFailureReason.ERROR)
+            reason = ScreenshotOCRFailureReason.ERROR
+        else:
+            reason = None
 
-        if not result.text:
-            return result, {
-                "ocr_status": ScreenshotOCRStatus.NO_TEXT.value,
-                "ocr_failure_reason": None,
-            }
+        if reason is not None:
+            result = ScreenshotOCRResult(text="", title="", summary="")
+            ocr_status = ScreenshotOCRStatus.FAILED
+        elif result.text:
+            ocr_status = ScreenshotOCRStatus.SUCCESS
+        else:
+            ocr_status = ScreenshotOCRStatus.NO_TEXT
+        log_save_step(logger, "screenshot_ocr", elapsed_seconds, ocr_status, reason)
         return result, {
-            "ocr_status": ScreenshotOCRStatus.SUCCESS.value,
-            "ocr_failure_reason": None,
-        }
-
-    @staticmethod
-    def _ocr_fallback(
-        reason: ScreenshotOCRFailureReason,
-    ) -> tuple[ScreenshotOCRResult, dict[str, str | None]]:
-        return ScreenshotOCRResult(text="", title="", summary=""), {
-            "ocr_status": ScreenshotOCRStatus.FAILED.value,
-            "ocr_failure_reason": reason.value,
+            "ocr_status": ocr_status.value,
+            "ocr_failure_reason": reason.value if reason is not None else None,
         }
 
     async def asset_access(self, *, user_id: int, asset_id: int) -> ContentAssetAccess:
