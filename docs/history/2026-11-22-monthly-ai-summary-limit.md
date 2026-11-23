@@ -86,4 +86,10 @@ pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required fo
 VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
-이번 실행의 로그는 `.utmp/ticket-466/20261123T143419-6bbca47ead2d/`에 보관했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 단계의 원격 CI와 대조합니다. iOS Simulator·Android Emulator의 변경 전·후 비교와 사용자 화면 판정, 실기기의 문구 확인과 VoiceOver·TalkBack 낭독은 이 기록 시점에 끝나지 않았습니다.
+이번 실행의 로그는 `.utmp/ticket-466/20261123T143419-6bbca47ead2d/`에 보관했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 단계의 원격 CI와 대조합니다.
+
+### 기기 화면 확인
+
+iPhone 16 Simulator(iOS 18.6)와 Medium_Phone Emulator(Android 16, API 36)에서 링크·사진 상세를 각각 1.0배와 1.3배로 열었습니다. 변경 전에는 `e2b93ea`의 상세 화면 파일을 사용했습니다. 동일한 콘텐츠와 맨 위 스크롤 위치에서 저장 글이 월 한도 문구로 바뀌고 두 배율에서 문장 끝까지 표시되는 것을 확인했습니다.
+
+플랫폼별 변경 전·후 원본 8장과 probe JSON은 `.utmp/ticket-466/screens/`에, F02와 나란히 놓은 비교 이미지는 `.utmp/ticket-466/compare-ios.png`와 `.utmp/ticket-466/compare-android.png`에 보관했습니다. F02 요약 영역(111:3861·111:3862)을 기준으로 삼았고 사진은 글자 모양만 대조했습니다. 사진 상세 전체 레이아웃은 Figma 미검증입니다. 사용자 화면 판정은 대기 중이며 실기기 문구 확인과 VoiceOver·TalkBack 실제 낭독은 배포 전 사용자 단계입니다.
