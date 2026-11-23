@@ -35,22 +35,26 @@ ContentItem _item({List<CategoryItem>? categories}) => ContentItem(
   originalText: '',
 );
 
-Widget _frame(Widget child, {double textScale = 1, double width = 375}) =>
-    MaterialApp(
-      theme: ThemeData(fontFamily: 'Pretendard'),
-      home: MediaQuery(
-        data: MediaQueryData(
-          size: Size(width, 812),
-          textScaler: TextScaler.linear(textScale),
-        ),
-        child: Scaffold(
-          body: Align(
-            alignment: Alignment.topCenter,
-            child: SizedBox(width: width, height: 700, child: child),
-          ),
-        ),
+Widget _frame(
+  Widget child, {
+  double textScale = 1,
+  double width = 375,
+  double height = 600,
+}) => MaterialApp(
+  theme: ThemeData(fontFamily: 'Pretendard'),
+  home: MediaQuery(
+    data: MediaQueryData(
+      size: Size(width, 812),
+      textScaler: TextScaler.linear(textScale),
+    ),
+    child: Scaffold(
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: SizedBox(width: width, height: height, child: child),
       ),
-    );
+    ),
+  ),
+);
 
 PagedContentList _list({
   FeedPage? feed,
@@ -152,19 +156,6 @@ void main() {
     });
   });
 
-  testWidgets('skeleton cards fill the visible height and no more', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_frame(_list(feed: FeedPage()..loading = true)));
-    final cards = _skeleton.evaluate().length;
-    final height = tester.getSize(_skeleton.first).height;
-    expect(cards, ((700 + 8) / (height + 8)).ceil());
-    final last = tester.getTopLeft(_skeleton.last).dy;
-    expect(last, lessThan(700));
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
   testWidgets('skeleton cards cannot be pressed', (tester) async {
     await tester.pumpWidget(_frame(_list(feed: FeedPage()..loading = true)));
     expect(
@@ -196,10 +187,9 @@ void main() {
       ),
       findsWidgets,
     );
-    final labels = <String>[];
+    final nodes = <SemanticsData>[];
     void visit(SemanticsNode node) {
-      final data = node.getSemanticsData();
-      if (data.label.isNotEmpty) labels.add(data.label);
+      nodes.add(node.getSemanticsData());
       node.visitChildren((child) {
         visit(child);
         return true;
@@ -207,7 +197,10 @@ void main() {
     }
 
     visit(tester.getSemantics(find.byType(ContentListSkeleton)));
-    expect(labels, isEmpty);
+    expect(nodes, isNotEmpty);
+    expect(nodes.where((node) => node.label.isNotEmpty), isEmpty);
+    expect(nodes.where((node) => node.flagsCollection.isImage), isEmpty);
+    expect(nodes.where((node) => node.role != SemanticsRole.none), isEmpty);
     await tester.pumpWidget(const SizedBox.shrink());
     semantics.dispose();
   });
@@ -232,6 +225,46 @@ void main() {
         final skeleton = tester.getSize(_skeleton);
         expect(skeleton.width, real.width);
         expect(skeleton.height, closeTo(real.height, 0.01));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+
+    for (final (name, extra, expected) in [
+      ('zero height', null, 0),
+      ('exactly one card', 0.0, 1),
+      ('inside the gap', 1.0, 1),
+      ('at the end of the gap', 8.0, 1),
+      ('one pixel of the second card', 9.0, 2),
+    ]) {
+      testWidgets('skeleton count at $scale: $name', (tester) async {
+        await tester.pumpWidget(
+          _frame(
+            _top(const SkeletonShimmer(child: ContentListCardSkeleton())),
+            textScale: scale,
+          ),
+        );
+        final card = tester.getSize(_skeleton).height;
+        final height = extra == null ? 0.0 : card + extra;
+        await tester.pumpWidget(
+          _frame(
+            _list(feed: FeedPage()..loading = true),
+            textScale: scale,
+            height: height,
+          ),
+        );
+        final viewport = tester.getRect(find.byType(ContentListSkeleton));
+        expect(viewport.height, height);
+        final cards = [
+          for (var i = 0; i < _skeleton.evaluate().length; i++)
+            tester.getRect(_skeleton.at(i)),
+        ];
+        expect(cards, hasLength(expected));
+        for (final rect in cards) {
+          expect(rect.intersect(viewport).height, greaterThan(0));
+        }
+        final nextTop = cards.isEmpty ? viewport.top : cards.last.bottom + 8;
+        expect(nextTop, greaterThanOrEqualTo(viewport.bottom));
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       });

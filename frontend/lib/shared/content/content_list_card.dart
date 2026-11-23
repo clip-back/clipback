@@ -210,6 +210,22 @@ class _ArchiveAllText {
   );
 }
 
+/// Slots shared by the E01/E06 card, its skeleton and the skeleton count.
+abstract final class _ArchiveAllLayout {
+  static const cardPadding = 16.0;
+  static const badgePadding = EdgeInsets.symmetric(horizontal: 8, vertical: 4);
+  static const badgeMinHeight = 22.0;
+  static const badgeBodyGap = 8.0;
+  static const bodyHorizontalPadding = 4.0;
+  static const bodyHeight = 111.0;
+  static const titleHeight = 22.4;
+  static const titleMaxWidth = 311.0;
+  static const summaryTop = 26.4;
+  static const summaryLineHeight = 24.0;
+  static const dividerTop = 81.5;
+  static const dividerHeight = 0.5;
+}
+
 class _ArchiveAllContentListCard extends StatelessWidget {
   const _ArchiveAllContentListCard(this.card);
   final ContentListCard card;
@@ -228,7 +244,7 @@ class _ArchiveAllContentListCard extends StatelessWidget {
             Container(
               key: ValueKey('archive-all-card-${content.id}'),
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(_ArchiveAllLayout.cardPadding),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,7 +255,7 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
                           minWidth: constraints.maxWidth - 84,
-                          minHeight: 22,
+                          minHeight: _ArchiveAllLayout.badgeMinHeight,
                         ),
                         child: Wrap(
                           key: ValueKey('archive-all-badges-${content.id}'),
@@ -260,15 +276,17 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: _ArchiveAllLayout.badgeBodyGap),
                   // Keep all existing body slots together. Natural Wrap height
                   // moves this entire body once, without measuring text manually.
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _ArchiveAllLayout.bodyHorizontalPadding,
+                    ),
                     child: SizedBox(
                       key: ValueKey('archive-all-body-${content.id}'),
                       width: double.infinity,
-                      height: 111,
+                      height: _ArchiveAllLayout.bodyHeight,
                       child: Stack(
                         clipBehavior: Clip.hardEdge,
                         children: [
@@ -276,12 +294,12 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                             top: 0,
                             left: 0,
                             right: 0,
-                            height: 22.4,
+                            height: _ArchiveAllLayout.titleHeight,
                             child: Align(
                               alignment: Alignment.topLeft,
                               child: ConstrainedBox(
                                 constraints: const BoxConstraints(
-                                  maxWidth: 311,
+                                  maxWidth: _ArchiveAllLayout.titleMaxWidth,
                                 ),
                                 child: SizedBox(
                                   width: double.infinity,
@@ -299,10 +317,10 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                             ),
                           ),
                           Positioned(
-                            top: 26.4,
+                            top: _ArchiveAllLayout.summaryTop,
                             left: 0,
                             right: 0,
-                            height: 48,
+                            height: _ArchiveAllLayout.summaryLineHeight * 2,
                             child: ClipRect(
                               child: Text(
                                 content.summary,
@@ -316,16 +334,16 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                             ),
                           ),
                           Positioned(
-                            top: 81.5,
+                            top: _ArchiveAllLayout.dividerTop,
                             left: 0,
                             right: 0,
-                            height: 0.5,
+                            height: _ArchiveAllLayout.dividerHeight,
                             child: SvgPicture.asset(
                               Assets.archiveAllDivider,
                               key: ValueKey(
                                 'archive-all-divider-${content.id}',
                               ),
-                              height: 0.5,
+                              height: _ArchiveAllLayout.dividerHeight,
                               fit: BoxFit.fill,
                             ),
                           ),
@@ -420,6 +438,7 @@ class _ArchiveAllContentListCard extends StatelessWidget {
 
 // Gives badge and date bars their real line size; never visible or read.
 const _skeletonText = '가나다라';
+const _skeletonCardGap = 8.0;
 
 /// Placeholder cards that fill the visible height while a list has no card.
 class ContentListSkeleton extends StatelessWidget {
@@ -431,16 +450,20 @@ class ContentListSkeleton extends StatelessWidget {
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.textScalerOf(context),
     )..layout();
-    final badgeHeight = badge.height + 8;
+    final badgeHeight = badge.height + _ArchiveAllLayout.badgePadding.vertical;
     badge.dispose();
-    return 16 + math.max(22, badgeHeight) + 8 + 111 + 16;
+    return _ArchiveAllLayout.cardPadding * 2 +
+        math.max(_ArchiveAllLayout.badgeMinHeight, badgeHeight) +
+        _ArchiveAllLayout.badgeBodyGap +
+        _ArchiveAllLayout.bodyHeight;
   }
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final count = ((constraints.maxHeight + 8) / (_cardHeight(context) + 8))
-          .ceil();
+      final count =
+          (constraints.maxHeight / (_cardHeight(context) + _skeletonCardGap))
+              .ceil();
       return ClipRect(
         child: OverflowBox(
           alignment: Alignment.topCenter,
@@ -451,7 +474,7 @@ class ContentListSkeleton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var index = 0; index < count; index++) ...[
-                  if (index > 0) const SizedBox(height: 8),
+                  if (index > 0) const SizedBox(height: _skeletonCardGap),
                   const ContentListCardSkeleton(),
                 ],
               ],
@@ -487,22 +510,21 @@ class ContentListCardSkeleton extends StatelessWidget {
     return ColoredBox(
       color: AppColors.surface,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(_ArchiveAllLayout.cardPadding),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 22),
+              constraints: const BoxConstraints(
+                minHeight: _ArchiveAllLayout.badgeMinHeight,
+              ),
               child: Align(
                 alignment: Alignment.topLeft,
                 heightFactor: 1,
                 child: SkeletonShimmerBars(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
+                    padding: _ArchiveAllLayout.badgePadding,
                     decoration: BoxDecoration(
                       color: AppColors.faint,
                       borderRadius: BorderRadius.circular(4),
@@ -518,12 +540,14 @@ class ContentListCardSkeleton extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: _ArchiveAllLayout.badgeBodyGap),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(
+                horizontal: _ArchiveAllLayout.bodyHorizontalPadding,
+              ),
               child: SizedBox(
                 width: double.infinity,
-                height: 111,
+                height: _ArchiveAllLayout.bodyHeight,
                 child: Stack(
                   clipBehavior: Clip.hardEdge,
                   children: [
@@ -535,29 +559,31 @@ class ContentListCardSkeleton extends StatelessWidget {
                               top: 0,
                               left: 0,
                               right: 0,
-                              height: 22.4,
+                              height: _ArchiveAllLayout.titleHeight,
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: ConstrainedBox(
                                   constraints: const BoxConstraints(
-                                    maxWidth: 311,
+                                    maxWidth: _ArchiveAllLayout.titleMaxWidth,
                                   ),
                                   child: bar(_ArchiveAllText.title, 0.6),
                                 ),
                               ),
                             ),
                             Positioned(
-                              top: 26.4,
+                              top: _ArchiveAllLayout.summaryTop,
                               left: 0,
                               right: 0,
-                              height: 24,
+                              height: _ArchiveAllLayout.summaryLineHeight,
                               child: bar(_ArchiveAllText.summary, 1),
                             ),
                             Positioned(
-                              top: 50.4,
+                              top:
+                                  _ArchiveAllLayout.summaryTop +
+                                  _ArchiveAllLayout.summaryLineHeight,
                               left: 0,
                               right: 0,
-                              height: 24,
+                              height: _ArchiveAllLayout.summaryLineHeight,
                               child: bar(_ArchiveAllText.summary, 0.6),
                             ),
                             Positioned(
@@ -594,13 +620,14 @@ class ContentListCardSkeleton extends StatelessWidget {
                       ),
                     ),
                     Positioned(
-                      top: 81.5,
+                      top: _ArchiveAllLayout.dividerTop,
                       left: 0,
                       right: 0,
-                      height: 0.5,
+                      height: _ArchiveAllLayout.dividerHeight,
                       child: SvgPicture.asset(
                         Assets.archiveAllDivider,
-                        height: 0.5,
+                        excludeFromSemantics: true,
+                        height: _ArchiveAllLayout.dividerHeight,
                         fit: BoxFit.fill,
                       ),
                     ),
@@ -635,7 +662,7 @@ class _AlignedCategoryBadge extends StatelessWidget {
       key: unclassified ? ValueKey('unclassified-badge-$contentId') : null,
       width: unclassified ? 57 : null,
       alignment: unclassified ? Alignment.center : null,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: _ArchiveAllLayout.badgePadding,
       decoration: BoxDecoration(
         color: unclassified ? AppColors.subtler : category.tint,
         borderRadius: BorderRadius.circular(4),
