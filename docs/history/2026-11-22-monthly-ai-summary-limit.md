@@ -118,3 +118,18 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ### 운영 읽기 집계(사용자 실행)
 
 사용자가 운영 읽기 집계를 실행했고 해석 불가 메타데이터는 없었습니다. 집계값은 비공개이며 독립 대조는 하지 않았습니다.
+
+## 전체 검사(최종)
+
+`origin/main`의 `5fac2de`를 병합한 `26e3ec8`에서 #458의 호출 시간 로그와 #463–#465의 한도 계약을 기존 기대값 그대로 함께 실행해 545건이 통과했습니다. 최종 검수 뒤 `7308e48`에서 부분 롤백(0024)의 링크 월 사유 보존과 전체 롤백(0023)의 변환 순서를 확인했습니다. 최종 문서의 SQL 다섯 블록을 로컬 DB에서 실행했고, 콘솔과 Alembic의 전체 롤백 결과 및 옛 서버 목록·상세 응답을 대조했습니다.
+
+`7308e48`의 전체 VERIFY 종료 코드는 0입니다. Flutter 4,067건이 통과했습니다. Docker 배포·복구와 S3 CLI의 로컬 skip은 PR 승인 뒤 원격 CI의 대응 작업과 대조합니다.
+
+```text
+pytest: 3135 passed, 50 skipped, 3 warnings in 419.44s (0:06:59)
+pytest skip: 49 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+검사 로그는 `.utmp/final-462/verify/20261123T171603-cf0afb808122/`에 보관했습니다. 촬영 직전 다시 확인한 main은 `5fac2de`였습니다. iPhone 16(iOS 18.6)과 Medium_Phone(Android 16, API 36)에서 링크·사진 상세를 1.0배·1.3배로 열고, 한도 문구가 끝까지 보이는지 확인했습니다. 같은 상태의 #466 승인 이미지와 원본 픽셀을 대조한 결과 iOS 4장은 동일했고 Android 4장은 상단 OS 상태 표시줄에만 차이가 있었습니다. 최종 비교는 `.utmp/final-462/compare-ios.png`와 `.utmp/final-462/compare-android.png`입니다. 사진 상세 전체 레이아웃은 Figma 미검증이며 실기기 낭독은 배포 후 사용자 단계입니다.
