@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clipback_frontend/shared/content/content_list_card.dart';
 import 'package:clipback_frontend/shared/content/feed_status.dart';
 import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/models/feed_page.dart';
@@ -137,9 +138,12 @@ class _PagedContentListState extends State<PagedContentList> {
     final page = widget.feed;
     if (widget.contents.isEmpty) {
       if (page != null &&
-          (!page.initialized || page.loading || page.error != null)) {
+          (page.loading || (!page.initialized && page.error == null))) {
+        return const ContentListSkeleton();
+      }
+      if (page?.error != null) {
         return Center(
-          child: FeedStatus(page: page, onRetry: widget.onRetry),
+          child: FeedStatus(page: page!, onRetry: widget.onRetry),
         );
       }
       return widget.empty;

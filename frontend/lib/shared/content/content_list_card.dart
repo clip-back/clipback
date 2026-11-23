@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/content/content_actions.dart';
@@ -7,6 +9,7 @@ import 'package:clipback_frontend/shared/models/content_item.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
+import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -406,6 +409,203 @@ class _ArchiveAllContentListCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Gives badge and date bars their real line size; never visible or read.
+const _skeletonText = '가나다라';
+
+/// Placeholder cards that fill the visible height while a list has no card.
+class ContentListSkeleton extends StatelessWidget {
+  const ContentListSkeleton({super.key});
+
+  double _cardHeight(BuildContext context) {
+    final badge = TextPainter(
+      text: const TextSpan(text: _skeletonText, style: _ArchiveAllText.badge),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final badgeHeight = badge.height + 8;
+    badge.dispose();
+    return 16 + math.max(22, badgeHeight) + 8 + 111 + 16;
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final count = ((constraints.maxHeight + 8) / (_cardHeight(context) + 8))
+          .ceil();
+      return ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topCenter,
+          minHeight: 0,
+          maxHeight: double.infinity,
+          child: SkeletonShimmer(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var index = 0; index < count; index++) ...[
+                  if (index > 0) const SizedBox(height: 8),
+                  const ContentListCardSkeleton(),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// E01 and E06 card shape with bars in place of the text. Needs a
+/// [SkeletonShimmer] above it.
+class ContentListCardSkeleton extends StatelessWidget {
+  const ContentListCardSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    Widget bar(TextStyle style, double widthFactor) => Align(
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: widthFactor,
+        child: Container(
+          height: scaler.scale(style.fontSize!),
+          decoration: BoxDecoration(
+            color: AppColors.faint,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ),
+    );
+    return ColoredBox(
+      color: AppColors.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 22),
+              child: Align(
+                alignment: Alignment.topLeft,
+                heightFactor: 1,
+                child: SkeletonShimmerBars(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.faint,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _skeletonText,
+                      maxLines: 1,
+                      style: _ArchiveAllText.badge.copyWith(
+                        color: Colors.transparent,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: SizedBox(
+                width: double.infinity,
+                height: 111,
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    Positioned.fill(
+                      child: SkeletonShimmerBars(
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              height: 22.4,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 311,
+                                  ),
+                                  child: bar(_ArchiveAllText.title, 0.6),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 26.4,
+                              left: 0,
+                              right: 0,
+                              height: 24,
+                              child: bar(_ArchiveAllText.summary, 1),
+                            ),
+                            Positioned(
+                              top: 50.4,
+                              left: 0,
+                              right: 0,
+                              height: 24,
+                              child: bar(_ArchiveAllText.summary, 0.6),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              child: Stack(
+                                alignment: Alignment.centerLeft,
+                                children: [
+                                  Text(
+                                    _skeletonText,
+                                    maxLines: 1,
+                                    style: _ArchiveAllText.date.copyWith(
+                                      color: Colors.transparent,
+                                    ),
+                                  ),
+                                  FractionallySizedBox(
+                                    widthFactor: 0.6,
+                                    child: Container(
+                                      height: scaler.scale(
+                                        _ArchiveAllText.date.fontSize!,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.faint,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 81.5,
+                      left: 0,
+                      right: 0,
+                      height: 0.5,
+                      child: SvgPicture.asset(
+                        Assets.archiveAllDivider,
+                        height: 0.5,
+                        fit: BoxFit.fill,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
