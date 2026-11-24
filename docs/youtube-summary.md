@@ -34,7 +34,7 @@ si/list 등은 제거하며 Gemini에는 재생 시점 없는 전체 영상 URL�
 직접 입력의 비어 있지 않은 제목·요약은 보존하고, 사용자가 선택한 카테고리는 자동 결과로 덮어쓰지 않는다.
 
 오류 코드는 timeout, provider_error, invalid_response, configuration_error,
-video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limit_exceeded, 호환용 daily_limit_exceeded와
+video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limit_exceeded, ai_consent_required, 호환용 daily_limit_exceeded와
 인스타그램용 content_unavailable, unsupported_content, insufficient_content로 제한된다.
 일시 장애 재시도 대기 중에는 queued와 직전 오류 코드가 반환될 수 있다.
 
@@ -45,6 +45,7 @@ video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limi
 한도에 도달해도 링크 저장은 성공하며 작업은 `skipped`·`monthly_limit_exceeded`가 된다.
 서로 다른 제출이 동시에 같은 건수를 보면 한도를 넘길 수 있다.
 꺼진 종류, 지원하지 않는 스토리, 요약 대상이 아닌 입력, 같은 제출 키 재요청, worker 재시도는 기록을 추가하지 않는다.
+[AI 전송 동의](backend/api-contracts.md#ai-전송-동의)가 AI 처리를 허용하지 않으면 월 한도보다 먼저 판정해 작업을 `skipped`·`ai_consent_required`로 만들고 한도에 세지 않는다.
 
 사용 기록은 콘텐츠·이벤트·작업과 같은 DB 트랜잭션에 저장해 재시작 뒤에도 이어진다.
 저장 트랜잭션이 실패하면 기록도 함께 되돌린다. 작업이 최종 실패하거나 건너뛰면 같은 트랜잭션에서 기록을 지운다.

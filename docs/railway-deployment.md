@@ -37,6 +37,7 @@
 | `KAKAO_REST_API_KEY` | 실제 Kakao REST API 키 |
 | `KAKAO_ADMIN_KEY` | 실제 Kakao 어드민 키. 회원 탈퇴 때 카카오 연결 끊기에 쓴다 |
 | `BACKEND_CORS_ORIGINS` | 모바일 전용이면 `[]`; 웹은 `["https://your-web.example"]`처럼 명시 |
+| `AI_CONSENT_REQUIRED` | 기본 `false`. `true`면 AI 전송 동의를 정하지 않은 계정도 AI 처리를 끈다([AI 전송 동의](backend/api-contracts.md#ai-전송-동의)). 켜는 시점은 사용자가 정한다(#474) |
 
 나머지 AI/OCR timeout·모델 설정은 `backend/.env.example`의 기본값을 사용한다. Google·Kakao 설정은 현재 production 검증에서 필수다.
 `KAKAO_ADMIN_KEY`가 없거나 비면 운영 서버가 시작하지 않는다. 회원 탈퇴가 들어간 서버를 처음 배포하기 전에 사람이 Railway API 서비스 Variables에 등록한다. `SECRET_KEY`와 공급자 비밀값을 Docker build argument, 코드, PR 또는 로그에 넣지 않는다. 실제 `.env`는 이미지에 포함하지 않는다.
@@ -152,6 +153,11 @@ SELECT count(*) AS removed_test_records FROM removed;
 4. 1.0.0 후보 빌드 실기기에서 같은 계정으로 2단계에서 저장한 링크·사진 상세를 연다. AI 요약 한도 문구와 iOS VoiceOver·Android TalkBack 실제 낭독을 확인한다.
 
 ### 이전 서버로 되돌리기
+
+AI 전송 동의 리비전 `202611250027`을 배포한 뒤에는 이 절차를 쓰지 않는다. 이 기능 이전 서버로 되돌리지 않는다.
+옛 서버는 거절한 계정의 AI 처리를 막지 못하고, 동의 표를 지우면 거절 기록을 되살릴 수 없다. 이 리비전의
+downgrade는 오류로 거부되고, 아래 되돌리기 SQL도 리비전이 `202611230026`이 아니면 멈춘다. 서버에 문제가
+생기면 점검 모드로 저장을 멈추고 고친 버전을 배포한다. 안전한 상태를 확인하지 못하면 점검을 유지한다.
 
 같은 DB를 쓰는 `clipback`, `clipback-backup`, `clipback-maintain`, `clipback-retry`를 한 번에 되돌린다. 차단부터 복구 확인까지 서비스 중단을 안내한다. 새 서버에서 탈퇴를 시작한 채 DB를 내리면 Apple·카카오 연결만 끊기고 계정이 남을 수 있다.
 

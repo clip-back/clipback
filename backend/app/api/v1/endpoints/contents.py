@@ -22,6 +22,7 @@ from app.schemas.content import (
     ContentViewCreate,
     ContentViewEvent,
 )
+from app.services.ai_consent import SaveAIConsent
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
@@ -43,6 +44,7 @@ async def create_content(
         _build_content_service(
             db,
             summary_limit=MonthlySummaryLimit(UsageRecordRepository(db)),
+            ai_consent=SaveAIConsent(db),
         )
     ).save_link(
         user_id=current_user_id,
@@ -59,7 +61,11 @@ async def create_content_from_share(
     idempotency_key: UUID | None = Header(default=None),
 ) -> ContentRead:
     return await ContentSaveFlow(
-        _build_content_service(db, summary_limit=MonthlySummaryLimit(UsageRecordRepository(db))),
+        _build_content_service(
+            db,
+            summary_limit=MonthlySummaryLimit(UsageRecordRepository(db)),
+            ai_consent=SaveAIConsent(db),
+        ),
         share_intake=ShareIntakeService(ExtractionService()),
     ).save_shared_link(
         user_id=current_user_id,
@@ -157,10 +163,12 @@ def _build_content_service(
     db: AsyncSession,
     *,
     summary_limit: MonthlySummaryLimit | None = None,
+    ai_consent: SaveAIConsent | None = None,
 ) -> ContentService:
     category_repository = CategoryRepository(db)
     return ContentService(
         summary_limit=summary_limit,
+        ai_consent=ai_consent,
         content_repository=ContentRepository(db),
         category_repository=category_repository,
         event_repository=EventRepository(db),
@@ -169,6 +177,7 @@ def _build_content_service(
             category_repository=category_repository,
             ai_client=get_ai_client(),
             daily_limit=DailyRecommendationLimit(),
+            ai_consent=ai_consent,
         ),
         tag_repository=TagRepository(db),
         storage_client=get_storage_client(),

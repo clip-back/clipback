@@ -15,6 +15,7 @@ from app.integrations.ai_client import (
 )
 from app.repositories.category_repository import CategoryRepository
 from app.schemas.content import ContentSaveInput
+from app.services.ai_consent import AI_CONSENT_REQUIRED, SaveAIConsent
 from app.services.save_step_log import log_save_step
 from app.services.usage_limits import DailyRecommendationLimit
 
@@ -36,6 +37,7 @@ class CategoryRecommendationFailureReason(StrEnum):
     INVALID_RESPONSE = "invalid_response"
     ERROR = "error"
     DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
+    AI_CONSENT_REQUIRED = AI_CONSENT_REQUIRED
 
 
 @dataclass(frozen=True)
@@ -62,10 +64,12 @@ class CategoryRecommendationService:
         ai_client: AIClient,
         *,
         daily_limit: DailyRecommendationLimit | None = None,
+        ai_consent: SaveAIConsent | None = None,
     ) -> None:
         self.category_repository = category_repository
         self.ai_client = ai_client
         self.daily_limit = daily_limit
+        self.ai_consent = ai_consent
 
     async def recommend(
         self,
@@ -86,18 +90,27 @@ class CategoryRecommendationService:
 
         candidate_pairs = [(category.id, category.name) for category in candidates]
         url = self._sanitize_url(str(payload.original_url)) if payload.original_url else None
+        # G1a: before the attempt is counted.
+        if self.ai_consent is not None and not await self.ai_consent.allows(user_id):
+            return self._fallback(CategoryRecommendationFailureReason.AI_CONSENT_REQUIRED)
+        attempt = None
         if self.daily_limit is not None:
             if not self.ai_client.is_configured:
                 return self._fallback(CategoryRecommendationFailureReason.ERROR)
             try:
-                admitted = await self.daily_limit.admit(user_id)
+                attempt = await self.daily_limit.admit(user_id)
             except Exception as exc:
                 logger.warning(
                     "Unable to record category recommendation attempt (%s)", type(exc).__name__,
                 )
                 return self._fallback(CategoryRecommendationFailureReason.ERROR)
-            if not admitted:
+            if attempt is None:
                 return self._fallback(CategoryRecommendationFailureReason.DAILY_LIMIT_EXCEEDED)
+        # G1b: right before the OpenAI call; an unsent attempt does not count.
+        if self.ai_consent is not None and not await self.ai_consent.allows(user_id):
+            if attempt is not None:
+                await self.daily_limit.release(user_id, attempt)
+            return self._fallback(CategoryRecommendationFailureReason.AI_CONSENT_REQUIRED)
 
         started_at = time.monotonic()
         try:

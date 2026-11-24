@@ -8,11 +8,12 @@ from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Address, ip_address
 
 from fastapi import HTTPException, Request
-from sqlalchemy import text
+from sqlalchemy import delete, select, text
 
 from app.core.exceptions import NotFoundError
 from app.core.recommendation_config import RECOMMENDATION_TIMEZONE
 from app.db.session import RecommendationSessionLocal
+from app.models.usage_record import UsageRecord
 from app.repositories.usage_record_repository import (
     AI_SUMMARY,
     CATEGORY_RECOMMENDATION,
@@ -110,7 +111,8 @@ class MonthlySummaryLimit:
 
 
 class DailyRecommendationLimit:
-    async def admit(self, user_id: int) -> bool:
+    async def admit(self, user_id: int) -> datetime | None:
+        """Count one attempt and return its time, or None when the day's limit is used."""
         # The usage FK takes KEY SHARE, compatible with the photo save's NO KEY UPDATE.
         async with RecommendationSessionLocal() as session, session.begin():
             # Release a connection blocked by a conflicting account operation before
@@ -135,10 +137,24 @@ class DailyRecommendationLimit:
                     "user_id": user_id,
                     "kind": CATEGORY_RECOMMENDATION,
                 }))
-                return False
+                return None
             await records.add(
                 user_id=user_id, kind=CATEGORY_RECOMMENDATION,
                 recorded_at=decided_at, content_id=None,
                 retain_from=previous_month_start(decided_at),
             )
-        return True
+        return decided_at
+
+    async def release(self, user_id: int, recorded_at: datetime) -> None:
+        """Remove one attempt that was not sent. A failure is logged and the save continues."""
+        attempt = select(UsageRecord.id).where(
+            UsageRecord.user_id == user_id, UsageRecord.kind == CATEGORY_RECOMMENDATION,
+            UsageRecord.recorded_at == recorded_at,
+        ).limit(1).scalar_subquery()
+        try:
+            async with RecommendationSessionLocal() as session, session.begin():
+                await session.execute(delete(UsageRecord).where(UsageRecord.id == attempt))
+        except Exception as exc:
+            logger.warning(
+                "Unable to remove category recommendation attempt (%s)", type(exc).__name__,
+            )

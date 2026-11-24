@@ -303,6 +303,30 @@ enum AccountDeletionReason {
 
 enum AccountDeletionResult { deleted, unauthorized, failed }
 
+/// AI 전송 동의 as `GET /users/me` reports it (#474). A missing or unknown
+/// value is [unknown], for example from a server without the field.
+enum AiConsentStatus {
+  undecided('undecided'),
+  granted('granted'),
+  denied('denied'),
+  unknown(null);
+
+  const AiConsentStatus(this.value);
+
+  final String? value;
+
+  static AiConsentStatus parse(Object? value) => switch (value) {
+    'undecided' => undecided,
+    'granted' => granted,
+    'denied' => denied,
+    _ => unknown,
+  };
+}
+
+/// How saving a decision ended. Only [saved] means the answer confirmed it;
+/// [unconfirmed] needs a re-read before the result is known (#474).
+enum AiConsentSaveResult { saved, unconfirmed, failed }
+
 class ApiUser {
   const ApiUser({
     required this.id,
@@ -311,6 +335,7 @@ class ApiUser {
     required this.isGuest,
     required this.createdAt,
     required this.linkedProviders,
+    this.aiConsentStatus = AiConsentStatus.unknown,
   });
 
   final int id;
@@ -319,6 +344,7 @@ class ApiUser {
   final bool isGuest;
   final DateTime createdAt;
   final List<String> linkedProviders;
+  final AiConsentStatus aiConsentStatus;
 
   factory ApiUser.fromJson(Map<String, dynamic> json) => ApiUser(
     id: json['id'] as int,
@@ -327,6 +353,7 @@ class ApiUser {
     isGuest: json['is_guest'] as bool,
     createdAt: _dateTime(json['created_at'])!,
     linkedProviders: List<String>.from(json['linked_providers'] as List),
+    aiConsentStatus: AiConsentStatus.parse(json['ai_consent_status']),
   );
 }
 
@@ -746,6 +773,46 @@ class ClipbackApi {
   Future<ApiUserStats> readStatsOnce() async => ApiUserStats.fromJson(
     await _json('GET', '/users/me/stats', retryUnauthorized: false),
   );
+
+  /// Sends the decision ([AiConsentStatus.granted] or [AiConsentStatus.denied])
+  /// within the usual 10-second limit. [AiConsentSaveResult.saved] needs a 200
+  /// answer with the sent status, version 1 and a valid time. An empty or
+  /// different 200 answer, a timeout or a lost connection is unconfirmed;
+  /// other answers fail. A 401 goes through the usual refresh and one resend.
+  Future<AiConsentSaveResult> saveAiConsent(AiConsentStatus status) async {
+    assert(
+      status == AiConsentStatus.granted || status == AiConsentStatus.denied,
+    );
+    final http.Response response;
+    try {
+      response = await _request(
+        'PUT',
+        '/users/me/ai-consent',
+        body: {'status': status.value, 'notice_version': 1},
+      ).timeout(_requestTimeout);
+    } on ClipbackApiException {
+      return AiConsentSaveResult.failed;
+    } on TimeoutException {
+      return AiConsentSaveResult.unconfirmed;
+    } on http.ClientException {
+      return AiConsentSaveResult.unconfirmed;
+    }
+    if (response.statusCode != 200) return AiConsentSaveResult.failed;
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map &&
+          data['status'] == status.value &&
+          data['notice_version'] is int &&
+          data['notice_version'] == 1 &&
+          data['decided_at'] is String &&
+          DateTime.tryParse(data['decided_at'] as String) != null) {
+        return AiConsentSaveResult.saved;
+      }
+    } on FormatException {
+      // An empty or broken 200 body does not confirm the decision.
+    }
+    return AiConsentSaveResult.unconfirmed;
+  }
 
   /// Only 204 deletes. A 401 has already gone through the usual session
   /// invalidation. The whole submission, refresh and resend included, ends at

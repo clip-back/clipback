@@ -41,6 +41,7 @@ from app.schemas.content import (
     ContentViewEvent,
 )
 from app.schemas.tag import TagRead
+from app.services.ai_consent import AI_CONSENT_REQUIRED, SaveAIConsent
 from app.services.category_recommendation_service import (
     CategoryAssignmentMethod,
     CategoryRecommendationFailureReason,
@@ -152,6 +153,7 @@ class ContentService:
         recommendation_repository: RecommendationRepository | None = None,
         extraction_service: ExtractionService | None = None,
         summary_limit: MonthlySummaryLimit | None = None,
+        ai_consent: SaveAIConsent | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -165,6 +167,7 @@ class ContentService:
         )
         self.extraction_service = extraction_service or ExtractionService()
         self.summary_limit = summary_limit
+        self.ai_consent = ai_consent
 
     async def prepare_link(
         self,
@@ -324,6 +327,11 @@ class ContentService:
                 config=settings,
             )
             if job is not None:
+                # G3: before the monthly limit, so a declined save is never counted.
+                if (job.status == "queued" and self.ai_consent is not None
+                        and not await self.ai_consent.allows(user_id)):
+                    job.status = "skipped"
+                    job.error_code = AI_CONSENT_REQUIRED
                 if job.status == "queued" and self.summary_limit is not None:
                     user = await UserRepository(self.content_repository.session).get(user_id)
                     decided_at = await self.summary_limit.admit(

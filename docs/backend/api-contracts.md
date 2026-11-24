@@ -12,6 +12,7 @@
 - [Mobile Social Authentication](#mobile-social-authentication)
 - [Native Mobile Share Authentication and Retries](#native-mobile-share-authentication-and-retries)
 - [My Page Account and Statistics](#my-page-account-and-statistics)
+- [AI 전송 동의](#ai-전송-동의)
 - [회원 탈퇴](#회원-탈퇴)
 - [Content View Events](#content-view-events)
 - [Today Recommendations](#today-recommendations)
@@ -44,7 +45,7 @@
 - Summarize saved Instagram reels/posts (`/reel/`, `/p/`, `/tv/`) asynchronously from the public page caption with OpenAI;
   disabled by default (`INSTAGRAM_SUMMARY_ENABLED`), see the Instagram section of the same guide.
   저장 시 새로 `queued`로 만드는 링크 자동 요약과 글자 읽기가 성공한 사진 요약은 계정별 월 한도를 공유한다. 한국 시간 달력 월 기준으로 게스트 20건·로그인 30건이다. 한도에 도달해도 저장은 201로 성공하고 `skipped`·`monthly_limit_exceeded`를 반환한다. 재요청과 요약 재시도는 기록을 추가하지 않는다.
-  `summary_error_code`에는 `content_unavailable`, `unsupported_content`, `insufficient_content`, `monthly_limit_exceeded`가 포함된다. 기존 `skipped` 작업에서는 `daily_limit_exceeded`도 반환할 수 있다.
+  `summary_error_code`에는 `content_unavailable`, `unsupported_content`, `insufficient_content`, `monthly_limit_exceeded`, `ai_consent_required`가 포함된다. 기존 `skipped` 작업에서는 `daily_limit_exceeded`도 반환할 수 있다.
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.
@@ -67,7 +68,8 @@
 | `POST` | `/api/v1/auth/social/apple/challenge` | Apple 로그인·게스트 승격용 5분 일회용 nonce 발급 | 구현 |
 | `POST` | `/api/v1/auth/social/{provider}` | 소셜 가입·로그인 | 구현 |
 | `POST` | `/api/v1/auth/social/{provider}/upgrade` | 게스트 데이터 유지 소셜 전환 | 구현 |
-| `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자 조회 | 구현 |
+| `GET` | `/api/v1/users/me` | 현재 사용자·가입일·연동 로그인 제공자·AI 전송 동의 상태 조회 | 구현 |
+| `PUT` | `/api/v1/users/me/ai-consent` | AI 전송 동의·거절 저장 | 구현 |
 | `GET` | `/api/v1/users/me/stats` | 이벤트 기준 누적 저장·열람 횟수(삭제 후에도 유지)와 최근 7×24시간 다시 본 보관 중 콘텐츠 수 | 구현 |
 | `DELETE` | `/api/v1/users/me` | 회원 탈퇴: 계정과 그 계정의 서비스 데이터 즉시 삭제, 탈퇴 사유 기록 | 구현 |
 | `GET` | `/api/v1/categories` | 기본·사용자 카테고리 목록과 내 콘텐츠 수·마지막 저장일 | 구현 |
@@ -330,7 +332,8 @@ fields plus its creation time and linked social providers:
   "display_name": "사용자",
   "is_guest": false,
   "created_at": "2026-09-07T03:00:00Z",
-  "linked_providers": ["kakao"]
+  "linked_providers": ["kakao"],
+  "ai_consent_status": "undecided"
 }
 ```
 
@@ -338,7 +341,8 @@ fields plus its creation time and linked social providers:
 frontend formats the displayed date. `linked_providers` contains only provider names
 (`google`, `kakao`, `naver`) sorted alphabetically, or `[]` without linked identities.
 Provider subjects and authentication tokens are never included; this endpoint reads
-the database without contacting social providers.
+the database without contacting social providers. `ai_consent_status` is the account's
+effective [AI 전송 동의](#ai-전송-동의): `undecided`, `granted` or `denied`.
 
 `GET /api/v1/users/me/stats` uses the same authentication and returns lifetime event counts
 plus the recent reopened content count:
@@ -377,6 +381,61 @@ currently retained content. Reading either My Page endpoint does not create even
 Existing guest accounts and authentication endpoints remain supported. Social-only
 sign-up is a separate follow-up; this change does not remove guest data or require a
 migration.
+
+## AI 전송 동의
+
+계정마다 [AI 전송 동의](../../GLOSSARY.md) 기록 하나를 `ai_transfer_consents`에 둔다(ADR 0017·0018, #474).
+행이 없으면 미결정이고, 철회는 동의 행을 거절로 덮어쓴다. 문구 버전은 1만 받는다.
+
+`PUT /api/v1/users/me/ai-consent`는 일반 액세스 토큰만 받는다. 요청과 200 응답:
+
+```json
+{ "status": "granted", "notice_version": 1 }
+```
+
+```json
+{ "status": "granted", "notice_version": 1, "decided_at": "2026-11-23T01:00:00Z" }
+```
+
+| 입력 | 결과 |
+| --- | --- |
+| 점검 중 | 기존 점검 응답 503 |
+| 토큰 없음·만료·공유 토큰·탈퇴한 계정 | 401 |
+| 상태·버전의 타입이 틀림(`null`·숫자·배열·문자열 버전·`1.0`·`true`), 누락, `notice_version`이 1이 아님 | 422 |
+| 같은 상태 재전송 | 변경 없이 기존 기록 200. 시각을 바꾸지 않음 |
+| `granted`·`denied` | 저장, 200 |
+
+`decided_at`은 DB 시각이다. 거절 행이 동의로 바뀔 때만 재동의 표시를 켜고, 거절로 바뀌면 끈다.
+트랜잭션은 사용자 행을 `FOR KEY SHARE`로 잡은 뒤 동의 행을 쓴다. 사진 저장의 `FOR NO KEY UPDATE`와는
+서로 기다리지 않고, 회원 탈퇴·운영자 재시도의 `FOR UPDATE`와는 차례를 기다린다. 탈퇴하면 동의 행도
+FK CASCADE로 함께 지워진다. 동의를 읽거나 쓰지 못하면 기존 DB 오류 응답이고 전체를 되돌린다.
+
+### 저장 경로의 판정
+
+서버 설정 `AI_CONSENT_REQUIRED`(기본 `false`)와 재동의 규칙을 합쳐 AI 처리 허용을 판정한다.
+
+| 유효 상태 | 스위치 꺼짐 | 스위치 켜짐 |
+| --- | --- | --- |
+| 동의 | 허용 | 허용 |
+| 거절 | 금지 | 금지 |
+| 미결정 | 허용 | 금지 |
+
+철회 뒤 재동의한 계정은 재동의 시각보다 먼저 판정을 시작한 저장을 금지한다. 저장 요청의 시각은 그
+요청의 첫 판정 때 읽은 DB 시각이다. 판정은 요청 안에서 캐시하지 않고 매번 DB의 현재 값을 읽는다.
+
+| 지점 | 언제 | 금지일 때 |
+| --- | --- | --- |
+| 추천 사전 확인 | 후보 없음·입력 부족 판정 뒤, 하루 상한에 세기 전 | 추천 안 함, 미분류, `ai_consent_required` |
+| 추천 전송 직전 | OpenAI 호출 바로 앞 | 호출 안 함, 방금 센 추천 시도 기록을 지움 |
+| 글자 읽기 사전 확인 | 이미지 보관 한도 뒤, 월 한도 조회 전 | 원본만 저장 |
+| 글자 읽기 전송 직전 | OpenAI 호출 바로 앞 | 원본만 저장, 월 한도 기록 없음 |
+| 자동 요약 작업 생성 | 꺼진 종류·스토리 판정 뒤, 월 한도 전 | 작업 `skipped`·`ai_consent_required`, 월 한도에 안 셈 |
+
+금지된 저장도 201로 성공한다. 일반 링크는 `not_requested`, 유튜브·인스타그램 게시물·사진은
+`skipped`·`ai_consent_required`이고, 사진은 기본 제목·요약으로 저장한다. 직접 고른 카테고리·태그와 직접
+넣은 제목·요약은 그대로다. 같은 제출 키의 재요청은 커밋된 결과를 그대로 돌려주고 AI를 부르지 않는다.
+판정에서 동의를 읽지 못하면 저장 요청은 기존 DB 오류로 실패하고 되돌린다. 같은 제출 키로 다시 보내면
+새로 판정한다. 서버 작업의 판정은 별도 작업(#476)이다.
 
 ## 회원 탈퇴
 
@@ -932,7 +991,10 @@ The shared monthly AI summary limit is checked after the image byte quota and be
 OCR. At the limit, the original is saved with the default title and summary. Manual
 categories and tags still apply, and a photo without a manual category is saved as
 uncategorized. The creation event has `ocr_status=skipped` and
-`ocr_failure_reason=monthly_limit_exceeded`. Upload, idempotent replay, detail,
+`ocr_failure_reason=monthly_limit_exceeded`. When [AI 전송 동의](#ai-전송-동의) does not
+allow AI, the same happens before the monthly limit is checked, with
+`ocr_failure_reason=ai_consent_required` and `summary_error_code=ai_consent_required`, and
+the photo is not counted. Upload, idempotent replay, detail,
 feed (including search), and category, tag, and favorite updates return
 `summary_status=skipped` and `summary_error_code=monthly_limit_exceeded` for that photo.
 Other photos return `not_requested` and `null`. OCR `success` counts once when the

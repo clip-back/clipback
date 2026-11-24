@@ -23,6 +23,7 @@ from app.repositories.tag_repository import TagRepository
 from app.repositories.usage_record_repository import UsageRecordRepository
 from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import UNSUPPORTED_TAG_CHARACTERS, TagNamesPayload
+from app.services.ai_consent import SaveAIConsent
 from app.services.category_recommendation_service import CategoryRecommendationService
 from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
@@ -169,7 +170,10 @@ async def asset_access(
 
 
 def _build_upload_service(
-    db: AsyncSession, *, summary_limit: MonthlySummaryLimit | None = None,
+    db: AsyncSession,
+    *,
+    summary_limit: MonthlySummaryLimit | None = None,
+    ai_consent: SaveAIConsent | None = None,
 ) -> UploadService:
     storage = get_storage_client()
     return UploadService(
@@ -179,12 +183,14 @@ def _build_upload_service(
         image_storage_control=ImageUploadControl(db),
         image_upload_policy=ImageUploadPolicy(db, storage),
         summary_limit=summary_limit,
+        ai_consent=ai_consent,
     )
 
 
 def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
     summary_limit = MonthlySummaryLimit(UsageRecordRepository(db))
-    uploads = _build_upload_service(db, summary_limit=summary_limit)
+    ai_consent = SaveAIConsent(db)
+    uploads = _build_upload_service(db, summary_limit=summary_limit, ai_consent=ai_consent)
     category_repository = CategoryRepository(db)
     return ContentSaveFlow(
         ContentService(
@@ -196,9 +202,11 @@ def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
                 daily_limit=DailyRecommendationLimit(),
+                ai_consent=ai_consent,
             ),
             tag_repository=TagRepository(db),
             summary_limit=summary_limit,
+            ai_consent=ai_consent,
         ),
         uploads=uploads,
     )

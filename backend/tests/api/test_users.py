@@ -36,6 +36,7 @@ def repositories(monkeypatch):
     monkeypatch.setattr(AuthSessionRepository, "get_active", sessions)
     monkeypatch.setattr(SocialIdentityRepository, "list_providers", providers)
     monkeypatch.setattr(EventRepository, "read_user_stats", stats)
+    monkeypatch.setattr(user_service, "read_consent", AsyncMock(return_value=(NOW, None)))
     return SimpleNamespace(users=users, sessions=sessions, providers=providers, stats=stats)
 
 
@@ -54,6 +55,7 @@ def test_account_response(client, repositories) -> None:
         "is_guest": False,
         "created_at": "2026-09-07T03:00:00Z",
         "linked_providers": ["google", "kakao"],
+        "ai_consent_status": "undecided",
     }
     repositories.providers.assert_awaited_once_with(user_id=7)
 
@@ -105,6 +107,7 @@ def test_user_openapi_contract(client) -> None:
         "is_guest",
         "created_at",
         "linked_providers",
+        "ai_consent_status",
     }
     assert set(schemas["UserStatsRead"]["required"]) == {
         "saved_count",

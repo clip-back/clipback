@@ -192,7 +192,9 @@ AI에게 전달하는 핵심 지침은 다음과 같다.
 
 - 카테고리 할당 방식: `user`, `ai`, `uncategorized`
 - AI가 선택한 카테고리 ID 또는 `null`
-- 추천 실패 사유: `no_match`, `insufficient_input`, `timeout`, `invalid_response`, `error`, `daily_limit_exceeded`
+- 추천 실패 사유: `no_match`, `insufficient_input`, `timeout`, `invalid_response`, `error`, `daily_limit_exceeded`, `ai_consent_required`
+
+`ai_consent_required`는 [AI 전송 동의](backend/api-contracts.md#ai-전송-동의)가 AI 처리를 허용하지 않아 추천하지 않은 저장이다. 후보 없음(`no_match`)과 입력 부족(`insufficient_input`)을 먼저 판정하고, 하루 상한에 세기 전과 OpenAI 호출 바로 앞에서 동의를 확인한다. 호출 바로 앞에서 막히면 방금 센 추천 시도 기록을 지운다.
 
 공유 원문이나 AI 프롬프트 전체는 이벤트 메타데이터에 저장하지 않는다.
 
