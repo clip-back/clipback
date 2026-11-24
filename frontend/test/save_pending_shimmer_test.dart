@@ -1,9 +1,12 @@
+import 'dart:ui' as ui;
+
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/features/content/save_content_screen.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -40,7 +43,63 @@ Future<void> _submitLink(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 50));
 }
 
-void _expectSharedShimmer(WidgetTester tester, String prefix) {
+Future<({ByteData bytes, int width, Offset origin})> _captureRoute(
+  WidgetTester tester,
+  String prefix,
+) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find
+        .ancestor(
+          of: _key('$prefix-skeleton'),
+          matching: find.byType(RepaintBoundary),
+        )
+        .first,
+  );
+  return (await tester.runAsync(() async {
+    final image = await boundary.toImage();
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    final width = image.width;
+    image.dispose();
+    return (
+      bytes: bytes!,
+      width: width,
+      origin: boundary.localToGlobal(Offset.zero),
+    );
+  }))!;
+}
+
+/// RGBA of each pixel on the middle row of one bar, with its screen x.
+List<(int, List<int>)> _barRow(
+  WidgetTester tester,
+  ({ByteData bytes, int width, Offset origin}) shot,
+  String key,
+) {
+  final rect = tester.getRect(_key(key)).shift(-shot.origin);
+  final y = rect.center.dy.floor();
+  return [
+    for (var x = rect.left.ceil() + 4; x < rect.right.floor() - 4; x++)
+      (
+        x,
+        [
+          for (var channel = 0; channel < 4; channel++)
+            shot.bytes.getUint8((y * shot.width + x) * 4 + channel),
+        ],
+      ),
+  ];
+}
+
+double? _bandCenter(List<(int, List<int>)> row) {
+  var total = 0.0, weighted = 0.0;
+  for (final (x, rgba) in row) {
+    final lift = rgba[0] - 0xE4;
+    if (lift <= 0) continue;
+    total += lift;
+    weighted += lift * x;
+  }
+  return total == 0 ? null : weighted / total;
+}
+
+Future<void> _expectSharedShimmer(WidgetTester tester, String prefix) async {
   final skeleton = _key('$prefix-skeleton');
   final area = find.ancestor(
     of: skeleton,
@@ -54,14 +113,28 @@ void _expectSharedShimmer(WidgetTester tester, String prefix) {
     );
     expect(bars, findsOneWidget);
     expect(
-      find.descendant(of: bars, matching: find.byType(ShaderMask)),
-      findsOneWidget,
-    );
-    expect(
       find.ancestor(of: bars, matching: find.byWidget(tester.widget(area))),
       findsOneWidget,
     );
   }
+  expect(find.byType(ShaderMask), findsNothing);
+
+  // One band crosses both boxes: same screen x, and it moves to the right.
+  await tester.pump(const Duration(milliseconds: 400));
+  final first = await _captureRoute(tester, prefix);
+  final previewAt = _bandCenter(_barRow(tester, first, '$prefix-thumbnail'));
+  final categoryAt = _bandCenter(
+    _barRow(tester, first, '$prefix-category-bar'),
+  );
+  expect(previewAt, isNotNull);
+  expect(categoryAt, closeTo(previewAt!, 1.5));
+
+  await tester.pump(const Duration(milliseconds: 100));
+  final later = await _captureRoute(tester, prefix);
+  expect(
+    _bandCenter(_barRow(tester, later, '$prefix-thumbnail')),
+    greaterThan(previewAt),
+  );
 }
 
 void _expectHeadingsRead(String prefix) {
@@ -90,7 +163,7 @@ void main() {
     try {
       await http.runWithClient(() async {
         await _submitLink(tester);
-        _expectSharedShimmer(tester, 'link-pending');
+        await _expectSharedShimmer(tester, 'link-pending');
         _expectHeadingsRead('link-pending');
 
         server.resolve();
@@ -138,14 +211,29 @@ void main() {
       await http.runWithClient(() async {
         await _submitLink(tester);
         expect(find.byType(SkeletonShimmerBars), findsNWidgets(2));
-        expect(
-          find.descendant(
-            of: find.byType(SkeletonShimmerBars),
-            matching: find.byType(ShaderMask),
-          ),
-          findsNothing,
-        );
+        expect(find.byType(ShaderMask), findsNothing);
         expect(_key('link-pending-category-bar'), findsOneWidget);
+        final first = await _captureRoute(tester, 'link-pending');
+        await tester.pump(const Duration(milliseconds: 500));
+        final later = await _captureRoute(tester, 'link-pending');
+        for (final bar in ['thumbnail', 'category-bar']) {
+          final row = _barRow(tester, first, 'link-pending-$bar');
+          expect(row, isNotEmpty);
+          for (final (_, rgba) in row) {
+            expect(rgba, [0xE4, 0xE4, 0xE4, 0xFF]);
+          }
+          expect(
+            [
+              for (final (_, rgba) in _barRow(
+                tester,
+                later,
+                'link-pending-$bar',
+              ))
+                rgba,
+            ],
+            [for (final (_, rgba) in row) rgba],
+          );
+        }
 
         server.resolve();
         await tester.pumpAndSettle();
@@ -184,7 +272,7 @@ void main() {
         tester.widget<SaveFlowButton>(find.byType(SaveFlowButton)).onPressed();
         await tester.pump(const Duration(milliseconds: 50));
 
-        _expectSharedShimmer(tester, 'photo-pending');
+        await _expectSharedShimmer(tester, 'photo-pending');
         _expectHeadingsRead('photo-pending');
         expect(server.submissions, [photo.photoName]);
 

@@ -752,14 +752,10 @@ class _PendingContentSkeleton extends StatelessWidget {
       ],
     ),
   );
-  Widget _bar(String name, double width, double height) => Container(
-    key: ValueKey('$prefix-$name'),
+  Widget _bar(String name, double width, double height) => SkeletonBar(
+    barKey: ValueKey('$prefix-$name'),
     width: width,
     height: height,
-    decoration: BoxDecoration(
-      color: AppColors.faint,
-      borderRadius: BorderRadius.circular(4),
-    ),
   );
 }
 

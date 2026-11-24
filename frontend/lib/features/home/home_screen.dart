@@ -1186,10 +1186,6 @@ class HomeContentCardSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    final barShape = BoxDecoration(
-      color: AppColors.faint,
-      borderRadius: BorderRadius.circular(4),
-    );
     Widget lines(TextStyle style, int count) => SizedBox(
       width: double.infinity,
       height: _textHeight(
@@ -1206,10 +1202,7 @@ class HomeContentCardSkeleton extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: FractionallySizedBox(
                   widthFactor: index == count - 1 ? 0.6 : 1,
-                  child: Container(
-                    height: scaler.scale(style.fontSize!),
-                    decoration: barShape,
-                  ),
+                  child: SkeletonBar(height: scaler.scale(style.fontSize!)),
                 ),
               ),
             ),
@@ -1229,9 +1222,8 @@ class HomeContentCardSkeleton extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
+            SkeletonBar(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: barShape,
               child: Text(
                 '가나다라',
                 maxLines: 1,

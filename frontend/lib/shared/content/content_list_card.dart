@@ -498,13 +498,7 @@ class ContentListCardSkeleton extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: FractionallySizedBox(
         widthFactor: widthFactor,
-        child: Container(
-          height: scaler.scale(style.fontSize!),
-          decoration: BoxDecoration(
-            color: AppColors.faint,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
+        child: SkeletonBar(height: scaler.scale(style.fontSize!)),
       ),
     );
     return ColoredBox(
@@ -523,12 +517,8 @@ class ContentListCardSkeleton extends StatelessWidget {
                 alignment: Alignment.topLeft,
                 heightFactor: 1,
                 child: SkeletonShimmerBars(
-                  child: Container(
+                  child: SkeletonBar(
                     padding: _ArchiveAllLayout.badgePadding,
-                    decoration: BoxDecoration(
-                      color: AppColors.faint,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
                     child: Text(
                       _skeletonText,
                       maxLines: 1,
@@ -602,13 +592,9 @@ class ContentListCardSkeleton extends StatelessWidget {
                                   ),
                                   FractionallySizedBox(
                                     widthFactor: 0.6,
-                                    child: Container(
+                                    child: SkeletonBar(
                                       height: scaler.scale(
                                         _ArchiveAllText.date.fontSize!,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.faint,
-                                        borderRadius: BorderRadius.circular(4),
                                       ),
                                     ),
                                   ),

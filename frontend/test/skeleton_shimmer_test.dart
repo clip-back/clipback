@@ -11,11 +11,8 @@ const _captureKey = ValueKey('shimmer-capture');
 const _barWidth = 200;
 const _barHeight = 20;
 
-Widget _bar({double width = 200}) => Container(
-  width: width,
-  height: _barHeight.toDouble(),
-  color: AppColors.faint,
-);
+Widget _bar({double width = 200, Widget? child}) =>
+    SkeletonBar(width: width, height: _barHeight.toDouble(), child: child);
 
 Widget _harness({bool disableAnimations = false, required Widget child}) =>
     MediaQuery(
@@ -145,6 +142,58 @@ void main() {
     },
     variant: _platforms,
   );
+
+  testWidgets('the band leaves pixels outside the rounded bar untouched', (
+    tester,
+  ) async {
+    const background = Color(0xFF123456);
+    await tester.pumpWidget(
+      _harness(
+        child: ColoredBox(
+          color: background,
+          child: SkeletonShimmer(child: SkeletonShimmerBars(child: _bar())),
+        ),
+      ),
+    );
+    // Early in the sweep the band covers the left corners.
+    await tester.pump(const Duration(milliseconds: 200));
+    final bytes = await _capture(tester);
+
+    for (final (x, y) in [(0, 0), (199, 0), (0, 19), (199, 19)]) {
+      expect(_rgba(bytes, x, y: y), [0x12, 0x34, 0x56, 0xFF]);
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a transparent sizing text never shows through the band', (
+    tester,
+  ) async {
+    Widget scene(Widget? child) => _harness(
+      child: SkeletonShimmer(
+        child: SkeletonShimmerBars(child: _bar(child: child)),
+      ),
+    );
+    await tester.pumpWidget(scene(null));
+    await tester.pump(const Duration(milliseconds: 750));
+    final plain = await _capture(tester);
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    await tester.pumpWidget(
+      scene(
+        const Text(
+          '가나다라',
+          maxLines: 1,
+          style: TextStyle(color: Colors.transparent, fontSize: 12),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 750));
+    final withText = await _capture(tester);
+
+    expect(withText.buffer.asUint8List(), plain.buffer.asUint8List());
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final signal in ['disableAnimations', 'reduceMotion']) {
     testWidgets('$signal alone stops the band with no scheduled frame', (
