@@ -7,7 +7,8 @@ import json
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, insert, select, text, update
+import pytest_asyncio
+from sqlalchemy import delete, func, insert, select, text, update
 
 from app.core.config import settings
 from app.integrations.metadata_client import MetadataClient, MetadataResult
@@ -15,6 +16,7 @@ from app.models.category import Category
 from app.models.content import Content
 from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent
+from app.models.image_deletion import ImageDeletion
 from app.models.usage_record import UsageRecord
 from app.services import maintenance as maintenance_service, usage_limits
 from app.services.ai_consent import SaveAIConsent
@@ -320,9 +322,19 @@ FAILING = {  # (save, nth consent read that fails)
 }
 
 
+@pytest_asyncio.fixture
+async def own_image_deletions(independent_api):
+    """A photo save that fails after storing its original queues a cleanup row that the
+    account cleanup does not remove; drop this account's rows so later tests start clean."""
+    yield
+    async with independent_api[3].begin() as session:
+        await session.execute(
+            delete(ImageDeletion).where(ImageDeletion.user_id == independent_api[2]))
+
+
 @pytest.mark.parametrize("point", list(FAILING))
 async def test_read_failure_rolls_back_without_ai_and_retries_fresh(
-    independent_api, recommendation_provider, monkeypatch, png_bytes, point,
+    independent_api, recommendation_provider, monkeypatch, png_bytes, own_image_deletions, point,
 ):
     api, headers, user_id, sessions, _, path = independent_api
     kind, failing_read = FAILING[point]
