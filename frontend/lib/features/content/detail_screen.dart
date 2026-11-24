@@ -387,6 +387,10 @@ class _DetailScreenState extends State<DetailScreen> {
                           'queued' ||
                           'processing' => '요약을 만들고 있어요. 잠시 뒤 다시 열어 보세요.',
                           'failed' => '요약을 만들지 못했어요.',
+                          'skipped'
+                              when content.summaryErrorCode ==
+                                  'monthly_limit_exceeded' =>
+                            '이번 달 AI 요약을 모두 써서 요약하지 않았어요. 다음 달 1일부터 다시 요약해요.',
                           _ => content.summary,
                         },
                         key: const ValueKey('detail-summary'),

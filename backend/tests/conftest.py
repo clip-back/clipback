@@ -14,10 +14,9 @@ from app.main import app  # noqa: E402
 
 @pytest.fixture
 def client(monkeypatch) -> Iterator[TestClient]:
-    from app.services.usage_limits import DailySummaryLimit, GuestIssuanceLimit
+    from app.services.usage_limits import GuestIssuanceLimit
     from tests.support.maintenance import OpenUnitGate
     monkeypatch.setitem(app.state._state, "guest_issuance_limit", GuestIssuanceLimit())
-    monkeypatch.setitem(app.state._state, "daily_summary_limit", DailySummaryLimit())
     # State stores dynamic attributes in _state; patch the backing mapping so
     # pytest restores the gate instead of deleting it during fixture teardown.
     monkeypatch.setitem(app.state._state, "maintenance", OpenUnitGate())

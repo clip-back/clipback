@@ -112,6 +112,7 @@ class ContentRead(BaseModel):
             "insufficient_content",
             "disabled",
             "daily_limit_exceeded",
+            "monthly_limit_exceeded",
         ]
         | None
     ) = None

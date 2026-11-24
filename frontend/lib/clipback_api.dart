@@ -230,6 +230,7 @@ class ApiContent {
     required this.savedAt,
     required this.lastViewedAt,
     this.summaryStatus = 'not_requested',
+    this.summaryErrorCode,
   });
 
   final int id;
@@ -245,6 +246,7 @@ class ApiContent {
   final DateTime savedAt;
   final DateTime? lastViewedAt;
   final String summaryStatus;
+  final String? summaryErrorCode;
 
   factory ApiContent.fromJson(Map<String, dynamic> json) {
     return ApiContent(
@@ -265,6 +267,9 @@ class ApiContent {
       savedAt: _dateTime(json['saved_at'])!,
       lastViewedAt: _dateTime(json['last_viewed_at']),
       summaryStatus: json['summary_status'] as String? ?? 'not_requested',
+      summaryErrorCode: json['summary_error_code'] is String
+          ? json['summary_error_code'] as String
+          : null,
     );
   }
 }

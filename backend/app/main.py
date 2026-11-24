@@ -1,6 +1,6 @@
 import asyncio
 import json
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, recommendation_engine
 from app.integrations.ai_client import close_ai_client
 from app.integrations.instagram_summary_client import InstagramSummaryClient
 from app.integrations.metadata_client import MetadataClient
@@ -25,7 +25,9 @@ from app.services.summary_worker import SummaryWorker
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
-    async with httpx.AsyncClient() as http:
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(recommendation_engine.dispose)
+        http = await resources.enter_async_context(httpx.AsyncClient())
         instagram = InstagramSummaryClient(
             settings,
             MetadataClient(
@@ -85,10 +87,9 @@ def create_app(*, maintenance=None) -> FastAPI:
     from app.middleware.body_size_limit import BodySizeLimitMiddleware
     from app.middleware.maintenance import MaintenanceMiddleware
     from app.services.maintenance import default_gate
-    from app.services.usage_limits import DailySummaryLimit, GuestIssuanceLimit
+    from app.services.usage_limits import GuestIssuanceLimit
 
     app.state.guest_issuance_limit = GuestIssuanceLimit()
-    app.state.daily_summary_limit = DailySummaryLimit()
     app.state.maintenance = maintenance or default_gate()
     app.add_middleware(
         CORSMiddleware,
