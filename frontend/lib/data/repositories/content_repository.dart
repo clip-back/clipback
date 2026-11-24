@@ -1672,6 +1672,7 @@ ApiContent _copyContent(
   savedAt: value.savedAt,
   lastViewedAt: value.lastViewedAt,
   summaryStatus: value.summaryStatus,
+  summaryErrorCode: value.summaryErrorCode,
 );
 
 class _BackgroundCancelled implements Exception {

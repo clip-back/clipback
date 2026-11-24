@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.runtime.migration import MigrationContext, MigrationInfo
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -19,6 +20,17 @@ target_metadata = Base.metadata
 render_as_batch = settings.database_url.startswith("sqlite")
 
 
+def remember_downgrade_start(
+    *, ctx: MigrationContext, step: MigrationInfo, heads: set[str], **_
+) -> None:
+    if step.is_migration and not step.is_upgrade:
+        # Resolve relative targets from the heads before the first downgrade step.
+        ctx.opts.setdefault(
+            "downgrade_starting_heads",
+            tuple((heads - set(step.destination_revision_ids)).union(step.source_revision_ids)),
+        )
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.database_url,
@@ -26,6 +38,7 @@ def run_migrations_offline() -> None:
         compare_type=True,
         literal_binds=True,
         render_as_batch=render_as_batch,
+        on_version_apply=remember_downgrade_start,
         dialect_opts={"paramstyle": "named"},
     )
 
@@ -39,6 +52,7 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         render_as_batch=render_as_batch,
+        on_version_apply=remember_downgrade_start,
     )
 
     with context.begin_transaction():

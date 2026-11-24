@@ -52,7 +52,7 @@ from app.services.extraction_service import ExtractionService, serialize_event_m
 from app.services.image_deletion_service import delete_image_content
 from app.services.link_url import instagram_post_type
 from app.services.summary_kinds import new_summary_job
-from app.services.usage_limits import DailySummaryLimit
+from app.services.usage_limits import MONTHLY_SUMMARY_LIMIT_EXCEEDED, MonthlySummaryLimit
 from app.services.youtube_url import is_youtube_url, normalize_youtube_url
 
 DEFAULT_CONTENT_TITLE = "저장한 콘텐츠"
@@ -71,9 +71,11 @@ class PendingContentAsset:
 
 def content_to_read(content: Content) -> ContentRead:
     job = getattr(content, "summary_job", None)
+    screenshot_skip_reason = getattr(content, "screenshot_summary_skip_reason", None)
+    fallback_status = "skipped" if screenshot_skip_reason else "not_requested"
     return ContentRead(
-        summary_status=job.status if job else "not_requested",
-        summary_error_code=job.error_code if job else None,
+        summary_status=job.status if job else fallback_status,
+        summary_error_code=job.error_code if job else screenshot_skip_reason,
         id=content.id,
         categories=[
             CategoryRead.model_validate(category)
@@ -112,6 +114,8 @@ class PreparedContent:
     metadata_json: str
     summary_typed: tuple[bool, bool] | None
     asset: PendingContentAsset | None
+    screenshot_summary_decided_at: datetime | None = None
+    screenshot_summary_skip_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +151,7 @@ class ContentService:
         storage_client: StorageRouter | None = None,
         recommendation_repository: RecommendationRepository | None = None,
         extraction_service: ExtractionService | None = None,
-        summary_limit: DailySummaryLimit | None = None,
+        summary_limit: MonthlySummaryLimit | None = None,
     ) -> None:
         self.content_repository = content_repository
         self.category_repository = category_repository
@@ -303,6 +307,12 @@ class ContentService:
             categories=prepared.categories,
             tags=tags,
         )
+        if prepared.screenshot_summary_skip_reason is not None:
+            content.screenshot_summary_skip_reason = prepared.screenshot_summary_skip_reason
+        if prepared.screenshot_summary_decided_at is not None:
+            await self.summary_limit.record(
+                user_id, content_id=content.id, decided_at=prepared.screenshot_summary_decided_at,
+            )
         if prepared.summary_typed is not None:
             typed_title, typed_summary = prepared.summary_typed
             job = new_summary_job(
@@ -316,9 +326,16 @@ class ContentService:
             if job is not None:
                 if job.status == "queued" and self.summary_limit is not None:
                     user = await UserRepository(self.content_repository.session).get(user_id)
-                    if not self.summary_limit.admit(user_id, is_guest=user.is_guest):
+                    decided_at = await self.summary_limit.admit(
+                        user_id, is_guest=user.is_guest, kind=job.kind,
+                    )
+                    if decided_at is None:
                         job.status = "skipped"
-                        job.error_code = "daily_limit_exceeded"
+                        job.error_code = MONTHLY_SUMMARY_LIMIT_EXCEEDED
+                    else:
+                        await self.summary_limit.record(
+                            user_id, content_id=content.id, decided_at=decided_at,
+                        )
                 self.content_repository.session.add(job)
         if asset is not None:
             await self.content_asset_repository.create(
