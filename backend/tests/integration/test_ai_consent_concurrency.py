@@ -16,6 +16,7 @@ from app.models.content_asset import ContentAsset
 from app.models.summary_job import SummaryJob
 from app.models.usage_record import UsageRecord
 from app.repositories.event_repository import EventRepository
+from app.repositories.user_repository import UserRepository
 from app.services import account_deletion_service
 from app.services.image_deletion_service import retry_image_deletions
 from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
@@ -457,6 +458,48 @@ async def test_guest_upgrade_keeps_the_decision(
     assert (me["id"], me["is_guest"], me["ai_consent_status"]) == (user_id, False, "granted")
     assert await consent_rows(sessions, user_id) == [("granted", False)]
     await save(api, headers, "web")
+    assert recommendation_provider.calls == ["recommend"]
+
+
+@pytest.mark.parametrize("first", ["upgrade", "decision"])
+async def test_guest_upgrade_overlapping_a_decision_keeps_it_on_the_account(
+    independent_api, recommendation_provider, monkeypatch, first,
+):
+    """Both run at once on separate connections: the upgrade's user FOR UPDATE and the
+    decision's KEY SHARE take turns, and the decision stays with the same account id."""
+    api, headers, user_id, sessions, _, _ = independent_api
+    monkeypatch.setattr(settings, "ai_consent_required", True)
+    if first == "upgrade":
+        entered, release = pause(monkeypatch, UserRepository, "get_for_update", after=True)
+        upgrading = asyncio.create_task(upgrade(api, headers))
+        try:
+            await asyncio.wait_for(entered.wait(), WAIT)  # The upgrade holds FOR UPDATE.
+            deciding = asyncio.create_task(decide(api, headers, "granted"))
+            await until_waiting(sessions, 1)  # The decision waits for its KEY SHARE.
+            assert not deciding.done()
+        finally:
+            release.set()
+        new_headers = await asyncio.wait_for(upgrading, WAIT)
+        decided = await asyncio.wait_for(deciding, WAIT)
+    else:
+        async with sessions() as holder:
+            # Keep the decision inside its transaction, after its user KEY SHARE lock.
+            await holder.execute(text(
+                "INSERT INTO ai_transfer_consents VALUES (:u, 'denied', 1, now(), false)"),
+                {"u": user_id})
+            deciding = asyncio.create_task(decide(api, headers, "granted"))
+            await until_waiting(sessions, 1)
+            upgrading = asyncio.create_task(upgrade(api, headers))
+            await until_waiting(sessions, 2)  # The upgrade's FOR UPDATE waits too.
+            assert not deciding.done() and not upgrading.done()
+            await holder.rollback()
+        decided = await asyncio.wait_for(deciding, WAIT)
+        new_headers = await asyncio.wait_for(upgrading, WAIT)
+    assert decided["status"] == "granted"
+    me = await request(api, "GET", "users/me", headers=new_headers)
+    assert (me["id"], me["is_guest"], me["ai_consent_status"]) == (user_id, False, "granted")
+    assert await consent_rows(sessions, user_id) == [("granted", False)]
+    await save(api, new_headers, "web")
     assert recommendation_provider.calls == ["recommend"]
 
 
