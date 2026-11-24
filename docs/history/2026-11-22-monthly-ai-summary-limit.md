@@ -141,3 +141,5 @@ VERIFY result=PASS scope=all checks=12 failed=0
 Railway 절차에는 새 서버의 점검 또는 확인된 중단, 운영자 탈퇴 금지, DB 롤백, 옛 서버 배포와 재개 순서를 명시했습니다. `643978d`에 이 후속 변경을 더한 작업 트리에서 로컬 PostgreSQL 점검 통합 검사 5건과 탈퇴 관련 검사 66건이 통과했습니다. 이 Mac에서 Docker CLI를 찾지 못해 전체 컨테이너 복구는 원격 operator-recovery 검증에 남았습니다. 위 전체 VERIFY는 `7308e48` 기준입니다. [Railway 되돌리기 절차](../railway-deployment.md#이전-서버로-되돌리기)
 
 문서 재검수 반영에서는 `29fa34e`에 문서 변경을 더한 작업 트리에서, 시간 초과를 설정한 합성 PostgreSQL DB의 작업 행을 `recover`하고 `draining` 상태에서 SQL 롤백한 뒤 옛 서버 소스의 CLI로 재개했습니다. 정상 점검의 `frozen` 경로도 같은 방식으로 재개했습니다. 운영 환경의 접속 권한과 실제 서비스 제어는 확인하지 않았습니다. 로그는 `.utmp/final-462/recovery-481-round2-local/run.log`에 보관했습니다.
+
+2026-11-25 결정에 따라 현재 절차는 API의 모든 인스턴스와 세 Cron 예약을 중단한 뒤 DB를 되돌립니다. 네 서비스 모두 같은 호환 옛 커밋으로 배포된 것을 확인한 뒤 트래픽과 예약을 재개합니다.
