@@ -155,11 +155,15 @@ SELECT count(*) AS removed_test_records FROM removed;
 
 회원 탈퇴는 Apple 토큰 철회와 카카오 연결 해제부터 시도한다. DB를 먼저 되돌리면 새 서버가 외부 연결만 끊고 탈퇴를 실패할 수 있다. 아래 순서로 진행하며, 새 요청이 차단되는 시점부터 옛 서버 복구까지 짧은 서비스 중단을 안내한다.
 
-1. 되돌릴 배포 ID·이미지와 복구 경로를 확보한다. Railway에서 선택할 배포와 기존 환경·DB·볼륨 연결을 대조한다. 해당 서비스의 GitHub 자동 배포를 **Disable**하고 진행 중인 신버전 배포를 **Abort deployment**한다. 같은 DB를 사용하는 신버전 API 배포·replica와 별도 실행기를 모두 확인한다. [자동 배포 제어](https://docs.railway.com/deployments/github-autodeploys) · [배포 작업](https://docs.railway.com/deployments/deployment-actions)
+1. 되돌릴 배포 ID·이미지와 복구 경로를 확보한다. Railway에서 선택할 배포와 기존 환경·DB·볼륨 연결을 대조한다. `clipback`, `clipback-backup`, `clipback-maintain`, `clipback-retry` 네 서비스의 GitHub 자동 배포를 **Disable**하고, 각각 진행 중인 신버전 배포를 **Abort deployment**한다. 같은 DB를 사용하는 신버전 API 배포·replica와 별도 실행기를 모두 확인한다. [서비스 구성](backend/image-operator-first-run.md) · [자동 배포 제어](https://docs.railway.com/deployments/github-autodeploys) · [배포 작업](https://docs.railway.com/deployments/deployment-actions)
+   - 점검을 사용하기 전에 신버전을 모두 내려도 같은 DB에서 `status`와 `recover`를 실행할 수 있는 별도 실행기와 담당자를 확보한다. 준비한 서버 또는 운영자 이미지에서 `python -m scripts.maintenance status`의 성공을 확인한다. 이 명령은 대상 DB에 연결할 수 있는 `DATABASE_URL`을 사용한다.
+   - 옛 서버에서 `resume`을 실행할 방법도 사전에 확인한다. 배포 후 그 컨테이너의 셸에 접속해 실행하며, Railway SSH를 쓸 경우 `--project`·`--environment`·`--service`·`--deployment-instance`로 대상을 지정할 권한과 접속 방법을 확인한다. 지원 여부가 미확인이거나 별도 실행 수단을 확보할 수 없으면 점검을 시작하지 않는다. [Railway SSH](https://docs.railway.com/cli/ssh)
 2. 대상 DB에 대한 점검 제어가 확보되면, 서버 이미지의 `python -m scripts.maintenance start --run-id RUN_ID`를 실행한다. `RUN_ID`에는 새 UUID를 사용한다. 같은 DB에서 점검 제어를 사용하는 모든 API 인스턴스는 일반 요청을 503으로 거절하고 요약 worker는 새 작업을 받지 않는다. `python -m scripts.maintenance status`로 같은 run ID의 `phase=frozen`과 빈 `operations`를 확인한다. 이 상태는 이미 허용된 HTTP·요약 작업과 현재 운영자 명령이 끝났음을 확인하는 기준이다. 상태 확인용 health 경로는 계속 응답할 수 있다. 지원 범위와 실행 위치는 [점검 절차](backend/image-operator-first-run.md#4-점검격리-복원명시적-재개)를 따른다.
-   - 점검이 시간 초과되면 차단을 유지하고 남은 작업을 확인한다. `frozen`을 확인하거나 다음 중단 경로로 안전하게 전환할 때까지 DB 롤백을 보류한다.
-   - 점검 제어가 확보되지 않거나 이를 공유하지 않는 인스턴스가 있으면, 해당 신버전으로 들어가는 요청을 먼저 차단하고 진행 중인 탈퇴가 끝났음을 확인한다. Railway의 API 서비스 **Deployments**에서 대상 신버전 배포를 **Remove**하고 `Removed` 상태와 모든 해당 replica의 종료를 확인한다. 배포가 종료되면 API와 같은 프로세스의 lifespan 요약 worker가 끝나며, 그 배포의 비공개 운영 리스너도 함께 종료된다. 별도 worker가 있으면 함께 중단한다. PostgreSQL과 볼륨은 유지한다. 요청 차단이나 진행 중이던 탈퇴 완료를 확인할 수 없으면 DB 롤백을 보류한다. 강제 종료나 연결 끊김만으로 탈퇴 완료를 판단할 수 없다. [Railway 배포 종료](https://docs.railway.com/deployments/deployment-teardown)
-3. 운영자에게 `python -m scripts.image_deletions delete-account` 실행 금지를 확인받고 이미 시작한 명령이 모두 끝났는지 확인한다. 외부 실행기와 옛 스크립트도 포함한다. 현재 명령은 점검 제어를 공유하지만, 독립 실행기는 API를 내려도 종료되지 않는다. SQL 실행 직전에 모든 신버전 경로의 차단·종료 상태와 진행 중 탈퇴가 없음을 다시 확인한다.
+   - 점검이 시간 초과되면 같은 run의 요청 차단을 유지한다. 아래 중단 절차로 신버전 배포와 replica를 모두 내리고, 실행 중이던 요약 worker와 탈퇴 등 별도 실행기의 종료도 확인한다. 시작했던 탈퇴가 완료됐는지 확인할 수 없으면 DB 롤백을 보류한다. 3단계에서 남은 작업 행을 확인하고 정리한다.
+   - **중단 경로.** 시간 초과, 점검 제어 미확보, 점검을 공유하지 않는 인스턴스 중 하나라도 해당하면 대상 신버전으로 들어가는 요청을 차단하고 진행 중인 탈퇴가 끝났음을 확인한다. Railway의 API 서비스 **Deployments**에서 대상 신버전 배포를 **Remove**하고 `Removed` 상태와 모든 해당 replica의 종료를 확인한다. 배포가 종료되면 API와 같은 프로세스의 lifespan 요약 worker가 끝나며, 그 배포의 비공개 운영 리스너도 함께 종료된다. 별도 worker가 있으면 함께 중단한다. PostgreSQL과 볼륨은 유지한다. 요청 차단이나 진행 중이던 탈퇴 완료를 확인할 수 없으면 DB 롤백을 보류한다. 강제 종료나 연결 끊김만으로 탈퇴 완료를 판단할 수 없다. [Railway 배포 종료](https://docs.railway.com/deployments/deployment-teardown)
+3. 운영자에게 `python -m scripts.image_deletions delete-account` 실행 금지를 확인받고 이미 시작한 명령이 모두 끝났는지 확인한다. 외부 실행기와 옛 스크립트도 포함한다. 현재 명령은 점검 제어를 공유하지만, 독립 실행기는 API를 내려도 종료되지 않는다.
+   - 시간 초과 경로에서는 별도 실행기의 `status`에서 같은 run ID와 남은 작업을 확인한다. 예약·수동 실행 여부도 확인하고 해당 실행기의 재시작을 막는다. 실행기가 종료됐음을 확인한 작업마다 `python -m scripts.maintenance recover --run-id RUN_ID --operation-id OPERATION_ID --confirm-executor-stopped`를 실행한다. 종료를 확인할 수 없는 작업 행은 보존하고 롤백을 보류한다. 같은 run의 `phase=draining`과 빈 `operations`를 확인한 뒤 4단계로 간다. 같은 run에 `start`를 다시 실행하거나 `frozen`으로 전환할 필요는 없다.
+   - SQL 실행 직전에 모든 신버전 경로의 차단·종료 상태와 진행 중 탈퇴가 없음을 다시 확인한다. 정상 점검 경로는 같은 run ID의 `frozen`과 빈 `operations`를 유지한다.
 4. 사용자가 SQL 콘솔에서 [되돌리기 SQL 전문](../backend/alembic/sql/rollback_monthly_summary_limit.sql)을 실행한다. SQL은 리비전 `202611230026`에서 작업 사유를 `daily_limit_exceeded`로 바꾸고, 사진 사유 칸과 사용 기록 표를 지운 뒤 리비전을 `202611170023`으로 내린다.
    - 되돌리기 SQL 자체가 교착(`deadlock detected`)이나 잠금 시간 초과로 취소되면, SQL 콘솔의 실패 트랜잭션이 열린 경우 같은 세션에서 `ROLLBACK;`으로 정리한다. 아래 상태 확인 SQL로 리비전 `202611230026`과 두 칸의 `true`를 확인한 후 되돌리기 SQL 전문을 처음부터 다시 실행한다. 결과가 다르면 현재 상태부터 확인한다.
    - 교착 중 저장 오류가 보고되면 SQL 콘솔의 실제 실행 결과와 아래 상태를 확인하고, 신버전 쓰기 경로의 차단·종료 상태를 다시 확인한다.
@@ -176,7 +180,7 @@ SELECT version_num,
 FROM alembic_version;
 ```
 
-6. 이전 서버가 뜬 뒤 아래 SQL을 한 번 더 실행한다. 점검을 사용했다면 옛 서버의 배포·준비 상태와 빈 `operations`를 확인한 뒤 같은 run ID로 `python -m scripts.maintenance resume --run-id RUN_ID`를 실행하고 `phase=open`을 확인한다. 점검 없이 중단했다면 Railway가 옛 이미지의 준비 확인에 성공한 뒤 공개 요청을 다시 받는다. 옛 서버의 목록과 링크·사진 상세가 열리는지 확인한 뒤 운영자 탈퇴 명령과 정상 배포를 재개한다.
+6. 이전 서버가 뜬 뒤 아래 SQL을 한 번 더 실행해 교체 중 다시 쓰인 사유를 정리한다. 점검을 사용했다면 옛 서버의 배포·준비 상태를 확인한다. 옛 서버 컨테이너에서 같은 run ID와 빈 `operations`를 확인한 뒤 `python -m scripts.maintenance resume --run-id RUN_ID`를 실행하고 `phase=open`을 확인한다. 점검 없이 중단했다면 Railway가 옛 이미지의 준비 확인에 성공한 뒤 공개 요청을 다시 받는다. 옛 서버의 목록과 링크·사진 상세가 열리는지 확인한 뒤 운영자 탈퇴 명령을 재개한다. 네 서비스의 GitHub 자동 배포는 main에서 롤백 원인이 된 변경을 되돌렸거나 수정해 배포 가능한 상태를 확인한 뒤에만 **Enable**한다.
 
 ```sql
 UPDATE summary_jobs SET error_code = 'daily_limit_exceeded' WHERE error_code = 'monthly_limit_exceeded';
