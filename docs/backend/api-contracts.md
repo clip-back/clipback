@@ -420,8 +420,10 @@ FK CASCADE로 함께 지워진다. 동의를 읽거나 쓰지 못하면 기존 D
 | 거절 | 금지 | 금지 |
 | 미결정 | 허용 | 금지 |
 
-철회 뒤 재동의한 계정은 재동의 시각보다 먼저 판정을 시작한 저장을 금지한다. 저장 요청의 시각은 그
-요청의 첫 판정 때 읽은 DB 시각이다. 판정은 요청 안에서 캐시하지 않고 매번 DB의 현재 값을 읽는다.
+철회 뒤 재동의한 계정은 그 재동의가 커밋되기 전에 판정을 시작한 저장을 금지한다. 저장 요청은 첫 판정에서
+읽은 커밋된 기록(상태·버전·시각·재동의 표시)을 기억하고, 재동의 기록은 그 기록과 같을 때만 허용한다.
+저장 도중 커밋된 재동의는 다른 결정이다. 첫 동의에는 이 조건이 없다. 기록을 바꾸는 `PUT`은 행 잠금을 얻은
+뒤의 DB 시각을 `decided_at`으로 쓴다. 판정은 요청 안에서 캐시하지 않고 매번 DB의 현재 값을 읽는다.
 
 | 지점 | 언제 | 금지일 때 |
 | --- | --- | --- |
@@ -991,12 +993,14 @@ The shared monthly AI summary limit is checked after the image byte quota and be
 OCR. At the limit, the original is saved with the default title and summary. Manual
 categories and tags still apply, and a photo without a manual category is saved as
 uncategorized. The creation event has `ocr_status=skipped` and
-`ocr_failure_reason=monthly_limit_exceeded`. When [AI 전송 동의](#ai-전송-동의) does not
-allow AI, the same happens before the monthly limit is checked, with
-`ocr_failure_reason=ai_consent_required` and `summary_error_code=ai_consent_required`, and
-the photo is not counted. Upload, idempotent replay, detail,
+`ocr_failure_reason=monthly_limit_exceeded`. Upload, idempotent replay, detail,
 feed (including search), and category, tag, and favorite updates return
 `summary_status=skipped` and `summary_error_code=monthly_limit_exceeded` for that photo.
+When [AI 전송 동의](#ai-전송-동의) does not allow AI, either before the monthly limit
+check or right before the OCR call after it, the photo is saved the same way with
+`ocr_failure_reason=ai_consent_required`, is not counted, and those same responses return
+`summary_status=skipped` and `summary_error_code=ai_consent_required`. Each skipped photo
+keeps the reason stored at its save.
 Other photos return `not_requested` and `null`. OCR `success` counts once when the
 save commits, using the time the limit was checked. `no_text` and `failed` leave the
 count unchanged.

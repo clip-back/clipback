@@ -109,7 +109,7 @@ class CategoryRecommendationService:
         # G1b: right before the OpenAI call; an unsent attempt does not count.
         if self.ai_consent is not None and not await self.ai_consent.allows(user_id):
             if attempt is not None:
-                await self.daily_limit.release(user_id, attempt)
+                await self.daily_limit.release(attempt)
             return self._fallback(CategoryRecommendationFailureReason.AI_CONSENT_REQUIRED)
 
         started_at = time.monotonic()

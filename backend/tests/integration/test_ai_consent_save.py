@@ -16,7 +16,7 @@ from app.models.content import Content
 from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent
 from app.models.usage_record import UsageRecord
-from app.services import maintenance as maintenance_service
+from app.services import maintenance as maintenance_service, usage_limits
 from app.services.ai_consent import SaveAIConsent
 from tests.integration.helpers import guest, request
 from tests.integration.test_recommendation_usage_limits import (
@@ -192,25 +192,36 @@ async def seed_summary_usage(db, user_id, count=20):
         {"user_id": user_id, "kind": "ai_summary", "recorded_at": NOW} for _ in range(count)])
 
 
+# The monthly limit is judged on the seeded month (review Standards 3); a granted account
+# with the same seed is the control that the limit is really used up.
+@pytest.mark.parametrize(("state", "code"), [
+    ("denied_switch_off", REASON), ("granted_switch_on", "monthly_limit_exceeded"),
+])
 async def test_order_denied_youtube_with_monthly_limit_used(
-    api, save_provider, database_connection, monkeypatch,
+    api, save_provider, database_connection, monkeypatch, state, code,
 ):
-    headers, user_id = await account(api, monkeypatch, "denied_switch_off")
+    monkeypatch.setattr(usage_limits, "now", lambda: NOW)
+    headers, user_id = await account(api, monkeypatch, state, login=False)
     await seed_summary_usage(database_connection, user_id)
     saved = await save(api, headers, "youtube")
-    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", REASON)
+    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", code)
     assert await usage(database_connection, user_id, "ai_summary") == 20
 
 
+@pytest.mark.parametrize(("state", "code", "calls"), [
+    ("denied_switch_off", REASON, []), ("granted_switch_on", "monthly_limit_exceeded", []),
+])
 async def test_order_denied_photo_with_monthly_limit_used(
-    api, save_provider, database_connection, monkeypatch, png_bytes,
+    api, save_provider, database_connection, monkeypatch, png_bytes, state, code, calls,
 ):
-    headers, user_id = await account(api, monkeypatch, "denied_switch_off")
+    monkeypatch.setattr(usage_limits, "now", lambda: NOW)
+    headers, user_id = await account(api, monkeypatch, state, login=False)
     await seed_summary_usage(database_connection, user_id)
     saved = await save(api, headers, "photo", png=png_bytes)
-    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", REASON)
+    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", code)
     assert await usage(database_connection, user_id, "ai_summary") == 20
-    assert save_provider.calls == []
+    assert save_provider.calls == calls
+    assert (await metadata(database_connection, saved["id"]))["ocr_failure_reason"] == code
 
 
 async def test_order_denied_instagram_story(api, save_provider, monkeypatch):
@@ -266,7 +277,6 @@ async def test_order_denied_with_daily_recommendation_limit_used(
     await database_connection.execute(insert(UsageRecord), [
         {"user_id": user_id, "kind": "category_recommendation", "recorded_at": NOW}
         for _ in range(50)])
-    from app.services import usage_limits
     monkeypatch.setattr(usage_limits, "now", lambda: NOW)
     saved = await save(api, headers, "web")
     assert (await metadata(database_connection, saved["id"]))[

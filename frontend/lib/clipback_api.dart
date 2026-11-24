@@ -774,28 +774,43 @@ class ClipbackApi {
     await _json('GET', '/users/me/stats', retryUnauthorized: false),
   );
 
-  /// Sends the decision ([AiConsentStatus.granted] or [AiConsentStatus.denied])
-  /// within the usual 10-second limit. [AiConsentSaveResult.saved] needs a 200
-  /// answer with the sent status, version 1 and a valid time. An empty or
-  /// different 200 answer, a timeout or a lost connection is unconfirmed;
-  /// other answers fail. A 401 goes through the usual refresh and one resend.
+  /// Sends the decision ([AiConsentStatus.granted] or [AiConsentStatus.denied]).
+  /// The PUT, a 401 refresh and its one resend share one 10-second request
+  /// scope: at the deadline the scope ends, so a late 401 or refresh cannot
+  /// send the old choice again. [AiConsentSaveResult.saved] needs a 200 answer
+  /// with the sent status, version 1 and a valid API time. An empty or
+  /// different 200 answer, the deadline or a lost connection is unconfirmed; a
+  /// failed or malformed refresh and other answers fail (#474).
   Future<AiConsentSaveResult> saveAiConsent(AiConsentStatus status) async {
     assert(
       status == AiConsentStatus.granted || status == AiConsentStatus.denied,
     );
+    final scope = ApiRequestScope(timeout: _requestTimeout);
     final http.Response response;
     try {
-      response = await _request(
-        'PUT',
-        '/users/me/ai-consent',
-        body: {'status': status.value, 'notice_version': 1},
-      ).timeout(_requestTimeout);
+      response = await scope.run(
+        () => scope.wait(
+          _request(
+            'PUT',
+            '/users/me/ai-consent',
+            body: {'status': status.value, 'notice_version': 1},
+          ),
+        ),
+      );
     } on ClipbackApiException {
       return AiConsentSaveResult.failed;
     } on TimeoutException {
       return AiConsentSaveResult.unconfirmed;
     } on http.ClientException {
       return AiConsentSaveResult.unconfirmed;
+    } on TypeError {
+      // A refresh answer without the session fields.
+      return AiConsentSaveResult.failed;
+    } on FormatException {
+      // A refresh answer that is not JSON.
+      return AiConsentSaveResult.failed;
+    } finally {
+      scope.cancel();
     }
     if (response.statusCode != 200) return AiConsentSaveResult.failed;
     try {
@@ -804,14 +819,36 @@ class ClipbackApi {
           data['status'] == status.value &&
           data['notice_version'] is int &&
           data['notice_version'] == 1 &&
-          data['decided_at'] is String &&
-          DateTime.tryParse(data['decided_at'] as String) != null) {
+          _isApiTime(data['decided_at'])) {
         return AiConsentSaveResult.saved;
       }
     } on FormatException {
       // An empty or broken 200 body does not confirm the decision.
     }
     return AiConsentSaveResult.unconfirmed;
+  }
+
+  static final _apiTime = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?'
+    r'(Z|[+-]\d{2}:\d{2})$',
+  );
+
+  /// An ISO time with a zone whose date and clock exist: `DateTime.tryParse`
+  /// alone rolls 02-31 over to March and accepts a date without a time.
+  static bool _isApiTime(Object? value) {
+    if (value is! String) return false;
+    final match = _apiTime.firstMatch(value);
+    if (match == null || DateTime.tryParse(value) == null) return false;
+    final [year, month, day, hour, minute, second] = [
+      for (var group = 1; group <= 6; group++) int.parse(match.group(group)!),
+    ];
+    final local = DateTime.utc(year, month, day, hour, minute, second);
+    return local.year == year &&
+        local.month == month &&
+        local.day == day &&
+        local.hour == hour &&
+        local.minute == minute &&
+        local.second == second;
   }
 
   /// Only 204 deletes. A 401 has already gone through the usual session

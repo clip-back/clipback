@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services.ai_consent import ConsentRecord, ai_allowed, effective_status
+from app.services.ai_consent import ConsentRecord, ai_allowed, effective_status, save_allowed
 
 DECIDED = datetime(2026, 11, 25, 3, tzinfo=UTC)
 BEFORE, SAME, AFTER = DECIDED - timedelta(microseconds=1), DECIDED, DECIDED + timedelta(hours=1)
@@ -56,3 +56,38 @@ def test_ai_allowed_truth_table(record, switch, time):
 @pytest.mark.parametrize("record", sorted(RECORDS))
 def test_effective_status(record):
     assert effective_status(RECORDS[record]) == STATUS[record]
+
+
+# Save requests: a re-grant covers a save only when the save started under that same
+# committed decision (#475 review Spec 1). Rows: current record × switch × record the
+# save's first check read.
+OLD_REGRANT = ConsentRecord("granted", 1, BEFORE, True)
+STARTED = {
+    "none": None, "denied": RECORDS["denied"], "first_grant": RECORDS["first_grant"],
+    "same_regrant": RECORDS["regrant"], "older_regrant": OLD_REGRANT,
+}
+SAVE_TABLE = {
+    (record, switch, started): (
+        False if record == "denied"
+        else (not switch) if record == "none"
+        else True if record == "first_grant"
+        else started == "same_regrant"
+    )
+    for record in RECORDS for switch in (False, True) for started in STARTED
+}
+
+
+@pytest.mark.parametrize(("record", "switch", "started"), sorted(SAVE_TABLE))
+def test_save_allowed_table(record, switch, started):
+    assert save_allowed(
+        RECORDS[record], started_under=STARTED[started], required=switch,
+    ) is SAVE_TABLE[(record, switch, started)]
+
+
+def test_save_table_spot_checks():
+    # A re-grant committed while the save was running is a different decision.
+    assert SAVE_TABLE[("regrant", False, "denied")] is False
+    assert SAVE_TABLE[("regrant", False, "older_regrant")] is False
+    assert SAVE_TABLE[("regrant", True, "same_regrant")] is True
+    # The first grant keeps no such condition, also for a save started while undecided.
+    assert SAVE_TABLE[("first_grant", True, "none")] is True

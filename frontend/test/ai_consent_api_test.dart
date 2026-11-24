@@ -226,6 +226,168 @@ void main() {
       expect(invalidations, 0);
     });
 
+    final rotated = _json({
+      'access_token': 'rotated-access',
+      'refresh_token': 'rotated-refresh',
+      'expires_in': 7200,
+      'refresh_expires_in': 172800,
+      'is_new_user': false,
+    });
+
+    int puts(_Server server) =>
+        server.requests.where((request) => request.method == 'PUT').length;
+
+    testWidgets('an answer just before the deadline is still judged', (
+      tester,
+    ) async {
+      final server = _Server([
+        () => Future.delayed(
+          const Duration(milliseconds: 9900),
+          () => _json(_saved('granted')),
+        ),
+      ]);
+      AiConsentSaveResult? result;
+      unawaited(
+        apiFor(server)
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(milliseconds: 9950));
+      expect(result, AiConsentSaveResult.saved);
+    });
+
+    testWidgets('a 401 arriving after the deadline sends nothing more', (
+      tester,
+    ) async {
+      final server = _Server([
+        () => Future.delayed(
+          const Duration(seconds: 11),
+          () => _json({'detail': 'expired'}, 401),
+        ),
+        _now(rotated),
+        _now(_json(_saved('granted'))),
+      ]);
+      AiConsentSaveResult? result;
+      unawaited(
+        apiFor(server)
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      await tester.pump(const Duration(seconds: 20));
+      expect(puts(server), 1);
+      expect(server.requests, hasLength(1));
+      expect(invalidations, 0);
+    });
+
+    testWidgets('a refresh finishing after the deadline does not resend', (
+      tester,
+    ) async {
+      final server = _Server([
+        // The 401 at 5 s starts a refresh that answers at 11 s, after the
+        // PUT's deadline and within the refresh's own 10 s limit.
+        () => Future.delayed(
+          const Duration(seconds: 5),
+          () => _json({'detail': 'expired'}, 401),
+        ),
+        () => Future.delayed(const Duration(seconds: 6), () => rotated),
+        _now(_json(_saved('granted'))),
+      ]);
+      AiConsentSaveResult? result;
+      unawaited(
+        apiFor(server)
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      expect(server.requests, hasLength(2)); // The refresh was sent in time.
+      await tester.pump(const Duration(seconds: 20));
+      expect(puts(server), 1);
+      expect(invalidations, 0);
+    });
+
+    testWidgets('another caller keeps the shared refresh after the deadline', (
+      tester,
+    ) async {
+      final server = _Server([
+        // The 401 at 5 s starts a refresh that answers at 11 s, after the
+        // PUT's deadline and within the refresh's own 10 s limit.
+        () => Future.delayed(
+          const Duration(seconds: 5),
+          () => _json({'detail': 'expired'}, 401),
+        ),
+        () => Future.delayed(const Duration(seconds: 6), () => rotated),
+        _now(_json(_user())),
+      ]);
+      final api = apiFor(server);
+      AiConsentSaveResult? result;
+      ApiUser? me;
+      unawaited(
+        api
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      expect(server.requests, hasLength(2)); // PUT, then its refresh.
+      // An unscoped caller joins the refresh the consent PUT started.
+      unawaited(
+        api.refreshSession().then((_) => api.readMe()).then((u) => me = u),
+      );
+      await tester.pump(const Duration(seconds: 4));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      await tester.pump(const Duration(seconds: 20));
+      expect(me?.id, 7);
+      expect(api.session?.accessToken, 'rotated-access');
+      expect(
+        [
+          for (final request in server.requests)
+            '${request.method} ${request.url.path}',
+        ],
+        ['PUT $_path', 'POST /api/v1/auth/refresh', 'GET /api/v1/users/me'],
+      );
+    });
+
+    for (final (name, body) in [
+      ('an empty object', _json(<String, Object?>{})),
+      ('a body that is not JSON', http.Response('<html>', 200)),
+    ]) {
+      test('a refresh answering $name fails without resending', () async {
+        final server = _Server([
+          _now(_json({'detail': 'expired'}, 401)),
+          _now(body),
+        ]);
+        expect(
+          await apiFor(server).saveAiConsent(AiConsentStatus.granted),
+          AiConsentSaveResult.failed,
+        );
+        expect(puts(server), 1);
+        expect(server.requests, hasLength(2));
+      });
+    }
+
+    for (final (time, expected) in [
+      ('2028-02-29T00:00:00Z', AiConsentSaveResult.saved),
+      ('2026-11-25T10:00:00.5+09:00', AiConsentSaveResult.saved),
+      ('2026-02-29T00:00:00Z', AiConsentSaveResult.unconfirmed),
+      ('2026-02-31T00:00:00Z', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25T24:00:00Z', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25T01:00:00', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25 01:00:00Z', AiConsentSaveResult.unconfirmed),
+    ]) {
+      test('decided_at $time is ${expected.name}', () async {
+        final server = _Server([
+          _now(_json({..._saved('granted'), 'decided_at': time})),
+        ]);
+        expect(
+          await apiFor(server).saveAiConsent(AiConsentStatus.granted),
+          expected,
+        );
+      });
+    }
+
     test('a failed refresh ends the session and fails', () async {
       final server = _Server([
         _now(_json({'detail': 'expired'}, 401)),

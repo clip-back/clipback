@@ -1,27 +1,36 @@
 """#475 overlapping saves and AI 전송 동의 changes on real PostgreSQL with separate sessions
 (#474 동시 요청 표, the save and decision rows; 순서가 결과를 바꾸는 입력, the rows that change
 the decision during a save). AI calls are counted at the OpenAI SDK transport (`provider`).
+
+Every request records its own backend PID. A wait is proven by `pg_blocking_pids` naming the
+expected holder, and every started request is released, cancelled if stuck and collected
+before the account is cleaned up, also when the test fails midway (`producers`).
 """
 
 import asyncio
+import logging
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 
 from app.core.config import settings
+from app.models.account_deletion_reason import AccountDeletionReason
 from app.models.content import Content
 from app.models.content_asset import ContentAsset
 from app.models.summary_job import SummaryJob
 from app.models.usage_record import UsageRecord
 from app.repositories.event_repository import EventRepository
 from app.repositories.user_repository import UserRepository
-from app.services import account_deletion_service
+from app.services import account_deletion_service, ai_consent, usage_limits
+from app.services.ai_consent import SaveAIConsent
+from app.services.content_service import ContentService
 from app.services.image_deletion_service import retry_image_deletions
 from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
 from tests.integration.helpers import request
 from tests.integration.test_recommendation_usage_limits import (
+    NOW,
     recommendation_provider as recommendation_provider,
 )
 from tests.integration.test_save_ai_tags import provider as provider
@@ -34,6 +43,7 @@ YOUTUBE = "https://youtu.be/dQw4w9WgXcQ"
 INSTAGRAM = "https://www.instagram.com/p/Example/"
 REASON = "ai_consent_required"
 WAIT = 10
+UNRELATED_LOCK = 4750001
 
 
 @pytest.fixture(autouse=True)
@@ -42,10 +52,84 @@ def summaries_on(monkeypatch):
     monkeypatch.setattr(settings, "instagram_summary_enabled", True)
 
 
-def pause(monkeypatch, target, name, *, after=False):
+class Producers:
+    """Requests and pauses a test started. `close` releases every pause, waits for the
+    requests, cancels any still stuck and collects them all; it may run more than once."""
+
+    def __init__(self):
+        self.tasks, self.releases = [], []
+
+    def start(self, coroutine):
+        task = asyncio.create_task(coroutine)
+        self.tasks.append(task)
+        return task
+
+    async def close(self):
+        for release in self.releases:
+            release.set()
+        if self.tasks:
+            _, pending = await asyncio.wait(self.tasks, timeout=WAIT)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+
+
+@pytest_asyncio.fixture
+async def producers(independent_api):
+    # Depends on independent_api, so it closes before the account cleanup runs.
+    state = Producers()
+    try:
+        yield state
+    finally:
+        await state.close()
+
+
+@pytest.fixture
+def pids(monkeypatch, independent_api):
+    """The backend PID of each decision, save, deletion and upgrade, read on the request's
+    own session right before its locking statement."""
+    seen = {"decide": [], "save": [], "delete": [], "upgrade": []}
+
+    async def pid(session):
+        return await session.scalar(text("SELECT pg_backend_pid()"))
+
+    decide = ai_consent.decide
+    allows = SaveAIConsent.allows
+    locked = account_deletion_service._locked_created_at
+    for_update = UserRepository.get_for_update
+
+    async def tracked_decide(session, user_id, **kwargs):
+        seen["decide"].append(await pid(session))
+        return await decide(session, user_id, **kwargs)
+
+    saves = set()
+
+    async def tracked_allows(self, user_id):
+        if id(self) not in saves:  # The save request's first check.
+            saves.add(id(self))
+            seen["save"].append(await pid(self.session))
+        return await allows(self, user_id)
+
+    async def tracked_locked(session, user_id):
+        seen["delete"].append(await pid(session))
+        return await locked(session, user_id)
+
+    async def tracked_for_update(self, user_id):
+        seen["upgrade"].append(await pid(self.session))
+        return await for_update(self, user_id)
+
+    monkeypatch.setattr(ai_consent, "decide", tracked_decide)
+    monkeypatch.setattr(SaveAIConsent, "allows", tracked_allows)
+    monkeypatch.setattr(account_deletion_service, "_locked_created_at", tracked_locked)
+    monkeypatch.setattr(UserRepository, "get_for_update", tracked_for_update)
+    return seen
+
+
+def pause(monkeypatch, producers, target, name, *, after=False):
     """Hold the first call of target.name before (or after) it runs until released."""
     original = getattr(target, name)
     entered, release = asyncio.Event(), asyncio.Event()
+    producers.releases.append(release)
     calls = 0
 
     async def paused(*args, **kwargs):
@@ -63,6 +147,40 @@ def pause(monkeypatch, target, name, *, after=False):
 
     monkeypatch.setattr(target, name, paused)
     return entered, release
+
+
+def gate_transport(monkeypatch, producers, provider):
+    """Hold the first OpenAI request after it reached the SDK transport, before its answer."""
+    transport = provider.ai_client._client._client._transport
+    original = transport.handle_async_request
+    arrived, respond = asyncio.Event(), asyncio.Event()
+    producers.releases.append(respond)
+    state = {"arrived": 0}
+
+    async def gated(http_request):
+        state["arrived"] += 1
+        if state["arrived"] == 1:
+            arrived.set()
+            await asyncio.wait_for(respond.wait(), WAIT)
+        return await original(http_request)
+
+    monkeypatch.setattr(transport, "handle_async_request", gated)
+    return arrived, respond, state
+
+
+def pause_commit(producers, session):
+    """Hold this session's commit: the decision is written and its locks are held."""
+    commit = session.commit
+    written, release = asyncio.Event(), asyncio.Event()
+    producers.releases.append(release)
+
+    async def paused():
+        written.set()
+        await asyncio.wait_for(release.wait(), WAIT)
+        await commit()
+
+    session.commit = paused
+    return written, release
 
 
 async def decide(api, headers, status_value, *, expect=200):
@@ -97,19 +215,54 @@ async def consent_rows(sessions, user_id):
             {"u": user_id})).all()
 
 
+async def backend_pid(session):
+    return await session.scalar(text("SELECT pg_backend_pid()"))
+
+
+async def recorded(seen, kind, index=0):
+    """The PID of the index-th tracked request of this kind, once it ran its first query."""
+    for _ in range(250):
+        if len(seen[kind]) > index:
+            return seen[kind][index]
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"no {kind} request reached the database")
+
+
+async def until_blocked(sessions, waiter, holder):
+    """Wait until PostgreSQL reports this waiter PID blocked by this holder PID."""
+    for _ in range(250):
+        async with sessions() as session:
+            if await session.scalar(text("SELECT :h = ANY(pg_blocking_pids(:w))"),
+                                    {"h": holder, "w": waiter}):
+                return
+        await asyncio.sleep(0.02)
+    async with sessions() as session:
+        activity = (await session.execute(text(
+            "SELECT pid, wait_event_type, wait_event, state, pg_blocking_pids(pid), "
+            "left(query, 60) FROM pg_stat_activity WHERE datname = current_database()"))).all()
+    raise AssertionError(f"PID {waiter} was never blocked by PID {holder}: {activity}")
+
+
+async def hold_decisions(holder):
+    """Stop every decision right after its user KEY SHARE lock, at its record write, while
+    the holder itself locks no user row. Returns the holder PID."""
+    pid = await backend_pid(holder)
+    await holder.execute(text("LOCK TABLE ai_transfer_consents IN SHARE ROW EXCLUSIVE MODE"))
+    return pid
+
+
+async def blocked_pids(sessions, candidates):
+    async with sessions() as session:
+        return (await session.scalars(text(
+            "SELECT pid FROM pg_stat_activity WHERE pid = ANY(:p) "
+            "AND cardinality(pg_blocking_pids(pid)) > 0"), {"p": list(candidates)})).all()
+
+
 async def lock_waiters(sessions):
     async with sessions() as session:
         return await session.scalar(text(
             "SELECT count(*) FROM pg_stat_activity "
             "WHERE datname = current_database() AND wait_event_type = 'Lock'"))
-
-
-async def until_waiting(sessions, waiters):
-    for _ in range(250):
-        if await lock_waiters(sessions) == waiters:
-            return
-        await asyncio.sleep(0.02)
-    raise AssertionError(f"never reached {waiters} lock waiter(s)")
 
 
 def category_names(content):
@@ -135,38 +288,38 @@ async def test_counter_sees_n_sends_when_allowed_and_none_when_denied(
 # 링크 추천
 
 async def test_withdrawal_after_the_attempt_is_counted_skips_the_call_and_the_count(
-    independent_api, recommendation_provider, monkeypatch,
+    independent_api, recommendation_provider, monkeypatch, producers, pids,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
-    entered, release = pause(monkeypatch, DailyRecommendationLimit, "admit", after=True)
-    saving = asyncio.create_task(save(api, headers, "web"))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)
-        assert await usage(sessions, user_id, "category_recommendation") == 1
-        await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
-        assert not saving.done()  # The decision committed on its own connection meanwhile.
-    finally:
-        release.set()
+    entered, release = pause(monkeypatch, producers, DailyRecommendationLimit, "admit",
+                             after=True)
+    saving = producers.start(save(api, headers, "web"))
+    await asyncio.wait_for(entered.wait(), WAIT)
+    assert await usage(sessions, user_id, "category_recommendation") == 1
+    await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
+    # The decision committed on its own connection while the save waits in its request.
+    assert pids["decide"][0] != pids["save"][0] and not saving.done()
+    release.set()
     saved = await asyncio.wait_for(saving, WAIT)
     assert recommendation_provider.calls == []
     assert category_names(saved) == ["미분류"]
     assert await usage(sessions, user_id, "category_recommendation") == 0
 
 
-async def test_withdrawal_after_the_send_keeps_the_recommendation(
-    independent_api, recommendation_provider, monkeypatch,
+async def test_withdrawal_while_the_request_awaits_its_answer_keeps_the_recommendation(
+    independent_api, recommendation_provider, monkeypatch, producers, pids,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
-    entered, release = pause(monkeypatch, recommendation_provider.ai_client,
-                             "suggest_category_id", after=True)
-    saving = asyncio.create_task(save(api, headers, "web"))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)
-        await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
-        assert not saving.done()
-    finally:
-        release.set()
+    arrived, respond, transport = gate_transport(monkeypatch, producers,
+                                                 recommendation_provider)
+    saving = producers.start(save(api, headers, "web"))
+    await asyncio.wait_for(arrived.wait(), WAIT)
+    assert transport["arrived"] == 1 and recommendation_provider.calls == []
+    await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
+    assert pids["decide"][0] != pids["save"][0] and not saving.done()
+    respond.set()
     saved = await asyncio.wait_for(saving, WAIT)
+    assert transport["arrived"] == 1
     assert recommendation_provider.calls == ["recommend"]
     assert category_names(saved) == ["취업"]
     assert [tag["name"] for tag in saved["tags"]] == ["추천"]
@@ -184,21 +337,86 @@ async def test_withdrawal_committed_before_the_save_skips_the_call(
     assert await usage(sessions, user_id, "category_recommendation") == 0
 
 
+# 추천 시도 기록: G1b removes exactly the row its own attempt added.
+
+async def test_two_blocked_attempts_at_the_same_time_each_remove_their_own_row(
+    independent_api, recommendation_provider, monkeypatch, producers,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    monkeypatch.setattr(usage_limits, "now", lambda: NOW)  # Both attempts share one time.
+    admit = DailyRecommendationLimit.admit
+    barrier, release = asyncio.Barrier(3), asyncio.Event()
+    producers.releases.append(release)
+    attempts = []
+
+    async def held(limit, candidate):
+        attempt = await admit(limit, candidate)
+        attempts.append(attempt)
+        await barrier.wait()
+        await asyncio.wait_for(release.wait(), WAIT)
+        return attempt
+
+    monkeypatch.setattr(DailyRecommendationLimit, "admit", held)
+    saving = [producers.start(request(api, "POST", "contents", headers=headers, status=201,
+                                      json={"original_url": f"{WEB}/{index}"}))
+              for index in range(2)]
+    await asyncio.wait_for(barrier.wait(), WAIT)
+    async with sessions() as session:
+        times = (await session.scalars(select(UsageRecord.recorded_at).where(
+            UsageRecord.user_id == user_id))).all()
+    assert len(set(attempts)) == 2 and times == [NOW, NOW]
+    await decide(api, headers, "denied")
+    release.set()
+    saved = await asyncio.wait_for(asyncio.gather(*saving), WAIT)
+    assert [category_names(item) for item in saved] == [["미분류"], ["미분류"]]
+    assert recommendation_provider.calls == []
+    assert await usage(sessions, user_id, "category_recommendation") == 0
+
+
+@pytest.mark.parametrize("failure", ["database_error", "row_missing"])
+async def test_attempt_removal_failure_is_logged_and_the_save_succeeds(
+    independent_api, recommendation_provider, monkeypatch, producers, caplog, failure,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    entered, release = pause(monkeypatch, producers, DailyRecommendationLimit, "admit",
+                             after=True)
+    saving = producers.start(save(api, headers, "web"))
+    await asyncio.wait_for(entered.wait(), WAIT)
+    await decide(api, headers, "denied")
+    if failure == "row_missing":
+        async with sessions.begin() as session:
+            await session.execute(text(
+                "DELETE FROM usage_records WHERE user_id = :u"), {"u": user_id})
+    else:
+        def unavailable():
+            raise ConnectionError("injected recommendation session failure")
+
+        monkeypatch.setattr(usage_limits, "RecommendationSessionLocal", unavailable)
+    with caplog.at_level(logging.WARNING, logger="app.services.usage_limits"):
+        release.set()
+        saved = await asyncio.wait_for(saving, WAIT)
+    assert category_names(saved) == ["미분류"]
+    assert recommendation_provider.calls == []
+    message = {"database_error": "Unable to remove category recommendation attempt",
+               "row_missing": "attempt to remove was not found"}[failure]
+    assert any(message in record.getMessage() for record in caplog.records)
+    assert await usage(sessions, user_id, "category_recommendation") == int(
+        failure == "database_error")
+
+
 # 사진 글자 읽기. The photo save holds the user row FOR NO KEY UPDATE; a decision does not
 # wait for it (V17).
 
 async def test_withdrawal_after_the_monthly_check_keeps_only_the_original(
-    independent_api, recommendation_provider, monkeypatch, png_bytes,
+    independent_api, recommendation_provider, monkeypatch, png_bytes, producers, pids,
 ):
     api, headers, user_id, sessions, _, path = independent_api
-    entered, release = pause(monkeypatch, MonthlySummaryLimit, "admit", after=True)
-    saving = asyncio.create_task(save(api, headers, "photo", png_bytes))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)
-        await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
-        assert not saving.done()
-    finally:
-        release.set()
+    entered, release = pause(monkeypatch, producers, MonthlySummaryLimit, "admit", after=True)
+    saving = producers.start(save(api, headers, "photo", png_bytes))
+    await asyncio.wait_for(entered.wait(), WAIT)
+    await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
+    assert pids["decide"][0] != pids["save"][0] and not saving.done()
+    release.set()
     saved = await asyncio.wait_for(saving, WAIT)
     assert recommendation_provider.calls == []
     assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", REASON)
@@ -207,20 +425,20 @@ async def test_withdrawal_after_the_monthly_check_keeps_only_the_original(
     assert await usage(sessions, user_id, "ai_summary") == 0
 
 
-async def test_withdrawal_after_text_reading_keeps_it_and_skips_the_recommendation(
-    independent_api, recommendation_provider, monkeypatch, png_bytes,
+async def test_withdrawal_while_text_reading_awaits_its_answer_keeps_it_without_recommending(
+    independent_api, recommendation_provider, monkeypatch, png_bytes, producers, pids,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
-    entered, release = pause(monkeypatch, recommendation_provider.ocr_client, "extract",
-                             after=True)
-    saving = asyncio.create_task(save(api, headers, "photo", png_bytes))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)
-        await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
-        assert not saving.done()
-    finally:
-        release.set()
+    arrived, respond, transport = gate_transport(monkeypatch, producers,
+                                                 recommendation_provider)
+    saving = producers.start(save(api, headers, "photo", png_bytes))
+    await asyncio.wait_for(arrived.wait(), WAIT)
+    assert transport["arrived"] == 1 and recommendation_provider.calls == []
+    await asyncio.wait_for(decide(api, headers, "denied"), WAIT)
+    assert pids["decide"][0] != pids["save"][0] and not saving.done()
+    respond.set()
     saved = await asyncio.wait_for(saving, WAIT)
+    assert transport["arrived"] == 1
     assert recommendation_provider.calls == ["ocr"]
     assert saved["title"] == "화면 제목"
     assert [tag["name"] for tag in saved["tags"]] == ["사진"]
@@ -230,7 +448,7 @@ async def test_withdrawal_after_text_reading_keeps_it_and_skips_the_recommendati
     assert await usage(sessions, user_id, "category_recommendation") == 0
 
 
-# 철회→재동의 중 진행 저장: data that started before the re-grant stays without AI.
+# 철회→재동의 중 진행 저장: a save that started before the re-grant committed stays without AI.
 
 @pytest.mark.parametrize(("kind", "target", "after_regrant"), [
     ("web", DailyRecommendationLimit, ("not_requested", None)),
@@ -238,20 +456,18 @@ async def test_withdrawal_after_text_reading_keeps_it_and_skips_the_recommendati
     ("photo", MonthlySummaryLimit, ("skipped", REASON)),
 ])
 async def test_save_in_progress_across_withdraw_and_regrant_sends_nothing(
-    independent_api, recommendation_provider, monkeypatch, png_bytes, kind, target,
+    independent_api, recommendation_provider, monkeypatch, png_bytes, producers, kind, target,
     after_regrant,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
     await decide(api, headers, "granted")
-    entered, release = pause(monkeypatch, target, "admit", after=True)
-    saving = asyncio.create_task(save(api, headers, kind, png_bytes))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)
-        await decide(api, headers, "denied")
-        await decide(api, headers, "granted")
-        assert not saving.done()
-    finally:
-        release.set()
+    entered, release = pause(monkeypatch, producers, target, "admit", after=True)
+    saving = producers.start(save(api, headers, kind, png_bytes))
+    await asyncio.wait_for(entered.wait(), WAIT)
+    await decide(api, headers, "denied")
+    await decide(api, headers, "granted")
+    assert not saving.done()
+    release.set()
     saved = await asyncio.wait_for(saving, WAIT)
     assert recommendation_provider.calls == []
     assert (saved["summary_status"], saved["summary_error_code"]) == after_regrant
@@ -263,6 +479,71 @@ async def test_save_in_progress_across_withdraw_and_regrant_sends_nothing(
     fresh = await save(api, headers, kind, png_bytes)
     assert recommendation_provider.calls == (["ocr", "recommend"] if kind == "photo"
                                              else ["recommend"])
+    assert category_names(fresh) == ["취업"]
+
+
+async def test_save_started_between_a_regrant_write_and_its_commit_stays_without_ai(
+    independent_api, recommendation_provider, monkeypatch, producers, pids,
+):
+    """Review Spec 1: the re-grant is written (and dated) but not committed when the save's
+    first check reads the denial; after the commit the save must not count as covered."""
+    api, headers, user_id, sessions, _, _ = independent_api
+    await decide(api, headers, "granted")
+    await decide(api, headers, "denied")
+    async with sessions() as regrant:
+        written, commit = pause_commit(producers, regrant)
+        regranting = producers.start(ai_consent.decide(regrant, user_id, status="granted"))
+        await asyncio.wait_for(written.wait(), WAIT)
+        entered, release = pause(monkeypatch, producers, ContentService, "write")
+        saving = producers.start(save(api, headers, "instagram"))
+        await asyncio.wait_for(entered.wait(), WAIT)  # G1a read the denial already.
+        assert await recorded(pids, "save") != await recorded(pids, "decide", 2)
+        commit.set()
+        assert (await asyncio.wait_for(regranting, WAIT)).granted_after_denial is True
+    release.set()
+    saved = await asyncio.wait_for(saving, WAIT)
+    assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", REASON)
+    assert recommendation_provider.calls == []
+    assert await usage(sessions, user_id, "ai_summary") == 0
+    assert await usage(sessions, user_id, "category_recommendation") == 0
+    fresh = await save(api, headers, "instagram")
+    assert (fresh["summary_status"], recommendation_provider.calls) == ("queued", ["recommend"])
+
+
+@pytest.mark.parametrize(("kind", "target", "after_regrant"), [
+    ("web", DailyRecommendationLimit, ("not_requested", None)),
+    ("photo", MonthlySummaryLimit, ("skipped", REASON)),
+])
+async def test_save_started_while_a_regrant_waits_on_the_withdrawal_stays_without_ai(
+    independent_api, recommendation_provider, monkeypatch, png_bytes, producers, pids, kind,
+    target, after_regrant,
+):
+    """Review Spec 1: the withdrawal holds the record uncommitted, the re-grant PUT waits on
+    its row lock, and a save passes its first check under the old grant meanwhile."""
+    api, headers, user_id, sessions, _, _ = independent_api
+    await decide(api, headers, "granted")
+    async with sessions() as withdrawal:
+        written, commit = pause_commit(producers, withdrawal)
+        withdrawing = producers.start(ai_consent.decide(withdrawal, user_id, status="denied"))
+        await asyncio.wait_for(written.wait(), WAIT)
+        regranting = producers.start(decide(api, headers, "granted"))
+        await until_blocked(sessions, await recorded(pids, "decide", 2),
+                            await recorded(pids, "decide", 1))
+        entered, release = pause(monkeypatch, producers, target, "admit", after=True)
+        saving = producers.start(save(api, headers, kind, png_bytes))
+        await asyncio.wait_for(entered.wait(), WAIT)  # The first check saw the old grant.
+        commit.set()
+        await asyncio.wait_for(withdrawing, WAIT)
+    assert (await asyncio.wait_for(regranting, WAIT))["status"] == "granted"
+    assert await consent_rows(sessions, user_id) == [("granted", True)]
+    release.set()
+    saved = await asyncio.wait_for(saving, WAIT)
+    assert (saved["summary_status"], saved["summary_error_code"]) == after_regrant
+    assert recommendation_provider.calls == []
+    assert category_names(saved) == ["미분류"]
+    assert await usage(sessions, user_id, "category_recommendation") == 0
+    assert await usage(sessions, user_id, "ai_summary") == 0
+    fresh = await save(api, headers, kind, png_bytes)
     assert category_names(fresh) == ["취업"]
 
 
@@ -299,17 +580,22 @@ async def test_grant_after_a_save_with_the_switch_on_is_not_retroactive(
 # 두 기기: the later commit wins.
 
 @pytest.mark.parametrize(("first", "second"), [("denied", "granted"), ("granted", "denied")])
-async def test_two_devices_end_with_the_later_commit(independent_api, first, second):
+async def test_two_devices_end_with_the_later_commit(
+    independent_api, producers, pids, first, second,
+):
     api, headers, user_id, sessions, _, _ = independent_api
     await decide(api, headers, "granted")
     async with sessions() as holder:
         # Hold the record so both requests queue on it in order.
+        holder_pid = await backend_pid(holder)
         await holder.execute(text(
             "SELECT 1 FROM ai_transfer_consents WHERE user_id = :u FOR UPDATE"), {"u": user_id})
-        a = asyncio.create_task(decide(api, headers, first))
-        await until_waiting(sessions, 1)
-        b = asyncio.create_task(decide(api, headers, second))
-        await until_waiting(sessions, 2)
+        a = producers.start(decide(api, headers, first))
+        await until_blocked(sessions, await recorded(pids, "decide", 1), holder_pid)
+        a_pid = await recorded(pids, "decide", 1)
+        b = producers.start(decide(api, headers, second))
+        # The second device queues behind the first one on the record's row lock.
+        await until_blocked(sessions, await recorded(pids, "decide", 2), a_pid)
         await holder.rollback()
     first_result, second_result = await asyncio.wait_for(asyncio.gather(a, b), WAIT)
     assert first_result["decided_at"] <= second_result["decided_at"]
@@ -336,6 +622,35 @@ ROWS = {  # existing record, decision sent
 }
 
 
+class OwnReasonRows:
+    """Ids of the deletion reason rows this test's ORM inserts created. Reasons have no
+    account FK, so cleanup removes only these and never rows another session wrote."""
+
+    def __init__(self):
+        self.ids = []
+
+    def __call__(self, mapper, connection, target):
+        self.ids.append(target.id)
+
+    async def remove(self, sessions):
+        if self.ids:
+            async with sessions.begin() as session:
+                await session.execute(text(
+                    "DELETE FROM account_deletion_reasons WHERE id = ANY(:ids)"),
+                    {"ids": self.ids})
+
+
+@pytest_asyncio.fixture
+async def own_reasons(independent_api):
+    rows = OwnReasonRows()
+    event.listen(AccountDeletionReason, "after_insert", rows)
+    try:
+        yield rows
+    finally:
+        event.remove(AccountDeletionReason, "after_insert", rows)
+        await rows.remove(independent_api[3])
+
+
 async def delete_account(api, headers):
     return await api.request("DELETE", "/api/v1/users/me", headers=headers,
                              json={"reasons": ["other"]})
@@ -358,30 +673,49 @@ async def operator_retry(sessions):
         return await retry_image_deletions(session, limit=10)
 
 
+async def test_reason_cleanup_keeps_rows_another_session_wrote(independent_api, own_reasons):
+    api, headers, _, sessions, _, _ = independent_api
+    async with sessions.begin() as other:
+        foreign = await other.scalar(text(
+            "INSERT INTO account_deletion_reasons (reasons, deleted_on) "
+            "VALUES (ARRAY['rejoin'], current_date) RETURNING id"))
+    try:
+        assert (await delete_account(api, headers)).status_code == 204
+        assert len(own_reasons.ids) == 1 and foreign not in own_reasons.ids
+        await own_reasons.remove(sessions)
+        async with sessions() as session:
+            left = (await session.scalars(text(
+                "SELECT id FROM account_deletion_reasons WHERE id = ANY(:ids)"),
+                {"ids": [foreign, *own_reasons.ids]})).all()
+        assert left == [foreign]
+    finally:
+        async with sessions.begin() as other:
+            await other.execute(text("DELETE FROM account_deletion_reasons WHERE id = :id"),
+                                {"id": foreign})
+
+
 @pytest.mark.parametrize("deleter", ["api", "operator"])
 @pytest.mark.parametrize("row", list(ROWS))
-async def test_decision_first_then_deletion(independent_api, monkeypatch, row, deleter):
+async def test_decision_first_then_deletion(
+    independent_api, monkeypatch, producers, pids, own_reasons, row, deleter,
+):
     api, headers, user_id, sessions, _, _ = independent_api
     existing, sent = ROWS[row]
     if existing is not None:
         await decide(api, headers, existing)
     if deleter == "operator":
         await pending_account_deletion(api, headers, monkeypatch)
+    before = len(pids["decide"])
     async with sessions() as holder:
-        # Pause the decision inside its transaction, after its user KEY SHARE lock.
-        if existing is None:
-            await holder.execute(text(
-                "INSERT INTO ai_transfer_consents VALUES (:u, 'granted', 1, now(), false)"),
-                {"u": user_id})
-        else:
-            await holder.execute(text(
-                "SELECT 1 FROM ai_transfer_consents WHERE user_id = :u FOR UPDATE"),
-                {"u": user_id})
-        deciding = asyncio.create_task(decide(api, headers, sent))
-        await until_waiting(sessions, 1)
-        deleting = asyncio.create_task(
+        holder_pid = await hold_decisions(holder)
+        deciding = producers.start(decide(api, headers, sent))
+        decide_pid = await recorded(pids, "decide", before)
+        await until_blocked(sessions, decide_pid, holder_pid)
+        deletes = len(pids["delete"])
+        deleting = producers.start(
             delete_account(api, headers) if deleter == "api" else operator_retry(sessions))
-        await until_waiting(sessions, 2)  # The deletion waits for the decision.
+        delete_pid = await recorded(pids, "delete", deletes)
+        await until_blocked(sessions, delete_pid, decide_pid)  # Waits for the decision.
         await holder.rollback()
     decided = await asyncio.wait_for(deciding, WAIT)
     assert decided["status"] == sent
@@ -396,26 +730,27 @@ async def test_decision_first_then_deletion(independent_api, monkeypatch, row, d
 
 @pytest.mark.parametrize("deleter", ["api", "operator"])
 @pytest.mark.parametrize("row", list(ROWS))
-async def test_deletion_first_then_decision(independent_api, monkeypatch, row, deleter):
+async def test_deletion_first_then_decision(
+    independent_api, monkeypatch, producers, pids, own_reasons, row, deleter,
+):
     api, headers, user_id, sessions, _, _ = independent_api
     existing, sent = ROWS[row]
     if existing is not None:
         await decide(api, headers, existing)
     if deleter == "operator":
         await pending_account_deletion(api, headers, monkeypatch)
-    entered, release = pause(monkeypatch, account_deletion_service, "_locked_created_at",
-                             after=True)
-    deleting = asyncio.create_task(
+    deletes, before = len(pids["delete"]), len(pids["decide"])
+    entered, release = pause(monkeypatch, producers, account_deletion_service,
+                             "_locked_created_at", after=True)
+    deleting = producers.start(
         delete_account(api, headers) if deleter == "api" else operator_retry(sessions))
-    try:
-        await asyncio.wait_for(entered.wait(), WAIT)  # The deletion holds the user FOR UPDATE.
-        deciding = asyncio.create_task(api.put(
-            "/api/v1/users/me/ai-consent", headers=headers,
-            json={"status": sent, "notice_version": 1}))
-        await until_waiting(sessions, 1)
-        assert not deciding.done()
-    finally:
-        release.set()
+    await asyncio.wait_for(entered.wait(), WAIT)  # The deletion holds the user FOR UPDATE.
+    delete_pid = pids["delete"][deletes]
+    deciding = producers.start(api.put(
+        "/api/v1/users/me/ai-consent", headers=headers,
+        json={"status": sent, "notice_version": 1}))
+    await until_blocked(sessions, await recorded(pids, "decide", before), delete_pid)
+    release.set()
     deleted = await asyncio.wait_for(deleting, WAIT)
     if deleter == "api":
         assert deleted.status_code == 204
@@ -426,18 +761,80 @@ async def test_deletion_first_then_decision(independent_api, monkeypatch, row, d
     assert await consent_rows(sessions, user_id) == []
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def remove_deletion_reasons(independent_api):
-    # Reason rows are not tied to the account, so remove this test's rows explicitly.
-    sessions = independent_api[3]
+# Waits name their PIDs, so an unrelated lock wait cannot satisfy them; a failure while
+# requests wait still releases and collects every request.
+
+async def hold_unrelated_lock(sessions, started):
     async with sessions() as session:
-        last = await session.scalar(
-            text("SELECT coalesce(max(id), 0) FROM account_deletion_reasons"))
-    yield
+        started.append(await backend_pid(session))
+        await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": UNRELATED_LOCK})
+        await session.rollback()
+
+
+async def test_an_unrelated_lock_wait_does_not_satisfy_the_wait(
+    independent_api, producers, pids,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    await decide(api, headers, "granted")
+    unrelated_pids = []
+    async with sessions() as blocker, sessions() as holder:
+        blocker_pid = await backend_pid(blocker)
+        await blocker.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": UNRELATED_LOCK})
+        unrelated = producers.start(hold_unrelated_lock(sessions, unrelated_pids))
+        for _ in range(250):
+            if unrelated_pids:
+                break
+            await asyncio.sleep(0.02)
+        await until_blocked(sessions, unrelated_pids[0], blocker_pid)
+        # A count of lock waiters is already 1 before the decision starts.
+        assert await lock_waiters(sessions) >= 1
+        holder_pid = await backend_pid(holder)
+        await holder.execute(text(
+            "SELECT 1 FROM ai_transfer_consents WHERE user_id = :u FOR UPDATE"), {"u": user_id})
+        deciding = producers.start(decide(api, headers, "denied"))
+        decide_pid = await recorded(pids, "decide", 1)
+        await until_blocked(sessions, decide_pid, holder_pid)
+        assert not await sessions_scalar(
+            sessions, "SELECT :h = ANY(pg_blocking_pids(:w))", h=holder_pid, w=unrelated_pids[0])
+        assert sorted(await blocked_pids(sessions, [decide_pid, unrelated_pids[0]])) == sorted(
+            [decide_pid, unrelated_pids[0]])
+        await holder.rollback()
+        assert (await asyncio.wait_for(deciding, WAIT))["status"] == "denied"
+        await blocker.rollback()
+    await asyncio.wait_for(unrelated, WAIT)
+
+
+async def sessions_scalar(sessions, sql, **params):
     async with sessions() as session:
-        await session.execute(
-            text("DELETE FROM account_deletion_reasons WHERE id > :id"), {"id": last})
-        await session.commit()
+        return await session.scalar(text(sql), params)
+
+
+async def test_a_failure_while_requests_wait_still_collects_them(
+    independent_api, recommendation_provider, monkeypatch, producers, pids,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    await decide(api, headers, "granted")
+    entered, _ = pause(monkeypatch, producers, DailyRecommendationLimit, "admit", after=True)
+    saving = producers.start(save(api, headers, "web"))
+    deciding = None
+    with pytest.raises(AssertionError, match="injected"):
+        async with sessions() as holder:
+            holder_pid = await backend_pid(holder)
+            await holder.execute(text(
+                "SELECT 1 FROM ai_transfer_consents WHERE user_id = :u FOR UPDATE"),
+                {"u": user_id})
+            deciding = producers.start(decide(api, headers, "denied"))
+            await asyncio.wait_for(entered.wait(), WAIT)
+            await until_blocked(sessions, await recorded(pids, "decide", 1), holder_pid)
+            raise AssertionError("injected failure while both requests wait")
+    await producers.close()
+    assert saving.done() and deciding.done()
+    assert await blocked_pids(sessions, [*pids["decide"], *pids["save"]]) == []
+    # The account's own rows can be cleaned up right away.
+    async with sessions.begin() as session:
+        await session.execute(text("SET LOCAL lock_timeout = '1s'"))
+        await session.execute(text(
+            "DELETE FROM ai_transfer_consents WHERE user_id = :u"), {"u": user_id})
 
 
 # 게스트 로그인 전환: the record belongs to the account id.
@@ -463,35 +860,31 @@ async def test_guest_upgrade_keeps_the_decision(
 
 @pytest.mark.parametrize("first", ["upgrade", "decision"])
 async def test_guest_upgrade_overlapping_a_decision_keeps_it_on_the_account(
-    independent_api, recommendation_provider, monkeypatch, first,
+    independent_api, recommendation_provider, monkeypatch, producers, pids, first,
 ):
     """Both run at once on separate connections: the upgrade's user FOR UPDATE and the
     decision's KEY SHARE take turns, and the decision stays with the same account id."""
     api, headers, user_id, sessions, _, _ = independent_api
     monkeypatch.setattr(settings, "ai_consent_required", True)
     if first == "upgrade":
-        entered, release = pause(monkeypatch, UserRepository, "get_for_update", after=True)
-        upgrading = asyncio.create_task(upgrade(api, headers))
-        try:
-            await asyncio.wait_for(entered.wait(), WAIT)  # The upgrade holds FOR UPDATE.
-            deciding = asyncio.create_task(decide(api, headers, "granted"))
-            await until_waiting(sessions, 1)  # The decision waits for its KEY SHARE.
-            assert not deciding.done()
-        finally:
-            release.set()
+        entered, release = pause(monkeypatch, producers, UserRepository, "get_for_update",
+                                 after=True)
+        upgrading = producers.start(upgrade(api, headers))
+        await asyncio.wait_for(entered.wait(), WAIT)  # The upgrade holds FOR UPDATE.
+        deciding = producers.start(decide(api, headers, "granted"))
+        await until_blocked(sessions, await recorded(pids, "decide"),
+                            await recorded(pids, "upgrade"))
+        release.set()
         new_headers = await asyncio.wait_for(upgrading, WAIT)
         decided = await asyncio.wait_for(deciding, WAIT)
     else:
         async with sessions() as holder:
-            # Keep the decision inside its transaction, after its user KEY SHARE lock.
-            await holder.execute(text(
-                "INSERT INTO ai_transfer_consents VALUES (:u, 'denied', 1, now(), false)"),
-                {"u": user_id})
-            deciding = asyncio.create_task(decide(api, headers, "granted"))
-            await until_waiting(sessions, 1)
-            upgrading = asyncio.create_task(upgrade(api, headers))
-            await until_waiting(sessions, 2)  # The upgrade's FOR UPDATE waits too.
-            assert not deciding.done() and not upgrading.done()
+            holder_pid = await hold_decisions(holder)
+            deciding = producers.start(decide(api, headers, "granted"))
+            decide_pid = await recorded(pids, "decide")
+            await until_blocked(sessions, decide_pid, holder_pid)
+            upgrading = producers.start(upgrade(api, headers))
+            await until_blocked(sessions, await recorded(pids, "upgrade"), decide_pid)
             await holder.rollback()
         decided = await asyncio.wait_for(deciding, WAIT)
         new_headers = await asyncio.wait_for(upgrading, WAIT)

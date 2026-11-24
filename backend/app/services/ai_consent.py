@@ -47,6 +47,21 @@ def ai_allowed(record: ConsentRecord | None, *, required: bool, data_at: datetim
     return not record.granted_after_denial or data_at >= record.decided_at
 
 
+def save_allowed(
+    record: ConsentRecord | None, *, started_under: ConsentRecord | None, required: bool,
+) -> bool:
+    """Whether a save request may send data now. `started_under` is the committed record its
+    first check read. A re-grant covers the save only when the save started under that same
+    committed decision; a re-grant committed during the save is another decision and does
+    not. A first grant has no such condition."""
+    status = effective_status(record)
+    if status == DENIED:
+        return False
+    if status == UNDECIDED:
+        return not required
+    return not record.granted_after_denial or started_under == record
+
+
 _READ = text("""
     SELECT clock_timestamp() AS now, c.status, c.notice_version, c.decided_at,
            c.granted_after_denial
@@ -75,18 +90,22 @@ async def read_consent(
 class SaveAIConsent:
     """The AI consent checks of one save request (G1a·G1b·G2a·G2b·G3).
 
-    The request's data time is the DB clock read at its first check.
+    The request starts under the committed decision its first check reads. A decision is
+    identified by the whole record: a change always writes a new time.
     """
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
-        self.data_at: datetime | None = None
+        self.started = False
+        self.started_under: ConsentRecord | None = None
 
     async def allows(self, user_id: int) -> bool:
-        now, record = await read_consent(self.session, user_id)
-        if self.data_at is None:
-            self.data_at = now
-        return ai_allowed(record, required=settings.ai_consent_required, data_at=self.data_at)
+        _, record = await read_consent(self.session, user_id)
+        if not self.started:
+            self.started, self.started_under = True, record
+        return save_allowed(
+            record, started_under=self.started_under, required=settings.ai_consent_required,
+        )
 
 
 _LOCK_USER = text("SELECT id FROM users WHERE id = :user_id FOR KEY SHARE")
@@ -97,7 +116,8 @@ _UPSERT = text("""
     ON CONFLICT (user_id) DO UPDATE SET
         status = excluded.status,
         notice_version = excluded.notice_version,
-        decided_at = excluded.decided_at,
+        -- Taken after this row's lock: a decision that waited is not dated before the wait.
+        decided_at = clock_timestamp(),
         granted_after_denial = (c.status = 'denied' AND excluded.status = 'granted')
     WHERE c.status IS DISTINCT FROM excluded.status
 """)
