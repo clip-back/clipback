@@ -6,12 +6,14 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings
-from app.integrations.summary import SummaryError, SummaryResult
+from app.integrations.summary import SummaryError, SummaryResult, summary_send_guard
 from app.models.content import Content
 from app.models.content_event import ContentEventType
 from app.models.summary_job import SummaryJob
@@ -20,6 +22,7 @@ from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
 from app.repositories.usage_record_repository import UsageRecordRepository
+from app.services import ai_consent
 from app.services.summary_kinds import summary_kinds
 
 # The `youtube_summary_*` log events cover every job kind; `kind` tells them apart.
@@ -35,6 +38,7 @@ class ClaimedJob:
     lease_token: str
     candidates: list[dict]
     kind: str
+    saved_at: datetime | None = None
 
 
 class SummaryWorker:
@@ -72,15 +76,23 @@ class SummaryWorker:
                 job.lease_token = job.lease_expires_at = None
                 await UsageRecordRepository(session).release_summary(job.content_id)
                 return None
+            user_id, saved_at = (await session.execute(
+                select(Content.user_id, Content.saved_at).where(Content.id == job.content_id)
+            )).one()
+            _, consent = await ai_consent.read_consent(session, user_id)
+            if not ai_consent.ai_allowed(
+                consent, required=self.config.ai_consent_required, data_at=saved_at,
+            ):
+                job.status, job.error_code = "skipped", ai_consent.AI_CONSENT_REQUIRED
+                job.lease_token = job.lease_expires_at = None
+                await UsageRecordRepository(session).release_summary(job.content_id)
+                return None
             recovered = job.status == "processing"
             job.status = "processing"
             job.attempts += 1
             job.lease_token = str(uuid4())
             job.lease_expires_at = now + timedelta(minutes=5)
             job.error_code = None
-            user_id = await session.scalar(
-                select(Content.user_id).where(Content.id == job.content_id)
-            )
             candidates = await CategoryRepository(session).list_recommendation_candidates(user_id)
             pending = await session.scalar(
                 select(func.count())
@@ -108,7 +120,26 @@ class SummaryWorker:
                 lease_token=job.lease_token,
                 candidates=[{"id": c.id, "name": c.name} for c in candidates],
                 kind=job.kind,
+                saved_at=saved_at,
             )
+
+    async def _authorize_send(self, claimed: ClaimedJob, saved_at: datetime) -> None:
+        try:
+            async with self.sessions() as session:
+                allowed = await ai_consent.summary_send_allowed(
+                    session, content_id=claimed.content_id, user_id=claimed.user_id,
+                    token=claimed.lease_token, saved_at=saved_at,
+                    required=self.config.ai_consent_required,
+                )
+        except SQLAlchemyError as exc:
+            error = SummaryError("provider_error", retryable=True)
+            error.reason = "ai_consent_read_failed"
+            raise error from exc
+        if allowed is None:
+            # Finish still fences this attempt, including an error from the old lease.
+            raise SummaryError("timeout", retryable=True)
+        if not allowed:
+            raise SummaryError(ai_consent.AI_CONSENT_REQUIRED, skipped=True)
 
     async def run_once(self) -> bool:
         if not self.enabled_kinds():
@@ -132,7 +163,12 @@ class SummaryWorker:
         unexpected = {}
         try:
             kind = self.kinds.get(claimed.kind)
-            result = await kind.summarize(claimed.target_id, claimed.model, claimed.candidates)
+            check = (
+                partial(self._authorize_send, claimed, claimed.saved_at)
+                if claimed.saved_at is not None else None
+            )
+            with summary_send_guard(check):
+                result = await kind.summarize(claimed.target_id, claimed.model, claimed.candidates)
         except SummaryError as exc:
             error = exc
         except Exception as exc:

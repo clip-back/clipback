@@ -218,3 +218,20 @@ def test_real_failure_leaves_source_intact_and_cleans_resources(real_backup, tmp
         check=True,
     )
     assert "invalid-private-token" not in result.stdout.decode()
+
+
+def test_restore_verifies_the_original_consent_table_count(real_backup, tmp_path):
+    import shutil
+
+    directory, manifest, credentials, image = real_backup
+    assert manifest["tables"]["ai_transfer_consents"] == 0
+    for path in directory.iterdir():
+        shutil.copy2(path, tmp_path / path.name)
+    wrong_manifest = {**manifest, "tables": {**manifest["tables"], "ai_transfer_consents": 1}}
+    (tmp_path / "manifest.json").write_text(json.dumps(wrong_manifest))
+
+    report = check(tmp_path, tmp_path / credentials.name, image)
+
+    assert report["passed"] is False
+    assert report["error"] == "restored_data_mismatch"
+    assert report["cleanup_passed"] is True

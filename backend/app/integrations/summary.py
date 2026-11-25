@@ -1,6 +1,9 @@
 """Summary result, error and result validation shared by every summary client, whatever the kind."""
 
 import re
+from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from app.schemas.tag import clean_ai_tag_names
@@ -11,6 +14,26 @@ MAX_HEADLINE_LENGTH = 40
 MAX_POINT_LENGTH = 80
 MAX_SUMMARY_POINTS = 10
 MAX_SUMMARY_LENGTH = 1000
+
+_before_send: ContextVar[Callable[[], Awaitable[None]] | None] = ContextVar(
+    "summary_before_send", default=None,
+)
+
+
+@contextmanager
+def summary_send_guard(check: Callable[[], Awaitable[None]] | None):
+    """Bind the check to one worker attempt while preserving the kind's summarize interface."""
+    token = _before_send.set(check)
+    try:
+        yield
+    finally:
+        _before_send.reset(token)
+
+
+async def check_summary_send() -> None:
+    check = _before_send.get()
+    if check is not None:
+        await check()
 
 SUMMARY_PROMPT = (
     "요약은 headline(핵심 한 줄)과 points(요점)로 나눈다. "

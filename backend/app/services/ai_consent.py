@@ -6,14 +6,18 @@ identity cache), so a decision committed before a judgment starts is always seen
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy import text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AuthenticationError
+from app.models.content import Content
+from app.models.summary_job import SummaryJob
+from app.models.usage_record import UsageRecord
+from app.repositories.usage_record_repository import AI_SUMMARY
 
 UNDECIDED = "undecided"
 GRANTED = "granted"
@@ -91,6 +95,27 @@ async def read_consent(
     return row.now, _record(row)
 
 
+_READ_SUMMARY_SEND = text("""
+    SELECT j.lease_expires_at, c.status, c.notice_version, c.decided_at, c.granted_after_denial
+    FROM summary_jobs AS j
+    LEFT JOIN ai_transfer_consents AS c ON c.user_id = :user_id
+    WHERE j.content_id = :content_id AND j.status = 'processing' AND j.lease_token = :token
+""")
+
+
+async def summary_send_allowed(
+    session: AsyncSession, *, content_id: int, user_id: int, token: str,
+    saved_at: datetime, required: bool,
+) -> bool | None:
+    """G5 reads the lease and committed consent together. None means the attempt lost its lease."""
+    row = (await session.execute(
+        _READ_SUMMARY_SEND, {"content_id": content_id, "user_id": user_id, "token": token},
+    )).one_or_none()
+    if row is None or row.lease_expires_at is None or row.lease_expires_at <= datetime.now(UTC):
+        return None
+    return ai_allowed(_record(row), required=required, data_at=saved_at)
+
+
 class SaveAIConsent:
     """The AI consent checks of one save request (G1a·G1b·G2a·G2b·G3).
 
@@ -126,11 +151,32 @@ _UPSERT = text("""
         decided_at = clock_timestamp(),
         granted_after_denial = (c.status = 'denied' AND excluded.status = 'granted')
     WHERE c.status IS DISTINCT FROM excluded.status
+    RETURNING status
 """)
 _SELECT = text("""
     SELECT status, notice_version, decided_at, granted_after_denial
     FROM ai_transfer_consents WHERE user_id = :user_id
 """)
+
+
+async def _cancel_queued_summaries(session: AsyncSession, user_id: int) -> None:
+    cancelled = (
+        update(SummaryJob)
+        .where(
+            SummaryJob.status == "queued",
+            SummaryJob.content_id.in_(select(Content.id).where(Content.user_id == user_id)),
+        )
+        .values(
+            status="skipped", error_code=AI_CONSENT_REQUIRED,
+            lease_token=None, lease_expires_at=None,
+        )
+        .returning(SummaryJob.content_id)
+        .cte("cancelled")
+    )
+    await session.execute(delete(UsageRecord).where(
+        UsageRecord.kind == AI_SUMMARY,
+        UsageRecord.content_id.in_(select(cancelled.c.content_id)),
+    ))
 
 
 async def decide(
@@ -142,9 +188,11 @@ async def decide(
         # with the photo save's NO KEY UPDATE.
         if await session.scalar(_LOCK_USER, {"user_id": user_id}) is None:
             raise AuthenticationError()
-        await session.execute(
+        changed_status = await session.scalar(
             _UPSERT, {"user_id": user_id, "status": status, "notice_version": NOTICE_VERSION},
         )
+        if changed_status == DENIED:
+            await _cancel_queued_summaries(session, user_id)
         record = _record((await session.execute(_SELECT, {"user_id": user_id})).one())
         await session.commit()
     except Exception:

@@ -18,6 +18,11 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/health/ai-consent")
+async def ai_consent_health() -> dict[str, bool]:
+    return {"ai_consent_required": settings.ai_consent_required}
+
+
 @router.get(
     "/health/ready",
     response_model=dict[str, str],
