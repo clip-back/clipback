@@ -91,80 +91,215 @@ void main() {
     }
   });
 
-  // A refused refresh shared by callers with different deadlines (diagnosis of the
-  // share_lifecycle regression): the session callback waits for a barrier bounded by
-  // the current request scope, as the app's does. The session ends once, at the
-  // earliest caller deadline, and no caller reports the 401 before that.
+  // A refused refresh shared by callers with different deadlines (#474 재검수 3차).
+  // The session callback waits for a native barrier bounded by the current
+  // request scope, as the app's does. Each caller stops at its own deadline or
+  // cancellation without ending the session; the one ending waits for the
+  // barrier while any caller still waits, and an ended caller does not cut it.
   group('a refused shared refresh', () {
-    for (final shortFirst in [true, false]) {
-      testWidgets(
-        '${shortFirst ? 'short' : 'long'} deadline caller first ends the session once',
-        (tester) async {
-          var clears = 0;
-          final server = _Server([
-            _now(_json({'detail': 'expired'}, 401)),
-            () => Future.delayed(
-              const Duration(seconds: 1),
-              () => _json({'detail': 'expired'}, 401),
-            ),
-            _now(_json({'detail': 'expired'}, 401)),
-          ]);
-          addTearDown(server.client.close);
-          final never = Completer<void>();
-          final api = ClipbackApi(
-            client: server.client,
-            onSessionInvalidated: () async {
-              final scope = ApiRequestScope.current;
-              try {
-                await (scope == null ? never.future : scope.wait(never.future));
-              } catch (_) {}
-              clears++;
-            },
-          )..restoreSession(_session);
-          final seen = <String, int>{};
-          void read(String name, Duration deadline) {
-            final scope = ApiRequestScope(timeout: deadline);
-            unawaited(
-              scope
-                  .run(() => scope.wait(api.readMe()))
-                  .then<void>(
-                    (_) => seen[name] = -1,
-                    onError: (Object error) {
-                      final code = error is ClipbackApiException
-                          ? error.statusCode
-                          : null;
-                      // Clears already done when this caller learns the outcome.
-                      seen[name] = code == 401 ? clears : 100 + clears;
-                    },
-                  ),
-            );
-          }
+    late int clears;
+    late Completer<void> barrier;
+    // How a caller ended and how many clears were done when it learned it.
+    final outcomes = <String, (String, int)>{};
 
-          read(
-            shortFirst ? 'short' : 'long',
-            Duration(seconds: shortFirst ? 5 : 15),
-          );
+    ClipbackApi barrierApi(_Server server) {
+      clears = 0;
+      outcomes.clear();
+      barrier = Completer<void>();
+      addTearDown(server.client.close);
+      return ClipbackApi(
+        client: server.client,
+        onSessionInvalidated: () async {
+          final scope = ApiRequestScope.current;
+          try {
+            await (scope == null ? barrier.future : scope.wait(barrier.future));
+          } catch (_) {}
+          clears++;
+        },
+      )..restoreSession(_session);
+    }
+
+    void watch(String name, Future<Object?> request) {
+      outcomes.remove(name);
+      unawaited(
+        request.then<void>(
+          (value) =>
+              outcomes[name] = (value is Enum ? value.name : 'ok', clears),
+          onError: (Object error) => outcomes[name] = (
+            error is ClipbackApiException
+                ? '${error.statusCode ?? error.message}'
+                : '${error.runtimeType}',
+            clears,
+          ),
+        ),
+      );
+    }
+
+    ApiRequestScope read(ClipbackApi api, String name, {Duration? deadline}) {
+      final scope = ApiRequestScope(timeout: deadline);
+      watch(name, scope.run(() => scope.wait(api.readMe())));
+      return scope;
+    }
+
+    List<Future<http.Response> Function()> twoReadsSharingARefusal() => [
+      _now(_json({'detail': 'expired'}, 401)),
+      () => Future.delayed(
+        const Duration(seconds: 1),
+        () => _json({'detail': 'expired'}, 401),
+      ),
+      _now(_json({'detail': 'expired'}, 401)),
+    ];
+
+    for (final shortFirst in [true, false]) {
+      final order = shortFirst ? 'short first' : 'long first';
+      testWidgets(
+        '$order: the short caller times out alone and the long one waits for the barrier',
+        (tester) async {
+          final server = _Server(twoReadsSharingARefusal());
+          final api = barrierApi(server);
+          void short() =>
+              read(api, 'short', deadline: const Duration(seconds: 5));
+          void long() =>
+              read(api, 'long', deadline: const Duration(seconds: 15));
+          shortFirst ? short() : long();
           await tester.pump(const Duration(milliseconds: 500));
-          read(
-            shortFirst ? 'long' : 'short',
-            Duration(seconds: shortFirst ? 15 : 5),
-          );
-          await tester.pump(const Duration(milliseconds: 100));
+          shortFirst ? long() : short();
+          await tester.pump(const Duration(milliseconds: 600));
           expect(server.requests, hasLength(3)); // Both joined one refresh.
-          await tester.pump(const Duration(seconds: 4));
-          expect(clears, 0); // Before the earliest deadline the barrier holds.
-          await tester.pump(const Duration(seconds: 1));
+          expect(clears, 0); // The refusal arrived; the barrier holds.
+          await tester.pump(const Duration(milliseconds: 4500)); // 5.6 s
+          // Past the short deadline (5 s or 5.5 s) only the short caller ended.
+          expect(outcomes['short'], ('TimeoutException', 0));
+          expect(outcomes['long'], isNull);
+          await tester.pump(const Duration(seconds: 2)); // 7.6 s
+          expect(clears, 0);
+          barrier.complete();
+          await tester.pump();
           expect(clears, 1);
-          // The long caller learns the 401 only after the session ended.
-          expect(seen['long'], 1);
-          // The short caller ends at its own deadline (timeout), after the ending.
-          expect(seen['short'], isNotNull);
+          expect(outcomes['long'], ('401', 1));
           await tester.pump(const Duration(seconds: 30));
           expect(clears, 1);
           expect(server.requests, hasLength(3));
         },
       );
+
+      testWidgets(
+        '$order: cancelling the short caller does not end the long caller early',
+        (tester) async {
+          final server = _Server(twoReadsSharingARefusal());
+          final api = barrierApi(server);
+          late ApiRequestScope shortScope;
+          void short() => shortScope = read(api, 'short');
+          void long() =>
+              read(api, 'long', deadline: const Duration(seconds: 15));
+          shortFirst ? short() : long();
+          await tester.pump(const Duration(milliseconds: 500));
+          shortFirst ? long() : short();
+          await tester.pump(const Duration(milliseconds: 600));
+          expect(server.requests, hasLength(3));
+          shortScope.cancel();
+          await tester.pump();
+          expect(outcomes['short'], ('StateError', 0));
+          await tester.pump(const Duration(seconds: 5));
+          expect(clears, 0);
+          expect(outcomes['long'], isNull);
+          barrier.complete();
+          await tester.pump();
+          expect(clears, 1);
+          expect(outcomes['long'], ('401', 1));
+          await tester.pump(const Duration(seconds: 30));
+          expect(clears, 1);
+        },
+      );
     }
+
+    testWidgets('with the barrier held the last caller deadline ends it', (
+      tester,
+    ) async {
+      final server = _Server(twoReadsSharingARefusal());
+      final api = barrierApi(server);
+      read(api, 'short', deadline: const Duration(seconds: 5));
+      await tester.pump(const Duration(milliseconds: 500));
+      read(api, 'long', deadline: const Duration(seconds: 15));
+      await tester.pump(const Duration(seconds: 5)); // 5.5 s
+      expect(outcomes['short'], ('TimeoutException', 0));
+      await tester.pump(const Duration(seconds: 9)); // 14.5 s
+      expect(clears, 0);
+      expect(outcomes['long'], isNull);
+      await tester.pump(const Duration(seconds: 1)); // 15.5 s
+      expect(clears, 1);
+      // The long caller learns its own deadline first; the ending, cut by the
+      // same timer, clears right after.
+      expect(outcomes['long'], ('TimeoutException', 0));
+      await tester.pump(const Duration(seconds: 30));
+      expect(clears, 1);
+    });
+
+    testWidgets(
+      'an expired PUT does not cut the barrier a valid GET waits for',
+      (tester) async {
+        final refusal = Completer<http.Response>();
+        // The PUT is refused at 4 s, so its refresh (own 10-second limit) is
+        // still waiting when the PUT deadline passes at 10 s.
+        final server = _Server([
+          () => Future.delayed(
+            const Duration(seconds: 4),
+            () => _json({'detail': 'expired'}, 401),
+          ), // PUT
+          () => refusal.future, // refresh
+          _now(_json({'detail': 'expired'}, 401)), // GET
+        ]);
+        final api = barrierApi(server);
+        watch('put', api.saveAiConsent(AiConsentStatus.denied));
+        await tester.pump(const Duration(seconds: 5));
+        final get = read(api, 'get', deadline: const Duration(seconds: 15));
+        await tester.pump();
+        expect(server.requests, hasLength(3)); // The GET joined the refresh.
+        await tester.pump(const Duration(seconds: 5)); // 10 s
+        expect(outcomes['put'], ('unconfirmed', 0));
+        refusal.complete(_json({'detail': 'expired'}, 401));
+        await tester.pump(const Duration(seconds: 1)); // 11 s
+        expect(clears, 0);
+        expect(get.isActive, isTrue);
+        expect(outcomes['get'], isNull);
+        barrier.complete();
+        await tester.pump();
+        expect(clears, 1);
+        expect(outcomes['get'], ('401', 1));
+        await tester.pump(const Duration(seconds: 30));
+        expect(clears, 1);
+        expect(server.requests.where((r) => r.method == 'PUT'), hasLength(1));
+        expect(
+          server.requests.where((r) => r.url.path.endsWith('/auth/refresh')),
+          hasLength(1),
+        );
+      },
+    );
+
+    testWidgets('a lone late refusal ends the session without the barrier', (
+      tester,
+    ) async {
+      final refusal = Completer<http.Response>();
+      final server = _Server([
+        () => Future.delayed(
+          const Duration(seconds: 4),
+          () => _json({'detail': 'expired'}, 401),
+        ),
+        () => refusal.future,
+      ]);
+      final api = barrierApi(server);
+      watch('put', api.saveAiConsent(AiConsentStatus.denied));
+      await tester.pump(const Duration(seconds: 11));
+      expect(outcomes['put'], ('unconfirmed', 0));
+      expect(clears, 0);
+      refusal.complete(_json({'detail': 'expired'}, 401));
+      await tester.pump();
+      expect(barrier.isCompleted, isFalse);
+      expect(clears, 1);
+      await tester.pump(const Duration(seconds: 30));
+      expect(clears, 1);
+      expect(server.requests, hasLength(2));
+    });
   });
 
   group('saveAiConsent', () {

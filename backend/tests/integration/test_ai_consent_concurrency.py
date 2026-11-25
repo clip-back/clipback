@@ -14,15 +14,18 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event, func, select, text
+from sqlalchemy import delete, event, func, select, text
 
 from app.api.v1.endpoints import users as users_endpoint
 from app.core.config import settings
 from app.models.account_deletion_reason import AccountDeletionReason
+from app.models.category import Category
 from app.models.content import Content
 from app.models.content_asset import ContentAsset
+from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
 from app.models.usage_record import UsageRecord
+from app.models.user import User
 from app.repositories.event_repository import EventRepository
 from app.repositories.user_repository import UserRepository
 from app.services import account_deletion_service, ai_consent, usage_limits
@@ -752,47 +755,65 @@ async def test_reason_cleanup_keeps_rows_another_orm_session_wrote(
         await drop_reason(sessions, foreign)
 
 
+async def drop_account(sessions, user_id):
+    """What independent_api's cleanup does for its own account, for a second one."""
+    async with sessions.begin() as session:
+        for model in (ContentEvent, Content, Category):
+            await session.execute(delete(model).where(model.user_id == user_id))
+        await session.execute(delete(User).where(User.id == user_id))
+
+
+async def opened_session(request_pids, index):
+    """The PID of the index-th request session independent_api opened."""
+    for _ in range(250):
+        if len(request_pids) > index:
+            return request_pids[index]
+        await asyncio.sleep(0.02)
+    raise AssertionError("the request opened no session")
+
+
 async def test_reason_cleanup_keeps_another_account_deleted_through_the_same_api(
     independent_api, monkeypatch, producers, pids, own_reasons,
 ):
-    """Review recheck 2, Standards 1: a second account leaves through DELETE /users/me while
-    this test's deletion is in progress; its reason row must survive this test's cleanup."""
-    api, headers, _, sessions, _, _ = independent_api
-    other_headers, _, _ = await guest(api)
-    async with sessions() as session:
-        last = await session.scalar(text(
-            "SELECT coalesce(max(id), 0) FROM account_deletion_reasons"))
-    entered, release = pause(monkeypatch, producers, account_deletion_service,
-                             "apply_account_deletion", after=True)
-    mine = producers.start(delete_account(api, headers))
-    await asyncio.wait_for(entered.wait(), WAIT)  # Holds the deletion ledger lock.
-    my_pid = await recorded(pids, "delete")
-    theirs = producers.start(api.request("DELETE", "/api/v1/users/me", headers=other_headers,
-                                         json={"reasons": ["rejoin"]}))
-    # The other deletion really overlaps: PostgreSQL reports it waiting for this one.
-    for _ in range(250):
-        async with sessions() as session:
-            waiting = await session.scalar(text(
-                "SELECT count(*) FROM pg_stat_activity WHERE :h = ANY(pg_blocking_pids(pid))"),
-                {"h": my_pid})
-        if waiting:
-            break
-        await asyncio.sleep(0.02)
-    assert waiting == 1 and not theirs.done()
-    release.set()
-    assert (await asyncio.wait_for(mine, WAIT)).status_code == 204
-    assert (await asyncio.wait_for(theirs, WAIT)).status_code == 204
-    async with sessions() as session:
-        written = dict((await session.execute(text(
-            "SELECT id, reasons FROM account_deletion_reasons WHERE id > :id"),
-            {"id": last})).all())
-    other_row = next(row for row, reasons in written.items() if reasons == ["rejoin"])
+    """Review recheck 2, Standards 1 (recheck 3, Standards 1): a second account leaves
+    through DELETE /users/me while this test's deletion is in progress; its reason row must
+    survive this test's cleanup. Each request is tied to its own PID, the PID it waits for
+    and the reason row it inserted; the second account and its row are cleaned up from its
+    creation on, after every request was collected."""
+    api, headers, _, sessions, request_pids, _ = independent_api
+    other_headers, _, other = await guest(api)
+    theirs_rows = OwnReasonRows(producers, other["id"])
     try:
+        monkeypatch.setattr(users_endpoint, "delete_account",
+                            theirs_rows.wrap(users_endpoint.delete_account))
+        entered, release = pause(monkeypatch, producers, account_deletion_service,
+                                 "apply_account_deletion", after=True)
+        mine = producers.start(delete_account(api, headers))
+        await asyncio.wait_for(entered.wait(), WAIT)  # Holds the deletion ledger lock.
+        my_pid = pids["delete"][0]
+        assert set(pids["delete"]) == {my_pid}  # Both account row reads ran on its session.
+        # The second deletion stops at the ledger lock before its own row read, so its PID
+        # is the request session it opened (independent_api records each one).
+        opened = len(request_pids)
+        theirs = producers.start(api.request(
+            "DELETE", "/api/v1/users/me", headers=other_headers,
+            json={"reasons": ["rejoin"]}))
+        their_pid = await opened_session(request_pids, opened)
+        assert their_pid != my_pid
+        # The other deletion really overlaps: PostgreSQL reports its PID waiting for mine.
+        await until_blocked(sessions, their_pid, my_pid)
+        assert not theirs.done() and own_reasons.ids == [] and theirs_rows.ids == []
+        release.set()
+        assert (await asyncio.wait_for(mine, WAIT)).status_code == 204
+        assert (await asyncio.wait_for(theirs, WAIT)).status_code == 204
         await own_reasons.finish(sessions)  # What the fixture's exit does.
-        assert other_row not in own_reasons.ids
-        assert await existing_reasons(sessions, written) == [other_row]
+        assert len(own_reasons.ids) == 1 and len(theirs_rows.ids) == 1
+        my_row, their_row = own_reasons.ids[0], theirs_rows.ids[0]
+        assert my_row != their_row
+        assert await existing_reasons(sessions, [my_row, their_row]) == [their_row]
     finally:
-        await drop_reason(sessions, other_row)
+        await theirs_rows.finish(sessions)  # Collects every request, then drops its row.
+        await drop_account(sessions, other["id"])
 
 
 async def test_a_failure_while_a_decision_holds_its_commit_closes_its_own_session(

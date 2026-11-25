@@ -39,13 +39,15 @@ class AppDependencies {
     bool Function()? weeklyHome,
     bool Function()? weeklyVisible,
   }) {
-    final api = ClipbackApi(
+    late final ClipbackApi api;
+    api = ClipbackApi(
       originalImageCache: OriginalImageCache(),
       onSessionChanged: (_) async {
         if (!_disposed) await session.persistCurrentSession();
       },
       onSessionInvalidated: () async {
         if (_disposed) return;
+        final generation = api.sessionGeneration;
         try {
           final barrier = sharing.blockForSessionChange();
           final scope = ApiRequestScope.current;
@@ -54,7 +56,10 @@ class AppDependencies {
           // An unavailable native barrier cannot keep a known-invalid login usable.
           // The coordinator still owns the native barrier and any storage error.
         }
-        if (!_disposed) await session.invalidate();
+        // A login that replaced this one during the barrier keeps its session.
+        if (!_disposed && api.sessionGeneration == generation) {
+          await session.invalidate();
+        }
       },
     );
     final shares = ShareRepository(api, nativeShare ?? NativeShareService());
