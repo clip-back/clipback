@@ -458,7 +458,8 @@ class ClipbackApi {
   ApiRequestScope? _refreshScope;
   final _refreshOwners = <ApiRequestScope>{};
   bool _refreshHasUnscopedOwner = false;
-  final _endedRefreshes = Expando<bool>('refused refresh');
+  final _refusedRefreshEndings = Expando<Future<void>>('refused refresh');
+  final _refusedRefreshScopes = Expando<ApiRequestScope>('refused refresh');
   int? _logoutGeneration;
 
   bool get hasSession => _session != null;
@@ -1685,11 +1686,8 @@ class ClipbackApi {
       } catch (error) {
         scope?.checkActive();
         _checkSessionGeneration(generation);
-        if (error is ClipbackApiException &&
-            error.statusCode == 401 &&
-            _claimRefreshRejection(sharedRefresh)) {
-          _invalidateAssetCache();
-          await _onSessionInvalidated?.call();
+        if (error is ClipbackApiException && error.statusCode == 401) {
+          await _endSessionForRefusedRefresh(sharedRefresh);
         }
         if (keepRefreshForSession && error is! ClipbackApiException) {
           throw _RefreshFailed(error);
@@ -1729,24 +1727,47 @@ class ClipbackApi {
         onError: (Object error) async {
           if (scope == null || scope.isActive) return;
           if (generation != _sessionGeneration) return;
-          if (error is ClipbackApiException &&
-              error.statusCode == 401 &&
-              _claimRefreshRejection(refresh)) {
-            _invalidateAssetCache();
-            await _onSessionInvalidated?.call();
+          if (error is ClipbackApiException && error.statusCode == 401) {
+            await _endSessionForRefusedRefresh(refresh);
           }
         },
       ),
     );
   }
 
-  /// Whether this caller ends the session for a refused refresh: once per
-  /// shared refresh, so callers of the same refresh do not end it twice.
-  bool _claimRefreshRejection(Future<ApiSession>? refresh) {
-    if (refresh == null) return true;
-    if (_endedRefreshes[refresh] == true) return false;
-    _endedRefreshes[refresh] = true;
-    return true;
+  /// Ends the session for a refused refresh, once per shared refresh. Every
+  /// caller of that refresh waits for the one ending before its error goes on,
+  /// so none reports the 401 while the session is still stored. The ending runs
+  /// in its own request scope, which the session callback bounds its waits
+  /// with (such as the native share barrier); any waiting caller whose own
+  /// scope ends cuts it, so the ending keeps the earliest caller deadline as
+  /// each caller's own wait did before. Without a shared refresh the caller
+  /// ends the session in its own scope.
+  Future<void> _endSessionForRefusedRefresh(Future<ApiSession>? refresh) {
+    if (refresh == null) {
+      _invalidateAssetCache();
+      return _onSessionInvalidated?.call() ?? Future<void>.value();
+    }
+    var ending = _refusedRefreshEndings[refresh];
+    var endingScope = _refusedRefreshScopes[refresh];
+    if (ending == null || endingScope == null) {
+      final scope = endingScope = ApiRequestScope();
+      _invalidateAssetCache();
+      ending = scope
+          .run(() async => await _onSessionInvalidated?.call())
+          .whenComplete(scope.cancel);
+      _refusedRefreshEndings[refresh] = ending;
+      _refusedRefreshScopes[refresh] = scope;
+    }
+    final caller = ApiRequestScope.current;
+    if (caller != null && !identical(caller, endingScope)) {
+      if (caller.isActive) {
+        unawaited(caller.cancelled.then((_) => endingScope!.cancel()));
+      } else {
+        endingScope.cancel();
+      }
+    }
+    return ending;
   }
 
   void _throwForError(http.Response response) {

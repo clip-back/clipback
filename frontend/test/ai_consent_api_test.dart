@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clipback_frontend/clipback_api.dart';
+import 'package:clipback_frontend/data/services/api_request_scope.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -87,6 +88,82 @@ void main() {
         expect(user.aiConsentStatus, AiConsentStatus.unknown);
         expect(user.id, 7);
       });
+    }
+  });
+
+  // A refused refresh shared by callers with different deadlines (diagnosis of the
+  // share_lifecycle regression): the session callback waits for a barrier bounded by
+  // the current request scope, as the app's does. The session ends once, at the
+  // earliest caller deadline, and no caller reports the 401 before that.
+  group('a refused shared refresh', () {
+    for (final shortFirst in [true, false]) {
+      testWidgets(
+        '${shortFirst ? 'short' : 'long'} deadline caller first ends the session once',
+        (tester) async {
+          var clears = 0;
+          final server = _Server([
+            _now(_json({'detail': 'expired'}, 401)),
+            () => Future.delayed(
+              const Duration(seconds: 1),
+              () => _json({'detail': 'expired'}, 401),
+            ),
+            _now(_json({'detail': 'expired'}, 401)),
+          ]);
+          addTearDown(server.client.close);
+          final never = Completer<void>();
+          final api = ClipbackApi(
+            client: server.client,
+            onSessionInvalidated: () async {
+              final scope = ApiRequestScope.current;
+              try {
+                await (scope == null ? never.future : scope.wait(never.future));
+              } catch (_) {}
+              clears++;
+            },
+          )..restoreSession(_session);
+          final seen = <String, int>{};
+          void read(String name, Duration deadline) {
+            final scope = ApiRequestScope(timeout: deadline);
+            unawaited(
+              scope
+                  .run(() => scope.wait(api.readMe()))
+                  .then<void>(
+                    (_) => seen[name] = -1,
+                    onError: (Object error) {
+                      final code = error is ClipbackApiException
+                          ? error.statusCode
+                          : null;
+                      // Clears already done when this caller learns the outcome.
+                      seen[name] = code == 401 ? clears : 100 + clears;
+                    },
+                  ),
+            );
+          }
+
+          read(
+            shortFirst ? 'short' : 'long',
+            Duration(seconds: shortFirst ? 5 : 15),
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+          read(
+            shortFirst ? 'long' : 'short',
+            Duration(seconds: shortFirst ? 15 : 5),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+          expect(server.requests, hasLength(3)); // Both joined one refresh.
+          await tester.pump(const Duration(seconds: 4));
+          expect(clears, 0); // Before the earliest deadline the barrier holds.
+          await tester.pump(const Duration(seconds: 1));
+          expect(clears, 1);
+          // The long caller learns the 401 only after the session ended.
+          expect(seen['long'], 1);
+          // The short caller ends at its own deadline (timeout), after the ending.
+          expect(seen['short'], isNotNull);
+          await tester.pump(const Duration(seconds: 30));
+          expect(clears, 1);
+          expect(server.requests, hasLength(3));
+        },
+      );
     }
   });
 
