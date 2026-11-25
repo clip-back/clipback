@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,15 @@ def test_legacy_image_restore_applies_account_deletions_with_current_probe(bucke
             "--credentials-file", str(credentials), "--image", image, "--writers-frozen",
         ], fixture["env"])
 
+    # Keep the backup historical, then update the source before using current deletion code.
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=Path(__file__).resolve().parents[2],
+        env=fixture["env"],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
     delete_account(deleted["user_id"])
     # The current probe in the historical image fails while an account's rows remain.
     start_api()

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Request, Response, status
+from fastapi import APIRouter, Header, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserId, DatabaseSession, ShareWriteUserId
@@ -11,6 +11,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
+from app.repositories.usage_record_repository import UsageRecordRepository
 from app.schemas.content import (
     ContentCategoryUpdate,
     ContentCreate,
@@ -26,7 +27,7 @@ from app.services.content_save_flow import ContentSaveFlow
 from app.services.content_service import ContentService
 from app.services.extraction_service import ExtractionService
 from app.services.share_intake_service import ShareIntakeService
-from app.services.usage_limits import DailySummaryLimit
+from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
 
 router = APIRouter()
 
@@ -34,7 +35,6 @@ router = APIRouter()
 @router.post("", response_model=ContentRead, status_code=status.HTTP_201_CREATED)
 async def create_content(
     payload: ContentCreate,
-    request: Request,
     db: DatabaseSession,
     current_user_id: CurrentUserId,
     idempotency_key: UUID | None = Header(default=None),
@@ -42,7 +42,7 @@ async def create_content(
     return await ContentSaveFlow(
         _build_content_service(
             db,
-            summary_limit=request.app.state.daily_summary_limit,
+            summary_limit=MonthlySummaryLimit(UsageRecordRepository(db)),
         )
     ).save_link(
         user_id=current_user_id,
@@ -54,13 +54,12 @@ async def create_content(
 @router.post("/share", response_model=ContentRead, status_code=status.HTTP_201_CREATED)
 async def create_content_from_share(
     payload: ContentShareCreate,
-    request: Request,
     db: DatabaseSession,
     current_user_id: ShareWriteUserId,
     idempotency_key: UUID | None = Header(default=None),
 ) -> ContentRead:
     return await ContentSaveFlow(
-        _build_content_service(db, summary_limit=request.app.state.daily_summary_limit),
+        _build_content_service(db, summary_limit=MonthlySummaryLimit(UsageRecordRepository(db))),
         share_intake=ShareIntakeService(ExtractionService()),
     ).save_shared_link(
         user_id=current_user_id,
@@ -157,7 +156,7 @@ async def record_content_view(
 def _build_content_service(
     db: AsyncSession,
     *,
-    summary_limit: DailySummaryLimit | None = None,
+    summary_limit: MonthlySummaryLimit | None = None,
 ) -> ContentService:
     category_repository = CategoryRepository(db)
     return ContentService(
@@ -169,6 +168,7 @@ def _build_content_service(
         category_recommendation_service=CategoryRecommendationService(
             category_repository=category_repository,
             ai_client=get_ai_client(),
+            daily_limit=DailyRecommendationLimit(),
         ),
         tag_repository=TagRepository(db),
         storage_client=get_storage_client(),

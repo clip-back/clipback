@@ -358,7 +358,7 @@ async def test_recommendation_tags_do_not_consume_quota_or_fill_a_skipped_summar
     api, save_provider, monkeypatch,
 ):
     monkeypatch.setattr(settings, "instagram_summary_enabled", True)
-    monkeypatch.setattr(usage_limits, "GUEST_SUMMARY_DAILY_LIMIT", 1)
+    monkeypatch.setattr(usage_limits, "GUEST_SUMMARY_MONTHLY_LIMIT", 1)
     headers, _, _ = await guest(api)
 
     ordinary = await link(api, headers)
@@ -368,6 +368,6 @@ async def test_recommendation_tags_do_not_consume_quota_or_fill_a_skipped_summar
     assert [tag["name"] for tag in ordinary["tags"]] == ["추천"]
     assert queued["summary_status"] == "queued" and queued["tags"] == []
     assert skipped["summary_status"] == "skipped"
-    assert skipped["summary_error_code"] == "daily_limit_exceeded"
+    assert skipped["summary_error_code"] == "monthly_limit_exceeded"
     assert skipped["tags"] == []
     assert save_provider.calls == ["recommend", "recommend", "recommend"]

@@ -40,6 +40,12 @@ class Content(Base):
     __table_args__ = (
         CheckConstraint("open_count >= 0", name="ck_contents_open_count"),
         CheckConstraint("recommendation_count >= 0", name="ck_contents_recommendation_count"),
+        CheckConstraint(
+            "screenshot_summary_skip_reason IS NULL OR "
+            "(content_type = 'screenshot' AND "
+            "screenshot_summary_skip_reason = 'monthly_limit_exceeded')",
+            name="ck_contents_screenshot_summary_skip_reason",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -66,6 +72,7 @@ class Content(Base):
     )
     title: Mapped[str] = mapped_column(String(120))
     summary: Mapped[str] = mapped_column(Text)
+    screenshot_summary_skip_reason: Mapped[str | None] = mapped_column(String(32))
     original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     is_favorite: Mapped[bool] = mapped_column(
         Boolean,

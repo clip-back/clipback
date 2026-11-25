@@ -20,6 +20,7 @@ from app.repositories.content_asset_repository import ContentAssetRepository
 from app.repositories.content_repository import ContentRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.tag_repository import TagRepository
+from app.repositories.usage_record_repository import UsageRecordRepository
 from app.schemas.content import ContentAssetAccess, ContentRead
 from app.schemas.tag import UNSUPPORTED_TAG_CHARACTERS, TagNamesPayload
 from app.services.category_recommendation_service import CategoryRecommendationService
@@ -28,7 +29,7 @@ from app.services.content_service import ContentService
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.upload_service import UploadService
-from app.services.usage_limits import DailySummaryLimit
+from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
 
 
 class _ScreenshotMultipartParser(MultiPartParser):
@@ -103,10 +104,7 @@ async def upload_screenshot(
         normalized_tag_names = TagNamesPayload(tag_names=tag_names).tag_names
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
-    return await _build_save_flow(
-        db,
-        summary_limit=request.app.state.daily_summary_limit,
-    ).save_screenshot(
+    return await _build_save_flow(db).save_screenshot(
         **({"idempotency_key": idempotency_key} if idempotency_key else {}),
         user_id=current_user_id,
         file=file,
@@ -170,7 +168,9 @@ async def asset_access(
     )
 
 
-def _build_upload_service(db: AsyncSession) -> UploadService:
+def _build_upload_service(
+    db: AsyncSession, *, summary_limit: MonthlySummaryLimit | None = None,
+) -> UploadService:
     storage = get_storage_client()
     return UploadService(
         content_asset_repository=ContentAssetRepository(db),
@@ -178,15 +178,16 @@ def _build_upload_service(db: AsyncSession) -> UploadService:
         ocr_client=get_ocr_client(),
         image_storage_control=ImageUploadControl(db),
         image_upload_policy=ImageUploadPolicy(db, storage),
+        summary_limit=summary_limit,
     )
 
 
-def _build_save_flow(db: AsyncSession, *, summary_limit: DailySummaryLimit) -> ContentSaveFlow:
-    uploads = _build_upload_service(db)
+def _build_save_flow(db: AsyncSession) -> ContentSaveFlow:
+    summary_limit = MonthlySummaryLimit(UsageRecordRepository(db))
+    uploads = _build_upload_service(db, summary_limit=summary_limit)
     category_repository = CategoryRepository(db)
     return ContentSaveFlow(
         ContentService(
-            summary_limit=summary_limit,
             content_repository=ContentRepository(db),
             category_repository=category_repository,
             event_repository=EventRepository(db),
@@ -194,8 +195,10 @@ def _build_save_flow(db: AsyncSession, *, summary_limit: DailySummaryLimit) -> C
             category_recommendation_service=CategoryRecommendationService(
                 category_repository=category_repository,
                 ai_client=get_ai_client(),
+                daily_limit=DailyRecommendationLimit(),
             ),
             tag_repository=TagRepository(db),
+            summary_limit=summary_limit,
         ),
         uploads=uploads,
     )

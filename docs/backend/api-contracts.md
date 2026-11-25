@@ -43,8 +43,8 @@
   See [YouTube API, worker and rollout guide](../youtube-summary.md); enabled by default; Gemini and YouTube API keys are required.
 - Summarize saved Instagram reels/posts (`/reel/`, `/p/`, `/tv/`) asynchronously from the public page caption with OpenAI;
   disabled by default (`INSTAGRAM_SUMMARY_ENABLED`), see the Instagram section of the same guide.
-  저장 시 새로 `queued`로 만드는 자동 요약은 계정별 KST 하루 게스트 20개·로그인 100개까지이며, 초과해도 저장은 201로 성공하고 `skipped`·`daily_limit_exceeded`를 반환한다. 재시도는 세지 않는다.
-  `summary_error_code` also returns `content_unavailable`, `unsupported_content`, `insufficient_content` and `daily_limit_exceeded` (always `skipped`).
+  저장 시 새로 `queued`로 만드는 링크 자동 요약과 글자 읽기가 성공한 사진 요약은 계정별 월 한도를 공유한다. 한국 시간 달력 월 기준으로 게스트 20건·로그인 30건이다. 한도에 도달해도 저장은 201로 성공하고 `skipped`·`monthly_limit_exceeded`를 반환한다. 재요청과 요약 재시도는 기록을 추가하지 않는다.
+  `summary_error_code`에는 `content_unavailable`, `unsupported_content`, `insufficient_content`, `monthly_limit_exceeded`가 포함된다. 기존 `skipped` 작업에서는 `daily_limit_exceeded`도 반환할 수 있다.
 - Upload screenshot-based content.
 - Prefer manual category selection; otherwise use AI recommendation or uncategorized fallback.
 - Personalize default categories and support category editing, deletion, summaries, and recent lists.
@@ -926,7 +926,20 @@ from the image. This prompt applies to new uploads; existing saved summaries and
 descriptions extracted from links are unchanged. Actual model adherence requires
 checking real screenshot responses; mocked tests cannot verify writing quality.
 OCR failure preserves image saving with fallback content; valid manual category
-selection remains authoritative. Keep the existing `/data` volume mounted while
+selection remains authoritative.
+
+The shared monthly AI summary limit is checked after the image byte quota and before
+OCR. At the limit, the original is saved with the default title and summary. Manual
+categories and tags still apply, and a photo without a manual category is saved as
+uncategorized. The creation event has `ocr_status=skipped` and
+`ocr_failure_reason=monthly_limit_exceeded`. Upload, idempotent replay, detail,
+feed (including search), and category, tag, and favorite updates return
+`summary_status=skipped` and `summary_error_code=monthly_limit_exceeded` for that photo.
+Other photos return `not_requested` and `null`. OCR `success` counts once when the
+save commits, using the time the limit was checked. `no_text` and `failed` leave the
+count unchanged.
+
+Keep the existing `/data` volume mounted while
 local assets remain. S3 configuration and rollout checks are described in the
 [Railway deployment guide](../railway-deployment.md#bucket-원본-보관).
 

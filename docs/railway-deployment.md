@@ -88,6 +88,99 @@ SDK는 event loop 밖에서 실행하며 connect/read timeout과 재시도 상�
 현재 저장소의 로컬 테스트와 빌드는 운영 적용을 뜻하지 않습니다. 실제 배포 SHA·migration·검증은
 [배포 기록](release-process.md)에 별도로 남깁니다. 상세 계약은 [API 안내](backend/api-contracts.md#카테고리-생성수정-제출-복구)를 따릅니다.
 
+## 월 AI 요약 한도 전환
+
+### 배포 전 읽기 전용 확인
+
+1. 사용자가 Railway SQL 콘솔에서 [대상 집계 SQL 전문](../backend/alembic/sql/check_monthly_summary_backfill.sql)을 실행한다.
+2. `photo_events`(이번 달에 저장 이벤트가 있고 원본 콘텐츠가 남은 사진 이벤트 수), `unparseable_metadata`(비어 있거나 JSON으로 해석할 수 없는 이벤트 수), `eligible_links`(채우기 대상 링크 수), `eligible_screenshots`(채우기 대상 사진 콘텐츠 수)를 기록한다. 사진 이벤트가 여러 개여도 채우기 대상은 콘텐츠당 한 번 센다.
+3. `unparseable_metadata`가 0보다 크거나 집계가 예상과 다르면 전환을 멈추고 결과를 확인한다.
+
+### 배포와 재집계
+
+1. main 병합 뒤 Railway의 pre-deploy `alembic upgrade head`가 사용 기록 표와 사진 사유 칸을 만들고 리비전 `202611230026`에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 실행한다. 이번 달은 실행 시각의 한국 시간 기준이다.
+   - pre-deploy가 교착(`deadlock detected`)으로 실패하면 Railway 배포 로그에서 실패 원인을 확인한다. SQL 콘솔에서 `SELECT version_num FROM alembic_version;`를 실행해 이전 리비전 `202611170023`이 그대로인지 확인한 뒤 새 이미지를 다시 배포한다. 로그나 리비전이 이 조건과 다르면 원인을 확인하고 재배포 여부를 판단한다.
+2. 사용자가 Railway에서 새 서버 배포 완료와 옛 서버 종료를 확인한다. 공존 중 옛 서버가 저장한 링크·사진에는 사용 기록이 없고, 옛 worker가 최종 실패시킨 링크의 채운 기록은 남을 수 있다. 옛 서버가 새 사유를 먼저 읽으면 해당 목록·상세 요청이 실패할 수 있다.
+3. 아래 집계 SQL을 실행해 결과를 기록한다. 같은 SQL 콘솔에서 [채우기 SQL 전문](../backend/alembic/sql/backfill_monthly_summary_usage.sql)을 그대로 붙여 넣어 한 번 더 실행한다. `inserted`와 `removed`를 기록한 뒤 집계 SQL을 다시 실행해 전후 값을 남긴다. 추천 기록은 배포 시점부터 센다.
+
+```sql
+WITH month_kst AS (
+    SELECT date_trunc('month', statement_timestamp() AT TIME ZONE 'Asia/Seoul') AS month_start
+)
+SELECT count(*) FILTER (WHERE kind = 'ai_summary') AS ai_summary_records,
+       count(*) FILTER (WHERE kind = 'category_recommendation') AS recommendation_records
+FROM usage_records
+CROSS JOIN month_kst
+WHERE recorded_at >= month_start AT TIME ZONE 'Asia/Seoul'
+  AND recorded_at < (month_start + interval '1 month') AT TIME ZONE 'Asia/Seoul';
+```
+
+### 운영 한도와 실기기 확인
+
+새 서버 배포와 재집계를 마친 뒤 아래 순서로 확인한다.
+
+1. 운영 테스트 계정 ID로 아래 `0`을 바꾼 뒤 SQL을 실행한다. 결과로 받은 `test_record_ids`를 정리 단계에 사용한다. 게스트는 20건, 로그인 계정은 30건이 추가된다.
+
+```sql
+WITH target AS (
+    SELECT id, CASE WHEN is_guest THEN 20 ELSE 30 END AS monthly_limit
+    FROM users WHERE id = 0
+),
+seeded AS (
+    INSERT INTO usage_records (user_id, kind, recorded_at)
+    SELECT target.id, 'ai_summary', statement_timestamp()
+    FROM target
+    CROSS JOIN LATERAL generate_series(1, target.monthly_limit)
+    RETURNING id
+)
+SELECT array_agg(id ORDER BY id) AS test_record_ids FROM seeded;
+```
+
+2. 같은 계정으로 유튜브 링크 1건과 사진 1건을 저장한다. 두 저장 응답이 `skipped`와 `monthly_limit_exceeded`인지 확인한다.
+3. 아래 `0`을 같은 계정 ID로 바꾸고 `{}`를 1단계에서 받은 `test_record_ids`로 바꿔 실행한다. 삭제 건수를 기록한다.
+
+```sql
+WITH removed AS (
+    DELETE FROM usage_records
+    WHERE user_id = 0 AND id = ANY('{}'::bigint[])
+      AND kind = 'ai_summary' AND content_id IS NULL
+    RETURNING id
+)
+SELECT count(*) AS removed_test_records FROM removed;
+```
+
+4. 1.0.0 후보 빌드 실기기에서 같은 계정으로 2단계에서 저장한 링크·사진 상세를 연다. AI 요약 한도 문구와 iOS VoiceOver·Android TalkBack 실제 낭독을 확인한다.
+
+### 이전 서버로 되돌리기
+
+같은 DB를 쓰는 `clipback`, `clipback-backup`, `clipback-maintain`, `clipback-retry`를 한 번에 되돌린다. 차단부터 복구 확인까지 서비스 중단을 안내한다. 새 서버에서 탈퇴를 시작한 채 DB를 내리면 Apple·카카오 연결만 끊기고 계정이 남을 수 있다.
+
+1. 네 서비스 모두의 대상 환경·DB·볼륨과 같은 옛 커밋의 호환 배포를 확보한다. 네 서비스의 GitHub 자동 배포를 **Disable**하고 진행 중인 신버전 배포를 **Abort deployment**한다. 세 Cron의 예약·수동 실행과 API 트래픽을 배포 중에도 계속 차단할 수단을 확인한다. [서비스 구성](backend/image-operator-first-run.md) · [자동 배포 제어](https://docs.railway.com/deployments/github-autodeploys) · [배포 작업](https://docs.railway.com/deployments/deployment-actions)
+   - 점검을 쓸 경우, 신버전을 내린 뒤에도 대상 DB에서 `python -m scripts.maintenance status`와 `recover`를 실행할 별도 실행기와 옛 API 컨테이너에서 `resume`을 실행할 접속 수단을 먼저 확인한다. [Railway SSH](https://docs.railway.com/cli/ssh)
+2. 세 Cron의 예약과 수동 실행, 운영자 `delete-account`, 새 API 요청을 차단한다. 점검을 쓸 경우 새 UUID로 `python -m scripts.maintenance start --run-id RUN_ID`를 실행한다. 같은 DB의 점검 게이트는 일반 API 요청과 요약 worker의 새 작업을 차단한다. 정상 경로는 같은 run의 `phase=frozen`과 빈 `operations`를 확인한다. [점검 절차](backend/image-operator-first-run.md#4-점검격리-복원명시적-재개)
+   - 세 Cron, 탈퇴, 요약과 별도 실행기의 진행 중 작업이 끝났는지 확인한다. Railway **Deployments**에서 대상 DB를 쓰는 API 배포를 모두 **Remove**하고 모든 인스턴스와 그 안의 요약 worker가 종료됐는지 확인한다. PostgreSQL과 볼륨은 유지한다. 차단이나 작업 종료가 불확실하거나 강제 종료된 탈퇴의 완료를 확인할 수 없으면 DB 롤백을 보류한다. [Railway 배포 종료](https://docs.railway.com/deployments/deployment-teardown)
+   - 점검이 시간 초과되면 같은 run의 차단을 유지한다. 신버전 인스턴스와 실행기의 종료를 확인한 뒤, 멈춘 작업에만 `python -m scripts.maintenance recover --run-id RUN_ID --operation-id OPERATION_ID --confirm-executor-stopped`를 실행한다. 같은 run의 `phase=draining`과 빈 `operations`를 확인하고 SQL 단계로 간다. 일반 예외도 작업 행을 남길 수 있고 같은 run의 drain은 계속 시간 초과된다(시트 159).
+3. [되돌리기 SQL 전문](../backend/alembic/sql/rollback_monthly_summary_limit.sql)을 실행한다. 교착이나 잠금 시간 초과로 취소되면 열린 실패 트랜잭션을 `ROLLBACK;`으로 정리하고 아래 결과가 `202611230026`과 두 칸의 `true`인지 확인한 뒤 SQL 전문을 재시도한다. 성공하면 직접 열어 둔 트랜잭션을 `COMMIT;`하고, 새 트랜잭션에서 `202611170023`과 두 칸의 `false`를 확인한다.
+
+```sql
+SELECT version_num,
+       to_regclass('usage_records') IS NOT NULL AS has_usage_records,
+       EXISTS (
+           SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass('contents')
+             AND attname = 'screenshot_summary_skip_reason' AND NOT attisdropped
+       ) AS has_screenshot_skip_reason
+FROM alembic_version;
+```
+
+4. 자동 배포·트래픽·Cron 실행을 차단한 채 네 서비스를 모두 같은 호환 옛 커밋으로 배포한다. 이전 설정을 함께 복구하는 배포 작업을 사용한다면 차단이 유지되는지 먼저 확인한다. 네 배포의 커밋과 API의 pre-deploy 성공·준비 상태를 확인한다. 아래 SQL을 한 번 더 실행해 교체 중 다시 쓰인 사유를 정리한다.
+
+```sql
+UPDATE summary_jobs SET error_code = 'daily_limit_exceeded' WHERE error_code = 'monthly_limit_exceeded';
+```
+
+5. 네 배포가 일치한 뒤에만 재개한다. 점검을 사용했다면 옛 API 컨테이너에서 같은 run ID와 빈 `operations`를 확인하고 `python -m scripts.maintenance resume --run-id RUN_ID`로 `phase=open`을 확인한다. API 트래픽과 세 Cron 예약을 열고 목록·링크·사진 상세를 확인한다. 운영자 `delete-account`는 확인된 옛 버전에서만 다시 허용한다. 네 서비스의 GitHub 자동 배포는 main의 원인 변경을 수정하거나 되돌린 뒤에만 **Enable**한다.
+
 ## 데이터 영속성 및 백업
 
 현재 기존 Volume 원본의 첫 실제 백업·격리 복원은 [운영 실행 체크리스트](backend/image-operator-first-run.md)를 따른다.
@@ -175,9 +268,10 @@ CI는 이 검증을 별도 `deployment` job에서 필수 실행한다. 로컬 Do
 
 신규 summary_jobs 마이그레이션을 pre-deploy에서 적용한다. 기본 `YOUTUBE_SUMMARY_ENABLED=true`이며 Gemini·YouTube API 키를 등록한 뒤 배포한다. 키 없이 배포하려면 명시적으로 `false`를 설정한다.  단일 replica/worker를 유지한다. 키 등록, 작업 복구, 실제 영상 검증 및 활성화 절차는 [YouTube 운영 문서](youtube-summary.md)를 따른다. 인스타그램 요약(`INSTAGRAM_SUMMARY_ENABLED`, 기본 `false`)은 같은 문서의 인스타그램 절차에 따라 운영 확인 뒤에만 켠다. 기존 Instagram·OCR 설정은 변경하지 않는다.
 
-게스트 발급(최근 1시간 IP별 20회·전체 300회)과 계정별 하루 자동 요약(게스트 20개·로그인 100개)은
-단일 API 프로세스 메모리에서 세므로 서버 재시작·재배포 시 초기화된다. replica/worker 1개 조건을 유지한다.
+게스트 발급(최근 1시간 IP별 20회·전체 300회)은 단일 API 프로세스 메모리에서 세므로
+서버 재시작·재배포 시 초기화된다. replica/worker 1개 조건을 유지한다.
 클라이언트 IP는 Railway의 `X-Real-IP`를 사용한다.
+AI 요약 사용 기록은 DB에 남으며 한국 시간 기준 월 한도를 적용한다. [월 AI 요약 한도 전환](#월-ai-요약-한도-전환)
 
 <details>
 <summary>이전 문서 링크와 제목 호환</summary>

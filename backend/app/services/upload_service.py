@@ -29,6 +29,7 @@ from app.services.content_service import PendingContentAsset
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
 from app.services.save_step_log import log_save_step
+from app.services.usage_limits import MONTHLY_SUMMARY_LIMIT_EXCEEDED, MonthlySummaryLimit
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,15 @@ class ScreenshotOriginal:
     mime_type: str
     ocr: ScreenshotOCRResult
     ocr_metadata: dict[str, str | None]
+    summary_decided_at: datetime | None = None
+    summary_skip_reason: str | None = None
 
 
 class ScreenshotOCRStatus(StrEnum):
     SUCCESS = "success"
     NO_TEXT = "no_text"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class ScreenshotOCRFailureReason(StrEnum):
@@ -65,6 +69,7 @@ class ScreenshotOCRFailureReason(StrEnum):
     TIMEOUT = "timeout"
     INVALID_RESPONSE = "invalid_response"
     ERROR = "error"
+    MONTHLY_LIMIT_EXCEEDED = MONTHLY_SUMMARY_LIMIT_EXCEEDED
 
 
 class UploadService:
@@ -77,6 +82,7 @@ class UploadService:
         image_upload_policy: ImageUploadPolicy,
         image_storage_control: ImageUploadControl | None = None,
         max_bytes: int = settings.screenshot_max_bytes,
+        summary_limit: MonthlySummaryLimit | None = None,
     ) -> None:
         self.content_asset_repository = content_asset_repository
         self.storage_client = storage_client
@@ -84,6 +90,7 @@ class UploadService:
         self.image_upload_policy = image_upload_policy
         self.max_bytes = max_bytes
         self.image_storage_control = image_storage_control
+        self.summary_limit = summary_limit
 
     async def read_screenshot(self, file: UploadFile) -> bytes:
         content = await file.read(self.max_bytes + 1)
@@ -103,17 +110,33 @@ class UploadService:
         mime_type, extension = self._validate_image(content)
         if self.image_storage_control is not None:
             await self.image_storage_control.authorize()
-        await self.image_upload_policy.authorize(user_id=user_id, size_bytes=len(content))
-        ocr_result, ocr_metadata = await self._extract_ocr(
-            content=content,
-            mime_type=mime_type,
-        )
+        user = await self.image_upload_policy.authorize(user_id=user_id, size_bytes=len(content))
+        decided_at = None
+        skip_reason = None
+        if self.summary_limit is not None:
+            decided_at = await self.summary_limit.admit(
+                user_id, is_guest=user.is_guest, kind="screenshot",
+            )
+            if decided_at is None:
+                skip_reason = ScreenshotOCRFailureReason.MONTHLY_LIMIT_EXCEEDED.value
+        if skip_reason is None:
+            ocr_result, ocr_metadata = await self._extract_ocr(content=content, mime_type=mime_type)
+        else:
+            ocr_result = ScreenshotOCRResult(text="", title="", summary="")
+            ocr_metadata = {
+                "ocr_status": ScreenshotOCRStatus.SKIPPED.value,
+                "ocr_failure_reason": skip_reason,
+            }
         return ScreenshotOriginal(
             content=content,
             storage_key=f"screenshots/{user_id}/{uuid4().hex}.{extension}",
             mime_type=mime_type,
             ocr=ocr_result,
             ocr_metadata=ocr_metadata,
+            summary_decided_at=(
+                decided_at if ocr_metadata["ocr_status"] == ScreenshotOCRStatus.SUCCESS else None
+            ),
+            summary_skip_reason=skip_reason,
         )
 
     async def save_original(self, original: ScreenshotOriginal) -> None:

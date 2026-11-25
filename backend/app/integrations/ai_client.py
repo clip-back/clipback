@@ -56,6 +56,10 @@ class AIClient:
                     max_retries=0,
                 )
 
+    @property
+    def is_configured(self) -> bool:
+        return self._client is not None
+
     async def suggest_category_id(
         self,
         *,
