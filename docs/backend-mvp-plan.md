@@ -68,8 +68,9 @@ Today·Weekly 프론트 연결, 실제 카드 노출·추천 유입, 최근 검�
 5. 외부 metadata·AI·OCR의 실제 성공률과 저장 지연을 관찰하고 발견한 결함을 수정한다.
 
 링크·사진 저장과 앱 재실행 복원은 사용자가 실기기 검증 완료를 알렸습니다.
-운영 백업은 2026-10-26부터 `clipback-backup` 일일 백업(DB·원본)을 쓰며, 그날 격리 복원이 통과했습니다
-([운영 실행 기록](history/2026-10-26-image-operator-production.md), 절차는 [운영 실행 체크리스트](backend/image-operator-first-run.md)).
+2026-10-26 DB·Volume·Bucket 혼합 백업 `bucket-transition-20261026-02`의 격리 복원이 통과했습니다([운영 실행 기록](history/2026-10-26-image-operator-production.md)).
+같은 날 `clipback-backup` 일일 Cron(매일 09:00 KST)을 설정하고 `daily-2026-10-26`을 예약 외로 생성했으며, 이 백업은 격리 복원하지 않았습니다(`restore_verified=false`).
+절차는 [운영 실행 체크리스트](backend/image-operator-first-run.md)를 따릅니다.
 Railway 볼륨 자체의 기본 백업은 Hobby의 Pro 제한으로 켜지 않았습니다(2026-10-22, [백업·복구 작업 기록](history/2026-10-22-production-recovery.md)).
 
 연동 테스트는 [백엔드 테스트 안내](backend/testing.md), 운영 확인은

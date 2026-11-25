@@ -1,3 +1,3 @@
 # PR #75 local 유지 호환 배포 체크리스트
 
-이 문서는 작업 이력 [PR #75 local 유지 호환 배포 체크리스트](../history/2026-10-25-image-storage-compatible-deployment-checklist.md)로 옮겼습니다.
+<a id="1-코드와-동일-소스-이미지-준비--에이전트"></a><a id="2-삭제-기록-준비--사용자-병합-전"></a><a id="3-점검과-api-설정--사용자"></a><a id="4-별도-요청에-따른-병합배포-확인--사용자와-에이전트"></a><a id="5-기존-앱-기능-검증--사용자-에이전트는-결과-정리"></a><a id="실행-기록"></a>이 문서는 작업 이력 [PR #75 local 유지 호환 배포 체크리스트](../history/2026-10-25-image-storage-compatible-deployment-checklist.md)로 옮겼습니다.

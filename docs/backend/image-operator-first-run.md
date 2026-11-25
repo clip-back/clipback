@@ -282,9 +282,10 @@ Cron을 멈추고 [백업·복구 문서](backup-recovery.md)의 절차로 해�
 
 - [ ] 병합 전: 장부 Bucket 키(`DELETION_LEDGER_S3_ACCESS_KEY_ID`)에 객체 삭제 권한이 있는지 Railway Bucket 설정 화면에서 확인한다.
   `maintain`이 이 키로 시작 지점 앞 기록 파일·영수증을 지운다.
-- [x] 병합 순서: 정시 15분 직후 병합한다. 다음 15분 전에 `clipback`·`clipback-backup`·`clipback-maintain`·`clipback-retry`
+- 병합 순서: 정시 15분 직후 병합한다. 다음 15분 전에 `clipback`·`clipback-backup`·`clipback-maintain`·`clipback-retry`
   네 서비스의 배포 커밋이 모두 같은지 확인하고, 아니면 `maintain` Cron을 잠시 끈다. 옛 코드는 파기한 장부를 읽지 못한다.
-  근거: `fc969b4` 네 서비스 배포 생성 22:15 KST, 모두 같은 커밋([배포 기록](../releases/backend-2026-11-14-1.md)).
+  - [x] 관측한 사실: `fc969b4` 병합 2026-11-13 22:15:33 KST, 같은 SHA로 네 서비스 배포 생성 22:15:36 KST, 그 뒤 첫 `maintain` 23:18 KST `passed`([배포 기록](../releases/backend-2026-11-14-1.md)).
+  - [ ] 기한 내 점검(다음 15분 전 네 서비스의 배포 완료와 커밋 일치 확인, 필요하면 `maintain` Cron 중지): 기록 없음.
 - [ ] 병합 뒤: 다음 백업(00:00 UTC)과 `maintain`이 `passed=true`인지 확인한다.
   `maintain` 첫 실행 `passed`는 [배포 기록](../releases/backend-2026-11-14-1.md)에 있고, 다음 백업 결과는 기록이 없다.
 - [ ] 처리방침 게시: #344 새 코드 배포 뒤 첫 `maintain`이 `passed=true`인 것을 확인하면 처리방침을 게시한다(Q17).
