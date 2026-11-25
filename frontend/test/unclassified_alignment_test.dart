@@ -458,7 +458,11 @@ void main() {
       }
       await _pump(tester, page: page);
       expect(_key('unclassified-empty-group'), findsNothing);
-      if (['unqueried', 'loading', 'error'].contains(state)) {
+      if (['unqueried', 'loading'].contains(state)) {
+        expect(find.byType(ContentListCardSkeleton), findsWidgets);
+        expect(find.byType(FeedStatus), findsNothing);
+      }
+      if (state == 'error') {
         expect(find.byType(FeedStatus), findsOneWidget);
       }
       if (state == 'error') {

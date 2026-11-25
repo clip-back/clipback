@@ -171,7 +171,7 @@ MockClient의 특정 요청 도착을 확인하고 응답을 보류하는 테스
 | `lib/shared/presentation/` | 날짜·색상·문구 변환과 공통 ViewModel·피드 표시 상태 투영 |
 | `lib/shared/theme/` | 색상·문자 스타일 등 공통 화면 표현 |
 | `lib/shared/contracts/` | `AppRoute`와 저장 콜백 등 기능과 앱이 공유하는 계약 |
-| `lib/shared/widgets/` | 기능 모델에 의존하지 않는 범용 위젯 |
+| `lib/shared/widgets/` | 기능 모델에 의존하지 않는 범용 위젯. 스켈레톤 막대의 반짝임은 `skeleton_shimmer.dart` 공용 위젯을 쓰고 동작 줄이기 신호도 이 파일에서만 읽습니다 |
 | `lib/shared/content/` | 콘텐츠 모델에 의존하는 재사용 UI |
 | `lib/shared/category/` | 카테고리 모델에 의존하는 재사용 UI |
 | `lib/features/auth/`, `home/`, `archive/`, `search/` | 인증·홈·보관함·검색 화면, 기능 전용 UI와 필요한 ViewModel |

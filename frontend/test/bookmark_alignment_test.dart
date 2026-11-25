@@ -647,7 +647,11 @@ void main() {
         contents: const [],
       );
       expect(_key('bookmark-empty-group'), findsNothing);
-      if (['unqueried', 'loading', 'error'].contains(state)) {
+      if (['unqueried', 'loading'].contains(state)) {
+        expect(find.byType(ContentListCardSkeleton), findsWidgets);
+        expect(find.byType(FeedStatus), findsNothing);
+      }
+      if (state == 'error') {
         expect(find.byType(FeedStatus), findsOneWidget);
       }
       if (state == 'error') expect(find.text('다시 시도'), findsOneWidget);

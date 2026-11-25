@@ -922,28 +922,33 @@ void main() {
 
         await tester.tap(chip('여행'));
         await tester.pump();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(panelHeight(), cardsHeight, reason: 'loading after switch');
 
         respond(cards);
         await tester.pump();
         expect(find.byType(HomeContentCard), findsNWidgets(2));
+        expect(find.byType(HomeContentCardSkeleton), findsNothing);
         expect(panelHeight(), cardsHeight);
 
         await tester.tap(chip('여행'));
         await tester.pump();
         expect(reloads, [_secondCategory.id, _secondCategory.id]);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(panelHeight(), cardsHeight, reason: 'loading after re-tap');
 
         respond(const []);
         await tester.pump();
         expect(find.byType(HomeFilteredEmptyContent), findsOneWidget);
+        expect(find.byType(HomeContentCardSkeleton), findsNothing);
         expect(panelHeight(), cardsHeight, reason: 'empty category');
 
         await tester.tap(chip('생활'));
         await tester.pump();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(panelHeight(), cardsHeight, reason: 'loading after empty');
         expect(tester.takeException(), isNull);
       },
@@ -1007,7 +1012,8 @@ void main() {
         case 'empty chip':
           expect(find.text('여행 콘텐츠가 없어요'), findsOneWidget);
         case 'loading':
-          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+          expect(find.byType(HomeContentCardSkeleton), findsNWidgets(2));
+          expect(find.byType(CircularProgressIndicator), findsNothing);
         case 'error':
           expect(find.text('콘텐츠를 불러오지 못했어요.'), findsOneWidget);
       }

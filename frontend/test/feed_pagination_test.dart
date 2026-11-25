@@ -3531,4 +3531,251 @@ void main() {
       },
     );
   }
+
+  group('list skeleton through the root app', () {
+    final skeleton = find.byType(ContentListCardSkeleton);
+    final spinner = find.byType(CircularProgressIndicator);
+    const typingHint = '검색어를 입력하고 검색해 주세요.';
+
+    Future<void> frame(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    final entries =
+        <
+          String,
+          ({
+            _Server Function(
+              FutureOr<http.Response?> Function(http.Request, _Server),
+            )
+            server,
+            bool Function(Map<String, String>) target,
+            bool archiveFirst,
+            void Function(WidgetTester) open,
+          })
+        >{
+          'archive all': (
+            server: (respond) => _Server(respond: respond),
+            target: (query) =>
+                query['category_id'] == null &&
+                query['q'] == null &&
+                query['is_favorite'] == null,
+            archiveFirst: false,
+            open: (tester) => tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .onOpenArchive(),
+          ),
+          'category': (
+            server: (respond) => _Server(respond: respond),
+            target: (query) => query['category_id'] == '101',
+            archiveFirst: true,
+            open: (tester) {
+              final archive = tester.widget<ArchiveScreen>(
+                find.byType(ArchiveScreen),
+              );
+              archive.onOpenCategory(
+                archive.categories.singleWhere((item) => item.id == 101),
+              );
+            },
+          ),
+          'unclassified': (
+            server: (respond) => _unclassifiedServer(respond: respond),
+            target: (query) => query['category_id'] == '99',
+            archiveFirst: true,
+            open: (tester) {
+              final archive = tester.widget<ArchiveScreen>(
+                find.byType(ArchiveScreen),
+              );
+              archive.onOpenCategory(
+                archive.categories.singleWhere((item) => item.id == 99),
+              );
+            },
+          ),
+          'bookmark': (
+            server: (respond) => _favoriteServer(respond: respond),
+            target: (query) => query['is_favorite'] == 'true',
+            archiveFirst: false,
+            open: (tester) => tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .onTab(AppRoute.bookmark),
+          ),
+        };
+
+    for (final MapEntry(key: name, value: entry) in entries.entries) {
+      for (final outcome in ['cards', 'empty', 'error']) {
+        testWidgets('$name first entry shows a skeleton, then $outcome', (
+          tester,
+        ) async {
+          final gate = Completer<http.Response>();
+          addTearDown(() => _release(gate));
+          var holding = false;
+          http.Request? held;
+          final server = entry.server((request, _) {
+            if (holding &&
+                held == null &&
+                request.url.path == _feed &&
+                entry.target(request.url.queryParameters)) {
+              held = request;
+              return gate.future;
+            }
+            return null;
+          });
+          await _withApp(tester, server, () async {
+            if (entry.archiveFirst) await _openArchive(tester);
+            holding = true;
+            entry.open(tester);
+            await frame(tester);
+            expect(held, isNotNull);
+            expect(skeleton, findsWidgets);
+            expect(spinner, findsNothing);
+            gate.complete(switch (outcome) {
+              'cards' => server.page(held!),
+              'empty' => _json({'items': [], 'next_cursor': null}),
+              _ => _json({'detail': 'failed'}, 503),
+            });
+            await tester.pumpAndSettle();
+            expect(skeleton, findsNothing);
+            expect(spinner, findsNothing);
+            expect(
+              find.byType(ContentListCard),
+              outcome == 'cards' ? findsWidgets : findsNothing,
+            );
+            expect(
+              find.text('콘텐츠를 불러오지 못했어요.'),
+              outcome == 'error' ? findsOneWidget : findsNothing,
+            );
+            expect(tester.takeException(), isNull);
+          });
+        });
+      }
+    }
+
+    ({Map<String, Completer<http.Response>> gates, _Server server}) searchApp(
+      Set<String> holds,
+    ) {
+      final gates = <String, Completer<http.Response>>{};
+      final server = _Server(
+        respond: (request, _) {
+          final query = request.url.queryParameters['q'];
+          if (request.url.path != _feed || !holds.contains(query)) return null;
+          holds.remove(query);
+          return (gates[query!] = Completer<http.Response>()).future;
+        },
+      );
+      addTearDown(() => gates.values.forEach(_release));
+      return (gates: gates, server: server);
+    }
+
+    http.Request searchRequest(_Server server, String query) => server.feedCalls
+        .lastWhere((request) => request.url.queryParameters['q'] == query);
+
+    testWidgets('search row 1: Enter shows a skeleton, then results', (
+      tester,
+    ) async {
+      final app = searchApp({'피드'});
+      await _withApp(tester, app.server, () async {
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드', settle: false);
+        await frame(tester);
+        expect(skeleton, findsWidgets);
+        expect(spinner, findsNothing);
+        app.gates['피드']!.complete(
+          app.server.page(searchRequest(app.server, '피드')),
+        );
+        await tester.pumpAndSettle();
+        expect(skeleton, findsNothing);
+        expect(find.text('피드 항목 1'), findsOneWidget);
+      });
+    });
+
+    testWidgets('search row 1: a recent term shows a skeleton', (tester) async {
+      final holds = <String>{};
+      final app = searchApp(holds);
+      await _withApp(tester, app.server, () async {
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드');
+        await tester.enterText(find.byType(TextField), '');
+        await tester.pumpAndSettle();
+        holds.add('피드');
+        await tester.tap(find.byKey(const ValueKey('search-history-row-피드')));
+        await frame(tester);
+        expect(skeleton, findsWidgets);
+        expect(spinner, findsNothing);
+        app.gates['피드']!.complete(
+          app.server.page(searchRequest(app.server, '피드')),
+        );
+        await tester.pumpAndSettle();
+        expect(skeleton, findsNothing);
+        expect(find.text('피드 항목 1'), findsOneWidget);
+      });
+    });
+
+    testWidgets('search row 2: changing the input shows no skeleton', (
+      tester,
+    ) async {
+      final app = searchApp({});
+      await _withApp(tester, app.server, () async {
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드');
+        final calls = app.server.feedCalls.length;
+        await tester.enterText(find.byType(TextField), '피드 수정');
+        await frame(tester);
+        expect(find.text(typingHint), findsOneWidget);
+        expect(skeleton, findsNothing);
+        expect(app.server.feedCalls, hasLength(calls));
+      });
+    });
+
+    testWidgets('search row 3: a late A cannot return after typing B', (
+      tester,
+    ) async {
+      final app = searchApp({'피드'});
+      await _withApp(tester, app.server, () async {
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드', settle: false);
+        await frame(tester);
+        expect(skeleton, findsWidgets);
+        await tester.enterText(find.byType(TextField), '항목 41');
+        await frame(tester);
+        expect(find.text(typingHint), findsOneWidget);
+        expect(skeleton, findsNothing);
+        app.gates['피드']!.complete(
+          app.server.page(searchRequest(app.server, '피드')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(typingHint), findsOneWidget);
+        expect(skeleton, findsNothing);
+        expect(find.byType(ContentListCard), findsNothing);
+      });
+    });
+
+    testWidgets('search row 4: a late A keeps the skeleton owned by B', (
+      tester,
+    ) async {
+      final app = searchApp({'피드', '항목 41'});
+      await _withApp(tester, app.server, () async {
+        await _openSearch(tester);
+        await _submitSearch(tester, '피드', settle: false);
+        await frame(tester);
+        await _submitSearch(tester, '항목 41', settle: false);
+        await frame(tester);
+        expect(skeleton, findsWidgets);
+        app.gates['피드']!.complete(
+          app.server.page(searchRequest(app.server, '피드')),
+        );
+        await frame(tester);
+        expect(skeleton, findsWidgets);
+        expect(spinner, findsNothing);
+        expect(find.byType(ContentListCard), findsNothing);
+        app.gates['항목 41']!.complete(
+          app.server.page(searchRequest(app.server, '항목 41')),
+        );
+        await tester.pumpAndSettle();
+        expect(skeleton, findsNothing);
+        expect(find.text('피드 항목 41'), findsOneWidget);
+        expect(find.text('피드 항목 1'), findsNothing);
+      });
+    });
+  });
 }
