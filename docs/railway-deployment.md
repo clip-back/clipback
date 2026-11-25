@@ -37,7 +37,7 @@
 | `KAKAO_REST_API_KEY` | 실제 Kakao REST API 키 |
 | `KAKAO_ADMIN_KEY` | 실제 Kakao 어드민 키. 회원 탈퇴 때 카카오 연결 끊기에 쓴다 |
 | `BACKEND_CORS_ORIGINS` | 모바일 전용이면 `[]`; 웹은 `["https://your-web.example"]`처럼 명시 |
-| `AI_CONSENT_REQUIRED` | 기본 `false`. `true`면 AI 전송 동의를 정하지 않은 계정도 AI 처리를 끈다([AI 전송 동의](backend/api-contracts.md#ai-전송-동의)). 켜는 시점은 사용자가 정한다(#474) |
+| `AI_CONSENT_REQUIRED` | 기본 `false`. `true`면 AI 전송 동의를 정하지 않은 계정도 AI 처리를 끈다([AI 전송 동의](backend/api-contracts.md#ai-전송-동의)). 0.7.1을 iOS·Android 양쪽에서 받을 수 있게 된 날(M4) `true`로 재배포하고 [스위치 값 확인](release-process.md#ai-전송-동의-스위치-확인)대로 API·worker 값과 배포를 확인한다(#474) |
 
 나머지 AI/OCR timeout·모델 설정은 `backend/.env.example`의 기본값을 사용한다. Google·Kakao 설정은 현재 production 검증에서 필수다.
 `KAKAO_ADMIN_KEY`가 없거나 비면 운영 서버가 시작하지 않는다. 회원 탈퇴가 들어간 서버를 처음 배포하기 전에 사람이 Railway API 서비스 Variables에 등록한다. `SECRET_KEY`와 공급자 비밀값을 Docker build argument, 코드, PR 또는 로그에 넣지 않는다. 실제 `.env`는 이미지에 포함하지 않는다.
@@ -243,8 +243,9 @@ Railway 기본 백업의 활성화·복원 성공과 구분한다.
 1. 원본에 덮어쓰지 말고 별도의 빈 DB·이미지 볼륨을 준비한다.
 2. 같은 백업 세트의 DB를 `pg_restore --exit-on-error`로 복원하고 archive를 이미지 볼륨의 `/data` 기준으로 푼다.
 3. 원래 API·worker·모든 쓰기를 차단한 채 live 독립 삭제 기록의 최신성을 확인하고 삭제 전 DB/원본 기준을 비교한 뒤 삭제 intent를 적용한다. 숫자 ID만으로 대상을 정하지 않는다. [삭제 반영 격리 복원](backend/backup-recovery.md#최신-삭제-기록을-반영한-격리-복원)을 따른다. 기록을 검증할 수 없으면 트래픽을 열지 않는다.
-4. 그 뒤 호환 앱 커밋·같은 SECRET_KEY로 시작하고, 기존 토큰의 콘텐츠·원본 조회와 삭제된 콘텐츠/이미지의 404, 준비 상태를 검증한다. 쓰기 차단을 전환까지 유지한다. 재개했다면 최신 삭제를 다시 반영한다.
-5. 연결을 검증된 복원 대상으로 전환한다. 검증 전 원본을 제거하지 않는다. 이 저장소의 격리 검사 도구는 운영 전환을 직접 수행하지 않는다.
+4. 그 뒤 호환 앱 커밋·같은 SECRET_KEY로 시작하고(AI 전송 동의 리비전 `202611250027`을 배포한 뒤에는 이 기능 이전 서버를 호환 커밋으로 쓰지 않는다. [이전 서버로 되돌리기](#이전-서버로-되돌리기) 참고), 기존 토큰의 콘텐츠·원본 조회와 삭제된 콘텐츠/이미지의 404, 준비 상태를 검증한다. 쓰기 차단을 전환까지 유지한다. 재개했다면 최신 삭제를 다시 반영한다.
+5. 전환 전에 대상 DB에 [AI 전송 동의 복원 정리와 재개](backend/image-operator-first-run.md#ai-전송-동의-복원-정리와-재개)의 1–4단계를 적용한다. 백업 뒤 철회한 계정이 복원으로 다시 동의함이 되지 않도록 동의 정리 SQL을 실행하고, 동의함 0건과 `queued`·`processing` 작업 0건, `AI_CONSENT_REQUIRED=true`로 지원되는 배포(활성 배포 1개·replicas 1·이전 배포 종료)와 API·worker 값 true를 모두 확인한다. 하나라도 실패하거나 확인하지 못하면 전환하지 않고 점검을 유지한다.
+6. 연결을 검증된 복원 대상으로 전환한다. 검증 전 원본을 제거하지 않는다. 이 저장소의 격리 검사 도구는 운영 전환을 직접 수행하지 않는다.
 
 코드 롤백은 이전 이미지를 실행하는 것이며 DB·이미지 복원과 다르다. 개인화 migration `202609070010`은 downgrade를 거부한다. 필요하면 배포 전 DB·이미지 세트와 호환되는 앱을 함께 복원한다. 서로 다른 시점의 DB·이미지를 임의 조합하지 않는다.
 
