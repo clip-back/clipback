@@ -5,7 +5,7 @@
 - 작성일: 2026-10-24. 정책 확정 기준 커밋: `3419b63`.
 - 사용자가 요청한 `to-spec` 스킬에 따라 확정 정책을 구현 계약으로 정리했습니다. 정책 재인터뷰나 제품 코드 변경은 진행하지 않았습니다.
 - [현재 정책](../frontend/account-stats-recovery.md)과 [설계 근거](2026-10-24-account-stats-recovery-design.md)를 사용했습니다.
-- [구현 스펙](https://github.com/clip-back/clipback/issues/80)에 지정된 7개 절, 사용자 스토리 36개, 상태표, 구현·검증 계약과 제외 범위를 작성하고 [본문 사본](../frontend/account-stats-recovery-spec.md)을 보존했습니다.
+- [구현 스펙](https://github.com/clip-back/clipback/issues/80)에 지정된 7개 절, 사용자 스토리 36개, 상태표, 구현·검증 계약과 제외 범위를 작성하고 [본문 사본](2026-10-24-account-stats-recovery-issue-80.md)을 보존했습니다.
 
 ## 확인한 검증 경계
 

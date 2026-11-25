@@ -1,8 +1,8 @@
 # 이미지 local 유지 호환 배포 준비 구현·검증
 
 2026-10-25, 명세 #93과 구현 티켓 #94–#96의 코드 준비 이력이다. 실제 Railway 설정·초기화·배포
-완료 기록이 아니다. [준비 계획](../backend/image-storage-merge-preparation.md)과
-[운영 체크리스트](../backend/image-storage-compatible-deployment.md)를 구분해 사용한다.
+완료 기록이 아니다. [준비 계획](2026-10-25-image-storage-merge-preparation.md)과
+[운영 체크리스트](2026-10-25-image-storage-compatible-deployment-checklist.md)를 구분해 사용한다.
 
 ## 구현과 검증 소스
 

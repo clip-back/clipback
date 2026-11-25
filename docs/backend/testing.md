@@ -11,10 +11,10 @@ path filter matches (see [원본 운영자·점검·복원 통합 검사](#원�
 Run the same checks used by CI from the `backend` directory:
 
 ```bash
-ruff check app alembic tests
+ruff check app scripts alembic tests
 deptry .
 pytest -q
-python -m compileall app alembic tests
+python -m compileall app scripts alembic tests
 alembic upgrade head
 alembic check
 ```
@@ -157,7 +157,7 @@ pytest -q tests/deployment/test_deletion_bootstrap_docker.py tests/deployment/te
 
 Tests fail before creating resources if either image revision differs from the expected source.
 Image IDs and revision labels are build provenance, not evidence of actual Railway configuration.
-Use the [compatible deployment checklist](image-storage-compatible-deployment.md) for that evidence.
+Use the [compatible deployment checklist](../history/2026-10-25-image-storage-compatible-deployment-checklist.md) for that evidence.
 
 ## 원본 운영자·점검·복원 통합 검사
 

@@ -2,7 +2,7 @@
 
 2026-10-25, [스펙 #86](https://github.com/clip-back/clipback/issues/86)의 하위 이슈 #87~#91을
 선행 관계대로 구현하는 기록입니다. 정책·디자인은 [확정 정책](../frontend/category-save-recovery.md),
-구체적인 계약과 검증 경계는 [구현 명세](../frontend/category-save-recovery-spec.md)를 따릅니다.
+구체적인 계약과 검증 경계는 [구현 명세](2026-10-25-category-save-recovery-issue-86.md)를 따릅니다.
 
 아래 단계별 대기·미검증 표현은 해당 단계 당시의 기록입니다. 현재 통합 결과는
 [최종 공유 완료 검증](#최종-공유-완료-검증)을 따릅니다.

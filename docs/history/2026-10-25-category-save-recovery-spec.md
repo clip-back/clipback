@@ -6,7 +6,7 @@
 - 작업 브랜치: `docs/category-save-recovery`. 시작 HEAD는 정책 확정 커밋 `ac3ecfa`이고 작업 트리는 clean이었다.
 - 제품 조사 기준은 main `d98d2b32f276d271efd613f4d0447168304a88cd`다.
   현재 용어집·ADR·정책과 API·시트·기존 검증 경계를 확인했으며 제품 구현은 진행하지 않았다.
-- 현재 명세: [카테고리 생성·수정 입력 보존과 실패 복구 스펙](../frontend/category-save-recovery-spec.md).
+- 현재 명세: [카테고리 생성·수정 입력 보존과 실패 복구 스펙](2026-10-25-category-save-recovery-issue-86.md).
 
 ## 검증 경계 확인
 
