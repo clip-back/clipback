@@ -65,3 +65,18 @@ VERIFY result=PASS scope=all checks=12 failed=0
 
 - 건너뛴 pytest는 Docker 복구 49건과 S3 이미지 1건입니다.
 - 실제 Android 폰과 iPhone의 체감·성능, VoiceOver·TalkBack 실제 발화는 이 기록 시점에 확인하지 않았습니다.
+
+### main 병합 뒤 최종 검증 (2026-11-25)
+
+- main의 `6e79a70`(#481)을 합친 `ca094fd`에서 #469 세 티켓 결과를 다시 확인했습니다. 검사 직전 `git fetch origin` 뒤 `origin/main`은 `6e79a70`이었습니다.
+- 병합 양쪽 영향 테스트 54파일 2,144건과 `flutter analyze --no-pub`가 통과했습니다. 54파일에는 스켈레톤·저장·목록·홈 테스트와 #481의 상세 요약 한도 테스트가 들어 있습니다.
+- 첫 전체 검사에서는 #481에서 들어온 `test_recommendation_records_with_all_save_connections_checked_out` 1건이 실패했습니다. 15개 저장이 연결을 모두 잡은 상태에서 추천 기록이 `TimeoutError`로 끝났습니다. 이 브랜치는 백엔드를 바꾸지 않았습니다.
+- 같은 임시 DB 조건으로 그 테스트만 5번 실행해 5번 모두 통과했고, 전체 검사를 한 번 다시 실행해 통과했습니다. 실패 원인은 확인하지 않았습니다.
+
+```text
+pytest: 3135 passed, 50 skipped, 3 warnings in 433.87s (0:07:13)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+- Flutter 테스트는 4,146건이 통과했고, CI의 앱 네 명령은 verify 단계와 같습니다. 건너뛴 pytest는 Docker 복구 49건과 S3 이미지 1건입니다.
+- 촬영과 성능 수치는 병합 전 `3a42baf`·`7e11e31` 기준 결과이며, `ca094fd`에서 다시 찍거나 재지 않았습니다.
