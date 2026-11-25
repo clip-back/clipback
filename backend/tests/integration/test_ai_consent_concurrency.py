@@ -30,7 +30,7 @@ from app.services.ai_consent import SaveAIConsent
 from app.services.content_service import ContentService
 from app.services.image_deletion_service import retry_image_deletions
 from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
-from tests.integration.helpers import request
+from tests.integration.helpers import guest, request
 from tests.integration.test_recommendation_usage_limits import (
     NOW,
     recommendation_provider as recommendation_provider,
@@ -632,12 +632,13 @@ ROWS = {  # existing record, decision sent
 
 
 class OwnReasonRows:
-    """Ids of the deletion reason rows written by this test's own deletion requests. Only the
-    session a deletion request runs on is observed, for exactly that request's duration;
-    rows any other session writes, ORM or not, are never collected."""
+    """Ids of the deletion reason rows written by deletion requests of this fixture's own
+    account. Only such a request's session is observed, for exactly that request's duration;
+    rows another account's deletion or any other session writes are never collected."""
 
-    def __init__(self, producers):
+    def __init__(self, producers, user_id):
         self.ids, self.producers, self.observing = [], producers, 0
+        self.user_id = user_id
 
     def collect(self, session, instance):
         if isinstance(instance, AccountDeletionReason):
@@ -645,6 +646,8 @@ class OwnReasonRows:
 
     def wrap(self, delete_account):
         async def owned(session, *args, **kwargs):
+            if kwargs.get("user_id") != self.user_id:
+                return await delete_account(session, *args, **kwargs)
             event.listen(session.sync_session, "pending_to_persistent", self.collect)
             self.observing += 1
             try:
@@ -668,7 +671,7 @@ class OwnReasonRows:
 
 @pytest_asyncio.fixture
 async def own_reasons(independent_api, producers, monkeypatch):
-    rows = OwnReasonRows(producers)
+    rows = OwnReasonRows(producers, independent_api[2])
     monkeypatch.setattr(users_endpoint, "delete_account",
                         rows.wrap(users_endpoint.delete_account))
     try:
@@ -747,6 +750,49 @@ async def test_reason_cleanup_keeps_rows_another_orm_session_wrote(
         assert await existing_reasons(sessions, [foreign, *own_reasons.ids]) == [foreign]
     finally:
         await drop_reason(sessions, foreign)
+
+
+async def test_reason_cleanup_keeps_another_account_deleted_through_the_same_api(
+    independent_api, monkeypatch, producers, pids, own_reasons,
+):
+    """Review recheck 2, Standards 1: a second account leaves through DELETE /users/me while
+    this test's deletion is in progress; its reason row must survive this test's cleanup."""
+    api, headers, _, sessions, _, _ = independent_api
+    other_headers, _, _ = await guest(api)
+    async with sessions() as session:
+        last = await session.scalar(text(
+            "SELECT coalesce(max(id), 0) FROM account_deletion_reasons"))
+    entered, release = pause(monkeypatch, producers, account_deletion_service,
+                             "apply_account_deletion", after=True)
+    mine = producers.start(delete_account(api, headers))
+    await asyncio.wait_for(entered.wait(), WAIT)  # Holds the deletion ledger lock.
+    my_pid = await recorded(pids, "delete")
+    theirs = producers.start(api.request("DELETE", "/api/v1/users/me", headers=other_headers,
+                                         json={"reasons": ["rejoin"]}))
+    # The other deletion really overlaps: PostgreSQL reports it waiting for this one.
+    for _ in range(250):
+        async with sessions() as session:
+            waiting = await session.scalar(text(
+                "SELECT count(*) FROM pg_stat_activity WHERE :h = ANY(pg_blocking_pids(pid))"),
+                {"h": my_pid})
+        if waiting:
+            break
+        await asyncio.sleep(0.02)
+    assert waiting == 1 and not theirs.done()
+    release.set()
+    assert (await asyncio.wait_for(mine, WAIT)).status_code == 204
+    assert (await asyncio.wait_for(theirs, WAIT)).status_code == 204
+    async with sessions() as session:
+        written = dict((await session.execute(text(
+            "SELECT id, reasons FROM account_deletion_reasons WHERE id > :id"),
+            {"id": last})).all())
+    other_row = next(row for row, reasons in written.items() if reasons == ["rejoin"])
+    try:
+        await own_reasons.finish(sessions)  # What the fixture's exit does.
+        assert other_row not in own_reasons.ids
+        assert await existing_reasons(sessions, written) == [other_row]
+    finally:
+        await drop_reason(sessions, other_row)
 
 
 async def test_a_failure_while_a_decision_holds_its_commit_closes_its_own_session(

@@ -469,6 +469,102 @@ void main() {
       expect(puts(server), 1);
     });
 
+    // Review recheck 2, Spec 1: a refresh kept past the PUT deadline that the server
+    // refuses for good (401) still ends this account's session exactly once.
+    Future<http.Response> Function() late401(int seconds) =>
+        () => Future.delayed(
+          Duration(seconds: seconds),
+          () => _json({'detail': 'expired'}, 401),
+        );
+
+    testWidgets('a late 401 refresh after the deadline ends the session once', (
+      tester,
+    ) async {
+      final server = _Server([late401(5), late401(6)]);
+      final api = apiFor(server);
+      AiConsentSaveResult? result;
+      unawaited(
+        api
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      expect(
+        server.requests,
+        hasLength(2),
+      ); // The refresh was sent before the deadline.
+      await tester.pump(const Duration(seconds: 4));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      expect(invalidations, 0); // The refresh has not answered yet.
+      await tester.pump(const Duration(seconds: 2));
+      expect(invalidations, 1);
+      expect(puts(server), 1);
+      await tester.pump(const Duration(seconds: 20));
+      expect(invalidations, 1);
+      expect(server.requests, hasLength(2));
+    });
+
+    testWidgets('a shared late 401 refresh ends the session once', (
+      tester,
+    ) async {
+      final server = _Server([
+        late401(5),
+        late401(6),
+        // Another request with the old token joins the refresh.
+        _now(_json({'detail': 'expired'}, 401)),
+      ]);
+      final api = apiFor(server);
+      AiConsentSaveResult? result;
+      Object? otherError;
+      unawaited(
+        api
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      unawaited(
+        api.readMe().then<void>((_) {}, onError: (Object e) => otherError = e),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        server.requests,
+        hasLength(3),
+      ); // PUT, refresh, then the other GET.
+      await tester.pump(const Duration(seconds: 3));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      await tester.pump(const Duration(seconds: 20));
+      expect(invalidations, 1);
+      expect(otherError, isA<ClipbackApiException>());
+      expect((otherError as ClipbackApiException).statusCode, 401);
+      expect(puts(server), 1);
+    });
+
+    testWidgets('a late 401 refresh after an account change ends nothing', (
+      tester,
+    ) async {
+      const other = ApiSession(
+        accessToken: 'other-access',
+        refreshToken: 'other-refresh',
+        expiresIn: 3600,
+        refreshExpiresIn: 86400,
+      );
+      final server = _Server([late401(5), late401(6)]);
+      final api = apiFor(server);
+      AiConsentSaveResult? result;
+      unawaited(
+        api
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      api.restoreSession(other);
+      await tester.pump(const Duration(seconds: 20));
+      expect(invalidations, 0);
+      expect(api.session?.accessToken, 'other-access');
+      expect(puts(server), 1);
+    });
+
     test(
       'a lost connection during the refresh fails without resending',
       () async {

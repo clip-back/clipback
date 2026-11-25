@@ -312,8 +312,10 @@ async def test_order_maintenance_comes_before_authentication(api, monkeypatch):
         assert response.status_code == 503, response.text
 
 
-# #474 "동의를 읽지 못할 때": the save fails with the existing DB error, rolls back and sends
-# nothing; the same submission key is judged again; a failed read never stores a denial.
+# #474 "동의를 읽지 못할 때" (사용자 결정 “실패 시점 뒤 추가 0회 (추천)”): the save fails with
+# the existing DB error and rolls back; nothing more is sent after the failed read, while a
+# call the #474 order made before it stays counted; the same submission key is judged again;
+# a failed read never stores a denial.
 
 FAILING = {  # (save, nth consent read that fails)
     "G1a": ("web", 1), "G1b": ("web", 2), "G3": ("youtube", 1),
@@ -343,7 +345,7 @@ RETRY_SENDS = {"web": ["recommend"], "youtube": [], "instagram": ["recommend"],
 
 
 @pytest.mark.parametrize("point", list(FAILING))
-async def test_read_failure_rolls_back_without_ai_and_retries_fresh(
+async def test_read_failure_rolls_back_sends_nothing_more_and_retries_fresh(
     independent_api, recommendation_provider, monkeypatch, png_bytes, own_image_deletions, point,
 ):
     api, headers, user_id, sessions, _, path = independent_api

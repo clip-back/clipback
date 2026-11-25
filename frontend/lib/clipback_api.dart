@@ -458,6 +458,7 @@ class ClipbackApi {
   ApiRequestScope? _refreshScope;
   final _refreshOwners = <ApiRequestScope>{};
   bool _refreshHasUnscopedOwner = false;
+  final _endedRefreshes = Expando<bool>('refused refresh');
   int? _logoutGeneration;
 
   bool get hasSession => _session != null;
@@ -1668,18 +1669,25 @@ class ClipbackApi {
         authenticated &&
         !retried &&
         retryUnauthorized) {
+      Future<ApiSession>? sharedRefresh;
       try {
         // Memory can change before the persistence callback finishes.
         if (_refreshFuture != null ||
             session!.accessToken == _session!.accessToken) {
           final refresh = refreshSession();
-          if (keepRefreshForSession) _refreshHasUnscopedOwner = true;
+          sharedRefresh = _refreshFuture;
+          if (keepRefreshForSession) {
+            _refreshHasUnscopedOwner = true;
+            _ownLateRefreshRejection(sharedRefresh, generation, scope);
+          }
           await refresh;
         }
       } catch (error) {
         scope?.checkActive();
         _checkSessionGeneration(generation);
-        if (error is ClipbackApiException && error.statusCode == 401) {
+        if (error is ClipbackApiException &&
+            error.statusCode == 401 &&
+            _claimRefreshRejection(sharedRefresh)) {
           _invalidateAssetCache();
           await _onSessionInvalidated?.call();
         }
@@ -1703,6 +1711,42 @@ class ClipbackApi {
       await _onSessionInvalidated?.call();
     }
     return response;
+  }
+
+  /// A refresh this session kept past its caller's deadline: when the server
+  /// refuses it (401) after the caller has ended, the session ends here, once,
+  /// and only while the same account is signed in. A caller still waiting
+  /// handles the answer itself.
+  void _ownLateRefreshRejection(
+    Future<ApiSession>? refresh,
+    int generation,
+    ApiRequestScope? scope,
+  ) {
+    if (refresh == null) return;
+    unawaited(
+      refresh.then<void>(
+        (_) {},
+        onError: (Object error) async {
+          if (scope == null || scope.isActive) return;
+          if (generation != _sessionGeneration) return;
+          if (error is ClipbackApiException &&
+              error.statusCode == 401 &&
+              _claimRefreshRejection(refresh)) {
+            _invalidateAssetCache();
+            await _onSessionInvalidated?.call();
+          }
+        },
+      ),
+    );
+  }
+
+  /// Whether this caller ends the session for a refused refresh: once per
+  /// shared refresh, so callers of the same refresh do not end it twice.
+  bool _claimRefreshRejection(Future<ApiSession>? refresh) {
+    if (refresh == null) return true;
+    if (_endedRefreshes[refresh] == true) return false;
+    _endedRefreshes[refresh] = true;
+    return true;
   }
 
   void _throwForError(http.Response response) {
