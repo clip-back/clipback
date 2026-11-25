@@ -101,3 +101,21 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 단계별 로그는 `.utmp/ticket-475/20261125T194136-b33f99e38a07/`에 있습니다. 운영 전환·배포, 기기, 실제 외부 전송은 실행하지 않았습니다.
+
+### 최종 재검수 보완
+
+사용자 결정 “감독 추천대로 수정 (추천)”에 따라 남은 한 건을 고쳤습니다(`a8064d4`). 동의 `PUT`의 내부 요청 범위가 활성 여부를 볼 때마다 호출한 쪽의 활성 여부도 확인합니다. 화면을 떠나 현재가 아니게 됐을 뿐 취소되지 않은 호출자도 갱신 뒤 재전송하지 않고, 첫 응답이 늦게 401로 와도 새 갱신을 시작하지 않습니다. 이미 보낸 갱신의 회전 토큰은 그대로 남습니다.
+
+고치기 전에는 갱신 도중 현재가 아니게 되면 `PUT`을 두 번 보냈고, 첫 응답 전에 바뀌면 늦은 401 뒤 갱신을 보냈습니다. 새 테스트로 두 경우가 실패하는 것을 먼저 확인했습니다. 새 테스트를 처음 쓸 때 기록 비교의 테스트 자체 오류 1가지를 고쳤습니다. 호출자 유지·명시 취소·기한 만료 대조는 그대로 통과합니다.
+
+2026-11-25 커밋 `a8064d4`(작업 트리 깨끗함)의 전체 VERIFY 실행 ID는 `20261125T200417-f3ac5caedd7e`이고 종료 코드는 0입니다. `flutter analyze`가 통과했고 Flutter 테스트는 4,235개 통과했습니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 484.46s (0:08:04)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+verify ci-only: backend/tests/deployment/test_ai_consent_resume_runbook.py backend/tests/deployment/test_backup_restore_docker.py (로컬 skip, 티켓 종료 전 CI 필요)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+단계별 로그는 `.utmp/ticket-475/20261125T200417-f3ac5caedd7e/`에 있습니다. Docker 복원 검사는 CI에서 판정합니다.
