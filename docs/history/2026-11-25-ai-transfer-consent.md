@@ -63,3 +63,20 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 단계별 로그와 결과 파일은 `.utmp/ticket-476/20261125T183726-1fe6afff04dc/`에 있습니다. 운영 스위치·복제본 확인은 사용자 단계이며 Docker 복원 U3는 승인된 서버 PR에서 판정합니다.
+
+### 재검수 보완
+
+`read_consent`가 항상 트랜잭션 시작 시각을 돌려주도록 선택 인자와 SQL 분기를 없앴습니다. 동의 기록을 쓰는 `decided_at`은 계속 `clock_timestamp()`를 사용합니다. 기존 소비자와 테스트 대역에 필요한 변경은 저장 경로의 호출 인자 제거 한 곳이었습니다.
+
+PostgreSQL에서 반환 시각을 직접 확인하는 새 검사는 보완 전에 실패하고 보완 뒤 통과했습니다. YouTube·Instagram의 B안 세 순서 6건과 호출자·대역을 포함한 부분 검사 378건이 통과했습니다. 추적된 테스트는 그대로입니다.
+
+2026-11-25 전체 VERIFY 실행 ID는 `20261125T190135-a9767912bcdd`입니다. 12단계가 모두 통과했고, 종료 코드는 0입니다. 모든 단계의 기록에서 `HEAD=c47507151decfa8ded2f3129b312d5a363ec6eff`, `dirty=true`를 확인했습니다. 검증 대상 코드와 커밋 직전 제품 변경의 해시가 일치했으며, 뒤에 이력 문서만 추가했습니다. Flutter 테스트는 4,150건 통과했습니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 469.94s (0:07:49)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+단계별 로그와 결과 파일은 `.utmp/ticket-476/20261125T190135-a9767912bcdd/`에 있습니다. Docker 복원 U3는 승인된 브랜치의 CI에서 판정합니다.

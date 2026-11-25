@@ -70,8 +70,7 @@ def save_allowed(
 
 
 _READ = text("""
-    SELECT CASE WHEN :transaction_start THEN transaction_timestamp()
-                ELSE clock_timestamp() END AS now,
+    SELECT transaction_timestamp() AS started_at,
            c.status, c.notice_version, c.decided_at, c.granted_after_denial
     FROM (VALUES (1)) AS one
     LEFT JOIN ai_transfer_consents AS c ON c.user_id = :user_id
@@ -88,13 +87,11 @@ def _record(row) -> ConsentRecord | None:
 
 
 async def read_consent(
-    session: AsyncSession, user_id: int, *, transaction_start: bool = False,
+    session: AsyncSession, user_id: int,
 ) -> tuple[datetime, ConsentRecord | None]:
-    """The DB clock and the account's stored record. A read failure propagates."""
-    row = (await session.execute(
-        _READ, {"user_id": user_id, "transaction_start": transaction_start},
-    )).one()
-    return row.now, _record(row)
+    """The transaction start time and the account's committed record. Read errors propagate."""
+    row = (await session.execute(_READ, {"user_id": user_id})).one()
+    return row.started_at, _record(row)
 
 
 _READ_SUMMARY_SEND = text("""
@@ -133,9 +130,9 @@ class SaveAIConsent:
         self.started_at: datetime | None = None
 
     async def allows(self, user_id: int) -> bool:
-        now, record = await read_consent(self.session, user_id, transaction_start=True)
+        started_at, record = await read_consent(self.session, user_id)
         if not self.started:
-            self.started, self.started_under, self.started_at = True, record, now
+            self.started, self.started_under, self.started_at = True, record, started_at
         return save_allowed(
             record, started_under=self.started_under, started_at=self.started_at,
             required=settings.ai_consent_required,
