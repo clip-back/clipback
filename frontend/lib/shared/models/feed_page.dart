@@ -16,6 +16,7 @@ class FeedPage {
   bool hasMore = true;
   Object? error;
   int version = 0;
+  int foregroundReads = 0;
   double scrollOffset = 0;
 
   /// Server totals belong to the committed items, including during refresh.
@@ -59,6 +60,7 @@ class FeedPage {
     hasMore = snapshot.hasMore;
     error = snapshot.error;
     version = snapshot.version;
+    foregroundReads = snapshot.foregroundReads;
   }
 
   void reset() {

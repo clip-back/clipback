@@ -12,6 +12,7 @@ import 'package:clipback_frontend/shared/theme/assets.dart';
 import 'package:clipback_frontend/shared/theme/layout.dart';
 import 'package:clipback_frontend/shared/widgets/buttons.dart';
 import 'package:clipback_frontend/shared/widgets/icons.dart';
+import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -666,96 +667,95 @@ class LinkSaveBody extends StatelessWidget {
   }
 }
 
-/// Shared static placeholder geometry from D04/D08. It is not extracted content, a
-/// classification result, or an additional API operation.
+/// Shared placeholder geometry from D04/D08 with a shimmer over its bars. It is
+/// not extracted content, a classification result, or an additional API
+/// operation.
 class _PendingContentSkeleton extends StatelessWidget {
   const _PendingContentSkeleton({this.prefix = 'link-pending'});
   final String prefix;
   @override
-  Widget build(BuildContext context) => Column(
-    key: ValueKey('$prefix-skeleton'),
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Text(
-        '미리보기',
-        key: ValueKey('$prefix-preview-heading'),
-        style: _SaveTextStyles.heading,
-      ),
-      const SizedBox(height: 16),
-      Container(
-        key: ValueKey('$prefix-preview'),
-        height: 116,
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(4),
+  Widget build(BuildContext context) => SkeletonShimmer(
+    child: Column(
+      key: ValueKey('$prefix-skeleton'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '미리보기',
+          key: ValueKey('$prefix-preview-heading'),
+          style: _SaveTextStyles.heading,
         ),
-        child: ExcludeSemantics(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _bar('thumbnail', 164, 100),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _bar('bar-1', 139, 15),
-                    const SizedBox(height: 4),
-                    _bar('bar-2', 91, 15),
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _bar('bar-3', 91, 15),
-                    ),
-                  ],
+        const SizedBox(height: 16),
+        Container(
+          key: ValueKey('$prefix-preview'),
+          height: 116,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: SkeletonShimmerBars(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _bar('thumbnail', 164, 100),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _bar('bar-1', 139, 15),
+                      const SizedBox(height: 4),
+                      _bar('bar-2', 91, 15),
+                      const Spacer(),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _bar('bar-3', 91, 15),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 32),
-      Row(
-        key: ValueKey('$prefix-category-row'),
-        children: [
-          Text(
-            '카테고리',
-            key: ValueKey('$prefix-category-heading'),
-            style: _SaveTextStyles.heading,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '허투루가 분류하고 있어요.',
-              key: ValueKey('$prefix-category-status'),
-              style: _SaveTextStyles.categoryMessage,
+              ],
             ),
           ),
-        ],
-      ),
-      const SizedBox(height: 16),
-      Container(
-        key: ValueKey('$prefix-category'),
-        height: 55,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        alignment: Alignment.centerLeft,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(4),
         ),
-        child: ExcludeSemantics(child: _bar('category-bar', 164, 24)),
-      ),
-    ],
+        const SizedBox(height: 32),
+        Row(
+          key: ValueKey('$prefix-category-row'),
+          children: [
+            Text(
+              '카테고리',
+              key: ValueKey('$prefix-category-heading'),
+              style: _SaveTextStyles.heading,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '허투루가 분류하고 있어요.',
+                key: ValueKey('$prefix-category-status'),
+                style: _SaveTextStyles.categoryMessage,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          key: ValueKey('$prefix-category'),
+          height: 55,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: SkeletonShimmerBars(child: _bar('category-bar', 164, 24)),
+        ),
+      ],
+    ),
   );
-  Widget _bar(String name, double width, double height) => Container(
-    key: ValueKey('$prefix-$name'),
+  Widget _bar(String name, double width, double height) => SkeletonBar(
+    barKey: ValueKey('$prefix-$name'),
     width: width,
     height: height,
-    decoration: BoxDecoration(
-      color: AppColors.faint,
-      borderRadius: BorderRadius.circular(4),
-    ),
   );
 }
 

@@ -9,6 +9,8 @@ import 'package:clipback_frontend/features/account/my_screen.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
 import 'package:clipback_frontend/shared/content/feed_status.dart';
 import 'package:clipback_frontend/shared/widgets/navigation_bar.dart';
+import 'package:clipback_frontend/shared/widgets/page_dots.dart';
+import 'package:clipback_frontend/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -398,6 +400,7 @@ Finder get _feedSpinner => find.descendant(
 
 void _expectNoListNotice() {
   expect(_feedSpinner, findsNothing);
+  expect(find.byType(SkeletonShimmer), findsNothing);
   expect(find.textContaining('불러오지 못했어요'), findsNothing);
   expect(find.text('다시 시도'), findsNothing);
   expect(find.byType(SnackBar), findsNothing);
@@ -691,7 +694,7 @@ void main() {
   );
 
   testWidgets(
-    '11 share receipt refresh keeps its spinner, failure notice and retry',
+    '11 share receipt refresh keeps its cards, failure notice and retry',
     (tester) async {
       // 처리 중 항목이 없어 새 배경 경로는 돌지 않는다(D4 기존 경로).
       final server = _Server(processing: false);
@@ -705,7 +708,14 @@ void main() {
         await _background(tester);
         await _foreground(tester, settle: false);
         await tester.pump(const Duration(milliseconds: 100));
-        expect(_feedSpinner, findsOneWidget, reason: '대기 중 기존 스피너');
+        expect(
+          find.byType(HomeContentCard),
+          findsWidgets,
+          reason: '대기 중 직전 카드',
+        );
+        expect(tester.widget<PageDots>(find.byType(PageDots)).activeIndex, 0);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(HomeContentCardSkeleton), findsNothing);
         server
           ..failLists = true
           ..feedGate = null;
