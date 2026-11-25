@@ -380,16 +380,10 @@ flutter run --no-pub -d <emulator-id> -t test/support/share_preview.dart \
 이 경우 본앱의 게스트 시작 버튼으로 테스트 서버 세션을 발급받습니다.
 외부 OAuth·AI/OCR·metadata는 대역이며 실제 공급자 동작이나 운영 저장을 증명하지 않습니다.
 
-```bash
-flutter analyze --no-pub
-flutter test --no-pub
-flutter build web --no-pub
-flutter build apk --debug --no-pub
-flutter build ios --simulator --debug --no-pub
-```
+기본 검사는 [프론트 README의 기본 검증](../../frontend/README.md#기본-검증)을 따르고, 공유 변경은
+`flutter build apk --debug --no-pub`와 `flutter build ios --simulator --debug --no-pub`로 두 플랫폼 빌드도 확인합니다.
 
-기존 Flutter 회귀 테스트에 공유 자격·계정 차단·오래된 발급·영수증·목록 범위 보존 테스트를
-추가했습니다. 네이티브 저장소와 실제 OS 공유 UI 검증은 각 플랫폼 테스트 타깃으로 별도 수행합니다.
+Flutter 회귀 테스트에는 공유 자격·계정 차단·오래된 발급·영수증·목록 범위 보존 테스트가 있습니다. 네이티브 저장소와 실제 OS 공유 UI 검증은 각 플랫폼 테스트 타깃으로 별도 수행합니다.
 공유 확장·실제 Keychain·송신 앱 UI 테스트 명령은 [iOS 공유 검증 안내](../../frontend/ios/ShareVerification/README.md)를 참고합니다.
 Android의 Keystore·수신 Activity·HTTP 테스트와 API 33·36 재현 명령은
 [Android 공유 검증 안내](../../frontend/android/SHARE_TESTING.md)에 있습니다.

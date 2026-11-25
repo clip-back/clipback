@@ -309,6 +309,9 @@
 | 2026-10-25 | [PR #75 local 유지 호환 배포 체크리스트](2026-10-25-image-storage-compatible-deployment-checklist.md) | 백엔드 |
 | 2026-10-26 | [이미지 운영 도구 원본 접근·백업·복원 실행 계획](2026-10-26-image-operator-execution-plan.md) | 백엔드 |
 | 2026-10-28 | [Android 내부 테스트 배포 명세 사본](2026-10-28-android-internal-test-release-spec.md) | 배포 |
+| 2026-09-07 | [이전 Figma 디자인 캐시](2026-09-07-figma-design-cache.md) | 디자인 |
+| 2026-10-24 | [마이 통계 구현 스펙 #80 본문 사본](2026-10-24-account-stats-recovery-issue-80.md) | 명세 |
+| 2026-10-25 | [카테고리 저장 복구 구현 스펙 #86 본문 사본](2026-10-25-category-save-recovery-issue-86.md) | 명세 |
 
 ## 현재 안내와 배포 기록
 
