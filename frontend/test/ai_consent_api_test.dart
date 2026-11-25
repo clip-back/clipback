@@ -570,6 +570,83 @@ void main() {
       expect(invalidations, 0);
     });
 
+    // 서버 PR 최종 검수 중간: the caller's own scope ends the save too. A
+    // refresh already sent stays the session's (its rotated tokens are kept),
+    // but nothing is resent once the caller cancelled; the caller gets its own
+    // cancellation, as any request in its scope does.
+    for (final cancel in [false, true]) {
+      test(
+        cancel
+            ? 'a caller cancelling while its refresh runs stops the resend'
+            : 'without cancelling the same refresh resends once',
+        () async {
+          final refreshed = Completer<http.Response>();
+          final server = _Server([
+            _now(_json({'detail': 'expired'}, 401)),
+            () => refreshed.future,
+            _now(_json(_saved('granted'))),
+          ]);
+          final api = apiFor(server);
+          final caller = ApiRequestScope();
+          final outcome = caller
+              .run(() => api.saveAiConsent(AiConsentStatus.granted))
+              .then<Object>((value) => value, onError: (Object error) => error);
+          await pumpEventQueue();
+          expect(server.requests.map((r) => r.url.path), [
+            _path,
+            '/api/v1/auth/refresh',
+          ]); // The refresh was sent.
+          if (cancel) caller.cancel();
+          refreshed.complete(rotated);
+          final result = await outcome;
+          await pumpEventQueue();
+          expect(
+            (
+              cancel ? '${result.runtimeType}' : result,
+              puts(server),
+              api.session?.accessToken,
+              invalidations,
+            ),
+            (
+              cancel ? 'StateError' : AiConsentSaveResult.saved,
+              cancel ? 1 : 2,
+              'rotated-access',
+              0,
+            ),
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'a caller cancelling while the first PUT runs sends nothing more',
+      (tester) async {
+        final answer = Completer<http.Response>();
+        final server = _Server([() => answer.future]);
+        final api = apiFor(server);
+        final caller = ApiRequestScope();
+        Object? result;
+        unawaited(
+          caller
+              .run(() => api.saveAiConsent(AiConsentStatus.denied))
+              .then<void>(
+                (value) => result = value,
+                onError: (Object e) => result = e,
+              ),
+        );
+        await tester.pump();
+        caller.cancel();
+        await tester.pump();
+        expect(
+          result.runtimeType,
+          StateError,
+        ); // At the cancellation, not 10 s.
+        answer.complete(_json({'detail': 'expired'}, 401));
+        await tester.pump(const Duration(seconds: 30));
+        expect((server.requests.length, invalidations), (1, 0));
+      },
+    );
+
     testWidgets('a refresh finishing after the deadline does not resend', (
       tester,
     ) async {

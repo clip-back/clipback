@@ -816,12 +816,20 @@ class ClipbackApi {
   /// (the usual generation check drops it after an account change). [AiConsentSaveResult.saved] needs a 200 answer
   /// with the sent status, version 1 and a valid API time. An empty or
   /// different 200 answer, the deadline or a lost connection is unconfirmed; a
-  /// failed or malformed refresh and other answers fail (#474).
+  /// failed or malformed refresh and other answers fail (#474). The caller's
+  /// own request scope ends the save too: once it is cancelled or past its
+  /// deadline nothing more is sent and its reason is thrown, as for any
+  /// request in that scope.
   Future<AiConsentSaveResult> saveAiConsent(AiConsentStatus status) async {
     assert(
       status == AiConsentStatus.granted || status == AiConsentStatus.denied,
     );
+    final caller = ApiRequestScope.current;
+    caller?.checkActive();
     final scope = ApiRequestScope(timeout: _requestTimeout);
+    if (caller != null) {
+      unawaited(caller.cancelled.then((_) => scope.cancel(_endReason(caller))));
+    }
     final http.Response response;
     try {
       response = await scope.run(
@@ -834,17 +842,20 @@ class ClipbackApi {
           ),
         ),
       );
-    } on ClipbackApiException {
-      return AiConsentSaveResult.failed;
-    } on _RefreshFailed {
-      // The first PUT was refused with 401 and the refresh failed (lost connection or a
-      // malformed answer): nothing changed the decision and nothing is resent.
-      return AiConsentSaveResult.failed;
-    } on TimeoutException {
-      return AiConsentSaveResult.unconfirmed;
-    } on http.ClientException {
-      // A PUT (first or resent) whose answer was lost.
-      return AiConsentSaveResult.unconfirmed;
+      caller?.checkActive();
+    } catch (error) {
+      // The caller's own end comes first: its reason is thrown.
+      caller?.checkActive();
+      // A failed refresh after the first 401 (lost connection or a malformed
+      // answer) changed nothing and resends nothing.
+      if (error is ClipbackApiException || error is _RefreshFailed) {
+        return AiConsentSaveResult.failed;
+      }
+      // The deadline, or a PUT (first or resent) whose answer was lost.
+      if (error is TimeoutException || error is http.ClientException) {
+        return AiConsentSaveResult.unconfirmed;
+      }
+      rethrow;
     } finally {
       scope.cancel();
     }
@@ -862,6 +873,16 @@ class ClipbackApi {
       // An empty or broken 200 body does not confirm the decision.
     }
     return AiConsentSaveResult.unconfirmed;
+  }
+
+  /// Why [scope] ended: its cancellation reason or deadline.
+  static Object _endReason(ApiRequestScope scope) {
+    try {
+      scope.checkActive();
+    } catch (reason) {
+      return reason;
+    }
+    return StateError('Request scope ended');
   }
 
   static final _apiTime = RegExp(
