@@ -139,3 +139,21 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 단계별 로그는 `.utmp/ticket-475/20261125T232846-ff53a9c0b706/`, 진단은 `.utmp/ci-474/diagnosis/`와 `.utmp/ci-474/full-order-diagnosis/`에 있습니다.
+
+### 인스타그램 재시도 대기 단언 보완
+
+PR CI의 migration 검사에서 `test_instagram_summary.py`의 일시 실패 재시도 테스트(`[503]`)가 대기 35초 상한을 넘어 실패했습니다. 이 단언은 테스트의 외부 트랜잭션이 시작한 DB 시각부터 재기 때문에, 저장과 재시도 예약 사이에 긴 Python GC 정지가 끼면 그만큼 대기가 늘어납니다. 같은 방식은 이 변경 이전 커밋에도 있었습니다. 사용자 결정 “이 PR에서 단언 기준만 고치기 (추천)”에 따라 그 테스트의 25초 < 대기 < 35초 단언 기준만 워커가 재시도를 예약한 시각으로 바꿨습니다(`417fc4a`). 첫 시도 동안 워커의 시계를 테스트가 고른 현재 시각으로 고정하고 같은 시각을 뺍니다. 다른 단언·테스트·임계값과 제품 코드는 그대로입니다.
+
+전용 PostgreSQL에서 CI 순서 전체를 돌리며 그 테스트의 대기 구간 안에서 한 번 전체 GC를 강제로 일으켰습니다. 고치기 전 `41e2be1`은 GC 7.39초로 대기 38.75초가 되어 그 테스트만 실패했고, 고친 `417fc4a`는 GC 6.29초에서도 통과했습니다(1,515개 통과). 재시도 간격 30초를 임시로 0초와 60초로 바꾸면 고친 단언이 세 경우 모두 실패하는 것도 확인하고 되돌렸습니다.
+
+2026-11-26 커밋 `417fc4a`(작업 트리 깨끗함)의 전체 VERIFY 실행 ID는 `20261126T013431-bd209e1b72c7`이고 종료 코드는 0입니다. `flutter analyze`가 통과했고 Flutter 테스트는 4,235개 통과했습니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 478.62s (0:07:58)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+verify ci-only: backend/tests/deployment/test_ai_consent_resume_runbook.py backend/tests/deployment/test_backup_restore_docker.py (로컬 skip, 티켓 종료 전 CI 필요)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+진단은 `.utmp/ci-483/instagram/report.md`, 재현·변형 로그는 `.utmp/ci-483/instagram/fix/`에 있습니다.
