@@ -826,7 +826,12 @@ class ClipbackApi {
     );
     final caller = ApiRequestScope.current;
     caller?.checkActive();
-    final scope = ApiRequestScope(timeout: _requestTimeout);
+    // Checking the caller on every activity check also ends this save for a
+    // caller that is no longer current, which completes no cancellation itself.
+    final scope = ApiRequestScope(
+      timeout: _requestTimeout,
+      isCurrent: () => caller?.isActive ?? true,
+    );
     if (caller != null) {
       unawaited(caller.cancelled.then((_) => scope.cancel(_endReason(caller))));
     }

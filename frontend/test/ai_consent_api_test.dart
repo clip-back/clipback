@@ -647,6 +647,107 @@ void main() {
       },
     );
 
+    // 서버 PR 최종 재검수 중간: a caller whose isCurrent turns false (its screen
+    // left) without anyone reading its isActive ends the save the same way. The
+    // test never reads the caller's isActive before the outcome.
+    test(
+      'a caller no longer current while its refresh runs gets nothing resent',
+      () async {
+        final refreshed = Completer<http.Response>();
+        final server = _Server([
+          _now(_json({'detail': 'expired'}, 401)),
+          () => refreshed.future,
+          _now(_json(_saved('granted'))),
+        ]);
+        final api = apiFor(server);
+        var current = true;
+        final caller = ApiRequestScope(isCurrent: () => current);
+        final outcome = caller
+            .run(() => api.saveAiConsent(AiConsentStatus.granted))
+            .then<Object>((value) => value, onError: (Object error) => error);
+        await pumpEventQueue();
+        expect(server.requests.map((r) => r.url.path), [
+          _path,
+          '/api/v1/auth/refresh',
+        ]);
+        current = false;
+        refreshed.complete(rotated);
+        final result = await outcome;
+        await pumpEventQueue();
+        expect(
+          (
+            '${result.runtimeType}',
+            puts(server),
+            api.session?.accessToken,
+            api.session?.refreshToken,
+            invalidations,
+          ),
+          ('StateError', 1, 'rotated-access', 'rotated-refresh', 0),
+        );
+      },
+    );
+
+    test(
+      'a caller no longer current before the first answer starts no refresh',
+      () async {
+        final answer = Completer<http.Response>();
+        final server = _Server([() => answer.future]);
+        final api = apiFor(server);
+        var current = true;
+        final caller = ApiRequestScope(isCurrent: () => current);
+        final outcome = caller
+            .run(() => api.saveAiConsent(AiConsentStatus.granted))
+            .then<Object>((value) => value, onError: (Object error) => error);
+        await pumpEventQueue();
+        current = false;
+        answer.complete(_json({'detail': 'expired'}, 401));
+        final result = await outcome;
+        await pumpEventQueue();
+        expect(
+          (
+            '${result.runtimeType}',
+            server.requests.map((r) => r.method).join(','),
+            api.session?.accessToken,
+            invalidations,
+          ),
+          ('StateError', 'PUT', 'old-access', 0),
+        );
+      },
+    );
+
+    testWidgets(
+      'a caller deadline while its refresh runs gets nothing resent',
+      (tester) async {
+        final refreshed = Completer<http.Response>();
+        final server = _Server([
+          _now(_json({'detail': 'expired'}, 401)),
+          () => refreshed.future,
+          _now(_json(_saved('granted'))),
+        ]);
+        final api = apiFor(server);
+        final caller = ApiRequestScope(timeout: const Duration(seconds: 3));
+        Object? result;
+        unawaited(
+          caller
+              .run(() => api.saveAiConsent(AiConsentStatus.granted))
+              .then<void>(
+                (value) => result = value,
+                onError: (Object e) => result = e,
+              ),
+        );
+        await tester.pump();
+        expect(server.requests, hasLength(2)); // The refresh was sent.
+        await tester.pump(const Duration(seconds: 3));
+        expect(result, isA<TimeoutException>()); // At the caller's 3 s.
+        refreshed.complete(rotated);
+        await tester.pump(const Duration(seconds: 30));
+        expect(
+          (puts(server), api.session?.accessToken, invalidations),
+          (1, 'rotated-access', 0),
+        );
+      },
+    );
+
     testWidgets('a refresh finishing after the deadline does not resend', (
       tester,
     ) async {
