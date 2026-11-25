@@ -19,6 +19,8 @@ SQL = BACKEND / "alembic" / "sql"
 PREVIOUS = "202611220025"
 LINK_LIMIT = "202611220024"
 LEGACY = "202611170023"
+# #462's own revision: the AI consent revision after it refuses to downgrade.
+MONTHLY = "202611230026"
 KST = ZoneInfo("Asia/Seoul")
 
 
@@ -220,7 +222,7 @@ async def test_link_limit_reason_survives_partial_downgrade_and_reupgrade(
     migration_database, target,
 ):
     connection, migrate, _ = migration_database
-    await migrate("upgrade", "head")
+    await migrate("upgrade", MONTHLY)
     await connection.execute("INSERT INTO users (id, display_name) VALUES (1, 'synthetic owner')")
     await insert_content(connection, 11, "link", datetime.now(KST))
     await insert_job(connection, 11, "skipped", "monthly_limit_exceeded")
@@ -237,7 +239,7 @@ async def test_link_limit_reason_survives_partial_downgrade_and_reupgrade(
     assert await connection.fetchval(reason) == "monthly_limit_exceeded"
     assert await usage(connection) == before
 
-    await migrate("upgrade", "head")
+    await migrate("upgrade", MONTHLY)
     assert tuple(await connection.fetchrow(check_state)) == ("202611230026", True, True)
     assert await connection.fetchval(reason) == "monthly_limit_exceeded"
     assert await usage(connection) == before
@@ -246,7 +248,7 @@ async def test_link_limit_reason_survives_partial_downgrade_and_reupgrade(
 @pytest.mark.asyncio
 async def test_console_rollback_matches_alembic_downgrade(migration_database):
     connection, migrate, connect = migration_database
-    await migrate("upgrade", "head")
+    await migrate("upgrade", MONTHLY)
     await connection.execute("INSERT INTO users (id, display_name) VALUES (1, 'synthetic owner')")
     now = datetime.now(KST)
     await insert_content(connection, 11, "link", now)

@@ -167,7 +167,7 @@ python -m scripts.restore_execution run --workspace /absolute/private/restore-ru
 - [ ] `child_stopped`, `executors_stopped`, `source_lock_released`, `restore_receipt_finished`, `cleanup_passed`를 확인한다. 미확인 항목을 성공으로 바꾸지 않는다.
 - [ ] 실패·연결 단절·시간 초과에는 결과 보고서와 잔여 journal을 확인한다. 이전 실행이 종료된 뒤에만 [정리·복구 명령](isolated-restore-execution.md#비정상-종료와-연결-상실-복구)을 사용한다.
 - [ ] Mac 상실 시 서버의 `maintenance status`로 확인한다. 원본 잠금과 이전 실행 종료를 확인한 **해당 작업만** `recover --confirm-executor-stopped`로 복구한다. 단순 연결 부재·시간 경과를 종료 증거로 삼지 않는다.
-- [ ] 운영 상태와 실행 종료·잠금 해제가 확인되면 같은 run ID를 명시적으로 재개한다. 남은 작업 기록이 있거나 상태가 불명확하면 재개 완료로 기록하지 않는다.
+- [ ] 원본 DB에서 운영을 이어 갈 때는 운영 상태와 실행 종료·잠금 해제가 확인되면 아래 명령으로 같은 run ID를 재개한다. 남은 작업 기록이 있거나 상태가 불명확하면 점검을 유지한다. **복원한 DB를 운영 DB로 전환할 때**는 아래 [AI 전송 동의 복원 정리와 재개](#ai-전송-동의-복원-정리와-재개) 절차를 따른다.
 
 ```sh
 python -m scripts.maintenance status
@@ -180,6 +180,51 @@ python -m scripts.maintenance resume --run-id RUN_ID
 
 검증 실패 후 서비스 재개 가능 여부와 백업 검증 재시도는 별도로 판단한다. 이번 운영 검증이
 성공하기 전에는 신규 Bucket 저장 전환·이관을 진행하지 않는다.
+
+## AI 전송 동의 복원 정리와 재개
+
+위의 격리 복원 검증은 복구 지점의 **원본 행 수**를 기준으로 마칩니다. 원본 행 수와 최신 삭제 장부 반영 결과를
+기록합니다. AI 동의 정리는 검증을 마친 뒤 실제 운영 전환에 사용할 대상 DB에만 적용합니다.
+
+1. 점검을 유지하고 대상 DB에 새 서버 리비전까지 마이그레이션을 적용합니다. 이전 스키마에서 복원했으면 동의 표가 이때 생깁니다.
+2. 저장소 루트에서 대상 DB 연결을 확인한 뒤 아래 SQL을 실행합니다. 동의함은 미결정으로 돌아가고, 거절 기록은 유지됩니다.
+   대기·처리 중 작업은 모두 `skipped`·`ai_consent_required`로 바뀌며 임대와 해당 작업의 월 AI 요약 기록이 제거됩니다.
+   완료 결과는 그대로 두며, 정리를 다시 실행하면 변경 건수가 모두 0입니다.
+
+   ```sh
+   psql -X -c '\conninfo'
+   psql -X -v ON_ERROR_STOP=1 -f backend/alembic/sql/cleanup_restored_ai_consent.sql
+   ```
+
+3. 같은 대상 DB에서 아래 두 결과가 모두 0인지 확인합니다. 정리 뒤 행 수는 복구 지점 원본 행 수와 따로 기록합니다.
+
+   ```sql
+   SELECT count(*) AS granted FROM ai_transfer_consents WHERE status = 'granted';
+   SELECT count(*) AS unfinished FROM summary_jobs WHERE status IN ('queued', 'processing');
+   ```
+
+4. `AI_CONSENT_REQUIRED=true`로 서버를 배포한 뒤, [스위치 값 확인](../release-process.md#ai-전송-동의-스위치-확인)의
+   활성 배포 1개·replicas 1·이전 배포 종료와 API 값 true·worker 값 true를 모두 확인합니다.
+5. 위 조건들과 원래의 복원 검증·잠금 해제·실행 종료가 모두 확인된 같은 점검 run만 명시적으로 재개합니다.
+   `backend/`에서 확인한 값과 run ID를 아래 명령에 전달합니다.
+   DB 검증 두 결과가 모두 0이면 `ai_restore_db_confirmed=yes`, 배포·복제본 확인이 모두 끝나면
+   `ai_restore_replica_confirmed=yes`를 설정합니다. `ai_restore_api_value`·`ai_restore_worker_value`에는
+   방금 확인한 두 스위치 값, `ai_restore_run_id`에는 현재 run ID를 넣습니다.
+   꺼짐·실패·미확인 항목이 하나라도 있으면 점검을 유지합니다.
+
+   ```sh
+   if [ "${ai_restore_db_confirmed:-}" = yes ] &&
+      [ "${ai_restore_replica_confirmed:-}" = yes ] &&
+      [ "${ai_restore_api_value:-}" = true ] &&
+      [ "${ai_restore_worker_value:-}" = true ] &&
+      [ -n "${ai_restore_run_id:-}" ]
+   then
+       python -m scripts.maintenance resume --run-id "$ai_restore_run_id"
+   else
+       printf '%s\n' 'AI 전송 동의 재개 조건 미확인. 점검을 유지합니다.' >&2
+       false
+   fi
+   ```
 
 ## 완료 증거
 

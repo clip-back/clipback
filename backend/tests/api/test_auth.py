@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ from app.repositories.auth_session_repository import AuthSessionRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import TokenResponse
+from app.services import user_service
 
 
 class FakeAuthService:
@@ -173,6 +175,7 @@ def test_access_token_returns_current_guest_user(
     monkeypatch.setattr(AuthSessionRepository, "get_active", get_active)
     monkeypatch.setattr(UserRepository, "get", get_user)
     monkeypatch.setattr(SocialIdentityRepository, "list_providers", list_providers)
+    monkeypatch.setattr(user_service, "read_consent", AsyncMock(return_value=(None, None)))
     token = create_access_token(user_id=3, session_id=5)
 
     response = client.get(
@@ -188,6 +191,7 @@ def test_access_token_returns_current_guest_user(
         "is_guest": True,
         "created_at": "2026-09-07T03:00:00Z",
         "linked_providers": [],
+        "ai_consent_status": "undecided",
     }
 
 

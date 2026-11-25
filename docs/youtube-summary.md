@@ -34,7 +34,7 @@ si/list 등은 제거하며 Gemini에는 재생 시점 없는 전체 영상 URL�
 직접 입력의 비어 있지 않은 제목·요약은 보존하고, 사용자가 선택한 카테고리는 자동 결과로 덮어쓰지 않는다.
 
 오류 코드는 timeout, provider_error, invalid_response, configuration_error,
-video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limit_exceeded, 호환용 daily_limit_exceeded와
+video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limit_exceeded, ai_consent_required, 호환용 daily_limit_exceeded와
 인스타그램용 content_unavailable, unsupported_content, insufficient_content로 제한된다.
 일시 장애 재시도 대기 중에는 queued와 직전 오류 코드가 반환될 수 있다.
 
@@ -45,6 +45,7 @@ video_unavailable, duration_exceeded, live_not_supported, disabled, monthly_limi
 한도에 도달해도 링크 저장은 성공하며 작업은 `skipped`·`monthly_limit_exceeded`가 된다.
 서로 다른 제출이 동시에 같은 건수를 보면 한도를 넘길 수 있다.
 꺼진 종류, 지원하지 않는 스토리, 요약 대상이 아닌 입력, 같은 제출 키 재요청, worker 재시도는 기록을 추가하지 않는다.
+[AI 전송 동의](backend/api-contracts.md#ai-전송-동의)가 AI 처리를 허용하지 않으면 월 한도보다 먼저 판정해 작업을 `skipped`·`ai_consent_required`로 만들고 한도에 세지 않는다.
 
 사용 기록은 콘텐츠·이벤트·작업과 같은 DB 트랜잭션에 저장해 재시작 뒤에도 이어진다.
 저장 트랜잭션이 실패하면 기록도 함께 되돌린다. 작업이 최종 실패하거나 건너뛰면 같은 트랜잭션에서 기록을 지운다.
@@ -133,6 +134,17 @@ YouTube 조회 10초, Gemini 120초, 인스타그램 페이지 5초·대표 이�
 점유 만료 후에도 총 시도 횟수는 최대 2회다. 요약 클라이언트에서 분류되지 않은 예외가 나면 점유 만료를 기다리지 않고
 재시도 없이 `failed`/`provider_error`로 끝낸다. 프로세스 장애 시 공급자 호출의 정확히 한 번 실행은
 보장하지 않는다. 회수 로그의 possible_duplicate_call과 공급자 청구 내역을 함께 확인한다.
+
+작업을 잡을 때 켜진 종류만 대상으로 고르고, 시도 소진은 `failed`/`timeout`으로 끝낸다. 그 다음
+[AI 전송 동의](backend/api-contracts.md#서버-요약-작업의-판정)를 잠금 없이 읽는다(G4).
+금지된 작업은 시도를 올리지 않고 `skipped`/`ai_consent_required`로 끝내며 월 한도 기록을 해제한다.
+읽기 실패는 claim 트랜잭션을 되돌리고 2초 뒤 다시 조회한다.
+
+YouTube Data API 또는 인스타그램 페이지·대표 이미지 조회를 마친 뒤 AI 전송 바로 앞에서 동의와 임대를 다시 읽는다(G5).
+동의로 막힌 작업은 건너뛰고 월 한도 기록을 해제한다. 읽기에 실패하면 `provider_error`로 분류해
+30초 뒤 한 번 재시도하고, 시도를 소진하면 실패로 끝내며 월 한도 기록을 해제한다.
+철회가 전송 직전 판정을 통과한 뒤 커밋되면 이미 보낸 시도로 처리한다. 그 시도의 재시도는 G4를 다시 거친다.
+임대를 잃은 옛 시도는 새 전송과 결과 반영을 막는다.
 
 최종 반영은 사용자 → 콘텐츠 → 작업 → 태그 행(공유 잠금) 순서로 잠근다.
 처리 중 동일 값의 분류 요청도 수동 선택으로 보존한다.

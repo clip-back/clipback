@@ -14,7 +14,7 @@ NOW = datetime(2026, 11, 12, 3, tzinfo=UTC)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("is_guest", [True, False])
-async def test_read_me_composes_account_without_internal_fields(is_guest) -> None:
+async def test_read_me_composes_account_without_internal_fields(is_guest, monkeypatch) -> None:
     user = SimpleNamespace(
         id=7,
         email=None,
@@ -30,6 +30,7 @@ async def test_read_me_composes_account_without_internal_fields(is_guest) -> Non
     providers = [] if is_guest else [SocialProvider.GOOGLE, SocialProvider.KAKAO]
     identities.list_providers.return_value = providers
     service = UserService(users, identities, AsyncMock())
+    monkeypatch.setattr(user_service, "read_consent", AsyncMock(return_value=(NOW, None)))
 
     result = await service.read_me(user_id=7)
 
@@ -40,6 +41,7 @@ async def test_read_me_composes_account_without_internal_fields(is_guest) -> Non
         "is_guest": is_guest,
         "created_at": "2026-09-07T03:00:00Z",
         "linked_providers": [provider.value for provider in providers],
+        "ai_consent_status": "undecided",
     }
     users.get.assert_awaited_once_with(7)
     identities.list_providers.assert_awaited_once_with(user_id=7)

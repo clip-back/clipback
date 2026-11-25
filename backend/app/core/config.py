@@ -16,6 +16,8 @@ class Settings(DeletionLedgerSettings):
     youtube_data_api_key: SecretStr | None = None
     gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-zA-Z0-9._-]+$")
     instagram_summary_enabled: bool = False
+    # Switch: undecided accounts also stop AI processing when true (ADR 0017).
+    ai_consent_required: bool = False
     instagram_summary_model: str = Field(
         default="gpt-5.4-nano-2026-03-17", pattern=r"^[a-zA-Z0-9._-]+$"
     )

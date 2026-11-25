@@ -9,6 +9,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/services/original_image_cache.dart';
 import 'data/services/api_request_scope.dart';
 
+/// A refresh after a 401 that ended without an API answer (lost connection or
+/// a malformed body), for callers that pass `keepRefreshForSession`.
+class _RefreshFailed implements Exception {
+  const _RefreshFailed(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() => 'refresh failed: $cause';
+}
+
 class ClipbackApiException implements Exception {
   const ClipbackApiException(this.message, {this.statusCode});
 
@@ -303,6 +314,30 @@ enum AccountDeletionReason {
 
 enum AccountDeletionResult { deleted, unauthorized, failed }
 
+/// AI 전송 동의 as `GET /users/me` reports it (#474). A missing or unknown
+/// value is [unknown], for example from a server without the field.
+enum AiConsentStatus {
+  undecided('undecided'),
+  granted('granted'),
+  denied('denied'),
+  unknown(null);
+
+  const AiConsentStatus(this.value);
+
+  final String? value;
+
+  static AiConsentStatus parse(Object? value) => switch (value) {
+    'undecided' => undecided,
+    'granted' => granted,
+    'denied' => denied,
+    _ => unknown,
+  };
+}
+
+/// How saving a decision ended. Only [saved] means the answer confirmed it;
+/// [unconfirmed] needs a re-read before the result is known (#474).
+enum AiConsentSaveResult { saved, unconfirmed, failed }
+
 class ApiUser {
   const ApiUser({
     required this.id,
@@ -311,6 +346,7 @@ class ApiUser {
     required this.isGuest,
     required this.createdAt,
     required this.linkedProviders,
+    this.aiConsentStatus = AiConsentStatus.unknown,
   });
 
   final int id;
@@ -319,6 +355,7 @@ class ApiUser {
   final bool isGuest;
   final DateTime createdAt;
   final List<String> linkedProviders;
+  final AiConsentStatus aiConsentStatus;
 
   factory ApiUser.fromJson(Map<String, dynamic> json) => ApiUser(
     id: json['id'] as int,
@@ -327,6 +364,7 @@ class ApiUser {
     isGuest: json['is_guest'] as bool,
     createdAt: _dateTime(json['created_at'])!,
     linkedProviders: List<String>.from(json['linked_providers'] as List),
+    aiConsentStatus: AiConsentStatus.parse(json['ai_consent_status']),
   );
 }
 
@@ -420,10 +458,24 @@ class ClipbackApi {
   ApiRequestScope? _refreshScope;
   final _refreshOwners = <ApiRequestScope>{};
   bool _refreshHasUnscopedOwner = false;
+  // Scopes of the requests waiting for a refresh; null stands for a caller
+  // without a scope.
+  final _refreshCallers = Expando<Set<ApiRequestScope?>>('refresh callers');
+  // The running session ending of one login (#474, A안): a later 401 of that
+  // login joins it. Its waiters are scopes as in [_refreshCallers].
+  Future<void>? _ending;
+  int? _endingGeneration;
+  ApiRequestScope? _endingScope;
+  Set<ApiRequestScope?> _endingWaiters = {};
   int? _logoutGeneration;
 
   bool get hasSession => _session != null;
   ApiSession? get session => _session;
+
+  /// Changes when another login replaces the session or it is cleared, not
+  /// when a refresh rotates its tokens. A session callback that waits keeps
+  /// the value it started with to end only that login (#474).
+  int get sessionGeneration => _sessionGeneration;
   String get baseUrl => _baseUrl;
 
   Future<ApiShareCredential> createShareCredential() async {
@@ -482,6 +534,15 @@ class ClipbackApi {
   void _checkSessionGeneration(int generation, {bool allowLogout = false}) {
     if (generation != _sessionGeneration ||
         (!allowLogout && _logoutGeneration == generation)) {
+      throw const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.');
+    }
+  }
+
+  /// After a session callback: a 401 still tells its caller that this login
+  /// ended (cleared or not), but a login that replaced it meanwhile must not be
+  /// ended for it (#474).
+  void _checkNoNewerLogin(int generation) {
+    if (generation != _sessionGeneration && _session != null) {
       throw const ClipbackApiException('로그인 상태가 변경되었어요. 다시 시도해 주세요.');
     }
   }
@@ -746,6 +807,117 @@ class ClipbackApi {
   Future<ApiUserStats> readStatsOnce() async => ApiUserStats.fromJson(
     await _json('GET', '/users/me/stats', retryUnauthorized: false),
   );
+
+  /// Sends the decision ([AiConsentStatus.granted] or [AiConsentStatus.denied]).
+  /// The PUT, a 401 refresh and its one resend share one 10-second request
+  /// scope: at the deadline the scope ends, so a late 401 or refresh cannot
+  /// send the old choice again. A refresh already sent outlives the deadline:
+  /// the server may have rotated the tokens, so this account keeps the answer
+  /// (the usual generation check drops it after an account change). [AiConsentSaveResult.saved] needs a 200 answer
+  /// with the sent status, version 1 and a valid API time. An empty or
+  /// different 200 answer, the deadline or a lost connection is unconfirmed; a
+  /// failed or malformed refresh and other answers fail (#474). The caller's
+  /// own request scope ends the save too: once it is cancelled or past its
+  /// deadline nothing more is sent and its reason is thrown, as for any
+  /// request in that scope.
+  Future<AiConsentSaveResult> saveAiConsent(AiConsentStatus status) async {
+    assert(
+      status == AiConsentStatus.granted || status == AiConsentStatus.denied,
+    );
+    final caller = ApiRequestScope.current;
+    caller?.checkActive();
+    // Checking the caller on every activity check also ends this save for a
+    // caller that is no longer current, which completes no cancellation itself.
+    final scope = ApiRequestScope(
+      timeout: _requestTimeout,
+      isCurrent: () => caller?.isActive ?? true,
+    );
+    if (caller != null) {
+      unawaited(caller.cancelled.then((_) => scope.cancel(_endReason(caller))));
+    }
+    final http.Response response;
+    try {
+      response = await scope.run(
+        () => scope.wait(
+          _request(
+            'PUT',
+            '/users/me/ai-consent',
+            body: {'status': status.value, 'notice_version': 1},
+            keepRefreshForSession: true,
+          ),
+        ),
+      );
+      caller?.checkActive();
+    } catch (error) {
+      // The caller's own end comes first: its reason is thrown.
+      caller?.checkActive();
+      // A failed refresh after the first 401 (lost connection or a malformed
+      // answer) changed nothing and resends nothing.
+      if (error is ClipbackApiException || error is _RefreshFailed) {
+        return AiConsentSaveResult.failed;
+      }
+      // The deadline, or a PUT (first or resent) whose answer was lost.
+      if (error is TimeoutException || error is http.ClientException) {
+        return AiConsentSaveResult.unconfirmed;
+      }
+      rethrow;
+    } finally {
+      scope.cancel();
+    }
+    if (response.statusCode != 200) return AiConsentSaveResult.failed;
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map &&
+          data['status'] == status.value &&
+          data['notice_version'] is int &&
+          data['notice_version'] == 1 &&
+          _isApiTime(data['decided_at'])) {
+        return AiConsentSaveResult.saved;
+      }
+    } on FormatException {
+      // An empty or broken 200 body does not confirm the decision.
+    }
+    return AiConsentSaveResult.unconfirmed;
+  }
+
+  /// Why [scope] ended: its cancellation reason or deadline.
+  static Object _endReason(ApiRequestScope scope) {
+    try {
+      scope.checkActive();
+    } catch (reason) {
+      return reason;
+    }
+    return StateError('Request scope ended');
+  }
+
+  static final _apiTime = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?'
+    r'(?:Z|[+-](\d{2}):(\d{2}))$',
+  );
+
+  /// An ISO time with a zone whose date, clock and offset exist:
+  /// `DateTime.tryParse` alone rolls 02-31 over to March, accepts a date
+  /// without a time and offsets such as +24:00 or +00:60.
+  static bool _isApiTime(Object? value) {
+    if (value is! String) return false;
+    final match = _apiTime.firstMatch(value);
+    if (match == null || DateTime.tryParse(value) == null) return false;
+    final offsetHours = match.group(8), offsetMinutes = match.group(9);
+    if (offsetHours != null &&
+        (int.parse(offsetHours) > 23 || int.parse(offsetMinutes!) > 59)) {
+      return false;
+    }
+    final [year, month, day, hour, minute, second] = [
+      for (var group = 1; group <= 6; group++) int.parse(match.group(group)!),
+    ];
+    final local = DateTime.utc(year, month, day, hour, minute, second);
+    return local.year == year &&
+        local.month == month &&
+        local.day == day &&
+        local.hour == hour &&
+        local.minute == minute &&
+        local.second == second;
+  }
 
   /// Only 204 deletes. A 401 has already gone through the usual session
   /// invalidation. The whole submission, refresh and resend included, ends at
@@ -1484,6 +1656,7 @@ class ClipbackApi {
     Map<String, dynamic>? body,
     bool retryUnauthorized = true,
     Map<String, String>? headers,
+    bool keepRefreshForSession = false,
   }) => _sendWithSessionRetry(
     (session) async {
       final scope = ApiRequestScope.current;
@@ -1506,13 +1679,20 @@ class ClipbackApi {
     },
     authenticated: authenticated,
     retryUnauthorized: retryUnauthorized,
+    keepRefreshForSession: keepRefreshForSession,
   );
 
+  /// With [keepRefreshForSession] a 401 refresh is also owned by the session,
+  /// as for an unscoped caller, so the caller's scope ending does not cancel a
+  /// refresh the server may already have applied; the resend still needs the
+  /// caller's scope. A refresh failure other than an API error is then
+  /// [_RefreshFailed].
   Future<http.Response> _sendWithSessionRetry(
     Future<http.Response> Function(ApiSession?) send, {
     bool authenticated = true,
     bool retried = false,
     bool retryUnauthorized = true,
+    bool keepRefreshForSession = false,
   }) async {
     final scope = ApiRequestScope.current;
     scope?.checkActive();
@@ -1537,18 +1717,35 @@ class ClipbackApi {
         authenticated &&
         !retried &&
         retryUnauthorized) {
+      Future<ApiSession>? sharedRefresh;
       try {
         // Memory can change before the persistence callback finishes.
         if (_refreshFuture != null ||
             session!.accessToken == _session!.accessToken) {
-          await refreshSession();
+          final refresh = refreshSession();
+          sharedRefresh = _refreshFuture;
+          if (sharedRefresh != null) {
+            (_refreshCallers[sharedRefresh] ??= {}).add(scope);
+          }
+          if (keepRefreshForSession) {
+            _refreshHasUnscopedOwner = true;
+            _ownLateRefreshRejection(sharedRefresh, generation, scope);
+          }
+          await refresh;
         }
       } catch (error) {
         scope?.checkActive();
         _checkSessionGeneration(generation);
         if (error is ClipbackApiException && error.statusCode == 401) {
-          _invalidateAssetCache();
-          await _onSessionInvalidated?.call();
+          final ending = _endSession({
+            scope,
+            ...?(sharedRefresh == null ? null : _refreshCallers[sharedRefresh]),
+          });
+          await (scope?.wait(ending) ?? ending);
+          _checkNoNewerLogin(generation);
+        }
+        if (keepRefreshForSession && error is! ClipbackApiException) {
+          throw _RefreshFailed(error);
         }
         rethrow;
       }
@@ -1559,13 +1756,82 @@ class ClipbackApi {
         authenticated: authenticated,
         retried: true,
         retryUnauthorized: retryUnauthorized,
+        keepRefreshForSession: keepRefreshForSession,
       );
     }
     if (response.statusCode == 401 && authenticated && retryUnauthorized) {
-      _invalidateAssetCache();
-      await _onSessionInvalidated?.call();
+      final ending = _endSession({scope});
+      await (scope?.wait(ending) ?? ending);
+      _checkNoNewerLogin(generation);
     }
     return response;
+  }
+
+  /// A refresh this session kept past its caller's deadline: when the server
+  /// refuses it (401) after the caller has ended, the session ends here, once,
+  /// and only while the same account is signed in. A caller still waiting
+  /// handles the answer itself.
+  void _ownLateRefreshRejection(
+    Future<ApiSession>? refresh,
+    int generation,
+    ApiRequestScope? scope,
+  ) {
+    if (refresh == null) return;
+    unawaited(
+      refresh.then<void>(
+        (_) {},
+        onError: (Object error) async {
+          if (scope == null || scope.isActive) return;
+          if (generation != _sessionGeneration) return;
+          if (error is ClipbackApiException && error.statusCode == 401) {
+            await _endSession(_refreshCallers[refresh] ?? const {});
+          }
+        },
+      ),
+    );
+  }
+
+  /// Ends the current login's session after a refused refresh or a final 401,
+  /// with [waiters] (request scopes, null for a caller without one) waiting
+  /// for it. While an ending of this login runs, a later 401 joins it, its
+  /// waiters added; another starts only after it ended without clearing the
+  /// login. The session callback runs in the ending's own request scope, which
+  /// it bounds its waits with (such as the native share barrier). That scope
+  /// ends when none of its waiters waits any more: each caller stops at its own
+  /// deadline or cancellation, and a caller that had already ended (an expired
+  /// consent PUT) neither cuts nor extends it. With a caller without a scope it
+  /// waits to the end.
+  Future<void> _endSession(Iterable<ApiRequestScope?> waiters) {
+    final generation = _sessionGeneration;
+    var ending = _ending;
+    if (ending == null || _endingGeneration != generation) {
+      final scope = _endingScope = ApiRequestScope();
+      _endingWaiters = {};
+      _endingGeneration = generation;
+      _invalidateAssetCache();
+      late final Future<void> started;
+      started = scope
+          .run(() async => await _onSessionInvalidated?.call())
+          .whenComplete(() {
+            scope.cancel();
+            if (identical(_ending, started)) _ending = null;
+          });
+      ending = _ending = started;
+    }
+    final scope = _endingScope!, all = _endingWaiters;
+    void endWhenNobodyWaits() {
+      if (all.every((waiter) => waiter != null && !waiter.isActive)) {
+        scope.cancel();
+      }
+    }
+
+    for (final waiter in waiters) {
+      if (all.add(waiter) && waiter != null && waiter.isActive) {
+        unawaited(waiter.cancelled.then((_) => endWhenNobodyWaits()));
+      }
+    }
+    endWhenNobodyWaits();
+    return ending;
   }
 
   void _throwForError(http.Response response) {

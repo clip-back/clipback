@@ -1,4 +1,5 @@
 from app.models.account_deletion_reason import AccountDeletionReason
+from app.models.ai_transfer_consent import AITransferConsent
 from app.models.apple_auth import AppleAuthChallenge, AppleCredential
 from app.models.auth_session import AuthSession
 from app.models.category import Category
@@ -28,6 +29,7 @@ from app.models.user import User
 
 __all__ = [
     "AccountDeletionReason",
+    "AITransferConsent",
     "AppleAuthChallenge",
     "AppleCredential",
     "AssetType",

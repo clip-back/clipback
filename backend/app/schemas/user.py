@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.social_identity import SocialProvider
 
@@ -13,6 +13,21 @@ class UserRead(BaseModel):
     is_guest: bool
     created_at: datetime
     linked_providers: list[SocialProvider]
+    ai_consent_status: Literal["undecided", "granted", "denied"]
+
+
+class AIConsentUpdate(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    status: Literal["granted", "denied"]
+    # Only notice version 1 exists (#474 결정 3); 1.0 and true are type errors.
+    notice_version: int = Field(ge=1, le=1)
+
+
+class AIConsentRead(BaseModel):
+    status: Literal["granted", "denied"]
+    notice_version: Literal[1]
+    decided_at: datetime
 
 
 class UserStatsRead(BaseModel):

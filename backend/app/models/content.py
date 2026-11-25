@@ -43,7 +43,8 @@ class Content(Base):
         CheckConstraint(
             "screenshot_summary_skip_reason IS NULL OR "
             "(content_type = 'screenshot' AND "
-            "screenshot_summary_skip_reason = 'monthly_limit_exceeded')",
+            "screenshot_summary_skip_reason IN "
+            "('monthly_limit_exceeded', 'ai_consent_required'))",
             name="ck_contents_screenshot_summary_skip_reason",
         ),
     )

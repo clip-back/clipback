@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 
 import httpx
@@ -20,6 +21,8 @@ from app.integrations.ocr_client import close_ocr_client
 from app.integrations.social_auth_client import close_social_auth_client
 from app.integrations.youtube_summary_client import YouTubeSummaryClient
 from app.services.summary_worker import SummaryWorker
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -45,6 +48,11 @@ async def lifespan(_: FastAPI):
         )
         task = asyncio.create_task(worker.run()) if worker.enabled_kinds() else None
         try:
+            logger.info(json.dumps({
+                "event": "summary_worker_consent_config",
+                "worker_running": task is not None,
+                "ai_consent_required": worker.config.ai_consent_required,
+            }))
             yield
         finally:
             if task is not None:

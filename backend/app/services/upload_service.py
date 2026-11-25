@@ -25,6 +25,7 @@ from app.integrations.storage_client import S3StorageClient, StorageRouter, Stor
 from app.models.content_asset import AssetType
 from app.repositories.content_asset_repository import ContentAssetRepository
 from app.schemas.content import ContentAssetAccess
+from app.services.ai_consent import AI_CONSENT_REQUIRED, SaveAIConsent
 from app.services.content_service import PendingContentAsset
 from app.services.image_storage_control import ImageUploadControl
 from app.services.image_upload_policy import ImageUploadPolicy
@@ -70,6 +71,7 @@ class ScreenshotOCRFailureReason(StrEnum):
     INVALID_RESPONSE = "invalid_response"
     ERROR = "error"
     MONTHLY_LIMIT_EXCEEDED = MONTHLY_SUMMARY_LIMIT_EXCEEDED
+    AI_CONSENT_REQUIRED = AI_CONSENT_REQUIRED
 
 
 class UploadService:
@@ -83,6 +85,7 @@ class UploadService:
         image_storage_control: ImageUploadControl | None = None,
         max_bytes: int = settings.screenshot_max_bytes,
         summary_limit: MonthlySummaryLimit | None = None,
+        ai_consent: SaveAIConsent | None = None,
     ) -> None:
         self.content_asset_repository = content_asset_repository
         self.storage_client = storage_client
@@ -91,6 +94,7 @@ class UploadService:
         self.max_bytes = max_bytes
         self.image_storage_control = image_storage_control
         self.summary_limit = summary_limit
+        self.ai_consent = ai_consent
 
     async def read_screenshot(self, file: UploadFile) -> bytes:
         content = await file.read(self.max_bytes + 1)
@@ -113,12 +117,20 @@ class UploadService:
         user = await self.image_upload_policy.authorize(user_id=user_id, size_bytes=len(content))
         decided_at = None
         skip_reason = None
-        if self.summary_limit is not None:
+        # G2a: before the monthly limit, so a declined photo is never counted.
+        if self.ai_consent is not None and not await self.ai_consent.allows(user_id):
+            skip_reason = ScreenshotOCRFailureReason.AI_CONSENT_REQUIRED.value
+        elif self.summary_limit is not None:
             decided_at = await self.summary_limit.admit(
                 user_id, is_guest=user.is_guest, kind="screenshot",
             )
             if decided_at is None:
                 skip_reason = ScreenshotOCRFailureReason.MONTHLY_LIMIT_EXCEEDED.value
+        # G2b: right before the OpenAI call.
+        if (skip_reason is None and self.ai_consent is not None
+                and not await self.ai_consent.allows(user_id)):
+            skip_reason = ScreenshotOCRFailureReason.AI_CONSENT_REQUIRED.value
+            decided_at = None
         if skip_reason is None:
             ocr_result, ocr_metadata = await self._extract_ocr(content=content, mime_type=mime_type)
         else:

@@ -14,6 +14,7 @@ from app.models.content import Content
 from app.models.content_asset import ContentAsset
 from app.models.content_event import ContentEvent
 from app.models.summary_job import SummaryJob
+from app.services import summary_worker as summary_worker_module
 from app.services.summary_worker import SummaryWorker
 from tests.integration.helpers import guest, request
 from tests.integrations.test_instagram_summary_client import page, public_resolver
@@ -359,12 +360,23 @@ async def test_transient_page_status_retries_once_then_fails(
     headers, _, _ = await guest(api)
     content = await save(api, headers)
 
-    await run.run_once()
+    # The worker's clock during this attempt, so the wait is measured from the very "now" its
+    # retry is scheduled from: a pause (such as a long GC) before or after cannot shift it.
+    worker_now = datetime.now(UTC)
+
+    class WorkerClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return worker_now
+
+    with monkeypatch.context() as clock:
+        clock.setattr(summary_worker_module, "datetime", WorkerClock)
+        await run.run_once()
     queued = await detail(api, headers, content)
     assert (queued["summary_status"], queued["summary_error_code"]) == ("queued", "provider_error")
     wait = await database_connection.scalar(
-        select(SummaryJob.next_run_at - func.now()).where(SummaryJob.content_id == content["id"])
-    )
+        select(SummaryJob.next_run_at).where(SummaryJob.content_id == content["id"])
+    ) - worker_now
     assert timedelta(seconds=25) < wait < timedelta(seconds=35)
     assert not await run.run_once() and len(requests) == 1
 

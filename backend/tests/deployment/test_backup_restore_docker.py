@@ -218,3 +218,117 @@ def test_real_failure_leaves_source_intact_and_cleans_resources(real_backup, tmp
         check=True,
     )
     assert "invalid-private-token" not in result.stdout.decode()
+
+
+# Each row keeps its account key (user_id), so a restore that moved a decision to
+# another account differs even with the same values and row count.
+CONSENT_ROWS = (
+    "SELECT user_id, status, notice_version, decided_at = '2026-11-25 00:00:00+00', "
+    "granted_after_denial FROM ai_transfer_consents ORDER BY user_id"
+)
+# The two synthetic accounts exchange their decisions; nothing else changes.
+SWAP_CONSENTS = (
+    "UPDATE ai_transfer_consents AS c SET status = o.status, "
+    "granted_after_denial = o.granted_after_denial "
+    "FROM ai_transfer_consents AS o WHERE o.user_id <> c.user_id"
+)
+
+
+def consent_rows(drill, database):
+    return drill.docker(
+        "exec", database, "psql", "-U", "postgres", "-d", "clipback", "-Atc", CONSENT_ROWS,
+    ).decode().splitlines()
+
+
+def dump_with_consent_rows(directory, major, dump):
+    drill = RestoreDrill()
+    database = drill.owner + "-db"
+    try:
+        drill.container(
+            database, "--network", "none", "-e", "POSTGRES_PASSWORD=fixture",
+            "-e", "POSTGRES_DB=clipback", f"postgres:{major}",
+        )
+        drill.docker("start", database)
+        drill.wait("exec", database, "pg_isready", "-h", "127.0.0.1",
+                   "-U", "postgres", "-d", "clipback")
+        with (directory / dump.name).open("rb") as stream:
+            drill.docker(
+                "exec", "-i", database, "pg_restore", "-U", "postgres", "-d", "clipback",
+                "--no-owner", "--no-acl", "--exit-on-error", stdin=stream,
+            )
+        drill.docker(
+            "exec", database, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
+            "-c", """
+                INSERT INTO ai_transfer_consents
+                    (user_id, status, notice_version, decided_at, granted_after_denial)
+                SELECT id, CASE WHEN row_number() OVER (ORDER BY id) = 1
+                               THEN 'granted' ELSE 'denied' END,
+                       1, '2026-11-25 00:00:00+00',
+                       row_number() OVER (ORDER BY id) = 1
+                FROM users
+            """,
+        )
+        rows = consent_rows(drill, database)
+        dump.write_bytes(
+            drill.docker("exec", database, "pg_dump", "-U", "postgres", "-Fc", "clipback")
+        )
+        return rows
+    finally:
+        assert drill.cleanup(), "Synthetic consent archive cleanup failed"
+
+
+class ConsentRestoreDrill(RestoreDrill):
+    def run(self, manifest, paths, credentials, image):
+        report = super().run(manifest, paths, credentials, image)
+        database = self.owner + "-db"
+        self.restored_rows = consent_rows(self, database)
+        # Contrast on the isolated restored copy: the same values on swapped accounts.
+        self.docker("exec", database, "psql", "-U", "postgres", "-d", "clipback",
+                    "-v", "ON_ERROR_STOP=1", "-c", SWAP_CONSENTS)
+        self.swapped_rows = consent_rows(self, database)
+        return report
+
+
+def test_restore_verifies_the_original_consent_rows_and_count(real_backup, tmp_path):
+    import shutil
+
+    directory, manifest, credentials, image = real_backup
+    assert manifest["tables"]["ai_transfer_consents"] == 0
+    original = {path.name: sha256_file(path) for path in directory.iterdir()}
+    for path in directory.iterdir():
+        shutil.copy2(path, tmp_path / path.name)
+    dump = tmp_path / manifest["database"]["file"]
+    source_rows = dump_with_consent_rows(directory, manifest["postgres_major"], dump)
+    users = [row.split("|", 1)[0] for row in source_rows]
+    assert len(set(users)) == 2 and users == sorted(users, key=int)
+    assert [row.split("|", 1)[1] for row in source_rows] == ["granted|1|t|t", "denied|1|t|f"]
+    populated = {
+        **manifest,
+        "tables": {**manifest["tables"], "ai_transfer_consents": len(source_rows)},
+        "database": {
+            **manifest["database"], "size_bytes": dump.stat().st_size, "sha256": sha256_file(dump),
+        },
+    }
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(populated))
+    drill = ConsentRestoreDrill()
+    report = check(tmp_path, tmp_path / credentials.name, image, drill=drill)
+    assert report["passed"], json.dumps(report)
+    assert report["cleanup_passed"] is True
+    assert drill.restored_rows == source_rows
+    # Swapping the accounts' decisions keeps the values and the count but is rejected.
+    assert drill.swapped_rows != source_rows
+    assert [row.split("|", 1)[0] for row in drill.swapped_rows] == users
+    assert sorted(row.split("|", 1)[1] for row in drill.swapped_rows) == sorted(
+        row.split("|", 1)[1] for row in source_rows
+    )
+
+    populated["tables"]["ai_transfer_consents"] = 1
+    manifest_file.write_text(json.dumps(populated))
+
+    report = check(tmp_path, tmp_path / credentials.name, image)
+
+    assert report["passed"] is False
+    assert report["error"] == "restored_data_mismatch"
+    assert report["cleanup_passed"] is True
+    assert original == {path.name: sha256_file(path) for path in directory.iterdir()}

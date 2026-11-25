@@ -33,6 +33,7 @@ from app.integrations.summary import (
     SUMMARY_PROMPT,
     SummaryError,
     SummaryResult,
+    check_summary_send,
     validated_result,
 )
 from app.services.link_url import instagram_post_code
@@ -314,6 +315,7 @@ class InstagramSummaryClient:
         content = [{"type": "input_text", "text": json.dumps(evidence, ensure_ascii=False)}]
         if post.image_data_url is not None:
             content.append({"type": "input_image", "image_url": post.image_data_url})
+        await check_summary_send()
         response = None
         try:
             async with asyncio.timeout(OPENAI_TIMEOUT_SECONDS):

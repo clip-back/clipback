@@ -5,6 +5,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.social_identity_repository import SocialIdentityRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.user import UserRead, UserStatsRead
+from app.services.ai_consent import effective_status, read_consent
 
 
 def utc_now() -> datetime:
@@ -27,6 +28,7 @@ class UserService:
         if user is None:
             raise AuthenticationError()
         providers = await self.social_identity_repository.list_providers(user_id=user_id)
+        _, consent = await read_consent(self.user_repository.session, user_id)
         return UserRead(
             id=user.id,
             email=user.email,
@@ -34,6 +36,7 @@ class UserService:
             is_guest=user.is_guest,
             created_at=user.created_at,
             linked_providers=providers,
+            ai_consent_status=effective_status(consent),
         )
 
     async def read_stats(self, user_id: int) -> UserStatsRead:
