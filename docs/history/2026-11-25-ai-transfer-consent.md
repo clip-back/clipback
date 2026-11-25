@@ -119,3 +119,23 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 단계별 로그는 `.utmp/ticket-475/20261125T200417-f3ac5caedd7e/`에 있습니다. Docker 복원 검사는 CI에서 판정합니다.
+
+### CI 연결 잔여 보완
+
+원격 CI의 migration 검사에서 `test_content_save_flow_contract.py`의 연결 잔여 검사 5건이 정리 뒤 남은 연결 1개로 실패했습니다. 이번에 새로 만든 `test_ai_consent_save.py`가 요약을 켠 채 앱 수명 주기를 시작해, 요약 worker가 전역 앱 DB 엔진의 연결을 다음 테스트의 다른 이벤트 루프에서 다시 쓰다 거래 중 상태로 남긴 것이 원인이었습니다. 제품 동작의 회귀는 아닙니다. 그 파일의 fixture가 앱 수명 주기가 끝난 뒤 같은 루프에서 그 엔진을 닫도록 고쳤습니다(`3322727`). 공용 테스트 설정과 기존 기대값은 바꾸지 않았습니다.
+
+고치기 전에는 진단 클러스터에서 실제 코드로 돌린 최소 재현이 3번 모두 실패했고, 고친 뒤에는 3번 모두 통과했습니다. CI migration 검사와 같은 단계·순서 전체는 1,515개 통과·1개 건너뜀이었습니다.
+
+같은 커밋의 첫 로컬 전체 검사(`20261125T221923-98e5ce78f28a`)에서는 `test_client_timeout_against_real_server_keeps_save_and_replays_same_content[content-after_server_finished]` 1개가 정리 뒤 남은 연결 1개로 실패했습니다. 기준 `3e7521a`의 같은 조건 비교는 통과했습니다. 전체 순서 진단에서 PostgreSQL autovacuum 작업이 측정 순간과 겹치면 같은 형태로 실패하는 것을 재현했습니다. autovacuum을 늦춘 조건에서 10번 모두 실패했고, autovacuum을 끄거나 집계를 클라이언트 연결로만 좁히면 각각 10번 모두 통과했습니다. 원래 실패 순간의 연결은 관측하지 못했습니다. 이 측정 방식은 기존 코드이며, 같은 파일의 기존 불안정 테스트와 묶어 별도 이슈로 다룹니다.
+
+2026-11-25 같은 커밋 `3322727`(작업 트리 깨끗함)으로 같은 조건의 전체 VERIFY를 한 번 다시 실행했습니다. 실행 ID는 `20261125T232846-ff53a9c0b706`이고 종료 코드는 0입니다. `flutter analyze`가 통과했고 Flutter 테스트는 4,235개 통과했습니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 557.97s (0:09:17)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+verify ci-only: backend/tests/deployment/test_ai_consent_resume_runbook.py backend/tests/deployment/test_backup_restore_docker.py (로컬 skip, 티켓 종료 전 CI 필요)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+단계별 로그는 `.utmp/ticket-475/20261125T232846-ff53a9c0b706/`, 진단은 `.utmp/ci-474/diagnosis/`와 `.utmp/ci-474/full-order-diagnosis/`에 있습니다.
