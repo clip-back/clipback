@@ -330,7 +330,8 @@ class AppViewModel extends ChangeNotifier {
       if (_session.pendingSessionClear) {
         await _beforeSessionChange?.call();
         await _session.retryPendingClear();
-        if (!_disposed) _showLoginChoice();
+        // A login that replaced the refused one keeps its screen (#474).
+        if (!_disposed && !_session.hasSession) _showLoginChoice();
         return;
       }
       if (!_session.hasSession) {

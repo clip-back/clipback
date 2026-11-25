@@ -33,7 +33,7 @@ from app.services.ai_consent import SaveAIConsent
 from app.services.content_service import ContentService
 from app.services.image_deletion_service import retry_image_deletions
 from app.services.usage_limits import DailyRecommendationLimit, MonthlySummaryLimit
-from tests.integration.helpers import guest, request
+from tests.integration.helpers import request
 from tests.integration.test_recommendation_usage_limits import (
     NOW,
     recommendation_provider as recommendation_provider,
@@ -779,13 +779,29 @@ async def test_reason_cleanup_keeps_another_account_deleted_through_the_same_api
     through DELETE /users/me while this test's deletion is in progress; its reason row must
     survive this test's cleanup. Each request is tied to its own PID, the PID it waits for
     and the reason row it inserted; the second account and its row are cleaned up from its
-    creation on, after every request was collected."""
+    creation on, after every request was collected. Its user PK is taken from the request
+    session that creates it (recheck 4), before anything else can fail; the reason cleanup
+    and the account cleanup are each tried, and both failures are kept."""
     api, headers, _, sessions, request_pids, _ = independent_api
-    other_headers, _, other = await guest(api)
-    theirs_rows = OwnReasonRows(producers, other["id"])
+    created = []  # User PKs the second account's POST /auth/guest flushed.
+    create_guest = UserRepository.create_guest
+
+    async def recorded_guest(self):
+        user = await create_guest(self)
+        created.append(user.id)
+        return user
+
+    monkeypatch.setattr(UserRepository, "create_guest", recorded_guest)
+    theirs_rows = None
     try:
+        tokens = await request(api, "POST", "auth/guest", status=201)
+        assert len(created) == 1
+        theirs_rows = OwnReasonRows(producers, created[0])
         monkeypatch.setattr(users_endpoint, "delete_account",
                             theirs_rows.wrap(users_endpoint.delete_account))
+        other_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        other = await request(api, "GET", "users/me", headers=other_headers)
+        assert other["id"] == created[0]
         entered, release = pause(monkeypatch, producers, account_deletion_service,
                                  "apply_account_deletion", after=True)
         mine = producers.start(delete_account(api, headers))
@@ -812,8 +828,19 @@ async def test_reason_cleanup_keeps_another_account_deleted_through_the_same_api
         assert my_row != their_row
         assert await existing_reasons(sessions, [my_row, their_row]) == [their_row]
     finally:
-        await theirs_rows.finish(sessions)  # Collects every request, then drops its row.
-        await drop_account(sessions, other["id"])
+        failures = []
+        if theirs_rows is not None:
+            try:
+                await theirs_rows.finish(sessions)  # Collects every request, then its row.
+            except Exception as error:
+                failures.append(error)
+        for user_id in created:
+            try:
+                await drop_account(sessions, user_id)
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise ExceptionGroup("second account cleanup failed", failures)
 
 
 async def test_a_failure_while_a_decision_holds_its_commit_closes_its_own_session(

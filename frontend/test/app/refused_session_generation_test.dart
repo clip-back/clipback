@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:clipback_frontend/app/app_dependencies.dart';
 import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/services/native_share_service.dart';
+import 'package:clipback_frontend/shared/contracts/app_route.dart';
 import 'package:clipback_frontend/social_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,8 +26,21 @@ class _Storage extends ApiSessionStorage {
     writes.add(session.accessToken);
   }
 
+  // A clear waits for [clearGate] if set and throws while [failClears] > 0
+  // (a device key that could not be removed).
+  Completer<void>? clearGate;
+  int failClears = 0;
+  int clearAttempts = 0;
+
   @override
   Future<void> clear() async {
+    clearAttempts++;
+    final hold = clearGate;
+    if (hold != null) await hold.future;
+    if (failClears > 0) {
+      failClears--;
+      throw StateError('Synthetic storage clear failure');
+    }
     clears++;
   }
 }
@@ -100,6 +114,10 @@ void main() {
         if (request.headers['Authorization'] == 'Bearer b-access') {
           return http.Response('[]', 200);
         }
+      }
+      // The second guest's other loads fail without ending its login.
+      if (request.headers['Authorization'] == 'Bearer b-access') {
+        return http.Response('{"detail":"unavailable"}', 503);
       }
       return http.Response('{"detail":"expired"}', 401);
     });
@@ -245,4 +263,115 @@ void main() {
       await tester.pump(const Duration(seconds: 30));
     },
   );
+
+  // 재검수 4차 Spec 1: the refused login's ending owns its failed clear and the
+  // retry; a login that replaced it keeps its memory, stored tokens and screen.
+  group('a failed clear of the refused login', () {
+    Completer<int>? retryBlock;
+
+    Future<void> failFirstClear({Completer<void>? running}) async {
+      retryBlock = null;
+      await start(block: () => retryBlock?.future ?? Future.value(1));
+      storage.failClears = 1;
+      storage.clearGate = running;
+    }
+
+    // The second guest's issue; its error, if any.
+    Future<Object?> issueSecond() => dependencies.session
+        .createGuestSession()
+        .then<Object?>((_) => null, onError: (Object error) => error);
+
+    Future<void> expectSecondKept(WidgetTester tester) async {
+      expect(
+        (
+          dependencies.session.hasSession,
+          dependencies.session.pendingSessionClear,
+          storage.clears,
+          storage.writes.last,
+          dependencies.app.route == AppRoute.login,
+        ),
+        (true, false, 0, 'b-access', false),
+      );
+      await dependencies.content.loadCategories();
+      expect(authorizations.last, 'Bearer b-access');
+      await tester.pump(const Duration(seconds: 30));
+    }
+
+    testWidgets('a login issued while the clear runs and then fails', (
+      tester,
+    ) async {
+      final running = Completer<void>();
+      await failFirstClear(running: running);
+      final first = dependencies.app.restoreSession();
+      await tester.pump();
+      expect((blocks, storage.clearAttempts), (1, 1)); // The clear is running.
+      final issued = issueSecond();
+      await tester.pump();
+      expect(dependencies.session.hasSession, isTrue);
+      storage.clearGate = null;
+      running.complete();
+      await tester.pump();
+      expect(await issued, isNull);
+      await first;
+      expect(storage.writes.last, 'b-access');
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      await expectSecondKept(tester);
+    });
+
+    testWidgets('a login issued after the clear failed', (tester) async {
+      await failFirstClear();
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      expect(
+        (storage.clearAttempts, dependencies.session.pendingSessionClear),
+        (1, true),
+      );
+      expect(await issueSecond(), isNull);
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      await expectSecondKept(tester);
+    });
+
+    testWidgets('a login issued while the retry waits for the native barrier', (
+      tester,
+    ) async {
+      await failFirstClear();
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      expect(dependencies.session.pendingSessionClear, isTrue);
+      final block = retryBlock = Completer<int>();
+      final retry = dependencies.app.restoreSession();
+      await tester.pump();
+      expect(blocks, 2); // The retry waits for the native barrier.
+      expect(await issueSecond(), isNull);
+      block.complete(1);
+      await tester.pump();
+      await retry;
+      await tester.pump();
+      await expectSecondKept(tester);
+    });
+
+    testWidgets('without a new login the retry ends the refused login', (
+      tester,
+    ) async {
+      await failFirstClear();
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      expect(dependencies.session.pendingSessionClear, isTrue);
+      await dependencies.app.restoreSession();
+      await tester.pump();
+      expect(
+        (
+          dependencies.session.hasSession,
+          dependencies.session.pendingSessionClear,
+          storage.clearAttempts,
+          storage.clears,
+          dependencies.app.route,
+        ),
+        (false, false, 2, 1, AppRoute.login),
+      );
+      await tester.pump(const Duration(seconds: 30));
+    });
+  });
 }

@@ -101,20 +101,25 @@ void main() {
     late Completer<void> barrier;
     // How a caller ended and how many clears were done when it learned it.
     final outcomes = <String, (String, int)>{};
+    // Session callback entries, clears and caller outcomes in the order seen.
+    final events = <String>[];
 
     ClipbackApi barrierApi(_Server server) {
       clears = 0;
       outcomes.clear();
+      events.clear();
       barrier = Completer<void>();
       addTearDown(server.client.close);
       return ClipbackApi(
         client: server.client,
         onSessionInvalidated: () async {
+          events.add('enter');
           final scope = ApiRequestScope.current;
           try {
             await (scope == null ? barrier.future : scope.wait(barrier.future));
           } catch (_) {}
           clears++;
+          events.add('clear');
         },
       )..restoreSession(_session);
     }
@@ -123,22 +128,94 @@ void main() {
       outcomes.remove(name);
       unawaited(
         request.then<void>(
-          (value) =>
-              outcomes[name] = (value is Enum ? value.name : 'ok', clears),
-          onError: (Object error) => outcomes[name] = (
-            error is ClipbackApiException
-                ? '${error.statusCode ?? error.message}'
-                : '${error.runtimeType}',
-            clears,
-          ),
+          (value) {
+            outcomes[name] = (value is Enum ? value.name : 'ok', clears);
+            events.add('$name ${outcomes[name]!.$1}');
+          },
+          onError: (Object error) {
+            outcomes[name] = (
+              error is ClipbackApiException
+                  ? '${error.statusCode ?? error.message}'
+                  : '${error.runtimeType}',
+              clears,
+            );
+            events.add('$name ${outcomes[name]!.$1}');
+          },
         ),
       );
     }
 
     ApiRequestScope read(ClipbackApi api, String name, {Duration? deadline}) {
       final scope = ApiRequestScope(timeout: deadline);
-      watch(name, scope.run(() => scope.wait(api.readMe())));
+      // The public request Future itself, not a wait around it (재검수 4차).
+      watch(name, scope.run(api.readMe));
       return scope;
+    }
+
+    // 재검수 4차 Spec 2 (A안): a later 401 of the same login while its ending
+    // waits for the barrier joins that ending instead of starting another.
+    for (final finalUnauthorized in [false, true]) {
+      testWidgets(
+        finalUnauthorized
+            ? 'a resent request refused while the ending waits joins it'
+            : 'a separate refusal while the ending waits joins it',
+        (tester) async {
+          final server = _Server([
+            _now(_json({'detail': 'expired'}, 401)), // long GET
+            () => Future.delayed(
+              const Duration(seconds: 1),
+              () => _json({'detail': 'expired'}, 401),
+            ), // its refresh
+            _now(_json({'detail': 'expired'}, 401)), // short GET
+            if (finalUnauthorized) ...[
+              _now(
+                _json({
+                  'access_token': 'rotated-access',
+                  'refresh_token': 'rotated-refresh',
+                  'expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                }),
+              ), // a second refresh answered
+              _now(_json({'detail': 'expired'}, 401)), // the resent GET
+            ] else
+              _now(_json({'detail': 'expired'}, 401)), // a second refresh
+          ]);
+          final api = barrierApi(server);
+          // What was seen at each point, compared at the end so a failure shows
+          // the whole order: callbacks, clears and each caller's outcome.
+          final seen = <String>[];
+          void mark(String at) => seen.add(
+            '$at: ${events.join(', ')} | short ${outcomes['short']} '
+            '| long ${outcomes['long']}',
+          );
+          read(api, 'long', deadline: const Duration(seconds: 15));
+          await tester.pump(const Duration(seconds: 2));
+          mark('2 s');
+          read(api, 'short', deadline: const Duration(seconds: 5)); // to 7 s
+          await tester.pump();
+          expect(server.requests, hasLength(finalUnauthorized ? 5 : 4));
+          expect(server.replies, isEmpty);
+          mark('short refused');
+          await tester.pump(const Duration(milliseconds: 5100)); // 7.1 s
+          mark('7.1 s');
+          await tester.pump(const Duration(seconds: 1));
+          barrier.complete();
+          await tester.pump();
+          mark('released');
+          await tester.pump(const Duration(seconds: 30));
+          mark('end');
+          expect(seen, [
+            '2 s: enter | short null | long null',
+            'short refused: enter | short null | long null',
+            '7.1 s: enter, short TimeoutException | short (TimeoutException, 0) '
+                '| long null',
+            'released: enter, short TimeoutException, clear, long 401 '
+                '| short (TimeoutException, 0) | long (401, 1)',
+            'end: enter, short TimeoutException, clear, long 401 '
+                '| short (TimeoutException, 0) | long (401, 1)',
+          ]);
+        },
+      );
     }
 
     List<Future<http.Response> Function()> twoReadsSharingARefusal() => [

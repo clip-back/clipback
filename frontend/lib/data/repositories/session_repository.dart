@@ -83,6 +83,12 @@ class RemoteSessionRepository extends SessionRepository {
   Future<void> _storageQueue = Future.value();
   Future<void>? _invalidationFuture;
   int? _invalidationGeneration;
+  // The login a pending clear ends (#474): its invalidation's first clear,
+  // failure and retries all clear that login only. Null when the pending
+  // clear is a logout's or a withdrawal's.
+  int? _endingGeneration;
+  Future<bool>? _endingRun;
+  int? _endingRunGeneration;
   int _pendingStorageOperations = 0;
   ApiSession? _sessionNeedingPersistence;
   // What the device's stored session can be (#257): every session read from
@@ -198,6 +204,11 @@ class RemoteSessionRepository extends SessionRepository {
 
   @override
   Future<void> retryPendingClear() async {
+    final ending = _endingGeneration;
+    if (ending != null) {
+      await _endLogin(ending);
+      return;
+    }
     await _clearStoredSession();
     _api.clearSession();
     _pendingSessionClear = false;
@@ -225,22 +236,48 @@ class RemoteSessionRepository extends SessionRepository {
 
   Future<void> _clearInvalidSession(int generation) async {
     _pendingSessionClear = true;
+    _endingGeneration = generation;
     _emitInvalidation(SessionInvalidation.started);
     try {
-      await _clearStoredSession(generation: generation);
-      if (generation == _api.sessionGeneration) {
-        _api.clearSession();
-        _pendingSessionClear = false;
-        _notify();
+      if (await _endLogin(generation)) {
         _emitInvalidation(SessionInvalidation.completed);
-      } else if (_invalidationGeneration == generation) {
-        // Replaced, and no newer invalidation is pending: nothing to clear.
-        _pendingSessionClear = false;
-        _notify();
       }
     } catch (_) {
       _emitInvalidation(SessionInvalidation.failed);
     }
+  }
+
+  /// Clears the login [generation] names, one run at a time. True when it was
+  /// cleared, false when another login had replaced it (nothing is cleared and
+  /// its pending clear ends). Throws when clearing failed while it is still
+  /// current: the clear stays pending for a retry of this same login.
+  Future<bool> _endLogin(int generation) {
+    final running = _endingRun;
+    if (running != null && _endingRunGeneration == generation) return running;
+    late final Future<bool> run;
+    run = _clearLogin(generation).whenComplete(() {
+      if (identical(_endingRun, run)) _endingRun = null;
+    });
+    _endingRun = run;
+    _endingRunGeneration = generation;
+    return run;
+  }
+
+  Future<bool> _clearLogin(int generation) async {
+    try {
+      await _clearStoredSession(generation: generation);
+    } catch (_) {
+      if (generation == _api.sessionGeneration) rethrow;
+      // Replaced meanwhile: the newer login's write follows in the queue.
+    }
+    final ended = generation == _api.sessionGeneration;
+    if (ended) _api.clearSession();
+    if (_endingGeneration == generation) {
+      _endingGeneration = null;
+      _pendingSessionClear = false;
+    }
+    _notify();
+    return ended;
   }
 
   void _emitInvalidation(SessionInvalidation event) {
@@ -312,6 +349,7 @@ class RemoteSessionRepository extends SessionRepository {
     // Never enqueue the entire logout: refresh persistence may be awaited by it.
     await _api.logout();
     _pendingSessionClear = true;
+    _endingGeneration = null;
     _notify();
     await _clearStoredSession(afterLogout: true);
     if (_disposed || !isCurrent() || hasSession) return false;
@@ -339,6 +377,7 @@ class RemoteSessionRepository extends SessionRepository {
     final logins = {..._storedLogins, if (deleted != null) _loginId(deleted)};
     final changes = _storageChanges;
     _pendingSessionClear = true;
+    _endingGeneration = null;
     _notify();
     try {
       try {
