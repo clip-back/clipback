@@ -220,18 +220,90 @@ def test_real_failure_leaves_source_intact_and_cleans_resources(real_backup, tmp
     assert "invalid-private-token" not in result.stdout.decode()
 
 
-def test_restore_verifies_the_original_consent_table_count(real_backup, tmp_path):
+def consent_rows(drill, database):
+    return drill.docker(
+        "exec", database, "psql", "-U", "postgres", "-d", "clipback", "-Atc",
+        "SELECT status, notice_version, decided_at = '2026-11-25 00:00:00+00', "
+        "granted_after_denial FROM ai_transfer_consents ORDER BY status",
+    ).decode().splitlines()
+
+
+def dump_with_consent_rows(directory, major, dump):
+    drill = RestoreDrill()
+    database = drill.owner + "-db"
+    try:
+        drill.container(
+            database, "--network", "none", "-e", "POSTGRES_PASSWORD=fixture",
+            "-e", "POSTGRES_DB=clipback", f"postgres:{major}",
+        )
+        drill.docker("start", database)
+        drill.wait("exec", database, "pg_isready", "-h", "127.0.0.1",
+                   "-U", "postgres", "-d", "clipback")
+        with (directory / dump.name).open("rb") as stream:
+            drill.docker(
+                "exec", "-i", database, "pg_restore", "-U", "postgres", "-d", "clipback",
+                "--no-owner", "--no-acl", "--exit-on-error", stdin=stream,
+            )
+        drill.docker(
+            "exec", database, "psql", "-U", "postgres", "-d", "clipback", "-v", "ON_ERROR_STOP=1",
+            "-c", """
+                INSERT INTO ai_transfer_consents
+                    (user_id, status, notice_version, decided_at, granted_after_denial)
+                SELECT id, CASE WHEN row_number() OVER (ORDER BY id) = 1
+                               THEN 'granted' ELSE 'denied' END,
+                       1, '2026-11-25 00:00:00+00',
+                       row_number() OVER (ORDER BY id) = 1
+                FROM users
+            """,
+        )
+        rows = consent_rows(drill, database)
+        dump.write_bytes(
+            drill.docker("exec", database, "pg_dump", "-U", "postgres", "-Fc", "clipback")
+        )
+        return rows
+    finally:
+        assert drill.cleanup(), "Synthetic consent archive cleanup failed"
+
+
+class ConsentRestoreDrill(RestoreDrill):
+    def run(self, manifest, paths, credentials, image):
+        report = super().run(manifest, paths, credentials, image)
+        self.restored_rows = consent_rows(self, self.owner + "-db")
+        return report
+
+
+def test_restore_verifies_the_original_consent_rows_and_count(real_backup, tmp_path):
     import shutil
 
     directory, manifest, credentials, image = real_backup
     assert manifest["tables"]["ai_transfer_consents"] == 0
+    original = {path.name: sha256_file(path) for path in directory.iterdir()}
     for path in directory.iterdir():
         shutil.copy2(path, tmp_path / path.name)
-    wrong_manifest = {**manifest, "tables": {**manifest["tables"], "ai_transfer_consents": 1}}
-    (tmp_path / "manifest.json").write_text(json.dumps(wrong_manifest))
+    dump = tmp_path / manifest["database"]["file"]
+    source_rows = dump_with_consent_rows(directory, manifest["postgres_major"], dump)
+    assert source_rows == ["denied|1|t|f", "granted|1|t|t"]
+    populated = {
+        **manifest,
+        "tables": {**manifest["tables"], "ai_transfer_consents": len(source_rows)},
+        "database": {
+            **manifest["database"], "size_bytes": dump.stat().st_size, "sha256": sha256_file(dump),
+        },
+    }
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(populated))
+    drill = ConsentRestoreDrill()
+    report = check(tmp_path, tmp_path / credentials.name, image, drill=drill)
+    assert report["passed"], json.dumps(report)
+    assert report["cleanup_passed"] is True
+    assert drill.restored_rows == source_rows
+
+    populated["tables"]["ai_transfer_consents"] = 1
+    manifest_file.write_text(json.dumps(populated))
 
     report = check(tmp_path, tmp_path / credentials.name, image)
 
     assert report["passed"] is False
     assert report["error"] == "restored_data_mismatch"
     assert report["cleanup_passed"] is True
+    assert original == {path.name: sha256_file(path) for path in directory.iterdir()}

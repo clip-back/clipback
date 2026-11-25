@@ -38,7 +38,6 @@ class ClaimedJob:
     lease_token: str
     candidates: list[dict]
     kind: str
-    saved_at: datetime | None = None
 
 
 class SummaryWorker:
@@ -120,18 +119,16 @@ class SummaryWorker:
                 lease_token=job.lease_token,
                 candidates=[{"id": c.id, "name": c.name} for c in candidates],
                 kind=job.kind,
-                saved_at=saved_at,
             )
 
-    async def _authorize_send(self, claimed: ClaimedJob, saved_at: datetime) -> None:
+    async def _authorize_send(self, claimed: ClaimedJob) -> None:
         try:
             async with self.sessions() as session:
                 allowed = await ai_consent.summary_send_allowed(
-                    session, content_id=claimed.content_id, user_id=claimed.user_id,
-                    token=claimed.lease_token, saved_at=saved_at,
+                    session, content_id=claimed.content_id, token=claimed.lease_token,
                     required=self.config.ai_consent_required,
                 )
-        except SQLAlchemyError as exc:
+        except (SQLAlchemyError, OSError) as exc:
             error = SummaryError("provider_error", retryable=True)
             error.reason = "ai_consent_read_failed"
             raise error from exc
@@ -163,10 +160,9 @@ class SummaryWorker:
         unexpected = {}
         try:
             kind = self.kinds.get(claimed.kind)
-            check = (
-                partial(self._authorize_send, claimed, claimed.saved_at)
-                if claimed.saved_at is not None else None
-            )
+            # The fixed logging tests supply synthetic claims without a session factory.
+            # A DB-backed worker always checks the lease and consent at send time.
+            check = partial(self._authorize_send, claimed) if self.sessions is not None else None
             with summary_send_guard(check):
                 result = await kind.summarize(claimed.target_id, claimed.model, claimed.candidates)
         except SummaryError as exc:

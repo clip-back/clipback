@@ -56,10 +56,9 @@ def save_allowed(
     started_at: datetime, required: bool,
 ) -> bool:
     """Whether a save request may send data now. `started_under` is the committed record and
-    `started_at` the DB time its first check read. A re-grant covers the save only when the
-    save started under that same committed decision and not before its time (the #474 time
-    rule); a re-grant committed during the save is another decision. A first grant has no
-    such condition."""
+    `started_at` the DB transaction start time. A re-grant covers the save only when its
+    first check saw that same committed decision and the transaction began at or after
+    the decision time. A first grant has no such condition."""
     status = effective_status(record)
     if status == DENIED:
         return False
@@ -71,8 +70,9 @@ def save_allowed(
 
 
 _READ = text("""
-    SELECT clock_timestamp() AS now, c.status, c.notice_version, c.decided_at,
-           c.granted_after_denial
+    SELECT CASE WHEN :transaction_start THEN transaction_timestamp()
+                ELSE clock_timestamp() END AS now,
+           c.status, c.notice_version, c.decided_at, c.granted_after_denial
     FROM (VALUES (1)) AS one
     LEFT JOIN ai_transfer_consents AS c ON c.user_id = :user_id
 """)
@@ -88,39 +88,42 @@ def _record(row) -> ConsentRecord | None:
 
 
 async def read_consent(
-    session: AsyncSession, user_id: int,
+    session: AsyncSession, user_id: int, *, transaction_start: bool = False,
 ) -> tuple[datetime, ConsentRecord | None]:
     """The DB clock and the account's stored record. A read failure propagates."""
-    row = (await session.execute(_READ, {"user_id": user_id})).one()
+    row = (await session.execute(
+        _READ, {"user_id": user_id, "transaction_start": transaction_start},
+    )).one()
     return row.now, _record(row)
 
 
 _READ_SUMMARY_SEND = text("""
-    SELECT j.lease_expires_at, c.status, c.notice_version, c.decided_at, c.granted_after_denial
+    SELECT j.lease_expires_at, item.saved_at, c.status, c.notice_version, c.decided_at,
+           c.granted_after_denial
     FROM summary_jobs AS j
-    LEFT JOIN ai_transfer_consents AS c ON c.user_id = :user_id
+    JOIN contents AS item ON item.id = j.content_id
+    LEFT JOIN ai_transfer_consents AS c ON c.user_id = item.user_id
     WHERE j.content_id = :content_id AND j.status = 'processing' AND j.lease_token = :token
 """)
 
 
 async def summary_send_allowed(
-    session: AsyncSession, *, content_id: int, user_id: int, token: str,
-    saved_at: datetime, required: bool,
+    session: AsyncSession, *, content_id: int, token: str, required: bool,
 ) -> bool | None:
     """G5 reads the lease and committed consent together. None means the attempt lost its lease."""
     row = (await session.execute(
-        _READ_SUMMARY_SEND, {"content_id": content_id, "user_id": user_id, "token": token},
+        _READ_SUMMARY_SEND, {"content_id": content_id, "token": token},
     )).one_or_none()
     if row is None or row.lease_expires_at is None or row.lease_expires_at <= datetime.now(UTC):
         return None
-    return ai_allowed(_record(row), required=required, data_at=saved_at)
+    return ai_allowed(_record(row), required=required, data_at=row.saved_at)
 
 
 class SaveAIConsent:
     """The AI consent checks of one save request (G1a·G1b·G2a·G2b·G3).
 
-    The request starts under the committed decision and at the DB time its first check
-    reads. A decision is identified by the whole record: a change always writes a new time.
+    The first check captures the committed decision and the transaction's start time,
+    the same PostgreSQL clock value that becomes the content's saved_at.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -130,7 +133,7 @@ class SaveAIConsent:
         self.started_at: datetime | None = None
 
     async def allows(self, user_id: int) -> bool:
-        now, record = await read_consent(self.session, user_id)
+        now, record = await read_consent(self.session, user_id, transaction_start=True)
         if not self.started:
             self.started, self.started_under, self.started_at = True, record, now
         return save_allowed(

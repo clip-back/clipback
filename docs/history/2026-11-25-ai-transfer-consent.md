@@ -38,3 +38,28 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 위 결과는 `4a958ac`의 코드입니다. 로컬 원본은 `.utmp/ticket-475/20261125T174526-1c8cccf22501/`, 기준 재현은 `.utmp/ticket-475/recheck5-base-repro/`, 그 전 `188baa5`의 통과는 `.utmp/ticket-475/20261125T171032-44a4ae695dcf/`, `21d16fa`의 통과는 `.utmp/ticket-475/20261125T160938-4a05f1c5408c/`, `5bcc032`의 통과는 `.utmp/ticket-475/20261125T150013-b950e4b14b67/`, 시트 131 첫 실패는 `.utmp/ticket-475/sheet131-first-failure-5bcc032/`, 기준 비교는 `.utmp/ticket-475/base-3e7521a-verify/`·`base2-3e7521a-verify/`·`base3-3e7521a-verify/`에 보관했습니다. Docker 배포·복구와 S3 CLI는 위 조건으로 건너뛰었습니다. 원격 CI는 PR 단계이며 운영 서버·운영 스위치·실제 AI 호출·기기 실행은 이 작업의 검증 범위 밖입니다. 서버 작업의 판정(G4·G5)과 철회 때 대기 작업 취소는 #476입니다.
+
+## #476 서버 요약의 AI 전송 차단과 복원 재개
+
+`7f97cc9`에서 시작한 첫 구현(`63df99f`)은 거절 전환에서 대기 요약과 월 한도 기록을 함께 정리합니다. G4에서 작업을 잡을 때, G5에서 실제 AI 업체로 보내기 직전에 동의와 임대를 확인합니다. 공개 health 응답과 worker 시작 로그로 스위치 값을 확인할 수 있게 했습니다. 복원한 DB에서는 동의함 기록만 지우고 대기·처리 중 요약을 취소합니다. 운영자는 정리 결과와 API·worker 스위치 및 복제본을 확인한 뒤 서비스를 재개합니다.
+
+- 첫 구현 전 실제 YouTube·Instagram 클라이언트의 가짜 전송에서 각각 AI 호출 0·1·3회를 셌습니다. 첫 커밋 전 부분 검사 374건이 통과했습니다.
+- 검수에서 저장 시점에는 첫 판정 시각, 요약 작업에는 `saved_at`을 쓰던 차이를 확인했습니다. 사용자 결정 “B: 저장 쪽도 저장 시작 시각 기준 (추천)”에 따라 G1a/b·G2a/b·G3는 저장 트랜잭션 시작 시각을 사용합니다. 이 값이 G4·G5에서 읽는 `saved_at`입니다. 첫 판정과 현재 판정에서 읽은 재동의 기록의 일치 조건 및 최초 동의 예외를 유지했습니다.
+- 실제 PostgreSQL에서 저장 시작 뒤 별도 세션이 재동의를 쓰고 커밋한 뒤 첫 판정을 진행했습니다. 유튜브·인스타그램·사진은 처음부터 `skipped/ai_consent_required`, 웹은 `not_requested`이며 관련 AI 호출과 사용량은 0이었습니다. 재동의 뒤 시작한 대조군은 링크 요약 완료와 웹 추천, 사진 OCR·추천을 확인했습니다. 기존 #475의 경계·시각·공유 fixture 및 테스트 기대값은 그대로 유지했습니다.
+- G5가 DB에서 콘텐츠 시각을 읽도록 하고 임대·동의를 같은 읽기에서 확인했습니다. 실제 asyncpg 연결 오류에선 전송 0과 재시도를 확인했습니다. Instagram의 첫 DB 읽기 실패는 30초 뒤 재시도, 마지막 실패는 한도 기록 해제로 이어집니다. 읽는 동안의 task 취소는 호출자에게 전달됩니다.
+- 스위치를 켠 worker가 첫 동의 전에 먼저 건너뛴 전환기 작업도 최종 상태임을 API 문서에 명시했습니다. Docker 복원 검사에는 동의·거절이 든 덤프의 정상 복원과 동의 행 수를 틀리게 적은 manifest의 실패 대조를 추가했습니다.
+
+### 검증
+
+검수 수정 후 부분 검사 316건이 통과했습니다. Docker 복원 검사는 로컬에서 PostgreSQL 16·18 두 케이스가 수집되었고 실행은 CI의 `operator-recovery`에 남았습니다. 기존 #475 테스트 수정은 없었습니다.
+
+2026-11-25, `63df99f`에 검수 수정 코드를 적용한 상태에서 전체 VERIFY를 한 번 실행했습니다. 일반·점검용 DB의 마이그레이션 적용과 정합성 검사, Flutter 검사와 테스트 4,150건이 통과했습니다. 실행 ID는 `20261125T183726-1fe6afff04dc`이고 종료 코드는 0입니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 471.10s (0:07:51)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+단계별 로그와 결과 파일은 `.utmp/ticket-476/20261125T183726-1fe6afff04dc/`에 있습니다. 운영 스위치·복제본 확인은 사용자 단계이며 Docker 복원 U3는 승인된 서버 PR에서 판정합니다.

@@ -1,10 +1,13 @@
 """#476: exercise the summary worker and consent PUT on distinct PostgreSQL sessions."""
 
 import asyncio
+import socket
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from uuid import uuid4
 
+import asyncpg
 import httpx
 import pytest
 from openai import AsyncOpenAI
@@ -31,9 +34,12 @@ from tests.integration.helpers import request
 from tests.integration.test_ai_consent_concurrency import (
     backend_pid,
     decide,
+    recommendation_provider as recommendation_provider,
     save as save_input,
     until_blocked,
+    usage,
 )
+from tests.integration.test_save_ai_tags import provider as provider
 from tests.integration.test_share_write_concurrency import independent_api as independent_api
 from tests.integrations.test_instagram_summary_client import completion, page, public_resolver
 from tests.integrations.test_youtube_summary_client import output, video
@@ -375,13 +381,15 @@ async def test_public_fetch_failure_keeps_its_existing_classification(
     assert traffic.requests == ["youtube"]
 
 
-@pytest.mark.parametrize("point", ["claim", "send"])
+@pytest.mark.parametrize("kind,point", [
+    ("youtube", "claim"), ("youtube", "send"), ("instagram", "send"),
+])
 async def test_consent_read_failure_preserves_consent_and_uses_worker_retry_contract(
-    independent_api, worker_context, traffic, monkeypatch, point,
+    independent_api, worker_context, traffic, monkeypatch, kind, point,
 ):
     api, headers, user_id, sessions, _, _ = independent_api
     await decide(api, headers, "granted")
-    content_id = await save(api, headers, "youtube")
+    content_id = await save(api, headers, kind)
     read_consent = ai_consent.read_consent
 
     async def broken_read(session, *args, **kwargs):
@@ -412,10 +420,76 @@ async def test_consent_read_failure_preserves_consent_and_uses_worker_retry_cont
             assert (job.status, job.attempts, job.error_code, job.lease_token, count) == (
                 "failed", 2, "provider_error", None, 0,
             )
-    assert traffic.requests == ([] if point == "claim" else ["youtube", "youtube"])
+    public = ["youtube"] if kind == "youtube" else ["instagram", "image"]
+    assert traffic.requests == ([] if point == "claim" else public * 2)
     async with sessions() as session:
         _, record = await read_consent(session, user_id)
     assert record.status == "granted"
+
+
+async def test_g5_asyncpg_connection_failure_is_retryable(
+    independent_api, worker_context, traffic, monkeypatch,
+):
+    api, headers, _, sessions, _, _ = independent_api
+    content_id = await save(api, headers, "youtube")
+    read = ai_consent.summary_send_allowed
+    failures = []
+    with socket.socket() as endpoint:
+        endpoint.bind(("127.0.0.1", 0))
+        host, port = endpoint.getsockname()
+
+        async def connect():
+            return await asyncpg.connect(host=host, port=port, timeout=2)
+
+        engine = create_async_engine("postgresql+asyncpg://", async_creator=connect)
+        try:
+            async def read_from_refused_connection(session, **kwargs):
+                try:
+                    async with async_sessionmaker(engine)() as broken:
+                        return await read(broken, **kwargs)
+                except (ConnectionRefusedError, TimeoutError) as exc:
+                    failures.append(type(exc).__name__)
+                    raise
+
+            monkeypatch.setattr(ai_consent, "summary_send_allowed", read_from_refused_connection)
+            async with worker_context() as worker:
+                assert await worker.run_once()
+        finally:
+            await engine.dispose()
+    assert len(failures) == 1
+    assert traffic.requests == ["youtube"]
+    job, count = await state(sessions, content_id)
+    assert (job.status, job.error_code, job.attempts, count) == (
+        "queued", "provider_error", 1, 1,
+    )
+
+
+async def test_cancelling_g5_propagates_without_finishing_the_job(
+    independent_api, worker_context, traffic, monkeypatch,
+):
+    api, headers, _, sessions, _, _ = independent_api
+    content_id = await save(api, headers, "instagram")
+    entered, resume = asyncio.Event(), asyncio.Event()
+
+    async def waiting_read(session, **kwargs):
+        await session.execute(text("SELECT 1"))
+        entered.set()
+        await resume.wait()
+        raise AssertionError("cancelled attempt resumed")
+
+    monkeypatch.setattr(ai_consent, "summary_send_allowed", waiting_read)
+    async with worker_context() as worker, asyncio.TaskGroup() as tasks:
+        run = tasks.create_task(worker.run_once())
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+        finally:
+            run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+    assert traffic.requests == ["instagram", "image"]
+    job, count = await state(sessions, content_id)
+    assert (job.status, job.error_code, job.attempts, count) == ("processing", None, 1, 1)
+    assert job.lease_token
 
 
 @pytest.mark.parametrize("kind", list(LINKS))
@@ -563,3 +637,82 @@ async def test_required_switch_blocks_undecided_saves_without_retroactive_ai(
     assert (detail["summary_status"], detail["summary_error_code"]) == ("skipped", SKIPPED)
     _, count = await state(sessions, content["id"])
     assert count == len(ocr_calls) == len(traffic.requests) == external_responses.ai_calls == 0
+
+
+@pytest.mark.parametrize("kind", ["youtube", "instagram", "photo", "web"])
+@pytest.mark.parametrize("regrant_before_start", [False, True])
+async def test_save_judgments_use_the_same_transaction_start_as_saved_at(
+    independent_api, recommendation_provider, worker_context, traffic, monkeypatch,
+    png_bytes, kind, regrant_before_start,
+):
+    api, headers, user_id, sessions, pids, _ = independent_api
+    await decide(api, headers, "granted")
+    await decide(api, headers, "denied")
+    decisions, judgments = [], []
+    if regrant_before_start:
+        decisions.append(await decide(api, headers, "granted"))
+    allows = ai_consent.SaveAIConsent.allows
+
+    async def observe(guard, user):
+        assert user == user_id and guard.session.in_transaction()
+        began_at = await guard.session.scalar(text("SELECT transaction_timestamp()"))
+        if not judgments and not regrant_before_start:
+            save_pid = await backend_pid(guard.session)
+            decisions.append(await asyncio.wait_for(decide(api, headers, "granted"), 5))
+            assert pids[-1] != save_pid
+        allowed = await allows(guard, user)
+        judgments.append((began_at, guard.started_at, allowed))
+        return allowed
+
+    with monkeypatch.context() as inject:
+        inject.setattr(ai_consent.SaveAIConsent, "allows", observe)
+        key = str(uuid4())
+        if kind in LINKS:
+            saved = await request(
+                api, "POST", "contents", headers={**headers, "Idempotency-Key": key},
+                status=201, json={"original_url": LINKS[kind]},
+            )
+        else:
+            saved = await save_input(api, headers, kind, png_bytes, key=key)
+    (decision,) = decisions
+    regranted_at = datetime.fromisoformat(decision["decided_at"])
+    async with sessions() as session:
+        saved_at = await session.scalar(
+            select(Content.saved_at).where(Content.id == saved["id"]),
+        )
+    assert (saved_at > regranted_at) is regrant_before_start
+    assert saved_at != regranted_at
+    expected_status = {
+        "youtube": "queued", "instagram": "queued", "photo": "not_requested",
+        "web": "not_requested",
+    }[kind] if regrant_before_start else ("not_requested" if kind == "web" else "skipped")
+    expected_reason = SKIPPED if expected_status == "skipped" else None
+    assert (saved["summary_status"], saved["summary_error_code"]) == (
+        expected_status, expected_reason,
+    )
+    expected_checks = {
+        "youtube": 1, "instagram": 3 if regrant_before_start else 2,
+        "photo": 4 if regrant_before_start else 1, "web": 2 if regrant_before_start else 1,
+    }[kind]
+    assert judgments == [(saved_at, saved_at, regrant_before_start)] * expected_checks
+    expected_calls = {
+        "youtube": [], "instagram": ["recommend"], "photo": ["ocr", "recommend"],
+        "web": ["recommend"],
+    }[kind] if regrant_before_start else []
+    assert recommendation_provider.calls == expected_calls
+    if kind != "youtube":
+        assert await usage(sessions, user_id, "category_recommendation") == (
+            expected_calls.count("recommend")
+        )
+    if kind != "web":
+        assert await usage(sessions, user_id, "ai_summary") == int(regrant_before_start)
+    if kind in LINKS:
+        async with worker_context() as worker:
+            assert await worker.run_once() is regrant_before_start
+        job, count = await state(sessions, saved["id"])
+        assert (job.status, job.error_code, count) == (
+            "completed" if regrant_before_start else "skipped", expected_reason,
+            int(regrant_before_start),
+        )
+        sends = ["youtube", "gemini"] if kind == "youtube" else ["instagram", "image", "openai"]
+        assert traffic.requests == (sends if regrant_before_start else [])
