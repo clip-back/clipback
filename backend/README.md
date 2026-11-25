@@ -88,16 +88,7 @@ uvicorn app.main:app --reload
 
 ## 기본 검증
 
-개발 의존성이 준비된 `backend/` 가상환경에서 실행합니다.
-
-```bash
-ruff check app scripts alembic tests
-deptry .
-pytest -q
-python -m compileall app scripts alembic tests
-```
-
-DB 검사에는 별도 설정·마이그레이션이 필요합니다. [검증 조건과 전용 테스트 DB](../docs/backend/testing.md#validation)를 먼저 확인하며, DB 테스트의 skip을 통과로 보고하지 않습니다.
+CI와 같은 검사 명령(ruff·deptry·pytest·compileall·alembic)과 전용 테스트 DB 조건은 [백엔드 테스트의 Validation](../docs/backend/testing.md#validation)을 따릅니다. DB 테스트의 skip을 통과로 보고하지 않습니다.
 
 ## Structure
 

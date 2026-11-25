@@ -7,7 +7,7 @@
 ## 결과
 
 - 공식 명세: [GitHub #112](https://github.com/clip-back/clipback/issues/112)
-- 로컬 사본: [Android 내부 테스트 배포 명세](../android-internal-test-release-spec.md)
+- 로컬 사본: [Android 내부 테스트 배포 명세](2026-10-28-android-internal-test-release-spec.md)
 - 제목: `feat: Android 0.2.0(1) 내부 테스트 배포 준비 및 실기기 검증`
 - 상태·라벨: `OPEN`, `ready-for-agent`
 - `to-spec` 템플릿의 7개 절, 사용자 스토리 30개, 구현·테스트 결정, 완료 조건과 제외 범위를 작성했다.

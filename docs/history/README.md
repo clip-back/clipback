@@ -305,6 +305,10 @@
 | 미확인 | [과거 백엔드·운영 현황 설명](undated-backend-status.md) | 현황 |
 | 미확인 | [과거 프론트 연동 상태 설명](undated-frontend-integration-baseline.md) | 현황 |
 | 2026-10-26 | [삭제·보존 정리 없는 수동 백업](2026-10-26-manual-backup-command.md) | 백업 |
+| 2026-10-25 | [이미지 보관 PR 병합 준비 계획](2026-10-25-image-storage-merge-preparation.md) | 백엔드 |
+| 2026-10-25 | [PR #75 local 유지 호환 배포 체크리스트](2026-10-25-image-storage-compatible-deployment-checklist.md) | 백엔드 |
+| 2026-10-26 | [이미지 운영 도구 원본 접근·백업·복원 실행 계획](2026-10-26-image-operator-execution-plan.md) | 백엔드 |
+| 2026-10-28 | [Android 내부 테스트 배포 명세 사본](2026-10-28-android-internal-test-release-spec.md) | 배포 |
 
 ## 현재 안내와 배포 기록
 
