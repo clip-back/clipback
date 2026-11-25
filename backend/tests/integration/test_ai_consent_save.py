@@ -11,6 +11,7 @@ import pytest_asyncio
 from sqlalchemy import delete, func, insert, select, text, update
 
 from app.core.config import settings
+from app.db.session import engine as app_engine
 from app.integrations.metadata_client import MetadataClient, MetadataResult
 from app.models.category import Category
 from app.models.content import Content
@@ -50,10 +51,14 @@ ACCOUNT = {"undecided_switch_off": "guest", "granted_switch_on": "login",
            "denied_switch_off": "guest", "undecided_switch_on": "login"}
 
 
-@pytest.fixture(autouse=True)
-def summaries_on(monkeypatch):
+@pytest_asyncio.fixture(autouse=True)
+async def summaries_on(monkeypatch):
     monkeypatch.setattr(settings, "youtube_summary_enabled", True)
     monkeypatch.setattr(settings, "instagram_summary_enabled", True)
+    yield
+    # Set up before `api`, so torn down after its lifespan stopped the summary worker these
+    # switches started; that worker's pooled app-engine connections belong to this test's loop.
+    await app_engine.dispose()
 
 
 async def account(api, monkeypatch, state, *, login=None):
