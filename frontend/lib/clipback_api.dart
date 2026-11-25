@@ -9,6 +9,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/services/original_image_cache.dart';
 import 'data/services/api_request_scope.dart';
 
+/// A refresh after a 401 that ended without an API answer (lost connection or
+/// a malformed body), for callers that pass `keepRefreshForSession`.
+class _RefreshFailed implements Exception {
+  const _RefreshFailed(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() => 'refresh failed: $cause';
+}
+
 class ClipbackApiException implements Exception {
   const ClipbackApiException(this.message, {this.statusCode});
 
@@ -777,7 +788,9 @@ class ClipbackApi {
   /// Sends the decision ([AiConsentStatus.granted] or [AiConsentStatus.denied]).
   /// The PUT, a 401 refresh and its one resend share one 10-second request
   /// scope: at the deadline the scope ends, so a late 401 or refresh cannot
-  /// send the old choice again. [AiConsentSaveResult.saved] needs a 200 answer
+  /// send the old choice again. A refresh already sent outlives the deadline:
+  /// the server may have rotated the tokens, so this account keeps the answer
+  /// (the usual generation check drops it after an account change). [AiConsentSaveResult.saved] needs a 200 answer
   /// with the sent status, version 1 and a valid API time. An empty or
   /// different 200 answer, the deadline or a lost connection is unconfirmed; a
   /// failed or malformed refresh and other answers fail (#474).
@@ -794,21 +807,21 @@ class ClipbackApi {
             'PUT',
             '/users/me/ai-consent',
             body: {'status': status.value, 'notice_version': 1},
+            keepRefreshForSession: true,
           ),
         ),
       );
     } on ClipbackApiException {
       return AiConsentSaveResult.failed;
+    } on _RefreshFailed {
+      // The first PUT was refused with 401 and the refresh failed (lost connection or a
+      // malformed answer): nothing changed the decision and nothing is resent.
+      return AiConsentSaveResult.failed;
     } on TimeoutException {
       return AiConsentSaveResult.unconfirmed;
     } on http.ClientException {
+      // A PUT (first or resent) whose answer was lost.
       return AiConsentSaveResult.unconfirmed;
-    } on TypeError {
-      // A refresh answer without the session fields.
-      return AiConsentSaveResult.failed;
-    } on FormatException {
-      // A refresh answer that is not JSON.
-      return AiConsentSaveResult.failed;
     } finally {
       scope.cancel();
     }
@@ -830,15 +843,21 @@ class ClipbackApi {
 
   static final _apiTime = RegExp(
     r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?'
-    r'(Z|[+-]\d{2}:\d{2})$',
+    r'(?:Z|[+-](\d{2}):(\d{2}))$',
   );
 
-  /// An ISO time with a zone whose date and clock exist: `DateTime.tryParse`
-  /// alone rolls 02-31 over to March and accepts a date without a time.
+  /// An ISO time with a zone whose date, clock and offset exist:
+  /// `DateTime.tryParse` alone rolls 02-31 over to March, accepts a date
+  /// without a time and offsets such as +24:00 or +00:60.
   static bool _isApiTime(Object? value) {
     if (value is! String) return false;
     final match = _apiTime.firstMatch(value);
     if (match == null || DateTime.tryParse(value) == null) return false;
+    final offsetHours = match.group(8), offsetMinutes = match.group(9);
+    if (offsetHours != null &&
+        (int.parse(offsetHours) > 23 || int.parse(offsetMinutes!) > 59)) {
+      return false;
+    }
     final [year, month, day, hour, minute, second] = [
       for (var group = 1; group <= 6; group++) int.parse(match.group(group)!),
     ];
@@ -1588,6 +1607,7 @@ class ClipbackApi {
     Map<String, dynamic>? body,
     bool retryUnauthorized = true,
     Map<String, String>? headers,
+    bool keepRefreshForSession = false,
   }) => _sendWithSessionRetry(
     (session) async {
       final scope = ApiRequestScope.current;
@@ -1610,13 +1630,20 @@ class ClipbackApi {
     },
     authenticated: authenticated,
     retryUnauthorized: retryUnauthorized,
+    keepRefreshForSession: keepRefreshForSession,
   );
 
+  /// With [keepRefreshForSession] a 401 refresh is also owned by the session,
+  /// as for an unscoped caller, so the caller's scope ending does not cancel a
+  /// refresh the server may already have applied; the resend still needs the
+  /// caller's scope. A refresh failure other than an API error is then
+  /// [_RefreshFailed].
   Future<http.Response> _sendWithSessionRetry(
     Future<http.Response> Function(ApiSession?) send, {
     bool authenticated = true,
     bool retried = false,
     bool retryUnauthorized = true,
+    bool keepRefreshForSession = false,
   }) async {
     final scope = ApiRequestScope.current;
     scope?.checkActive();
@@ -1645,7 +1672,9 @@ class ClipbackApi {
         // Memory can change before the persistence callback finishes.
         if (_refreshFuture != null ||
             session!.accessToken == _session!.accessToken) {
-          await refreshSession();
+          final refresh = refreshSession();
+          if (keepRefreshForSession) _refreshHasUnscopedOwner = true;
+          await refresh;
         }
       } catch (error) {
         scope?.checkActive();
@@ -1653,6 +1682,9 @@ class ClipbackApi {
         if (error is ClipbackApiException && error.statusCode == 401) {
           _invalidateAssetCache();
           await _onSessionInvalidated?.call();
+        }
+        if (keepRefreshForSession && error is! ClipbackApiException) {
+          throw _RefreshFailed(error);
         }
         rethrow;
       }
@@ -1663,6 +1695,7 @@ class ClipbackApi {
         authenticated: authenticated,
         retried: true,
         retryUnauthorized: retryUnauthorized,
+        keepRefreshForSession: keepRefreshForSession,
       );
     }
     if (response.statusCode == 401 && authenticated && retryUnauthorized) {

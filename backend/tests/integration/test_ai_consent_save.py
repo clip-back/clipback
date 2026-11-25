@@ -332,6 +332,16 @@ async def own_image_deletions(independent_api):
             delete(ImageDeletion).where(ImageDeletion.user_id == independent_api[2]))
 
 
+# Sends the request made before the failed read, in the #474 order (사용자 결정 “실패 시점
+# 뒤 추가 0회 (추천)”): a photo reads its text before the recommendation checks, an
+# Instagram post is recommended before G3.
+SENT_BEFORE = {"G1b": [], "G1a_photo": ["ocr"], "G1b_photo": ["ocr"],
+               "G3_instagram": ["recommend"]}
+# The retry with the same key is judged anew (still undecided, switch off) and sends again.
+RETRY_SENDS = {"web": ["recommend"], "youtube": [], "instagram": ["recommend"],
+               "photo": ["ocr", "recommend"]}
+
+
 @pytest.mark.parametrize("point", list(FAILING))
 async def test_read_failure_rolls_back_without_ai_and_retries_fresh(
     independent_api, recommendation_provider, monkeypatch, png_bytes, own_image_deletions, point,
@@ -340,11 +350,13 @@ async def test_read_failure_rolls_back_without_ai_and_retries_fresh(
     kind, failing_read = FAILING[point]
     allows = SaveAIConsent.allows
     reads = 0
+    at_failure = None
 
     async def fail_once(self, user):
-        nonlocal reads
+        nonlocal reads, at_failure
         reads += 1
         if reads == failing_read:
+            at_failure = list(recommendation_provider.calls)
             await self.session.execute(text("SELECT 1 / 0"))
         return await allows(self, user)
 
@@ -353,22 +365,31 @@ async def test_read_failure_rolls_back_without_ai_and_retries_fresh(
     extra = {"png": png_bytes} if kind == "photo" else {}
     failed = await send(api, keyed, kind, **extra)
     assert (failed.status_code, failed.text) == (500, "Internal Server Error")
-    calls_before_failure = {"G1b": [], "G1a_photo": ["ocr"], "G1b_photo": ["ocr"],
-                            "G3_instagram": ["recommend"]}.get(point, [])
-    assert recommendation_provider.calls == calls_before_failure
+    # Already sent before the failed read, then nothing more after it.
+    assert at_failure == SENT_BEFORE.get(point, [])
+    assert recommendation_provider.calls == at_failure
     async with sessions() as session:
+        # The save is rolled back.
         assert await session.scalar(select(func.count()).select_from(Content).where(
             Content.user_id == user_id)) == 0
-        assert await session.scalar(text(
-            "SELECT count(*) FROM ai_transfer_consents WHERE user_id = :u"), {"u": user_id}) == 0
         assert await session.scalar(select(func.count()).select_from(UsageRecord).where(
             UsageRecord.user_id == user_id, UsageRecord.kind == "ai_summary")) == 0
         # #465: an attempt committed before the failed G1b read may remain.
         assert await session.scalar(select(func.count()).select_from(UsageRecord).where(
             UsageRecord.user_id == user_id, UsageRecord.kind == "category_recommendation",
         )) == int(point in ("G1b", "G1b_photo", "G3_instagram"))
+        # The failed read is not stored as a denial.
+        assert await session.scalar(text(
+            "SELECT count(*) FROM ai_transfer_consents WHERE user_id = :u"), {"u": user_id}) == 0
     assert list(path.rglob("*.png")) == []
+    me = await request(api, "GET", "users/me", headers=headers)
+    assert me["ai_consent_status"] == "undecided"
+    # The same submission key is judged anew and saves once.
     retried = await save(api, keyed, kind, **extra)
     assert retried["summary_status"] == ("queued" if kind in ("youtube", "instagram")
                                          else "not_requested")
     assert reads > failing_read
+    assert recommendation_provider.calls == at_failure + RETRY_SENDS[kind]
+    async with sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(Content).where(
+            Content.user_id == user_id)) == 1

@@ -376,6 +376,9 @@ void main() {
       ('2026-11-25', AiConsentSaveResult.unconfirmed),
       ('2026-11-25T01:00:00', AiConsentSaveResult.unconfirmed),
       ('2026-11-25 01:00:00Z', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25T01:00:00+24:00', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25T01:00:00+00:60', AiConsentSaveResult.unconfirmed),
+      ('2026-11-25T01:00:00-23:59', AiConsentSaveResult.saved),
     ]) {
       test('decided_at $time is ${expected.name}', () async {
         final server = _Server([
@@ -387,6 +390,113 @@ void main() {
         );
       });
     }
+
+    testWidgets(
+      'a refresh the server applied after the deadline keeps its tokens',
+      (tester) async {
+        final server = _Server([
+          // The lone PUT gets its 401 at 5 s; the refresh is applied on the
+          // server and answers at 11 s, after the PUT's 10 s deadline.
+          () => Future.delayed(
+            const Duration(seconds: 5),
+            () => _json({'detail': 'expired'}, 401),
+          ),
+          () => Future.delayed(const Duration(seconds: 6), () => rotated),
+          // The follow-up re-read the screen makes for an unconfirmed result.
+          _now(_json(_user({'ai_consent_status': 'granted'}))),
+        ]);
+        final api = apiFor(server);
+        AiConsentSaveResult? result;
+        unawaited(
+          api
+              .saveAiConsent(AiConsentStatus.granted)
+              .then((value) => result = value),
+        );
+        await tester.pump(const Duration(seconds: 10));
+        expect(result, AiConsentSaveResult.unconfirmed);
+        expect(api.session?.accessToken, 'old-access');
+        await tester.pump(const Duration(seconds: 2));
+        // The rotated tokens are kept: the old refresh token is no longer valid.
+        expect(api.session?.accessToken, 'rotated-access');
+        expect(api.session?.refreshToken, 'rotated-refresh');
+        ApiUser? me;
+        unawaited(api.readMe().then((user) => me = user));
+        await tester.pump();
+        expect(me?.aiConsentStatus, AiConsentStatus.granted);
+        expect(
+          [
+            for (final request in server.requests)
+              '${request.method} ${request.url.path}',
+          ],
+          ['PUT $_path', 'POST /api/v1/auth/refresh', 'GET /api/v1/users/me'],
+        );
+        expect(
+          server.requests.last.headers['Authorization'],
+          'Bearer rotated-access',
+        );
+        expect(invalidations, 0);
+      },
+    );
+
+    testWidgets('a late refresh answer is dropped after an account change', (
+      tester,
+    ) async {
+      const other = ApiSession(
+        accessToken: 'other-access',
+        refreshToken: 'other-refresh',
+        expiresIn: 3600,
+        refreshExpiresIn: 86400,
+      );
+      final server = _Server([
+        () => Future.delayed(
+          const Duration(seconds: 5),
+          () => _json({'detail': 'expired'}, 401),
+        ),
+        () => Future.delayed(const Duration(seconds: 6), () => rotated),
+      ]);
+      final api = apiFor(server);
+      AiConsentSaveResult? result;
+      unawaited(
+        api
+            .saveAiConsent(AiConsentStatus.granted)
+            .then((value) => result = value),
+      );
+      await tester.pump(const Duration(seconds: 10));
+      expect(result, AiConsentSaveResult.unconfirmed);
+      api.restoreSession(other); // Another account signs in.
+      await tester.pump(const Duration(seconds: 5));
+      expect(api.session?.accessToken, 'other-access');
+      expect(puts(server), 1);
+    });
+
+    test(
+      'a lost connection during the refresh fails without resending',
+      () async {
+        final server = _Server([
+          _now(_json({'detail': 'expired'}, 401)),
+          () async => throw http.ClientException('refresh connection closed'),
+        ]);
+        expect(
+          await apiFor(server).saveAiConsent(AiConsentStatus.granted),
+          AiConsentSaveResult.failed,
+        );
+        expect(puts(server), 1);
+        expect(server.requests, hasLength(2));
+      },
+    );
+
+    test('a lost answer to the resent PUT is unconfirmed', () async {
+      final server = _Server([
+        _now(_json({'detail': 'expired'}, 401)),
+        _now(rotated),
+        () async => throw http.ClientException('resend connection closed'),
+      ]);
+      expect(
+        await apiFor(server).saveAiConsent(AiConsentStatus.granted),
+        AiConsentSaveResult.unconfirmed,
+      );
+      expect(puts(server), 2);
+    });
 
     test('a failed refresh ends the session and fails', () async {
       final server = _Server([

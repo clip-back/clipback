@@ -9,12 +9,14 @@ before the account is cleaned up, also when the test fails midway (`producers`).
 
 import asyncio
 import logging
+from datetime import date
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import event, func, select, text
 
+from app.api.v1.endpoints import users as users_endpoint
 from app.core.config import settings
 from app.models.account_deletion_reason import AccountDeletionReason
 from app.models.content import Content
@@ -168,19 +170,28 @@ def gate_transport(monkeypatch, producers, provider):
     return arrived, respond, state
 
 
-def pause_commit(producers, session):
-    """Hold this session's commit: the decision is written and its locks are held."""
-    commit = session.commit
+def decide_with_held_commit(producers, sessions, user_id, status, opened=None):
+    """Run the decision service in a task that owns its session, holding the commit: the
+    decision is written and its locks are held. The task closes its session itself, also
+    when the test fails and `producers` releases it."""
     written, release = asyncio.Event(), asyncio.Event()
     producers.releases.append(release)
 
-    async def paused():
-        written.set()
-        await asyncio.wait_for(release.wait(), WAIT)
-        await commit()
+    async def run():
+        async with sessions() as session:
+            if opened is not None:
+                opened.append(await backend_pid(session))
+            commit = session.commit
 
-    session.commit = paused
-    return written, release
+            async def held():
+                written.set()
+                await asyncio.wait_for(release.wait(), WAIT)
+                await commit()
+
+            session.commit = held
+            return await ai_consent.decide(session, user_id, status=status)
+
+    return producers.start(run()), written, release
 
 
 async def decide(api, headers, status_value, *, expect=200):
@@ -490,16 +501,15 @@ async def test_save_started_between_a_regrant_write_and_its_commit_stays_without
     api, headers, user_id, sessions, _, _ = independent_api
     await decide(api, headers, "granted")
     await decide(api, headers, "denied")
-    async with sessions() as regrant:
-        written, commit = pause_commit(producers, regrant)
-        regranting = producers.start(ai_consent.decide(regrant, user_id, status="granted"))
-        await asyncio.wait_for(written.wait(), WAIT)
-        entered, release = pause(monkeypatch, producers, ContentService, "write")
-        saving = producers.start(save(api, headers, "instagram"))
-        await asyncio.wait_for(entered.wait(), WAIT)  # G1a read the denial already.
-        assert await recorded(pids, "save") != await recorded(pids, "decide", 2)
-        commit.set()
-        assert (await asyncio.wait_for(regranting, WAIT)).granted_after_denial is True
+    regranting, written, commit = decide_with_held_commit(producers, sessions, user_id,
+                                                          "granted")
+    await asyncio.wait_for(written.wait(), WAIT)
+    entered, release = pause(monkeypatch, producers, ContentService, "write")
+    saving = producers.start(save(api, headers, "instagram"))
+    await asyncio.wait_for(entered.wait(), WAIT)  # G1a read the denial already.
+    assert await recorded(pids, "save") != await recorded(pids, "decide", 2)
+    commit.set()
+    assert (await asyncio.wait_for(regranting, WAIT)).granted_after_denial is True
     release.set()
     saved = await asyncio.wait_for(saving, WAIT)
     assert (saved["summary_status"], saved["summary_error_code"]) == ("skipped", REASON)
@@ -522,18 +532,17 @@ async def test_save_started_while_a_regrant_waits_on_the_withdrawal_stays_withou
     its row lock, and a save passes its first check under the old grant meanwhile."""
     api, headers, user_id, sessions, _, _ = independent_api
     await decide(api, headers, "granted")
-    async with sessions() as withdrawal:
-        written, commit = pause_commit(producers, withdrawal)
-        withdrawing = producers.start(ai_consent.decide(withdrawal, user_id, status="denied"))
-        await asyncio.wait_for(written.wait(), WAIT)
-        regranting = producers.start(decide(api, headers, "granted"))
-        await until_blocked(sessions, await recorded(pids, "decide", 2),
-                            await recorded(pids, "decide", 1))
-        entered, release = pause(monkeypatch, producers, target, "admit", after=True)
-        saving = producers.start(save(api, headers, kind, png_bytes))
-        await asyncio.wait_for(entered.wait(), WAIT)  # The first check saw the old grant.
-        commit.set()
-        await asyncio.wait_for(withdrawing, WAIT)
+    withdrawing, written, commit = decide_with_held_commit(producers, sessions, user_id,
+                                                           "denied")
+    await asyncio.wait_for(written.wait(), WAIT)
+    regranting = producers.start(decide(api, headers, "granted"))
+    await until_blocked(sessions, await recorded(pids, "decide", 2),
+                        await recorded(pids, "decide", 1))
+    entered, release = pause(monkeypatch, producers, target, "admit", after=True)
+    saving = producers.start(save(api, headers, kind, png_bytes))
+    await asyncio.wait_for(entered.wait(), WAIT)  # The first check saw the old grant.
+    commit.set()
+    await asyncio.wait_for(withdrawing, WAIT)
     assert (await asyncio.wait_for(regranting, WAIT))["status"] == "granted"
     assert await consent_rows(sessions, user_id) == [("granted", True)]
     release.set()
@@ -623,16 +632,33 @@ ROWS = {  # existing record, decision sent
 
 
 class OwnReasonRows:
-    """Ids of the deletion reason rows this test's ORM inserts created. Reasons have no
-    account FK, so cleanup removes only these and never rows another session wrote."""
+    """Ids of the deletion reason rows written by this test's own deletion requests. Only the
+    session a deletion request runs on is observed, for exactly that request's duration;
+    rows any other session writes, ORM or not, are never collected."""
 
-    def __init__(self):
-        self.ids = []
+    def __init__(self, producers):
+        self.ids, self.producers, self.observing = [], producers, 0
 
-    def __call__(self, mapper, connection, target):
-        self.ids.append(target.id)
+    def collect(self, session, instance):
+        if isinstance(instance, AccountDeletionReason):
+            self.ids.append(instance.id)
 
-    async def remove(self, sessions):
+    def wrap(self, delete_account):
+        async def owned(session, *args, **kwargs):
+            event.listen(session.sync_session, "pending_to_persistent", self.collect)
+            self.observing += 1
+            try:
+                return await delete_account(session, *args, **kwargs)
+            finally:
+                event.remove(session.sync_session, "pending_to_persistent", self.collect)
+                self.observing -= 1
+
+        return owned
+
+    async def finish(self, sessions):
+        """Collect every started request first, so no reason row is written afterwards."""
+        await self.producers.close()
+        assert self.observing == 0
         if self.ids:
             async with sessions.begin() as session:
                 await session.execute(text(
@@ -641,14 +667,14 @@ class OwnReasonRows:
 
 
 @pytest_asyncio.fixture
-async def own_reasons(independent_api):
-    rows = OwnReasonRows()
-    event.listen(AccountDeletionReason, "after_insert", rows)
+async def own_reasons(independent_api, producers, monkeypatch):
+    rows = OwnReasonRows(producers)
+    monkeypatch.setattr(users_endpoint, "delete_account",
+                        rows.wrap(users_endpoint.delete_account))
     try:
         yield rows
     finally:
-        event.remove(AccountDeletionReason, "after_insert", rows)
-        await rows.remove(independent_api[3])
+        await rows.finish(independent_api[3])
 
 
 async def delete_account(api, headers):
@@ -673,25 +699,79 @@ async def operator_retry(sessions):
         return await retry_image_deletions(session, limit=10)
 
 
-async def test_reason_cleanup_keeps_rows_another_session_wrote(independent_api, own_reasons):
-    api, headers, _, sessions, _, _ = independent_api
+async def foreign_reason(sessions):
+    """A reason row another ORM session writes while this test's deletion is in progress."""
     async with sessions.begin() as other:
-        foreign = await other.scalar(text(
-            "INSERT INTO account_deletion_reasons (reasons, deleted_on) "
-            "VALUES (ARRAY['rejoin'], current_date) RETURNING id"))
+        row = AccountDeletionReason(reasons=["rejoin"], deleted_on=date.today())
+        other.add(row)
+        await other.flush()
+        return row.id
+
+
+async def drop_reason(sessions, row_id):
+    async with sessions.begin() as other:
+        await other.execute(text("DELETE FROM account_deletion_reasons WHERE id = :id"),
+                            {"id": row_id})
+
+
+async def existing_reasons(sessions, ids):
+    async with sessions() as session:
+        return sorted((await session.scalars(text(
+            "SELECT id FROM account_deletion_reasons WHERE id = ANY(:ids)"),
+            {"ids": list(ids)})).all())
+
+
+@pytest.mark.parametrize("fail", [False, True], ids=["normal", "failure_before_reason_insert"])
+async def test_reason_cleanup_keeps_rows_another_orm_session_wrote(
+    independent_api, monkeypatch, producers, own_reasons, fail,
+):
+    api, headers, _, sessions, _, _ = independent_api
+    # Hold the deletion right before it adds its reason row (after the account rows).
+    entered, release = pause(monkeypatch, producers, account_deletion_service,
+                             "apply_account_deletion", after=True)
+    deleting = producers.start(delete_account(api, headers))
+    await asyncio.wait_for(entered.wait(), WAIT)
+    foreign = await foreign_reason(sessions)
     try:
-        assert (await delete_account(api, headers)).status_code == 204
+        if fail:
+            with pytest.raises(AssertionError, match="injected"):
+                raise AssertionError("injected failure while the deletion waits")
+            # The fixture's own exit: collect requests first, then remove only own rows.
+            await own_reasons.finish(sessions)
+            assert deleting.done() and own_reasons.observing == 0
+        else:
+            release.set()
+            assert (await asyncio.wait_for(deleting, WAIT)).status_code == 204
+            await own_reasons.finish(sessions)
         assert len(own_reasons.ids) == 1 and foreign not in own_reasons.ids
-        await own_reasons.remove(sessions)
-        async with sessions() as session:
-            left = (await session.scalars(text(
-                "SELECT id FROM account_deletion_reasons WHERE id = ANY(:ids)"),
-                {"ids": [foreign, *own_reasons.ids]})).all()
-        assert left == [foreign]
+        assert await existing_reasons(sessions, [foreign, *own_reasons.ids]) == [foreign]
     finally:
-        async with sessions.begin() as other:
-            await other.execute(text("DELETE FROM account_deletion_reasons WHERE id = :id"),
-                                {"id": foreign})
+        await drop_reason(sessions, foreign)
+
+
+async def test_a_failure_while_a_decision_holds_its_commit_closes_its_own_session(
+    independent_api, producers, pids,
+):
+    api, headers, user_id, sessions, _, _ = independent_api
+    await decide(api, headers, "granted")
+    opened = []
+    deciding, written, _ = decide_with_held_commit(producers, sessions, user_id, "denied",
+                                                   opened)
+    with pytest.raises(AssertionError, match="injected"):
+        await asyncio.wait_for(written.wait(), WAIT)
+        raise AssertionError("injected failure while the decision holds its commit")
+    await producers.close()
+    assert deciding.done() and deciding.result().status == "denied"
+    # The task committed and closed its own session; its connection holds nothing.
+    async with sessions() as session:
+        state, reused, locks = (await session.execute(text(
+            "SELECT (SELECT state FROM pg_stat_activity WHERE pid = :p), "
+            "pg_backend_pid() = :p, "
+            "(SELECT count(*) FROM pg_locks WHERE pid = :p AND pid <> pg_backend_pid())"),
+            {"p": opened[0]})).one()
+    # Closed, idle in the pool, or handed back and now running this very query.
+    assert (state in (None, "idle") or reused) and locks == 0
+    assert await consent_rows(sessions, user_id) == [("denied", False)]
 
 
 @pytest.mark.parametrize("deleter", ["api", "operator"])

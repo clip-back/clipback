@@ -48,18 +48,22 @@ def ai_allowed(record: ConsentRecord | None, *, required: bool, data_at: datetim
 
 
 def save_allowed(
-    record: ConsentRecord | None, *, started_under: ConsentRecord | None, required: bool,
+    record: ConsentRecord | None, *, started_under: ConsentRecord | None,
+    started_at: datetime, required: bool,
 ) -> bool:
-    """Whether a save request may send data now. `started_under` is the committed record its
-    first check read. A re-grant covers the save only when the save started under that same
-    committed decision; a re-grant committed during the save is another decision and does
-    not. A first grant has no such condition."""
+    """Whether a save request may send data now. `started_under` is the committed record and
+    `started_at` the DB time its first check read. A re-grant covers the save only when the
+    save started under that same committed decision and not before its time (the #474 time
+    rule); a re-grant committed during the save is another decision. A first grant has no
+    such condition."""
     status = effective_status(record)
     if status == DENIED:
         return False
     if status == UNDECIDED:
         return not required
-    return not record.granted_after_denial or started_under == record
+    if not record.granted_after_denial:
+        return True
+    return started_under == record and started_at >= record.decided_at
 
 
 _READ = text("""
@@ -90,21 +94,23 @@ async def read_consent(
 class SaveAIConsent:
     """The AI consent checks of one save request (G1a·G1b·G2a·G2b·G3).
 
-    The request starts under the committed decision its first check reads. A decision is
-    identified by the whole record: a change always writes a new time.
+    The request starts under the committed decision and at the DB time its first check
+    reads. A decision is identified by the whole record: a change always writes a new time.
     """
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.started = False
         self.started_under: ConsentRecord | None = None
+        self.started_at: datetime | None = None
 
     async def allows(self, user_id: int) -> bool:
-        _, record = await read_consent(self.session, user_id)
+        now, record = await read_consent(self.session, user_id)
         if not self.started:
-            self.started, self.started_under = True, record
+            self.started, self.started_under, self.started_at = True, record, now
         return save_allowed(
-            record, started_under=self.started_under, required=settings.ai_consent_required,
+            record, started_under=self.started_under, started_at=self.started_at,
+            required=settings.ai_consent_required,
         )
 
 

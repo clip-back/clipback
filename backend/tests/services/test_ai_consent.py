@@ -59,35 +59,48 @@ def test_effective_status(record):
 
 
 # Save requests: a re-grant covers a save only when the save started under that same
-# committed decision (#475 review Spec 1). Rows: current record × switch × record the
-# save's first check read.
+# committed decision and not before its time (#475 review Spec 1, recheck Spec 5). Rows:
+# current record × switch × record the save's first check read × that check's DB time.
 OLD_REGRANT = ConsentRecord("granted", 1, BEFORE, True)
 STARTED = {
     "none": None, "denied": RECORDS["denied"], "first_grant": RECORDS["first_grant"],
     "same_regrant": RECORDS["regrant"], "older_regrant": OLD_REGRANT,
 }
-SAVE_TABLE = {
-    (record, switch, started): (
-        False if record == "denied"
-        else (not switch) if record == "none"
-        else True if record == "first_grant"
-        else started == "same_regrant"
-    )
-    for record in RECORDS for switch in (False, True) for started in STARTED
+# Written out per row; only the re-grant rows depend on the first check.
+REGRANT_ROWS = {
+    ("same_regrant", "after"): True, ("same_regrant", "same"): True,
+    ("same_regrant", "before"): False,
+    **{(started, time): False for started in ("none", "denied", "first_grant", "older_regrant")
+       for time in TIMES},
 }
+SAVE_TABLE = {}
+for switch in (False, True):
+    for started in STARTED:
+        for time in TIMES:
+            SAVE_TABLE[("none", switch, started, time)] = not switch
+            SAVE_TABLE[("denied", switch, started, time)] = False
+            SAVE_TABLE[("first_grant", switch, started, time)] = True
+            SAVE_TABLE[("regrant", switch, started, time)] = REGRANT_ROWS[(started, time)]
 
 
-@pytest.mark.parametrize(("record", "switch", "started"), sorted(SAVE_TABLE))
-def test_save_allowed_table(record, switch, started):
+def test_save_table_covers_every_combination():
+    assert len(SAVE_TABLE) == len(RECORDS) * 2 * len(STARTED) * len(TIMES)
+
+
+@pytest.mark.parametrize(("record", "switch", "started", "time"), sorted(SAVE_TABLE))
+def test_save_allowed_table(record, switch, started, time):
     assert save_allowed(
-        RECORDS[record], started_under=STARTED[started], required=switch,
-    ) is SAVE_TABLE[(record, switch, started)]
+        RECORDS[record], started_under=STARTED[started], started_at=TIMES[time],
+        required=switch,
+    ) is SAVE_TABLE[(record, switch, started, time)]
 
 
 def test_save_table_spot_checks():
     # A re-grant committed while the save was running is a different decision.
-    assert SAVE_TABLE[("regrant", False, "denied")] is False
-    assert SAVE_TABLE[("regrant", False, "older_regrant")] is False
-    assert SAVE_TABLE[("regrant", True, "same_regrant")] is True
+    assert SAVE_TABLE[("regrant", False, "denied", "after")] is False
+    assert SAVE_TABLE[("regrant", False, "older_regrant", "after")] is False
+    # The same committed re-grant still needs a first check not before its time.
+    assert SAVE_TABLE[("regrant", True, "same_regrant", "before")] is False
+    assert SAVE_TABLE[("regrant", True, "same_regrant", "same")] is True
     # The first grant keeps no such condition, also for a save started while undecided.
-    assert SAVE_TABLE[("first_grant", True, "none")] is True
+    assert SAVE_TABLE[("first_grant", True, "none", "before")] is True
