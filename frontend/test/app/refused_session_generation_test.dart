@@ -18,12 +18,15 @@ class _Storage extends ApiSessionStorage {
   final writes = <String>[];
   int clears = 0;
   Completer<void>? gate;
+  // The device's stored access token after the last write or clear.
+  String? stored;
 
   @override
   Future<void> write(ApiSession session) async {
     final hold = gate;
     if (hold != null) await hold.future;
     writes.add(session.accessToken);
+    stored = session.accessToken;
   }
 
   // A clear waits for [clearGate] if set and throws while [failClears] > 0
@@ -42,6 +45,7 @@ class _Storage extends ApiSessionStorage {
       throw StateError('Synthetic storage clear failure');
     }
     clears++;
+    stored = null;
   }
 }
 
@@ -351,6 +355,77 @@ void main() {
       await tester.pump();
       await expectSecondKept(tester);
     });
+
+    // 재검수 5차: restore saw the pending clear and waits for the native
+    // barrier while the refused login's first clear still runs; the clear then
+    // fails after a new login replaced it, which releases the pending clear.
+    // The retry after the barrier has nothing left to clear. Without a new
+    // login the failed clear stays pending and the retry ends the refused one.
+    for (final replace in [true, false]) {
+      testWidgets(
+        replace
+            ? 'a login while a restore retry waits keeps it once the first clear fails'
+            : 'without a new login a restore retry that waited ends the refused login',
+        (tester) async {
+          final running = Completer<void>();
+          await failFirstClear(running: running);
+          final refused = dependencies.content.loadCategories().then<Object?>(
+            (_) => null,
+            onError: (Object error) => error,
+          );
+          await tester.pump();
+          expect(
+            (
+              blocks,
+              storage.clearAttempts,
+              dependencies.session.pendingSessionClear,
+            ),
+            (1, 1, true),
+          ); // The first clear runs.
+          final block = retryBlock = Completer<int>();
+          final restore = dependencies.app.restoreSession();
+          await tester.pump();
+          expect(blocks, 2); // The restore retry waits for the native barrier.
+          Future<Object?>? issued;
+          if (replace) {
+            issued = issueSecond();
+            await tester.pump();
+            expect(dependencies.session.hasSession, isTrue);
+          }
+          running.complete();
+          await tester.pump();
+          expect(await issued, isNull);
+          expect(await refused, isA<ClipbackApiException>());
+          // The first clear failed: released when replaced, pending otherwise.
+          expect((
+            dependencies.session.pendingSessionClear,
+            storage.stored,
+            storage.clears,
+          ), replace ? (false, 'b-access', 0) : (true, 'a-access', 0));
+          block.complete(1);
+          await tester.pump();
+          await restore;
+          await tester.pump();
+          if (replace) {
+            expect(storage.stored, 'b-access');
+            await expectSecondKept(tester);
+          } else {
+            expect(
+              (
+                dependencies.session.hasSession,
+                dependencies.session.pendingSessionClear,
+                storage.clearAttempts,
+                storage.clears,
+                storage.stored,
+                dependencies.app.route,
+              ),
+              (false, false, 2, 1, null, AppRoute.login),
+            );
+            await tester.pump(const Duration(seconds: 30));
+          }
+        },
+      );
+    }
 
     testWidgets('without a new login the retry ends the refused login', (
       tester,

@@ -85,7 +85,8 @@ class RemoteSessionRepository extends SessionRepository {
   int? _invalidationGeneration;
   // The login a pending clear ends (#474): its invalidation's first clear,
   // failure and retries all clear that login only. Null when the pending
-  // clear is a logout's or a withdrawal's.
+  // clear is a logout's or a withdrawal's. Kept after that clear ended, so a
+  // retry that waited meanwhile knows there is nothing left to clear.
   int? _endingGeneration;
   Future<bool>? _endingRun;
   int? _endingRunGeneration;
@@ -206,7 +207,9 @@ class RemoteSessionRepository extends SessionRepository {
   Future<void> retryPendingClear() async {
     final ending = _endingGeneration;
     if (ending != null) {
-      await _endLogin(ending);
+      // A refused login's clear that ended or was replaced while this retry
+      // waited leaves nothing to clear (#474).
+      if (_pendingSessionClear) await _endLogin(ending);
       return;
     }
     await _clearStoredSession();
@@ -272,10 +275,7 @@ class RemoteSessionRepository extends SessionRepository {
     }
     final ended = generation == _api.sessionGeneration;
     if (ended) _api.clearSession();
-    if (_endingGeneration == generation) {
-      _endingGeneration = null;
-      _pendingSessionClear = false;
-    }
+    if (_endingGeneration == generation) _pendingSessionClear = false;
     _notify();
     return ended;
   }
