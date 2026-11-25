@@ -80,3 +80,24 @@ VERIFY result=PASS scope=all checks=12 failed=0
 ```
 
 단계별 로그와 결과 파일은 `.utmp/ticket-476/20261125T190135-a9767912bcdd/`에 있습니다. Docker 복원 U3는 승인된 브랜치의 CI에서 판정합니다.
+
+## 서버 PR 최종 검수 후속
+
+사용자 결정 “감독 추천대로 4건 수정 (추천)”에 따라 `a6ecdf7`에서 네 지적을 고쳤습니다(`4ee44d0`·`a1cb0c5`).
+
+- 앱의 동의 `PUT`은 자기 10초 범위와 함께 호출한 쪽의 요청 범위를 따릅니다. 호출한 쪽이 취소하거나 기한이 지나면 더 보내지 않고 그 이유를 다른 요청처럼 돌려줍니다. 이미 보낸 갱신은 세션이 가져 회전한 토큰을 지킵니다. 수정 전에는 첫 `PUT`의 401 뒤 갱신 중 취소해도 `PUT`을 두 번 보내고 저장 성공을 돌려주는 것을 새 테스트로 먼저 확인했습니다. 취소하지 않은 대조는 그대로 두 번 보내고 성공합니다.
+- Railway 복원 절차에서 복원 대상으로 전환하기 전에 AI 전송 동의 복원 정리를 하도록 이었습니다. 동의함과 대기·처리 중 작업이 0건인지, 지원되는 배포에서 API·worker 스위치가 켜졌는지 확인하고, 하나라도 확인하지 못하면 점검을 유지합니다. 동의 기능 이전 서버는 호환 서버로 쓰지 않습니다. 변수 표의 `AI_CONSENT_REQUIRED`는 0.7.1을 iOS·Android 양쪽에서 받을 수 있게 된 날(M4) 켜고 확인 절차를 따르도록 적었습니다.
+- Docker 복원 검사(U3)는 동의 행을 계정 키와 함께 비교하고, 복원본에서 두 계정의 동의를 맞바꾸면 다르게 읽히는지도 확인합니다. 같은 읽기 SQL을 로컬 PostgreSQL에 적용하면 이전 비교는 맞바꿈을 구분하지 못하고 새 비교는 구분했습니다. 실제 Docker 검사는 CI에서 판정합니다.
+- 기준부터 있던 로그아웃·탈퇴 삭제 경주(시트 162)는 이 후속의 범위 밖입니다.
+
+2026-11-25 커밋 `a1cb0c5`(작업 트리 깨끗함)의 전체 VERIFY 실행 ID는 `20261125T194136-b33f99e38a07`이고 종료 코드는 0입니다. `flutter analyze`가 통과했고 Flutter 테스트는 4,232개 통과했습니다.
+
+```text
+pytest: 3485 passed, 52 skipped, 3 warnings in 473.42s (0:07:53)
+pytest skip: 51 tests/deployment (RUN_DOCKER_RECOVERY_TESTS=1 and a labelled local image are … 외 6종)
+pytest skip: 1 tests/integration (CLIPBACK_IMAGE_TEST_S3_ENDPOINT is required for the local s…)
+verify ci-only: backend/tests/deployment/test_ai_consent_resume_runbook.py backend/tests/deployment/test_backup_restore_docker.py (로컬 skip, 티켓 종료 전 CI 필요)
+VERIFY result=PASS scope=all checks=12 failed=0
+```
+
+단계별 로그는 `.utmp/ticket-475/20261125T194136-b33f99e38a07/`에 있습니다. 운영 전환·배포, 기기, 실제 외부 전송은 실행하지 않았습니다.
