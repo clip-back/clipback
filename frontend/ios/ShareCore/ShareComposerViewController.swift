@@ -115,7 +115,7 @@ final class ShareComposerViewController: UIViewController {
       switch result {
       case .success:
         self.finished = true
-        self.statusLabel.text = "저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."
+        self.statusLabel.text = "저장 완료!"
         self.saveButton.setTitle("저장 완료", for: .normal)
         self.discardButton.isHidden = true
       case .failure(let error):

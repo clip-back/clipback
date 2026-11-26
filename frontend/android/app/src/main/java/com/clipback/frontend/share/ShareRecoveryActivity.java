@@ -117,7 +117,7 @@ public final class ShareRecoveryActivity extends Activity implements ShareServic
     @Override public void finished(String id,String message,boolean success) {
         if(destroyed || !id.equals(draftId))return;
         successful=success; transientMessage=message;
-        if(success) { content.removeAllViews(); TextView title=text("저장했어요",28); title.setTypeface(null,1); content.addView(title); TextView detail=text(message,17); detail.setPadding(0,dp(24),0,0); content.addView(detail); }
+        if(success) { content.removeAllViews(); TextView title=text(message,28); title.setTypeface(null,1); content.addView(title); }
         else render();
     }
 }
