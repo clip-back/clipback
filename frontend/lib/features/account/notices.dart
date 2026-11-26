@@ -168,6 +168,8 @@ Notice _notice(Map item) {
 }
 
 NoticeStep _step(Map step) {
+  // The key is required; only its value may be null.
+  if (!step.containsKey('note')) _bad();
   final note = step['note'];
   return NoticeStep(
     title: _text(step, 'title'),
@@ -182,6 +184,7 @@ String _dateLabel(String value) {
   if (match == null) _bad();
   final [y, m, d] = [for (var i = 1; i <= 3; i++) int.parse(match[i]!)];
   final day = DateTime.utc(y, m, d);
-  if (day.year != y || day.month != m || day.day != d) _bad();
+  // Year 0000 is no calendar day for the server either.
+  if (y < 1 || day.year != y || day.month != m || day.day != d) _bad();
   return '${match[1]}. ${match[2]}. ${match[3]}';
 }

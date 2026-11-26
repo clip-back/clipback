@@ -462,7 +462,7 @@ class NoticeServer {
   String noticeMode = 'same';
   late final client = MockClient((r) async {
     final path = r.url.path;
-    if (path == '/api/v1/notices') {
+    if (r.method == 'GET' && path == '/api/v1/notices') {
       base.requests.add({
         'method': r.method,
         'path': path,

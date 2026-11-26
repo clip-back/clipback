@@ -367,7 +367,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       if (!_canOpenNotices(from, generation, epoch)) return;
       _noticesFromHome = from == AppRoute.home;
       _go(AppRoute.noticeList);
-      _d.noticeStore.refresh();
+      // The entry frame shows the last list; the request starts after it.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _d.noticeStore.refresh(),
+      );
     };
   }
 

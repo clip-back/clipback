@@ -827,7 +827,9 @@ class HomeBaseServer {
       return json(records[i]);
     }
     // The notice list asks on entry (#486): the in-app two.
-    if (path == '/api/v1/notices') return json(noticesJson(notices));
+    if (r.method == 'GET' && path == '/api/v1/notices') {
+      return json(noticesJson(notices));
+    }
     if (r.method != 'GET') writeCalls++;
     unexpected.add('${r.method} $path');
     return json({'detail': 'Unsupported home memory request'}, 501);

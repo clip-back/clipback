@@ -513,9 +513,10 @@ void main() {
           expect(find.byType(NoticeListScreen), findsOneWidget);
           // Only the list entry asks for notices (#486); entering My again
           // refreshes its stats.
-          expect(s.calls.skip(calls).map((c) => c['path']), [
-            '/api/v1/notices',
-          ]);
+          expect(
+            s.calls.skip(calls).map((c) => '${c['method']} ${c['path']}'),
+            ['GET /api/v1/notices'],
+          );
           await t.binding.handlePopRoute();
           await t.pumpAndSettle();
           expect(find.byType(MyScreen), findsOneWidget);
@@ -577,9 +578,10 @@ void main() {
             expect(t.element(find.byType(HomeScreen)), same(homeElement));
             expect(vertical.pixels, offset);
             // Only the list entry asks for notices (#486).
-            expect(s.calls.skip(calls).map((c) => c['path']), [
-              '/api/v1/notices',
-            ]);
+            expect(
+              s.calls.skip(calls).map((c) => '${c['method']} ${c['path']}'),
+              ['GET /api/v1/notices'],
+            );
           }, size: const Size(320, 480));
         } finally {
           semantics.dispose();

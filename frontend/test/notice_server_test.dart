@@ -22,8 +22,36 @@ import 'fixtures/notice_alignment_fixture.dart'
 import 'fixtures/weekly_server.dart';
 import 'weekly_root_test.dart' show withHome, home;
 
-Map<String, dynamic> _serverFile() =>
-    jsonDecode(File('../backend/app/notices.json').readAsStringSync())
+Map<String, dynamic> _read(String path) =>
+    jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+
+/// The operator's file, whatever it holds now.
+Map<String, dynamic> _serverFile() => _read('../backend/app/notices.json');
+
+/// `backend/app/notices.json` as first shipped (#486): never edited.
+Map<String, dynamic> _initialFile() =>
+    _read('test/fixtures/notices_initial.json');
+
+/// One stepped notice with a null note, then [revisionNotice] (no steps):
+/// independent of the operator's file.
+Map<String, dynamic> _valid() =>
+    jsonDecode(
+          jsonEncode(
+            noticesJson([
+              const Notice(
+                title: '첫 공지',
+                publishedLabel: '2026. 12. 02',
+                pinned: true,
+                introTitle: '머리 제목',
+                intro: '머리 글',
+                steps: [NoticeStep(title: '단계', body: '본문')],
+                closingTitle: '맺음 제목',
+                closing: '맺음 글',
+              ),
+              revisionNotice,
+            ]),
+          ),
+        )
         as Map<String, dynamic>;
 
 void _expectSame(List<Notice> actual, List<Notice> expected) {
@@ -47,7 +75,7 @@ void _expectSame(List<Notice> actual, List<Notice> expected) {
 }
 
 Map<String, dynamic> _changed(void Function(Map<String, dynamic>) change) {
-  final data = _serverFile();
+  final data = _valid();
   change(data);
   return data;
 }
@@ -76,14 +104,34 @@ final _invalid = <String, void Function(Map<String, dynamic>)>{
   'date missing': (d) => _first(d).remove('published_on'),
   'date text': (d) => _first(d)['published_on'] = '2026. 11. 23',
   'date impossible': (d) => _first(d)['published_on'] = '2026-02-30',
+  'date not leap': (d) => _first(d)['published_on'] = '2026-02-29',
+  'date year zero': (d) => _first(d)['published_on'] = '0000-01-01',
   'date time': (d) => _first(d)['published_on'] = '2026-11-23T00:00:00',
   'date number': (d) => _first(d)['published_on'] = 20261123,
   'steps null': (d) => _first(d)['steps'] = null,
   'steps object': (d) => _first(d)['steps'] = {},
   'step body empty': (d) => _firstStep(d)['body'] = '',
   'step title missing': (d) => _firstStep(d).remove('title'),
+  'step note missing': (d) => _firstStep(d).remove('note'),
   'step note number': (d) => _firstStep(d)['note'] = 1,
   'step note array': (d) => _firstStep(d)['note'] = ['a'],
+  'bad notice after a good one': (d) =>
+      ((d['notices'] as List)[1] as Map)['title'] = '',
+};
+
+Map<String, dynamic> _example(String title) =>
+    (noticesJson([revisionNotice])['notices'] as List).single
+          as Map<String, dynamic>
+      ..['title'] = title;
+
+// What an operator may publish by editing the file alone (#486 decision 1).
+final _operatorFiles = <String, void Function(Map<String, dynamic>)>{
+  'third notice added': (d) => (d['notices'] as List).add(_example('세 번째')),
+  'title edited': (d) => _first(d)['title'] = '바뀐 제목',
+  'order changed': (d) =>
+      d['notices'] = (d['notices'] as List).reversed.toList(),
+  'no-steps notice first': (d) =>
+      (d['notices'] as List).insert(0, _example('맨 앞')),
 };
 
 /// Answers `GET /api/v1/notices` with [answer] after [hold], recording it.
@@ -161,9 +209,41 @@ Future<void> _show(
 
 void main() {
   group('parsing', () {
-    test('the server file is the in-app two: text, order and date', () {
-      _expectSame(noticesFromJson(_serverFile()), notices);
+    test('the initial server file is the in-app two: text, order, date', () {
+      _expectSame(noticesFromJson(_initialFile()), notices);
       expect(notices.first.publishedLabel, '2026. 11. 23');
+    });
+
+    test('the current server file reads in the app', () {
+      expect(noticesFromJson(_serverFile()), isNotEmpty);
+    });
+
+    for (final MapEntry(key: name, value: change) in _operatorFiles.entries) {
+      test('an operator file with $name reads as written', () {
+        final data = _serverFile();
+        change(data);
+        expect(
+          noticesFromJson(data).map((n) => n.title),
+          (data['notices'] as List).map((n) => (n as Map)['title']),
+        );
+      });
+    }
+
+    for (final day in ['0001-01-01', '2024-02-29', '9999-12-31']) {
+      test('$day is a calendar day', () {
+        final data = _valid();
+        _first(data)['published_on'] = day;
+        expect(
+          noticesFromJson(data).first.publishedLabel,
+          day.replaceAll('-', '. '),
+        );
+      });
+    }
+
+    test('unknown keys are ignored (only the server file forbids them)', () {
+      final data = _valid();
+      _first(data)['extra'] = 'later field';
+      expect(noticesFromJson(data), hasLength(2));
     });
 
     test('no steps and a null note are allowed', () {
@@ -206,6 +286,31 @@ void main() {
         expect(log, hasLength(1));
       }, intercept: _notices(log, _added, holds: [hold]));
     });
+
+    for (final bell in [false, true]) {
+      testWidgets(
+        '${bell ? 'bell' : 'My'} entry frame shows the last list before an '
+        'immediate answer',
+        (t) async {
+          final log = <String>[];
+          await withHome(t, (s) async {
+            if (bell) {
+              await t.tap(find.bySemanticsLabel('알림'));
+            } else {
+              home(t).onTab(AppRoute.my);
+              await t.pumpAndSettle();
+              await t.tap(find.text('공지사항'));
+            }
+            expect(log, isEmpty);
+            await t.pump();
+            expect(_rows(t), _inApp);
+            await t.pumpAndSettle();
+            expect(_rows(t), _withRevision);
+            expect(log, ['GET /api/v1/notices']);
+          }, intercept: _notices(log, _added));
+        },
+      );
+    }
 
     testWidgets('the bell entry asks too; back returns home', (t) async {
       final log = <String>[];
@@ -257,21 +362,71 @@ void main() {
     ) async {
       final log = <String>[];
       final hold = Completer<void>();
-      await withHome(t, (s) async {
-        await _openFromMy(t);
-        await t.pumpAndSettle();
-        await t.tap(find.text('허투루 사용이 처음이라면?'));
-        await t.pumpAndSettle();
-        hold.complete();
-        await t.pumpAndSettle();
-        // The opened notice stays as tapped.
-        expect(find.byType(NoticeDetailScreen), findsOneWidget);
-        expect(find.text(firstTimeNotice.introTitle), findsOneWidget);
-        await _back(t);
-        expect(_rows(t), _withRevision);
-        expect(log, ['GET /api/v1/notices']);
-      }, intercept: _notices(log, _added, holds: [hold]));
+      const changed = '서버에서 바뀐 머리 제목';
+      await withHome(
+        t,
+        (s) async {
+          await _openFromMy(t);
+          await t.pumpAndSettle();
+          await t.tap(find.text('허투루 사용이 처음이라면?'));
+          await t.pumpAndSettle();
+          hold.complete();
+          await t.pumpAndSettle();
+          // The opened notice stays as tapped, not the answer's new text.
+          expect(find.byType(NoticeDetailScreen), findsOneWidget);
+          expect(find.text(firstTimeNotice.introTitle), findsOneWidget);
+          expect(find.text(changed), findsNothing);
+          await _back(t);
+          expect(_rows(t), _withRevision);
+          final listed = t
+              .widget<NoticeListScreen>(find.byType(NoticeListScreen))
+              .notices;
+          expect(listed[1].introTitle, changed);
+          await t.tap(find.text('허투루 사용이 처음이라면?'));
+          await t.pumpAndSettle();
+          expect(find.text(changed), findsOneWidget);
+          expect(log, ['GET /api/v1/notices']);
+        },
+        intercept: _notices(log, (s) {
+          final data = noticesJson([...notices, revisionNotice]);
+          ((data['notices'] as List)[1] as Map)['intro_title'] = changed;
+          return s.json(data);
+        }, holds: [hold]),
+      );
     });
+
+    for (final MapEntry(key: name, value: failure)
+        in <String, http.Response Function(WeeklyServer)>{
+          '503': (s) => s.json({
+            'detail': {'code': 'service_maintenance'},
+          }, 503),
+          'a malformed answer': (s) => s.json({'notices': []}),
+        }.entries) {
+      testWidgets('$name after a success keeps the last server list', (
+        t,
+      ) async {
+        final log = <String>[];
+        await withHome(
+          t,
+          (s) async {
+            await _openFromMy(t);
+            await t.pumpAndSettle();
+            expect(_rows(t), _withRevision);
+            await _back(t);
+            await t.tap(find.text('공지사항'));
+            await t.pumpAndSettle();
+            expect(log, hasLength(2));
+            // Not the in-app two: the last valid answer stays.
+            expect(_rows(t), _withRevision);
+          },
+          // The first request succeeds, the next one fails.
+          intercept: _notices(
+            log,
+            (s) => log.length == 1 ? _added(s) : failure(s),
+          ),
+        );
+      });
+    }
 
     testWidgets('an answer after closing the list shows on the next entry', (
       t,

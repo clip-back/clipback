@@ -380,7 +380,9 @@ class ArchiveAllServer {
       return json(records[i]);
     }
     // The notice list asks on entry (#486): the in-app two.
-    if (path == '/api/v1/notices') return json(noticesJson(notices));
+    if (request.method == 'GET' && path == '/api/v1/notices') {
+      return json(noticesJson(notices));
+    }
     unexpected.add('${request.method} $path');
     return json({'detail': 'Unsupported in-process fixture request'}, 501);
   });

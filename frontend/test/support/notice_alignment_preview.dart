@@ -198,6 +198,30 @@ Future<void> _fresh(String kind, {bool open = true}) async {
   _requireShareUnblocked();
 }
 
+/// The open notice detail as rendered: its title, text scale and scroll.
+Map<String, Object?>? _detail() {
+  final e = f.noticeFind<NoticeDetailScreen>(_root);
+  if (e == null) return null;
+  final scroll = f.noticeKey(e, 'notice-detail-scroll');
+  final p = scroll == null
+      ? null
+      : (f.noticeFind<Scrollable>(scroll) as StatefulElement?)?.state
+            as ScrollableState?;
+  final notice = (e.widget as NoticeDetailScreen).notice;
+  return {
+    'title': notice.title,
+    'titleRendered': f.noticeText(e, notice.title) != null,
+    'steps': notice.steps.length,
+    'stepLabels': [
+      for (var i = 0; i < notice.steps.length; i++)
+        f.noticeText(e, 'STEP 0${i + 1}') != null,
+    ],
+    'textScale': MediaQuery.textScalerOf(e).scale(1),
+    'scrollOffset': p?.position.pixels,
+    'maxScrollExtent': p?.position.maxScrollExtent,
+  };
+}
+
 Map<String, Object?> _snapshot() {
   if (_capture.currentContext == null) {
     return {
@@ -214,7 +238,11 @@ Map<String, Object?> _snapshot() {
     'ready': true,
     'phase': noticePhase,
     'kind': _kind,
-    'noticeMode': _noticeMode,
+    // The mode the live memory server answers with.
+    'noticeMode': _server.noticeMode,
+    // Style/layout judgments below cover the notice list only (#486 review).
+    'judgedScreen': m['active'] == true ? 'noticeList' : null,
+    'detail': _detail(),
     'platform': Platform.operatingSystem,
     'route': _route(),
     'busy': _busy,
@@ -345,7 +373,9 @@ Future<void> _maxScroll() async {
   final p = f.noticePosition(_root)!;
   p.jumpTo(p.maxScrollExtent);
   await _settle(5);
-  final last = f.noticeText(_notice, notices.last.title)!;
+  // The last row actually listed (three in the added mode), not the constants.
+  final titles = f.noticeMeasure(_root)['titles'] as List;
+  final last = f.noticeText(_notice, titles.last as String)!;
   final viewport = f.noticeMeasure(_root)['bounds'] as Map;
   _require(
     f.noticeBox(last).bottom <= (viewport['viewport']['bottom'] as num) + .18,
@@ -355,6 +385,7 @@ Future<void> _maxScroll() async {
     'maximum': p.maxScrollExtent,
     'noScroll': p.maxScrollExtent == 0,
     'lastNoticeVisible': true,
+    'lastTitle': titles.last,
   });
 }
 
@@ -535,11 +566,13 @@ Future<void> main() => http.runWithClient(() async {
             ['member', 'guest'].contains(kind),
             'kind member|guest required',
           );
-          _noticeMode = request.uri.queryParameters['notices'] ?? 'same';
+          final mode = request.uri.queryParameters['notices'] ?? 'same';
+          // Checked before it replaces the working scene's mode.
           _require(
-            ['same', 'added', 'fail'].contains(_noticeMode),
+            ['same', 'added', 'fail'].contains(mode),
             'notices same|added|fail required',
           );
+          _noticeMode = mode;
           await _fresh(kind);
           await _captureScene();
         case '/max-scroll':

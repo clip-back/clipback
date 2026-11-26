@@ -300,9 +300,12 @@ void main() {
                 expect(_home, findsOneWidget);
                 _preserved(tester, before);
                 // Opening the list asks for notices once (#486).
-                expect(server.requests.skip(requests).map((r) => r['path']), [
-                  '/api/v1/notices',
-                ]);
+                expect(
+                  server.requests
+                      .skip(requests)
+                      .map((r) => '${r['method']} ${r['path']}'),
+                  ['GET /api/v1/notices'],
+                );
                 // Leaving notifications for Home keeps the Weekly visit.
                 expect(
                   server.requests
@@ -471,9 +474,12 @@ void main() {
           await tester.pumpAndSettle();
           _preserved(tester, before);
           // Opening the list asks for notices once (#486).
-          expect(server.requests.skip(requests).map((r) => r['path']), [
-            '/api/v1/notices',
-          ]);
+          expect(
+            server.requests
+                .skip(requests)
+                .map((r) => '${r['method']} ${r['path']}'),
+            ['GET /api/v1/notices'],
+          );
           expect(
             server.requests
                 .where((r) => r['path'] == '/api/v1/recommendations/weekly')
