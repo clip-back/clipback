@@ -47,6 +47,7 @@ import 'app_dependencies.dart';
 import 'app_view_model.dart';
 import 'exit_confirmation_dialog.dart';
 import '../features/share/pending_share_prompt.dart';
+import '../data/repositories/share_repository.dart';
 import '../data/services/search_history_storage.dart';
 import '../data/services/native_share_service.dart';
 
@@ -77,6 +78,8 @@ enum _LaunchPhase { showing, mounting, ready }
 class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final AppDependencies _d;
   _LaunchPhase _launchPhase = _LaunchPhase.showing;
+  bool _onAiConsent = false;
+  int? _ownedDraftsPrompt;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
@@ -1189,6 +1192,30 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  /// Held while the AI 전송 동의 screen is shown (#474 J11). The first
+  /// prompt after it shows only drafts of the current account; later reads
+  /// follow the usual rule, which also keeps drafts without an account.
+  List<PendingShareDraft> _promptDrafts() {
+    final onConsent = _d.app.route == AppRoute.aiConsent;
+    if (_onAiConsent && !onConsent) {
+      final version = _d.sharing.promptVersion;
+      // Drafts not read yet for this account come with the next version.
+      _ownedDraftsPrompt = _d.sharing.ready && !_d.sharing.busy
+          ? version
+          : version + 1;
+    }
+    _onAiConsent = onConsent;
+    if (onConsent) return const [];
+    if (_ownedDraftsPrompt != _d.sharing.promptVersion) {
+      return _d.sharing.drafts;
+    }
+    final user = _d.app.authenticatedUser?.id;
+    return [
+      for (final draft in _d.sharing.drafts)
+        if (draft.userId != null && draft.userId == user) draft,
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
@@ -1217,10 +1244,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             : PendingSharePrompt(
                 navigatorKey: _navigatorKey,
                 promptVersion: _d.sharing.promptVersion,
-                // Held while the AI 전송 동의 screen is shown (#474 J11).
-                drafts: _d.app.route == AppRoute.aiConsent
-                    ? const []
-                    : _d.sharing.drafts,
+                drafts: _promptDrafts(),
                 error: _d.app.route == AppRoute.aiConsent
                     ? null
                     : _d.sharing.error,

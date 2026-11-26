@@ -123,8 +123,9 @@ class AppViewModel extends ChangeNotifier {
   bool _aiConsentSaving = false;
 
   /// The first screen was chosen before the account's own read answered
-  /// (the home loading path does not wait for it): its answer decides then.
-  bool _aiConsentPending = false;
+  /// (the home loading path does not wait for it): its answer decides then,
+  /// keeping this first destination.
+  AppRoute? _aiConsentPending;
 
   AppRoute get route => _route;
   AppRoute get previousRoute => _previousRoute;
@@ -297,7 +298,7 @@ class AppViewModel extends ChangeNotifier {
     _authenticatedUser = null;
     _aiConsentDestination = null;
     _aiConsentSaving = false;
-    _aiConsentPending = false;
+    _aiConsentPending = null;
   }
 
   /// The first screen after loading an account: the AI 전송 동의 screen
@@ -305,7 +306,7 @@ class AppViewModel extends ChangeNotifier {
   /// run, then [destination] (#474).
   AppRoute _firstRoute(AppRoute destination) {
     final user = _authenticatedUser;
-    _aiConsentPending = user == null;
+    _aiConsentPending = user == null ? destination : null;
     if (user == null ||
         user.aiConsentStatus != AiConsentStatus.undecided ||
         _aiConsentClosedUsers.contains(user.id)) {
@@ -509,7 +510,11 @@ class AppViewModel extends ChangeNotifier {
                   return;
                 }
                 _authenticatedUser = _users.user;
-                if (_aiConsentPending) _route = _firstRoute(_route);
+                final pending = _aiConsentPending;
+                if (pending != null) {
+                  final route = _firstRoute(pending);
+                  if (route == AppRoute.aiConsent) _route = route;
+                }
                 _notify();
                 if (!_authBusy) {
                   appleCheck = scope?.isActive == true

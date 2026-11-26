@@ -55,7 +55,13 @@ class _Social extends SocialAuth {
   Future<SocialCredential?> authenticate(
     SocialLoginProvider provider, {
     String? nonce,
-  }) async => const SocialCredential(token: 'provider-token');
+  }) async => provider == SocialLoginProvider.apple
+      ? const SocialCredential(
+          token: 'id-token',
+          authorizationCode: 'code',
+          providerUserId: 'apple-user',
+        )
+      : const SocialCredential(token: 'provider-token');
   @override
   Future<void> signOut([SocialLoginProvider? provider]) async {}
   @override
@@ -112,6 +118,13 @@ class _Server {
   late final client = MockClient((request) async {
     final path = request.url.path;
     calls.add('${request.method} $path');
+    if (path == '/api/v1/auth/social/apple/challenge') {
+      return _json({
+        'challenge_id': 'challenge-1',
+        'nonce': 'nonce-1',
+        'expires_at': '2030-10-12T00:00:00Z',
+      });
+    }
     if (path.startsWith('/api/v1/auth/social/')) {
       if (path.endsWith('/upgrade')) {
         final override = await upgradeRespond?.call(request);
@@ -277,6 +290,17 @@ Future<void> _openConnect(WidgetTester tester) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // The app's fonts, so text heights (U1) are measured as on a device.
+  setUpAll(() async {
+    final fonts = FontLoader('Pretendard');
+    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
+      fonts.addFont(rootBundle.load('assets/fonts/Pretendard-$weight.otf'));
+    }
+    await fonts.load();
+    final bold = FontLoader('PretendardDetail')
+      ..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'));
+    await bold.load();
+  });
 
   group('display decision', () {
     for (final (name, value) in <(String, Object?)>[
@@ -348,6 +372,36 @@ void main() {
         expect(_consent, findsNothing);
       }, settle: false);
     });
+
+    for (final choice in ['close', 'agree', 'deny']) {
+      testWidgets('a late answer after moving to My returns home ($choice)', (
+        tester,
+      ) async {
+        final gate = Completer<void>();
+        final server = _Server()
+          ..meRespond = (_) async {
+            await gate.future;
+            return null;
+          };
+        await _app(tester, server, () async {
+          await tester.pump(const Duration(seconds: 2));
+          tester.widget<HomeScreen>(_home).onTab(AppRoute.my);
+          await tester.pumpAndSettle();
+          expect(find.byType(MyScreen), findsOneWidget);
+          gate.complete();
+          await tester.pumpAndSettle();
+          expect(_consent, findsOneWidget);
+          await tester.tap(switch (choice) {
+            'close' => _close,
+            'agree' => _agree,
+            _ => _deny,
+          });
+          await tester.pumpAndSettle();
+          expect(_home, findsOneWidget, reason: 'the first destination');
+          expect(find.byType(MyScreen), findsNothing);
+        }, settle: false);
+      });
+    }
   });
 
   group('choices', () {
@@ -450,28 +504,47 @@ void main() {
       }, stored: false);
     });
 
-    for (final isNew in [true, false]) {
-      testWidgets('social login new=$isNew shows the screen first', (
-        tester,
-      ) async {
-        final server = _Server()
-          ..newUser = isNew
-          ..consent[2] = 'undecided';
-        await _app(tester, server, () async {
-          await _socialLogin(tester);
-          await tester.pumpAndSettle();
-          expect(_consent, findsOneWidget);
-          expect(find.byType(OnboardingScreen), findsNothing);
-          expect(_home, findsNothing);
-          await tester.tap(_deny);
-          await tester.pumpAndSettle();
-          expect(
-            find.byType(isNew ? OnboardingScreen : HomeScreen),
-            findsOneWidget,
-          );
-          expect(server.puts.single, (2, 'denied', 1));
-        }, stored: false);
-      });
+    for (final provider in [
+      SocialLoginProvider.google,
+      SocialLoginProvider.kakao,
+      SocialLoginProvider.apple,
+    ]) {
+      for (final isNew in [true, false]) {
+        testWidgets(
+          '${provider.name} login new=$isNew shows the screen first',
+          (tester) async {
+            final server = _Server()
+              ..newUser = isNew
+              ..consent[2] = 'undecided';
+            await _app(tester, server, () async {
+              await performLoginChoice(
+                tester,
+                () => tester
+                    .widget<LoginScreen>(find.byType(LoginScreen))
+                    .onSocialLogin(provider),
+              );
+              await tester.pumpAndSettle();
+              expect(
+                server.calls.where(
+                  (c) => c == 'POST /api/v1/auth/social/${provider.name}',
+                ),
+                hasLength(1),
+              );
+              expect(_consent, findsOneWidget);
+              expect(find.byType(OnboardingScreen), findsNothing);
+              expect(_home, findsNothing);
+              await tester.tap(_deny);
+              await tester.pumpAndSettle();
+              expect(
+                find.byType(isNew ? OnboardingScreen : HomeScreen),
+                findsOneWidget,
+              );
+              expect(server.puts.single, (2, 'denied', 1));
+              expect(_consent, findsNothing);
+            }, stored: false);
+          },
+        );
+      }
     }
 
     for (final status in ['granted', 'closed']) {
@@ -673,6 +746,63 @@ void main() {
       });
     });
 
+    testWidgets('a 401 check read fails once, without refresh or retry', (
+      tester,
+    ) async {
+      final server = _Server()
+        ..putRespond = (_) async => http.Response('', 200);
+      await _app(tester, server, () async {
+        final reads = server.meReads.length;
+        server.meRespond = (_) async => _json({'detail': 'expired'}, 401);
+        server.calls.clear();
+        await tester.tap(_agree);
+        await tester.pumpAndSettle();
+        expect(server.meReads.length, reads + 1);
+        expect(server.calls, isNot(contains('POST /api/v1/auth/refresh')));
+        expect(server.puts, hasLength(1));
+        await expectFailure(tester, server);
+      });
+    });
+
+    testWidgets('a lost check read fails once', (tester) async {
+      final server = _Server()
+        ..putRespond = (_) async => http.Response('', 200);
+      await _app(tester, server, () async {
+        final reads = server.meReads.length;
+        server.meRespond = (_) async => throw http.ClientException('lost');
+        await tester.tap(_agree);
+        await tester.pumpAndSettle();
+        expect(server.meReads.length, reads + 1);
+        await expectFailure(tester, server);
+      });
+    });
+
+    testWidgets('detail does not open while saving; success leaves cleanly', (
+      tester,
+    ) async {
+      final put = Completer<http.Response>();
+      final server = _Server()..putRespond = (_) => put.future;
+      await _app(tester, server, () async {
+        await tester.tap(_agree);
+        await tester.pump();
+        final link = find.byKey(const ValueKey('ai-consent-detail-link'));
+        await tester.ensureVisible(link);
+        await tester.tap(link);
+        await tester.pumpAndSettle();
+        expect(find.byType(AiConsentDetailScreen), findsNothing);
+        put.complete(
+          _json({
+            'status': 'granted',
+            'notice_version': 1,
+            'decided_at': '2026-11-26T03:00:00Z',
+          }),
+        );
+        await tester.pumpAndSettle();
+        expect(_home, findsOneWidget);
+        expect(find.byType(AiConsentDetailScreen), findsNothing);
+      });
+    });
+
     testWidgets('buttons, ✕ and back are locked while saving', (tester) async {
       final put = Completer<http.Response>();
       final server = _Server()..putRespond = (_) => put.future;
@@ -712,10 +842,13 @@ void main() {
         await tester.pump(const Duration(seconds: 10));
         await tester.pump();
         expect(server.meReads.length, reads + 1, reason: 'check after 10 s');
-        expect(_screen(tester).saving, isTrue);
-        await tester.pump(const Duration(seconds: 5));
+        // Locked until the 15-second deadline from the tap, not earlier.
+        await tester.pump(const Duration(milliseconds: 4999));
+        expect(_screen(tester).saving, isTrue, reason: 'at 14.999 s');
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump();
+        expect(_screen(tester).saving, isFalse, reason: 'at 15 s');
         await tester.pumpAndSettle();
-        expect(_screen(tester).saving, isFalse);
         expect(find.text(_saveFailed), findsOneWidget);
         put.complete(
           _json({
@@ -921,6 +1054,7 @@ void main() {
                   'drafts': [
                     {'id': 'mine', 'label': '내 공유', 'userId': 1},
                     {'id': 'other', 'label': '다른 계정 공유', 'userId': 9},
+                    {'id': 'unbound', 'label': '계정 없는 공유'},
                   ],
                   'receipts': <Object>[],
                 };
@@ -953,6 +1087,8 @@ void main() {
         final shown = tester.widget<PendingSharePrompt>(
           find.byType(PendingSharePrompt),
         );
+        // Right after consent only this account's own draft, not the one
+        // without an account (the usual recovery list keeps that one).
         expect(shown.drafts.map((d) => d.id), ['mine']);
         expect(find.text('저장 대기 중인 공유 1개'), findsOneWidget);
       }, nativeShare: NativeShareService(enabled: true));

@@ -328,6 +328,28 @@ void main() {
     expect(find.text(aiConsentPolicyFailureMessage), findsOneWidget);
   });
 
+  testWidgets('a late policy failure is not shown over the detail screen', (
+    tester,
+  ) async {
+    final open = Completer<bool?>();
+    await _pump(tester, openPolicy: () => open.future);
+    await tester.ensureVisible(_policyLink);
+    await tester.tap(_policyLink);
+    await tester.pump();
+    await _openDetail(tester);
+    open.complete(false);
+    await tester.pumpAndSettle();
+    expect(find.text(aiConsentPolicyFailureMessage), findsNothing);
+  });
+
+  testWidgets('detail does not open while saving', (tester) async {
+    await _pump(tester, saving: true);
+    await tester.ensureVisible(_detailLink);
+    await tester.tap(_detailLink);
+    await tester.pumpAndSettle();
+    expect(find.byType(AiConsentDetailScreen), findsNothing);
+  });
+
   testWidgets('a late policy failure after the account changed is dropped', (
     tester,
   ) async {

@@ -122,6 +122,35 @@ void main() {
     expect(users.user!.aiConsentStatus, AiConsentStatus.denied);
   });
 
+  test('a read started and ended during the save keeps the choice', () async {
+    final first = users.loadMe();
+    await turns();
+    reads.single.complete(_json(_me('undecided')));
+    await first;
+    final save = users.saveAiConsent(AiConsentStatus.granted);
+    await turns();
+    final during = users.loadMe();
+    await turns();
+    reads.last.complete(_json({..._me('denied'), 'display_name': '새 이름'}));
+    final returned = await during;
+    expect(users.user!.displayName, '새 이름', reason: 'other fields apply');
+    expect(users.user!.aiConsentStatus, AiConsentStatus.undecided);
+    expect(
+      returned.aiConsentStatus,
+      AiConsentStatus.undecided,
+      reason: 'the returned user matches the stored one',
+    );
+    put.complete(
+      _json({
+        'status': 'granted',
+        'notice_version': 1,
+        'decided_at': '2026-11-26T03:00:00Z',
+      }),
+    );
+    expect(await save, isTrue);
+    expect(users.user!.aiConsentStatus, AiConsentStatus.granted);
+  });
+
   test('a read started after the save is taken as is', () async {
     final save = users.saveAiConsent(AiConsentStatus.granted);
     put.complete(

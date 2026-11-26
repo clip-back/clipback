@@ -72,11 +72,13 @@ class RemoteUserRepository extends UserRepository {
   bool _current(int accountVersion) =>
       !_disposed && accountVersion == _accountVersion;
 
-  /// A profile read that a consent save started or ended during keeps the
-  /// saved choice: its own answer may predate the save (#474).
+  /// A profile read that overlapped a consent save (started before it ended,
+  /// or while it runs) keeps the current choice: its answer may predate the
+  /// save (#474). Its other fields apply.
   ApiUser _withSavedConsent(ApiUser user, int consentVersion) {
     final saved = _user;
-    return consentVersion == _consentVersion || saved == null
+    return (consentVersion == _consentVersion && _consentScope == null) ||
+            saved == null
         ? user
         : user.withAiConsent(saved.aiConsentStatus);
   }
@@ -112,9 +114,12 @@ class RemoteUserRepository extends UserRepository {
     }
     final consent = _consentVersion;
     try {
-      final user = await scope.run(() => _api.readMe());
+      final user = _withSavedConsent(
+        await scope.run(() => _api.readMe()),
+        consent,
+      );
       if (current()) {
-        _user = _withSavedConsent(user, consent);
+        _user = user;
         notifyListeners();
       }
       return user;
@@ -300,7 +305,8 @@ class RemoteUserRepository extends UserRepository {
         () => scope.wait(_api.saveAiConsent(status)),
       );
       if (result == AiConsentSaveResult.unconfirmed) {
-        final user = await scope.run(() => scope.wait(_api.readMe()));
+        // One check read: a 401 or lost answer is a failure, not a retry.
+        final user = await scope.run(() => scope.wait(_api.readMeOnce()));
         if (user.aiConsentStatus == status) result = AiConsentSaveResult.saved;
       }
       if (result != AiConsentSaveResult.saved || !scope.isActive) return false;

@@ -103,7 +103,10 @@ class AiConsentScreen extends StatefulWidget {
 class _AiConsentScreenState extends State<AiConsentScreen> {
   Future<void> _openPolicy() async {
     // A late failure is shown only while this screen (this account's) stays.
-    if (await widget.openPolicy() == false && mounted) {
+    // Only over this screen itself, not over '자세히 보기' opened meanwhile.
+    if (await widget.openPolicy() == false &&
+        mounted &&
+        (ModalRoute.of(context)?.isCurrent ?? true)) {
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
         ..showSnackBar(noticeSnackBar(context, aiConsentPolicyFailureMessage));
@@ -111,6 +114,8 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
   }
 
   void _openDetail() {
+    // While saving the screen may leave at any moment; it opens nothing.
+    if (widget.saving) return;
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const AiConsentDetailScreen()),
