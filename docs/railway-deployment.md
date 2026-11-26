@@ -32,7 +32,7 @@
 | `KAKAO_REST_API_KEY` | 실제 Kakao REST API 키 |
 | `KAKAO_ADMIN_KEY` | 실제 Kakao 어드민 키. 회원 탈퇴 때 카카오 연결 끊기에 쓴다 |
 | `BACKEND_CORS_ORIGINS` | 모바일 전용이면 `[]`; 웹은 `["https://your-web.example"]`처럼 명시 |
-| `AI_CONSENT_REQUIRED` | 기본 `false`. `true`면 AI 전송 동의를 정하지 않은 계정도 AI 처리를 끈다([AI 전송 동의](backend/api-contracts.md#ai-전송-동의)). 0.7.1을 iOS·Android 양쪽에서 받을 수 있게 된 날(M4) `true`로 재배포하고 [스위치 값 확인](release-process.md#ai-전송-동의-스위치-확인)대로 API·worker 값과 배포를 확인한다(#474) |
+| `AI_CONSENT_REQUIRED` | 기본 `false`. `true`면 AI 전송 동의를 정하지 않은 계정도 AI 처리를 끈다([AI 전송 동의](backend/api-contracts.md#ai-전송-동의)). 0.8.0을 iOS·Android 양쪽에서 받을 수 있게 된 날(M4) `true`로 재배포하고 [스위치 값 확인](release-process.md#ai-전송-동의-스위치-확인)대로 API·worker 값과 배포를 확인한다(#474) |
 
 나머지 AI/OCR timeout·모델 설정은 `backend/.env.example`의 기본값을 사용한다. Google·Kakao 설정은 현재 production 검증에서 필수다.
 `KAKAO_ADMIN_KEY`가 없거나 비면 운영 서버가 시작하지 않는다. 회원 탈퇴가 들어간 서버를 처음 배포하기 전에 사람이 Railway API 서비스 Variables에 등록한다. `SECRET_KEY`와 공급자 비밀값을 Docker build argument, 코드, PR 또는 로그에 넣지 않는다. 실제 `.env`는 이미지에 포함하지 않는다.
