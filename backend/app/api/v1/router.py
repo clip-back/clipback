@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     feed,
     health,
     metrics,
+    notices,
     recommendations,
     uploads,
     users,
@@ -21,6 +22,7 @@ api_router.include_router(categories.router, prefix="/categories", tags=["catego
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 api_router.include_router(feed.router, prefix="/feed", tags=["feed"])
 api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
+api_router.include_router(notices.router, prefix="/notices", tags=["notices"])
 api_router.include_router(
     recommendations.router, prefix="/recommendations", tags=["recommendations"]
 )

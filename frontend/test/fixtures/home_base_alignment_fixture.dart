@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/features/home/home_screen.dart';
 import 'package:clipback_frontend/shared/content/bookmark_button.dart';
 import 'package:clipback_frontend/shared/category/category_widgets.dart';
@@ -20,6 +21,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import '../fixtures/logout_alignment_fixture.dart' as common;
 import '../support/archive_all_preview.dart' as archive;
+import 'notice_alignment_fixture.dart' show noticesJson;
 
 const homeBaseLogo = 'assets/figma/home-logo.svg';
 const homeBaseOutline = 'assets/figma/home-bookmark-outline.svg';
@@ -823,6 +825,10 @@ class HomeBaseServer {
         records[i] = {...records[i], 'is_favorite': body['is_favorite']};
       }
       return json(records[i]);
+    }
+    // The notice list asks on entry (#486): the in-app two.
+    if (r.method == 'GET' && path == '/api/v1/notices') {
+      return json(noticesJson(notices));
     }
     if (r.method != 'GET') writeCalls++;
     unexpected.add('${r.method} $path');
