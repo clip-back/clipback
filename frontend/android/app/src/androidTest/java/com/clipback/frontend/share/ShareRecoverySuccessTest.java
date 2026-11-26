@@ -6,6 +6,7 @@ import android.test.InstrumentationTestCase;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.json.JSONObject;
 import java.io.*;
@@ -69,10 +70,44 @@ public final class ShareRecoverySuccessTest extends InstrumentationTestCase {
             }
             assertEquals(all.toString(),1,saved.size());
             for(String value:all)assertFalse(value,value.contains("요약")); // both old success lines mentioned 요약
-            // The detail line and its top padding are gone: the title is the content's only child.
-            assertEquals(1,((ViewGroup)saved.get(0).getParent()).getChildCount());
+            LinearLayout content=content(activity);float density=activity.getResources().getDisplayMetrics().density;
+            String[] problem=new String[1];
+            getInstrumentation().runOnMainSync(() -> problem[0]=successProblem(content,density));
+            assertNull(problem[0],problem[0]);
             assertEquals(before+1,http("/__test/state",null).getInt("saved"));
             assertNull(store.draft(id));
+            // The check must reject each way the removed line or spacing could come back unnoticed.
+            String[] mutated=new String[6];
+            getInstrumentation().runOnMainSync(() -> {
+                TextView title=(TextView)content.getChildAt(0);View parent=(View)content.getParent();
+                ViewGroup.MarginLayoutParams margins=(ViewGroup.MarginLayoutParams)title.getLayoutParams();
+                title.setVisibility(View.INVISIBLE);mutated[0]=successProblem(content,density);title.setVisibility(View.VISIBLE);
+                parent.setVisibility(View.INVISIBLE);mutated[1]=successProblem(content,density);parent.setVisibility(View.VISIBLE);
+                TextView extra=new TextView(activity);content.addView(extra);mutated[2]=successProblem(content,density);content.removeView(extra);
+                title.setPadding(0,Math.round(24*density),0,0);mutated[3]=successProblem(content,density);title.setPadding(0,0,0,0);
+                margins.topMargin=Math.round(24*density);mutated[4]=successProblem(content,density);margins.topMargin=0;
+                mutated[5]=successProblem(content,density);
+            });
+            String[] cases={"hidden title","hidden parent","extra body","moved padding","moved margin"};
+            for(int i=0;i<cases.length;i++)assertNotNull(cases[i],mutated[i]);
+            assertNull("restored",mutated[5]);
         } finally { getInstrumentation().runOnMainSync(activity::finish); }
+    }
+    private static LinearLayout content(Activity activity) throws Exception {
+        java.lang.reflect.Field field=ShareRecoveryActivity.class.getDeclaredField("content");field.setAccessible(true);
+        return (LinearLayout)field.get(activity);
+    }
+    /** Null when the recovery body shows only the visible "저장했어요." title without its own spacing (call on the main thread). */
+    private static String successProblem(LinearLayout content,float density) {
+        int d24=Math.round(24*density),d20=Math.round(20*density);
+        if(content.getPaddingLeft()!=d24||content.getPaddingTop()!=d20||content.getPaddingRight()!=d24||content.getPaddingBottom()!=d24)return "body padding changed";
+        if(content.getChildCount()!=1)return "body children="+content.getChildCount();
+        View child=content.getChildAt(0);
+        if(!(child instanceof TextView)||!"저장했어요.".contentEquals(((TextView)child).getText()))return "body child is not the title";
+        if(!child.isShown())return "title not shown";
+        if(child.getPaddingLeft()!=0||child.getPaddingTop()!=0||child.getPaddingRight()!=0||child.getPaddingBottom()!=0)return "title padding";
+        ViewGroup.MarginLayoutParams margins=(ViewGroup.MarginLayoutParams)child.getLayoutParams();
+        if(margins.leftMargin!=0||margins.topMargin!=0||margins.rightMargin!=0||margins.bottomMargin!=0)return "title margin";
+        return null;
     }
 }
