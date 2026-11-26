@@ -16,4 +16,5 @@ enum AppRoute {
   noticeList,
   noticeDetail,
   categoryManagement,
+  aiConsent,
 }

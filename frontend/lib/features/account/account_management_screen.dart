@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/theme/app_colors.dart';
 import 'package:clipback_frontend/shared/theme/assets.dart';
@@ -50,6 +51,22 @@ abstract final class _AccountText {
     letterSpacing: -0.35,
     color: AppColors.subtle,
   );
+  static const consent = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    height: 1.5,
+    color: AppColors.text,
+  );
+  static const consentStatus = TextStyle(
+    inherit: false,
+    fontFamily: 'Pretendard',
+    fontSize: 15,
+    fontWeight: FontWeight.w400,
+    height: 1.5,
+    color: AppColors.middle,
+  );
 }
 
 class AccountManagementScreen extends StatelessWidget {
@@ -61,6 +78,8 @@ class AccountManagementScreen extends StatelessWidget {
     required this.onWithdraw,
     required this.isGuest,
     this.busy = false,
+    this.aiConsentStatus = AiConsentStatus.unknown,
+    this.onOpenAiConsent,
     super.key,
   });
 
@@ -72,8 +91,18 @@ class AccountManagementScreen extends StatelessWidget {
   final bool? isGuest;
   final bool busy;
 
+  /// The AI 전송 동의 row (#479); no row while the status is unknown.
+  final AiConsentStatus aiConsentStatus;
+  final VoidCallback? onOpenAiConsent;
+
   @override
   Widget build(BuildContext context) {
+    final consent = switch (aiConsentStatus) {
+      AiConsentStatus.granted => '동의함',
+      AiConsentStatus.denied => '동의 안 함',
+      AiConsentStatus.undecided => '선택 전',
+      AiConsentStatus.unknown => null,
+    };
     return PhoneFrame(
       child: Scaffold(
         body: SafeArea(
@@ -133,6 +162,12 @@ class AccountManagementScreen extends StatelessWidget {
                       ),
                       _AccountGroup(
                         id: 'account-actions-group',
+                        leading: consent == null
+                            ? null
+                            : _AiConsentRow(
+                                status: consent,
+                                onTap: busy ? null : onOpenAiConsent,
+                              ),
                         children: [
                           AccountManagementTile(
                             leading: '로그아웃',
@@ -287,24 +322,82 @@ class _AccountSection extends StatelessWidget {
 }
 
 class _AccountGroup extends StatelessWidget {
-  const _AccountGroup({required this.id, required this.children});
+  const _AccountGroup({required this.id, required this.children, this.leading});
 
   final String id;
   final List<Widget> children;
 
+  /// Its own card directly above the group's card (no gap), as 488:5457.
+  final Widget? leading;
+
   @override
   Widget build(BuildContext context) {
+    final group = _card(
+      key: leading == null ? ValueKey(id) : null,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Material(
-        key: ValueKey(id),
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
+      child: leading == null
+          ? group
+          : Column(
+              key: ValueKey(id),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _card(child: leading!),
+                group,
+              ],
+            ),
+    );
+  }
+
+  static Widget _card({required Widget child, Key? key}) => Material(
+    key: key,
+    color: AppColors.surface,
+    borderRadius: BorderRadius.circular(8),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
+/// Figma 487:5410: the 1.0 shape grows with the text scale (no 1.3 frame).
+class _AiConsentRow extends StatelessWidget {
+  const _AiConsentRow({required this.status, required this.onTap});
+
+  final String status;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: const ValueKey('account-ai-consent'),
+      onTap: onTap,
+      child: Padding(
+        // 52 high at 1.0 with the 23 line box (487:5411).
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14.5),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text('AI 전송 동의', style: _AccountText.consent),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              status,
+              key: const ValueKey('account-ai-consent-status'),
+              style: _AccountText.consentStatus,
+            ),
+            const SizedBox(width: 8),
+            SvgPicture.asset(
+              'assets/icons/account-ai-consent-chevron.svg',
+              width: 20,
+              height: 20,
+            ),
+          ],
         ),
       ),
     );

@@ -391,6 +391,10 @@ class _DetailScreenState extends State<DetailScreen> {
                               when content.summaryErrorCode ==
                                   'monthly_limit_exceeded' =>
                             '이번 달 AI 요약을 모두 써서 요약하지 않았어요. 다음 달 1일부터 다시 요약해요.',
+                          'skipped'
+                              when content.summaryErrorCode ==
+                                  'ai_consent_required' =>
+                            'AI 전송에 동의하지 않아 요약하지 않았어요.',
                           _ => content.summary,
                         },
                         key: const ValueKey('detail-summary'),

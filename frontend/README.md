@@ -64,6 +64,7 @@ Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나 에뮬레
 문의하기는 마이와 로그인 실패 화면 모두 시트 없이 구글 폼(`https://forms.gle/dGjWJc643ZwrXTrF7`)을 외부 브라우저로 엽니다(`lib/features/account/contact_form.dart`). 열지 못하면 화면 아래에 ‘문의하기를 열지 못했어요. 다시 시도해 주세요.’를 보입니다.
 이용약관 및 개인정보는 같은 방식으로 처리방침 웹 페이지(`https://huturu-app.github.io/privacy`)를 외부 브라우저로 열고, 열지 못하면 ‘이용약관 및 개인정보를 열지 못했어요. 다시 시도해 주세요.’를 보입니다. 이용약관·계정 삭제 안내는 그 페이지 위쪽 링크로 갑니다.
 일반 로그인 화면 맨 아래 약관 문구의 "서비스 이용약관"(`https://huturu-app.github.io/terms`)과 "개인정보처리방침"(처리방침 웹 페이지)도 같은 방식으로 외부 브라우저에서 열고(`lib/features/auth/login_screen.dart`), 로그인 진행 중에도 누를 수 있습니다. 열지 못하면 ‘서비스 이용약관을 열지 못했어요. 다시 시도해 주세요.’ 또는 ‘개인정보처리방침을 열지 못했어요. 다시 시도해 주세요.’를 보입니다(#412).
+AI 전송 동의 화면(`lib/features/auth/ai_consent_screen.dart`)의 '개인정보처리방침 보기'도 같은 처리방침 웹 페이지를 열고, 열지 못하면 ‘개인정보처리방침을 열지 못했어요. 다시 시도해 주세요.’를 보입니다. 화면 표시·저장 규칙은 [프론트 동작](../docs/frontend/behavior.md#ai-전송-동의-화면)을 따릅니다(#477).
 오픈소스 라이선스는 Flutter 기본 라이선스 화면(영어)을 열고 설치 버전을 함께 보여 줍니다. 패키지 라이선스는 빌드 때 자동으로 모이고, 앱에 든 Pretendard 글꼴 라이선스는 앱 시작 때 등록합니다(`lib/app/font_licenses.dart`).
 공지사항 줄은 공지 목록(`lib/features/account/notice_list_screen.dart`)을 엽니다. 서버 공지 API가 없어 공지는 앱 안 상수 2개(📌 ‘허투루 100% 활용법’, ‘허투루 사용이 처음이라면?’, 게시일 2026. 11. 23, `lib/features/account/notices.dart`)이고, 행을 누르면 공지 상세(`notice_detail_screen.dart`)가 열립니다. 상세 → 목록 → 마이로 돌아오며 마이·목록 스크롤은 그대로입니다(#420).
 마이에는 ‘관리’ 제목과 ‘알림 설정’·‘앱 권한’ 줄이 없습니다(실제와 다른 고정값만 보여 숨김, #378). 두 읽기 전용 시트(`ReminderSheet`·`PermissionSheet`, `lib/features/account/settings_sheets.dart`)는 앱에서 여는 곳 없이 남아 있으며, 실제 알림·권한 기능을 만들 때 다시 쓸지 정합니다.

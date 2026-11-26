@@ -56,7 +56,7 @@ final class ShareService {
                     if (Long.parseLong(contentId) <= 0) throw new IOException("저장 응답을 확인할 수 없습니다.");
                     store.complete(id, user, contentId);
                     success = store.sameAccount(revision, user);
-                    if (success) message = "저장했어요. 요약과 분류는 계속 처리될 수 있어요.";
+                    if (success) message = "저장했어요.";
                     else failure = new ShareFailure(ShareFailure.Kind.SAVED_FOR_PREVIOUS_ACCOUNT, "요청한 계정에 저장했습니다. 계정이 변경되어 본앱에서 확인해 주세요.");
                 } else {
                     if (status == 401) { store.rejectCredential(revision, auth.getString("token")); store.setState(id, "authRequired"); failure = new ShareFailure(ShareFailure.Kind.LOGIN, "로그인 상태 확인이 필요해요. 초안을 보관했습니다. 본앱을 열어 대기 중인 공유를 다시 선택해 주세요."); }

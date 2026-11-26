@@ -59,6 +59,7 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
 입력만 남겨 두고 외부 공유를 중단한 뒤, 본앱 네이티브 모달에서 같은 초안을 재개한다.
 중복 저장이 없고 기존 수동 URL·저장 화면이 유지되는지 확인하며 본앱 저장 버튼은 누르지 않는다.
 `testUnauthorizedDraftResumesInMainNativeModal`은 본앱 복구 화면의 회귀 기준이라 수정하지 않는다.
+예외: #474(#478)에서 이 테스트와 `resumeInMain`·`recoverInterruptedSave`의 복구 성공 문구 단언 문자열만 "저장 완료!"로 바꿨다.
 재실행 때 `test`로 새 러너를 빌드·설치한다. 테스트 코드를 바꾼 뒤에는 이전 러너를 제거해
 시뮬레이터가 오래된 테스트 번들을 재사용하지 않게 한다. Simulator의 기본 ad-hoc 서명을 사용한다.
 

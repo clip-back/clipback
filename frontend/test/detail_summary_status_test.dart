@@ -18,6 +18,7 @@ const _saved = '저장할 때 들어간 영상 설명입니다.';
 const _building = '요약을 만들고 있어요. 잠시 뒤 다시 열어 보세요.';
 const _failed = '요약을 만들지 못했어요.';
 const _limit = '이번 달 AI 요약을 모두 써서 요약하지 않았어요. 다음 달 1일부터 다시 요약해요.';
+const _consent = 'AI 전송에 동의하지 않아 요약하지 않았어요.';
 
 ContentItem _content(String status, {String? errorCode}) => ContentItem(
   id: 'video',
@@ -156,6 +157,12 @@ void main() {
 
   for (final (status, code, expected) in [
     ('skipped', 'monthly_limit_exceeded', _limit),
+    ('skipped', 'ai_consent_required', _consent),
+    ('queued', 'ai_consent_required', _building),
+    ('processing', 'ai_consent_required', _building),
+    ('failed', 'ai_consent_required', _failed),
+    ('completed', 'ai_consent_required', _saved),
+    ('not_requested', 'ai_consent_required', _saved),
     ('skipped', 'daily_limit_exceeded', _saved),
     ('skipped', 'unsupported_content', _saved),
     ('skipped', 'unknown_future_reason', _saved),
