@@ -1,5 +1,5 @@
-/// In-app notices (#420): no server notice API exists, so the two pinned usage
-/// guides are constants shared by the notice list and the home card.
+/// Notices (#420, #486): the list shows `GET /notices`; the two pinned usage
+/// guides below are the list until an answer arrives, and the home card's guide.
 class NoticeStep {
   const NoticeStep({required this.title, required this.body, this.note});
 
@@ -135,5 +135,56 @@ const firstTimeNotice = Notice(
   closing: '이제 저장한 콘텐츠를 하나 열어보세요. 저장하고, 다시 찾고, 읽는 경험을 허투루와 함께 시작해 보세요.',
 );
 
-/// Listed in this order; there are no other notices (#420 decision 3).
+/// The list before (or without) a server answer, in this order (#486 decision 4).
 const notices = [usageGuideNotice, firstTimeNotice];
+
+/// Reads a `GET /notices` answer; any rule break rejects the whole answer.
+List<Notice> noticesFromJson(Object? json) {
+  final items = _list(_object(json)['notices']);
+  if (items.isEmpty) _bad();
+  return [for (final item in items) _notice(_object(item))];
+}
+
+Never _bad() => throw const FormatException('Malformed notices response');
+Map _object(Object? value) => value is Map ? value : _bad();
+List _list(Object? value) => value is List ? value : _bad();
+String _text(Map item, String key) {
+  final value = item[key];
+  return value is String && value.isNotEmpty ? value : _bad();
+}
+
+Notice _notice(Map item) {
+  final pinned = item['pinned'];
+  return Notice(
+    title: _text(item, 'title'),
+    publishedLabel: _dateLabel(_text(item, 'published_on')),
+    pinned: pinned is bool ? pinned : _bad(),
+    introTitle: _text(item, 'intro_title'),
+    intro: _text(item, 'intro'),
+    steps: [for (final step in _list(item['steps'])) _step(_object(step))],
+    closingTitle: _text(item, 'closing_title'),
+    closing: _text(item, 'closing'),
+  );
+}
+
+NoticeStep _step(Map step) {
+  // The key is required; only its value may be null.
+  if (!step.containsKey('note')) _bad();
+  final note = step['note'];
+  return NoticeStep(
+    title: _text(step, 'title'),
+    body: _text(step, 'body'),
+    note: note == null || note is String ? note as String? : _bad(),
+  );
+}
+
+/// `2026-11-23` -> `2026. 11. 23`; anything but a real calendar day is rejected.
+String _dateLabel(String value) {
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+  if (match == null) _bad();
+  final [y, m, d] = [for (var i = 1; i <= 3; i++) int.parse(match[i]!)];
+  final day = DateTime.utc(y, m, d);
+  // Year 0000 is no calendar day for the server either.
+  if (y < 1 || day.year != y || day.month != m || day.day != d) _bad();
+  return '${match[1]}. ${match[2]}. ${match[3]}';
+}

@@ -13,6 +13,7 @@ import 'actions/share_coordinator.dart';
 import '../data/repositories/content_repository.dart';
 import '../data/repositories/session_repository.dart';
 import '../data/repositories/user_repository.dart';
+import '../features/account/notice_store.dart';
 import '../features/account/view_models/account_view_model.dart';
 import '../features/archive/view_models/archive_view_model.dart';
 import '../features/archive/view_models/bookmark_view_model.dart';
@@ -118,6 +119,7 @@ class AppDependencies {
     save = ContentSaveViewModel(content, contentActions);
     categories = CategoryManagementViewModel(content, contentActions);
     account = AccountViewModel(users);
+    noticeStore = NoticeStore(api.fetchNotices);
     app.addListener(_syncSearchHistory);
     session.addListener(_syncSearchHistory);
     users.addListener(_syncSearchHistory);
@@ -158,6 +160,9 @@ class AppDependencies {
   late final ContentSaveViewModel save;
   late final CategoryManagementViewModel categories;
   late final AccountViewModel account;
+
+  /// Not disposed: an answer after the app is gone only sets its value.
+  late final NoticeStore noticeStore;
 
   List<ViewModel> get featureViewModels => [
     sharing,

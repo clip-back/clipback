@@ -126,6 +126,11 @@ Dockerfile.operator  Manual/daily backup and separate retention image (PostgreSQ
 요청·응답·오류는 [API 계약의 회원 탈퇴](../docs/backend/api-contracts.md#회원-탈퇴), 장부 기록과 운영자 재시도는 [이미지 삭제 운영](../docs/backend/image-deletion.md)을 따른다.
 운영자는 같은 처리를 사유 기록 없이 `python scripts/image_deletions.py delete-account --user-id <계정 번호> --confirm-irreversible`로 실행한다([운영자 계정 삭제](../docs/backend/image-deletion.md#운영자-계정-삭제)).
 
+## 공지
+
+앱 공지 목록(`GET /api/v1/notices`)은 `app/notices.json`이다. 이 파일을 고쳐 PR → 병합 → 서버 배포하면 앱 업데이트 없이 공지가 바뀐다.
+배열 순서가 표시 순서이므로 고정 공지(`pinned: true`)를 위에 둔다. 형식은 [API 계약의 공지](../docs/backend/api-contracts.md#공지)이고, 어긋나면 `tests/api/test_notices.py`가 잡고 서버도 시작하지 않는다.
+
 ## 상세 문서
 
 - [API 목록·요청·응답·권한·재시도 계약](../docs/backend/api-contracts.md)

@@ -14,6 +14,7 @@
 - [My Page Account and Statistics](#my-page-account-and-statistics)
 - [AI 전송 동의](#ai-전송-동의)
 - [회원 탈퇴](#회원-탈퇴)
+- [공지](#공지)
 - [Content View Events](#content-view-events)
 - [Today Recommendations](#today-recommendations)
 - [Weekly Recommendations](#weekly-recommendations)
@@ -94,6 +95,7 @@
 | `GET` | `/api/v1/uploads/assets/{id}` | 인증된 스크린샷 자산 조회 | 구현 |
 | `GET` | `/api/v1/uploads/assets/{id}/access` | 원본 권한 확인·직접 다운로드 정보 | 구현 |
 | `POST` | `/api/v1/metrics/events` | 사용자 행동 이벤트 기록 | 구현 |
+| `GET` | `/api/v1/notices` | 앱 공지 목록(인증 없음, 저장소 공지 파일) | 구현 |
 | `GET` | `/api/v1/health` | 서버 응답 확인 | 구현 |
 | `GET` | `/api/v1/health/ready` | DB·이미지 저장소 준비 상태 | 구현 |
 
@@ -509,6 +511,19 @@ FK CASCADE로 함께 지워진다. 거절을 새로 기록하는 트랜잭션은
 앱은 사유 목록을 보내고 `204`만 성공으로 본다. `401`은 기존 세션 갱신·만료 처리를 따르며, 그 밖의 응답·연결 실패는 실패다.
 로그인 갱신과 재전송을 포함한 제출 전체를 60초에서 끊고 늦은 응답은 버린다. 다른 요청의 대기 정책은 그대로다.
 0.4.0 앱은 이 요청을 보내지 않는다. 서버를 먼저 배포한 뒤 앱을 배포한다.
+
+## 공지
+
+`GET /api/v1/notices`는 인증·본문 없이 `{"notices": [...]}`를 돌려준다. 공지마다 `title`,
+`published_on`(`YYYY-MM-DD`), `pinned`, `intro_title`, `intro`, `steps`(0개 이상, 각 `title`·`body`·
+`note`), `closing_title`, `closing`이 있다. 모든 키는 빠질 수 없고, `note`만 문자열 또는 `null`이며 나머지 문자열은 비어 있지 않다.
+날짜는 실제 달력 날짜(연도 0001–9999)만 된다.
+`notices`는 1개 이상이고 배열 순서가 표시 순서다(서버는 다시 정렬하지 않는다).
+내용은 `backend/app/notices.json`이며 서버가 시작할 때 `app/schemas/notice.py` 규칙으로 읽는다. 규칙에 어긋나면
+서버가 시작하지 않는다. 파일에는 정해진 키 밖의 키도 둘 수 없지만, 앱은 응답의 모르는 키를 무시한다(이후 칸을 더해도 지금 앱이 깨지지 않게). 점검 중에는 다른 업무 경로처럼 `503`(`service_maintenance`)이다.
+
+앱은 공지 목록에 들어갈 때만, 진입 화면을 그린 뒤 한 번에 하나씩 요청한다. 진입 화면은 마지막으로 받은 목록(한 번도 받지 못했으면
+앱 안 공지 2개)이고, 실패·형식 오류(공지 하나라도 규칙 위반이면 응답 전체)면 조용히 그 목록을 둔다(#486). 0.7.x 앱은 이 경로를 부르지 않는다. 서버를 먼저 배포한 뒤 앱을 배포한다.
 
 ## Content View Events
 

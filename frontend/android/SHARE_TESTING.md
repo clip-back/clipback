@@ -40,12 +40,12 @@ emulator -avd Medium_Phone -memory 1536 -cores 2 -no-snapshot -no-audio
 adb -s emulator-5554 install -r ../build/app/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 install -r ../build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s emulator-5554 shell am instrument -w \
-  -e class com.clipback.frontend.share.ShareStoreTest,com.clipback.frontend.share.ShareActivityTest,com.clipback.frontend.share.ShareServiceFixtureTest \
+  -e class com.clipback.frontend.share.ShareStoreTest,com.clipback.frontend.share.ShareActivityTest,com.clipback.frontend.share.ShareServiceFixtureTest,com.clipback.frontend.share.ShareRecoverySuccessTest \
   com.huturu.app.test/android.test.InstrumentationTestRunner
 ```
 
 클래스를 명시해야 큰 Flutter APK의 불필요한 전체 클래스 탐색을 피한다.
-`ShareServiceFixtureTest`는 `18765` 대역 빌드에서만 실행하며, 전역 장애 제어를 쓰므로
+`ShareServiceFixtureTest`·`ShareRecoverySuccessTest`(복구 화면 성공 문구, #478)는 `18765` 대역 빌드에서만 실행하며, 전역 장애 제어를 쓰므로
 iOS 테스트나 다른 HTTP 테스트와 동시에 실행하지 않는다. API 33 AVD에서도 같은 APK와
 명령을 실행한다. 이번 검증의 전용 API 33 AVD 이름은 `Clipback_Share_API_33`이다.
 기존 AVD의 데이터 공간이 부족하면 데이터를 지우지 않고 별도 AVD를 만든다.

@@ -31,6 +31,11 @@ abstract class UserRepository extends ChangeNotifier {
     required bool Function() isCurrent,
     int? statsReadSince,
   });
+
+  /// Saves the AI 전송 동의 choice; true only when it is confirmed saved for
+  /// the current account (#474).
+  Future<bool> saveAiConsent(AiConsentStatus status) =>
+      throw UnimplementedError();
   Future<int?> readDeletionContentCount();
   Future<int> readDeletionCategoryCount();
   Future<AccountDeletionResult> deleteAccount(
@@ -51,6 +56,8 @@ class RemoteUserRepository extends UserRepository {
   int _accountVersion = 0;
   int _refreshVersion = 0;
   int _backgroundVersion = 0;
+  int _consentVersion = 0;
+  ApiRequestScope? _consentScope;
   bool _disposed = false;
 
   @override
@@ -65,6 +72,17 @@ class RemoteUserRepository extends UserRepository {
   bool _current(int accountVersion) =>
       !_disposed && accountVersion == _accountVersion;
 
+  /// A profile read that overlapped a consent save (started before it ended,
+  /// or while it runs) keeps the current choice: its answer may predate the
+  /// save (#474). Its other fields apply.
+  ApiUser _withSavedConsent(ApiUser user, int consentVersion) {
+    final saved = _user;
+    return (consentVersion == _consentVersion && _consentScope == null) ||
+            saved == null
+        ? user
+        : user.withAiConsent(saved.aiConsentStatus);
+  }
+
   @override
   void resetAccount(int generation) {
     _accountVersion = generation;
@@ -73,6 +91,8 @@ class RemoteUserRepository extends UserRepository {
     _statsScope?.cancel();
     _statsScope = null;
     _statsRequest = null;
+    _consentScope?.cancel();
+    _consentScope = null;
     _statsStatus = UserStatsStatus.idle;
     _user = null;
     _stats = null;
@@ -92,8 +112,12 @@ class RemoteUserRepository extends UserRepository {
     if (parent != null) {
       unawaited(parent.cancelled.then((_) => scope.cancel()));
     }
+    final consent = _consentVersion;
     try {
-      final user = await scope.run(() => _api.readMe());
+      final user = _withSavedConsent(
+        await scope.run(() => _api.readMe()),
+        consent,
+      );
       if (current()) {
         _user = user;
         notifyListeners();
@@ -174,12 +198,13 @@ class RemoteUserRepository extends UserRepository {
         refreshVersion == _refreshVersion &&
         isCurrent();
     final scope = ApiRequestScope(isCurrent: current);
+    final consent = _consentVersion;
     try {
       await scope.run(loadStats);
       if (!current()) return;
       final user = await scope.run(() => _api.readMe());
       if (current()) {
-        _user = user;
+        _user = _withSavedConsent(user, consent);
         notifyListeners();
       }
     } catch (_) {
@@ -217,6 +242,7 @@ class RemoteUserRepository extends UserRepository {
       timeout: const Duration(seconds: 10),
       isCurrent: current,
     );
+    final consent = _consentVersion;
     try {
       final value = await scope.run(_api.readStatsOnce);
       if (!current()) return;
@@ -225,7 +251,7 @@ class RemoteUserRepository extends UserRepository {
       notifyListeners();
       final user = await scope.run(_api.readMeOnce);
       if (current()) {
-        _user = user;
+        _user = _withSavedConsent(user, consent);
         notifyListeners();
       }
     } catch (_) {
@@ -263,6 +289,39 @@ class RemoteUserRepository extends UserRepository {
         .length;
   }
 
+  /// The PUT and, only when its result is unconfirmed, one `GET /users/me`
+  /// share a 15-second deadline. An account change or the deadline ends the
+  /// save: nothing more is sent and its late answer is dropped (#474).
+  @override
+  Future<bool> saveAiConsent(AiConsentStatus status) async {
+    final generation = _accountVersion;
+    _consentVersion++;
+    final scope = _consentScope = ApiRequestScope(
+      timeout: const Duration(seconds: 15),
+      isCurrent: () => _current(generation),
+    );
+    try {
+      var result = await scope.run(
+        () => scope.wait(_api.saveAiConsent(status)),
+      );
+      if (result == AiConsentSaveResult.unconfirmed) {
+        // One check read: a 401 or lost answer is a failure, not a retry.
+        final user = await scope.run(() => scope.wait(_api.readMeOnce()));
+        if (user.aiConsentStatus == status) result = AiConsentSaveResult.saved;
+      }
+      if (result != AiConsentSaveResult.saved || !scope.isActive) return false;
+      _consentVersion++;
+      _user = _user?.withAiConsent(status);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      scope.cancel();
+      if (identical(_consentScope, scope)) _consentScope = null;
+    }
+  }
+
   @override
   Future<AccountDeletionResult> deleteAccount(
     List<AccountDeletionReason> reasons,
@@ -272,6 +331,7 @@ class RemoteUserRepository extends UserRepository {
   void dispose() {
     _disposed = true;
     _statsScope?.cancel();
+    _consentScope?.cancel();
     super.dispose();
   }
 }

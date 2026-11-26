@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:clipback_frontend/app/clipback_app.dart';
 import 'package:clipback_frontend/clipback_api.dart';
+import 'package:clipback_frontend/features/account/notices.dart';
 import 'package:clipback_frontend/features/archive/archive_screen.dart';
 import 'package:clipback_frontend/features/archive/archive_widgets.dart';
 import 'package:clipback_frontend/features/categories/category_management_screen.dart';
@@ -39,6 +40,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import '../fixtures/notice_alignment_fixture.dart' show noticesJson;
 
 // Isolate retained native share data in this fixture only. IME and the other
 // platform channels retain their real messenger and native behavior.
@@ -376,6 +378,10 @@ class ArchiveAllServer {
         records[i] = {...records[i], 'is_favorite': body['is_favorite']};
       }
       return json(records[i]);
+    }
+    // The notice list asks on entry (#486): the in-app two.
+    if (request.method == 'GET' && path == '/api/v1/notices') {
+      return json(noticesJson(notices));
     }
     unexpected.add('${request.method} $path');
     return json({'detail': 'Unsupported in-process fixture request'}, 501);

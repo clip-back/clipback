@@ -14,6 +14,7 @@ import 'actions/account_initialization_action.dart';
 enum OrdinaryLoginPhase { authenticating, cancelled }
 
 const accountDeletionFailureMessage = '탈퇴하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+const aiConsentSaveFailureMessage = '선택을 저장하지 못했어요. 다시 시도해 주세요.';
 
 /// Contains request ownership only; no credentials or raw provider errors.
 class OrdinaryLoginStatus {
@@ -115,12 +116,28 @@ class AppViewModel extends ChangeNotifier {
   AppRoute _searchReturnRoute = AppRoute.home;
   String? _apiConnectionError;
 
+  /// Accounts that closed the AI 전송 동의 screen in this app run (#474).
+  /// Kept in memory only, across logouts.
+  final Set<int> _aiConsentClosedUsers = {};
+  AppRoute? _aiConsentDestination;
+  bool _aiConsentSaving = false;
+
+  /// Opened from 계정 관리 (#479): closing keeps the choice and is not the
+  /// first display's "closed in this run".
+  bool _aiConsentFromAccount = false;
+
+  /// The first screen was chosen before the account's own read answered
+  /// (the home loading path does not wait for it): its answer decides then,
+  /// keeping this first destination.
+  AppRoute? _aiConsentPending;
+
   AppRoute get route => _route;
   AppRoute get previousRoute => _previousRoute;
   AppRoute get searchReturnRoute => _searchReturnRoute;
   bool get authBusy => _authBusy;
   bool get linkingGuest => _linkingGuest;
   bool get isRestoringSession => _isRestoringSession;
+  bool get aiConsentSaving => _aiConsentSaving;
   bool get showInitialHomeLoading =>
       !_disposed &&
       _initialHomeLoading != null &&
@@ -283,6 +300,99 @@ class AppViewModel extends ChangeNotifier {
     _clearInitialHomeLoading();
     _initializeAccount.reset(_accountGeneration);
     _authenticatedUser = null;
+    _aiConsentDestination = null;
+    _aiConsentSaving = false;
+    _aiConsentFromAccount = false;
+    _aiConsentPending = null;
+  }
+
+  /// The first screen after loading an account: the AI 전송 동의 screen
+  /// first when the account is undecided and has not closed it in this app
+  /// run, then [destination] (#474).
+  AppRoute _firstRoute(AppRoute destination) {
+    final user = _authenticatedUser;
+    _aiConsentPending = user == null ? destination : null;
+    if (user == null ||
+        user.aiConsentStatus != AiConsentStatus.undecided ||
+        _aiConsentClosedUsers.contains(user.id)) {
+      return destination;
+    }
+    _aiConsentDestination = destination;
+    return AppRoute.aiConsent;
+  }
+
+  void _leaveAiConsent() {
+    _route = _aiConsentDestination ?? AppRoute.home;
+    _aiConsentDestination = null;
+    _aiConsentFromAccount = false;
+    _notify();
+  }
+
+  /// The same screen opened from 계정 관리 (#479); leaving it returns there.
+  void openAiConsent() {
+    // The row shows the repository's account; when the first read failed,
+    // a later read of this account generation stands in (as in
+    // openAccountLogin).
+    final user =
+        _authenticatedUser ??
+        (_users.accountVersion == _accountGeneration ? _users.user : null);
+    if (_disposed ||
+        _route != AppRoute.account ||
+        _authBusy ||
+        !_session.hasSession ||
+        _session.pendingSessionClear ||
+        user == null) {
+      return;
+    }
+    _authenticatedUser = user;
+    _aiConsentFromAccount = true;
+    _aiConsentDestination = AppRoute.account;
+    _route = AppRoute.aiConsent;
+    _notify();
+  }
+
+  /// ✕ or system back: nothing is saved. Closing the first display also
+  /// means this account is not asked again in this app run.
+  void closeAiConsent() {
+    final user = _authenticatedUser;
+    if (_disposed ||
+        _route != AppRoute.aiConsent ||
+        _aiConsentSaving ||
+        user == null) {
+      return;
+    }
+    if (!_aiConsentFromAccount) _aiConsentClosedUsers.add(user.id);
+    _leaveAiConsent();
+  }
+
+  /// Saves [status]; the screen stays locked until the save ends. Only the
+  /// account that started it moves on or sees the failure notice.
+  Future<void> saveAiConsent(AiConsentStatus status) async {
+    if (_disposed || _route != AppRoute.aiConsent || _aiConsentSaving) return;
+    final epoch = _authEpoch;
+    final generation = _accountGeneration;
+    _aiConsentSaving = true;
+    _notify();
+    final saved = await _users.saveAiConsent(status);
+    if (_disposed ||
+        epoch != _authEpoch ||
+        generation != _accountGeneration ||
+        _route != AppRoute.aiConsent) {
+      return;
+    }
+    _aiConsentSaving = false;
+    // A login being ended (logout, revocation, a refused refresh) neither
+    // moves on nor shows a notice; its invalidation follows.
+    if (_authBusy || !_session.hasSession || _session.pendingSessionClear) {
+      _notify();
+      return;
+    }
+    if (saved) {
+      _authenticatedUser = _users.user;
+      _leaveAiConsent();
+    } else {
+      _showError(aiConsentSaveFailureMessage);
+    }
   }
 
   void _onSessionInvalidation(SessionInvalidation event) {
@@ -365,7 +475,7 @@ class AppViewModel extends ChangeNotifier {
         if (stale()) return;
         await prepared;
         if (stale()) return;
-        _route = _postAuthRoute ?? AppRoute.home;
+        _route = _firstRoute(_postAuthRoute ?? AppRoute.home);
         _postAuthRoute = null;
         if (initialHomeLoading == null) await checkAppleCredential();
         if (!_disposed &&
@@ -429,6 +539,11 @@ class AppViewModel extends ChangeNotifier {
                   return;
                 }
                 _authenticatedUser = _users.user;
+                final pending = _aiConsentPending;
+                if (pending != null) {
+                  final route = _firstRoute(pending);
+                  if (route == AppRoute.aiConsent) _route = route;
+                }
                 _notify();
                 if (!_authBusy) {
                   appleCheck = scope?.isActive == true
@@ -531,7 +646,7 @@ class AppViewModel extends ChangeNotifier {
       await _loadRemoteData(initialHome: initialHomeLoading != null);
       if (!current() || !_session.hasSession) return;
       _firstAccountInitializationComplete = true;
-      _route = _postAuthRoute ?? AppRoute.home;
+      _route = _firstRoute(_postAuthRoute ?? AppRoute.home);
       _postAuthRoute = null;
       _linkingGuest = false;
       _notify();

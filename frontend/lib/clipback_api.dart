@@ -366,6 +366,16 @@ class ApiUser {
     linkedProviders: List<String>.from(json['linked_providers'] as List),
     aiConsentStatus: AiConsentStatus.parse(json['ai_consent_status']),
   );
+
+  ApiUser withAiConsent(AiConsentStatus status) => ApiUser(
+    id: id,
+    email: email,
+    displayName: displayName,
+    isGuest: isGuest,
+    createdAt: createdAt,
+    linkedProviders: linkedProviders,
+    aiConsentStatus: status,
+  );
 }
 
 class ApiUserStats {
@@ -1601,6 +1611,10 @@ class ClipbackApi {
     }
     return ApiFeed.fromJson(json);
   }
+
+  /// Public notices (#486); the caller checks the answer's shape.
+  Future<Map<String, dynamic>> fetchNotices() =>
+      _json('GET', '/notices', authenticated: false);
 
   Future<void> createCategoryFilterEvent(int categoryId) => _json(
     'POST',
