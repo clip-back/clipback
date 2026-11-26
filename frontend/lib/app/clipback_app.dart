@@ -21,6 +21,7 @@ import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dar
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/login_status_screen.dart';
+import 'package:clipback_frontend/features/auth/ai_consent_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
@@ -1115,6 +1116,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               _go(AppRoute.my);
             case AppRoute.interests:
               _go(AppRoute.onboarding);
+            case AppRoute.aiConsent:
+              _d.app.closeAiConsent();
             default:
               break;
           }
@@ -1214,8 +1217,13 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             : PendingSharePrompt(
                 navigatorKey: _navigatorKey,
                 promptVersion: _d.sharing.promptVersion,
-                drafts: _d.sharing.drafts,
-                error: _d.sharing.error,
+                // Held while the AI 전송 동의 screen is shown (#474 J11).
+                drafts: _d.app.route == AppRoute.aiConsent
+                    ? const []
+                    : _d.sharing.drafts,
+                error: _d.app.route == AppRoute.aiConsent
+                    ? null
+                    : _d.sharing.error,
                 busy: _d.sharing.busy,
                 onRetry: () => unawaited(_d.sharing.retry()),
                 onOpen: (draft) => unawaited(_d.sharing.present(draft)),
@@ -1264,6 +1272,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onRetry: _d.app.restoreSession,
         ),
         AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
+        // A new screen per account: a late policy-open failure of the
+        // previous account is not shown.
+        AppRoute.aiConsent => AiConsentScreen(
+          key: ValueKey(('ai-consent', _d.app.accountGeneration)),
+          saving: _d.app.aiConsentSaving,
+          onAgree: () =>
+              unawaited(_d.app.saveAiConsent(AiConsentStatus.granted)),
+          onDeny: () => unawaited(_d.app.saveAiConsent(AiConsentStatus.denied)),
+          onClose: _d.app.closeAiConsent,
+        ),
         AppRoute.login => _buildLogin(),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),

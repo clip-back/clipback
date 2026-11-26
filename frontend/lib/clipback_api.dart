@@ -366,6 +366,16 @@ class ApiUser {
     linkedProviders: List<String>.from(json['linked_providers'] as List),
     aiConsentStatus: AiConsentStatus.parse(json['ai_consent_status']),
   );
+
+  ApiUser withAiConsent(AiConsentStatus status) => ApiUser(
+    id: id,
+    email: email,
+    displayName: displayName,
+    isGuest: isGuest,
+    createdAt: createdAt,
+    linkedProviders: linkedProviders,
+    aiConsentStatus: status,
+  );
 }
 
 class ApiUserStats {
