@@ -5,7 +5,7 @@
 - 요청: `to-tickets`로 [스펙 #86](https://github.com/clip-back/clipback/issues/86)을 구현 티켓으로 나누고 선행 관계를 정리한다.
 - 기준: `docs/category-save-recovery`, 시작 HEAD `a6166c1`, 작업 트리는 clean이었다.
 - #86의 최신 본문 전체·댓글·하위 이슈·선행 관계를 조회했다. 댓글과 기존 하위 이슈는 없었으며
-  본문은 [로컬 구현 스펙](../frontend/category-save-recovery-spec.md)과 일치했다.
+  본문은 [로컬 구현 스펙](2026-10-25-category-save-recovery-issue-86.md)과 일치했다.
   원본 본문의 SHA-256은 `aab5ba59aff919015db68ebfa8c55d4b41d652f40a7a751e855ff2fe07c28f76`이다.
 - 사용자가 게시 전 초안 5개의 크기·본문·선행 관계와 #86 하위 이슈 생성, `ready-for-agent` 라벨·기본 선행 관계 연결을 승인했다.
 - 첫 생성 경로에 필요한 비동기 결과 전달·API·최소 처리 기록을 함께 연결하고, 그 경계를 바탕으로 수정·목록 복구를 나눴다.

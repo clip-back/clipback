@@ -74,7 +74,7 @@ Page 1에도 M 이름의 노드가 있으나 이번에는 구조만 확인했으
 
 <a id="b-b0c0d7580435dfe3"></a>
 
-기존 [Figma 캐시](../../frontend/design_cache/figma_624_16572.md)는 **이전 `b2lmAo9VtbL6Qi0mzX5IMu` 파일**의
+기존 [Figma 캐시](2026-09-07-figma-design-cache.md)는 **이전 `b2lmAo9VtbL6Qi0mzX5IMu` 파일**의
 `업데이트_260730`(`624:16572`) 섹션을 2026-09-07에 기록한 자료다. 현재 Page 1 근거로 사용하지 않고 과거 구현 배경으로만 참고하며,
 그 안의 mock 저장·사진 선택 설명을 현재 코드의 동작으로 사용하지 않는다.
 

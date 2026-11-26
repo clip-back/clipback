@@ -282,8 +282,8 @@ worker.run_once를 직접 호출하여 반복 루프·실제 유료 호출 없�
 
 ```bash
 TEST_DATABASE_URL=postgresql+asyncpg://... pytest -q
-ruff check app alembic tests
-python -m compileall -q app alembic tests
+ruff check app scripts alembic tests
+python -m compileall -q app scripts alembic tests
 YOUTUBE_SUMMARY_ENABLED=false alembic upgrade head
 YOUTUBE_SUMMARY_ENABLED=false alembic check
 ```

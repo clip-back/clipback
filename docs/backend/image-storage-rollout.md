@@ -26,7 +26,7 @@ API의 S3 변수와 `DELETION_LEDGER_S3_*`는 서로 다른 비공개 Bucket을 
 
 ## 전환 순서와 확인 기준
 
-1. **병합 전 독립 삭제 기록 준비**: [호환 배포 체크리스트](image-storage-compatible-deployment.md)에 따라
+1. **병합 전 독립 삭제 기록 준비**: [호환 배포 체크리스트](../history/2026-10-25-image-storage-compatible-deployment-checklist.md)에 따라
    새 삭제 기록 Bucket을 만들고, 검증된 운영자 이미지로 초기화와 checkpoint를 완료합니다.
    기존 기록은 재초기화하지 않습니다. local 원본도 삭제 기록 없이는 정상 삭제할 수 있으므로
    이 단계는 호환 백엔드 배포보다 먼저입니다. API에는 백업 키를 제공하지 않습니다.

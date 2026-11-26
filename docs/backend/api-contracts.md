@@ -650,16 +650,7 @@ activity counts, and ready-made copy are not returned.
 
 Frontend integration remains stage 6. This change adds no migration or deployment.
 
-Local validation on 2026-09-25 used Python 3.12.7 and isolated PostgreSQL 17.7:
-**857 tests passed**, with no PostgreSQL skips (70 new: 31 selection, 20 API and
-aggregation, 19 independent-connection concurrency cases). Concurrency tests
-observe real lock waits, including classification/deletion/view/exposure ordering,
-new saves excluded until the next request, midnight rollover, and rollback recovery.
-The full suite ran in its own database; a separate empty database passed
-`alembic upgrade head` and `alembic check`. Ruff, compileall, and `git diff --check`
-passed. External AI/OCR/metadata were replaced and the YouTube worker disabled.
-One existing Starlette/httpx deprecation warning remains. Remote CI, Docker,
-frontend/device behavior, and production deployment were not validated in this run.
+Local validation results are recorded in [Weekly backend history](../history/2026-09-25-weekly-backend.md).
 
 ## Recommendation Exposures
 
@@ -710,11 +701,7 @@ New events and identical retries return `201` with `Cache-Control: no-store`:
 - Weekly category collection accepts the item IDs returned by the Weekly GET.
   No new migration, frontend integration, or deployment is included.
 
-Local verification on 2026-09-24: Python 3.12.7 / PostgreSQL 17.7, **787 tests
-passed**, including 70 new exposure tests and independent-connection lock checks.
-Ruff, compileall, empty-database upgrade, Alembic check, and Git diff checks passed.
-The existing Starlette/httpx deprecation warning remains. Remote CI, Docker,
-production deployment, and actual frontend visibility tracking were not tested.
+Local verification results are recorded in [recommendation exposure history](../history/2026-09-24-recommendation-exposures.md).
 
 ## Category Summaries
 
@@ -851,13 +838,7 @@ accepted when the normalized URL fits. Shared `url` input remains subject to its
 input limit even if normalization could shorten it. Screenshots may still omit
 `original_url`. No database migration or response shape change is required.
 
-Local verification on 2026-09-22: 540 tests passed on Python 3.12 with PostgreSQL
-17 (34 added); Ruff, compileall, and empty-database `alembic upgrade head` /
-`alembic check` passed. The existing Starlette/httpx deprecation warning remains.
-The API regression reproduced a `500` for a 2,050-character URL before the fix.
-External metadata was stubbed; live sites, Railway, real devices, and the local
-Docker deployment check were not exercised. Remote CI results are reported on
-the PR separately.
+Local verification results are recorded in [URL length history](../history/2026-09-22-url-length.md).
 
 ## Request Body Size
 

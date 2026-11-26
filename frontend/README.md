@@ -5,11 +5,8 @@ Flutter 앱의 현재 코드 구조·설정·실행과 API 연결 안내입니�
 [작업·검증 이력](../docs/history/README.md)에 한 번만 기록합니다.
 사용자 변경은 [업데이트 내역](../CHANGELOG.md), 공개 여부는 [배포 절차](../docs/release-process.md)를 따릅니다.
 
-콘텐츠 관리 메뉴의 삭제는 확인 창을 거쳐 실행합니다. 취소·바깥 탭·뒤로가기는 삭제하지 않으며,
-[화면 맞춤 계획의 승인 기준](../docs/figma-ui-alignment-plan.md#콘텐츠-삭제-확인-238)을 따릅니다.
-
-링크 콘텐츠 상세는 전문 보기 없이 날짜 줄 링크 버튼으로 원본을 엽니다.
-스크린샷의 원본 이미지 펼침·시트는 유지합니다. [변경·검증 이력](../docs/history/2026-11-06-link-detail-full-text.md)을 참고하세요.
+콘텐츠 삭제는 확인 창을 거칩니다([화면 기준](../docs/figma-ui-alignment-plan.md#콘텐츠-삭제-확인-238)).
+링크 콘텐츠 상세는 날짜 줄 링크 버튼으로 원본을 엽니다([이력](../docs/history/2026-11-06-link-detail-full-text.md)).
 
 ## 아이콘 버튼 접근성
 
@@ -54,27 +51,12 @@ Android 백업·기기 이전 규칙은 `android/app/src/main/res/xml/`에 있�
 Android Release는 저장소 밖의 업로드 키 설정을 요구합니다.
 [Release 서명과 AAB 빌드](../docs/frontend/development.md#android-release-서명과-aab)를 따릅니다.
 
-앱의 사진 첨부는 파일 선택기의 압축을 끄고 선택한 파일 바이트와 이름을 그대로 업로드합니다.
-예외로 머리 바이트가 HEIC/HEIF인 사진은 고를 때 한 번 네이티브(`com.huturu.app/image`, iOS ImageIO·Android 9+ ImageDecoder)에서
-원본 해상도·품질 90·방향 반영·메타데이터(GPS 포함) 없는 JPEG로 바꾸고 이름을 `.jpg`로 바꿉니다(`lib/data/services/photo_converter.dart`).
-변환하지 못하면 원본을 그대로 보내고 서버 415에 지원 형식 안내를 보입니다([사진 형식](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)).
-사진 저장 요청 중에는 사진 선택을 잠그고, 시간 초과 뒤 같은 사진을 수동 재시도하면 같은 제출 키로 기존 저장 결과를 받습니다.
-처리 중·결과 썸네일은 원본의 상단을 표시합니다. [사진 저장·재시도 계약](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)을 따릅니다.
-링크 저장은 저장 버튼부터 20초(401 뒤 인증 갱신·재전송 포함) 안에 끝나지 않으면 사진과 같은 지연 안내로 끝나고, 같은 화면에서 다시 저장하면 같은 제출 키를 씁니다.
-[링크 저장 계약](../docs/frontend/behavior.md#콘텐츠-저장과-자동-분류)과 [#319 이력](../docs/history/2026-11-10-link-save-timeout.md)을 따릅니다.
-PNG·JPEG·WebP는 투명도·화질을 바꾸는 JPEG 변환을 요청하지 않으며, Android 이미지 URI 공유도 제공된 원본을 읽습니다.
-원본 이미지는 인증된 `/uploads/assets/{id}/access`에서 권한을 확인한 뒤 받습니다.
-Bucket 요청은 앱 토큰이 없는 별도 HTTP 클라이언트를 사용하며, MIME·크기·SHA-256을 확인합니다.
-권한 확인은 매번 온라인으로 하며, 검증한 원본 바이트는 `path_provider`의 앱 전용 캐시에 재사용합니다.
-기본 한도는 100MiB·7일 미사용이며 계정과 서버 환경을 분리합니다. 캐시 삭제는 클라우드 보관량에 영향을 주지 않습니다.
-운영 직접 다운로드는 HTTPS이며, 합성 로컬 검증은 API 주소가 HTTP loopback일 때만
-loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나
-에뮬레이터의 `10.0.2.2` 주소를 사용합니다. 자세한 계약은
-[원본 조회 동작](../docs/frontend/behavior.md#저장된-스크린샷-원본-조회)을 따릅니다.
-
-운영자가 이미지 저장을 일시 중단하면 본앱·네이티브 공유의 기존 오류 영역에 재시도 사유를
-표시합니다. iOS·Android 공유 메뉴의 공유 저장 시트에서는 같은 문구를 OS 알림창으로 표시하며, 분류별 [다시 시도]·[닫기]를 둡니다. 선택·초안은 유지하며 기존 원본 열람·삭제와 완료된 공유의 재전송은 계속 가능합니다.
+사진·링크 저장과 저장한 사진 원본 조회(HEIC/HEIF의 JPEG 변환, 저장 중 사진 선택 잠금, 같은 제출 키 재시도, 링크 저장 20초 제한, 원본 캐시, 이미지 저장 일시 중단 안내)는
+[스크린샷 저장과 인증 재시도](../docs/frontend/behavior.md#스크린샷-저장과-인증-재시도)·[콘텐츠 저장과 자동 분류](../docs/frontend/behavior.md#콘텐츠-저장과-자동-분류)·[저장된 스크린샷 원본 조회](../docs/frontend/behavior.md#저장된-스크린샷-원본-조회)를 따릅니다.
+HEIC/HEIF 변환은 `lib/data/services/photo_converter.dart`와 네이티브 채널 `com.huturu.app/image`(iOS ImageIO·Android 9+ ImageDecoder)가 맡습니다.
 서버 스위치·관측 사용량의 의미는 [이미지 운영 안내](../docs/backend/image-storage-operations.md)를 따릅니다.
+운영 직접 다운로드는 HTTPS이며, 합성 로컬 검증은 API 주소가 HTTP loopback일 때만 loopback Bucket HTTP 주소를 허용합니다.
+Android에서는 API와 Bucket 포트를 각각 `adb reverse`하거나 에뮬레이터의 `10.0.2.2` 주소를 사용합니다.
 
 ## 마이 메뉴와 알림 설정
 
@@ -85,10 +67,10 @@ loopback Bucket HTTP 주소를 허용합니다. Android에서는 API와 Bucket �
 AI 전송 동의 화면(`lib/features/auth/ai_consent_screen.dart`)의 '개인정보처리방침 보기'도 같은 처리방침 웹 페이지를 열고, 열지 못하면 ‘개인정보처리방침을 열지 못했어요. 다시 시도해 주세요.’를 보입니다. 화면 표시·저장 규칙은 [프론트 동작](../docs/frontend/behavior.md#ai-전송-동의-화면)을 따릅니다(#477).
 오픈소스 라이선스는 Flutter 기본 라이선스 화면(영어)을 열고 설치 버전을 함께 보여 줍니다. 패키지 라이선스는 빌드 때 자동으로 모이고, 앱에 든 Pretendard 글꼴 라이선스는 앱 시작 때 등록합니다(`lib/app/font_licenses.dart`).
 공지사항 줄은 공지 목록(`lib/features/account/notice_list_screen.dart`)을 엽니다. 서버 공지 API가 없어 공지는 앱 안 상수 2개(📌 ‘허투루 100% 활용법’, ‘허투루 사용이 처음이라면?’, 게시일 2026. 11. 23, `lib/features/account/notices.dart`)이고, 행을 누르면 공지 상세(`notice_detail_screen.dart`)가 열립니다. 상세 → 목록 → 마이로 돌아오며 마이·목록 스크롤은 그대로입니다(#420).
-실제와 다른 고정값만 보이던 마이의 ‘관리’ 제목과 ‘알림 설정’·‘앱 권한’ 줄은 숨겼습니다(#378). 두 읽기 전용 시트(`ReminderSheet`·`PermissionSheet`, `lib/features/account/settings_sheets.dart`)는 앱에서 여는 곳 없이 남아 있으며, 실제 알림·권한 기능을 만들 때 다시 쓸지 정합니다.
+마이에는 ‘관리’ 제목과 ‘알림 설정’·‘앱 권한’ 줄이 없습니다(실제와 다른 고정값만 보여 숨김, #378). 두 읽기 전용 시트(`ReminderSheet`·`PermissionSheet`, `lib/features/account/settings_sheets.dart`)는 앱에서 여는 곳 없이 남아 있으며, 실제 알림·권한 기능을 만들 때 다시 쓸지 정합니다.
 홈의 알림(종) 버튼과 ‘이번주 허투루 픽’ 끝의 노란 ‘공지사항 / 허투루 100% 활용법’ 카드도 공지로 갑니다. 종 버튼은 공지 목록, 카드는 활용법 상세를 홈 위에 겹쳐 엽니다. 종 버튼으로 열면 상세 → 목록 → 홈, 카드로 열면 상세 → 홈으로 돌아오며, 돌아온 홈의 스크롤·추천 방문은 그대로입니다. 알림 화면(`NotificationListScreen`, C03-1 빈 상태)은 앱에서 여는 곳 없이 남아 있습니다(#420).
 앱 버전은 설치 버전 `ver. X.Y.Z` 또는 조회 실패 `-`를 표시하며 탭해도 팝업이나 화면을 열지 않습니다.
-마이의 카테고리 관리 줄은 제거했으며 아카이브·즐겨찾기 진입은 유지합니다.
+마이에는 카테고리 관리 줄이 없고 아카이브·즐겨찾기 진입은 있습니다.
 메뉴 14px(J01 15px), 관리 묶음 숨김, J01에 없는 오픈소스 라이선스 줄이 J01과 다릅니다.
 기준은 [Figma 현재 결정](../docs/figma-ui-alignment-plan.md#figma-current-16)을 따릅니다.
 
@@ -138,7 +120,6 @@ Flutter 3.47.9(stable)로 의존성 설치(`flutter pub get --enforce-lockfile`)
 `flutter analyze --no-pub`, `flutter test --no-pub`를 차례로 실행합니다.
 포맷 검사는 `lib/`와 `test/` 전체의 Dart 파일을 대상으로 하며 파일을 수정하지 않고 불일치가 있으면 실패합니다.
 포맷을 맞추려면 `frontend/`에서 `dart format lib test`를 실행하고 변경 목록을 확인합니다.
-개인 도구 `verify.py --only app`은 pub get·analyze·test만 실행하므로 포맷 검사는 별도로 실행해야 합니다.
 `flutter build web`과 iOS·Android 빌드, 시뮬레이터·에뮬레이터 실행은 하지 않습니다.
 리뷰에서는 해당 커밋의 App Validation 통과로 로컬 앱 검사(pub get·analyze·test)를 대신할 수 있습니다.
 로컬 SDK를 올릴 때는 워크플로의 `flutter-version`도 함께 바꿉니다. 도입 때의 통과·실패 확인 run은 [작업 이력](../docs/history/2026-11-03-app-validation-ci.md)에 있습니다.
@@ -205,30 +186,23 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - 구조는 `lib/main.dart` → `lib/app/` → 기능 ViewModel·Action·Repository로 이어집니다. 추천 상세 흐름은 `app/clipback_app.dart`와 `features/content/view_models/detail_view_model.dart`에서 조정합니다. 홈의 주간 추천 방문(계정·앱 프로세스마다 하나, 앱 시작 때 홈 최초 불러오기와 함께 최대 15초 기다려 받기, 새 로그인 뒤에는 홈 첫 프레임 뒤 불러오기, 홈을 떠나도 유지, 홈이 보일 때까지 미룬 실패 안내)은 `features/home/view_models/home_weekly_view_model.dart`가 맡고(앱 시작 연결은 `AppViewModel.restoreSession`의 `prepareInitialHome`), 앱 View는 홈인지·보이는지 판정과 카드 선택 뒤 화면 이동만 조정합니다. 오늘의 추천 열기(누를 때마다 한 번만 진행, 홈을 떠나거나 시트를 열고 닫으면 무효)는 `DetailViewModel.todayAction`이 맡고, 앱 View는 홈·세션·계정 조건과 무효화 시점, 성공 뒤 화면 이동만 넘깁니다.
 - 현재 디자인·확인 필요 상태는 [Figma 맞춤 기준](../docs/figma-ui-alignment-plan.md)을 따릅니다.
 - 카테고리 랜덤 보기(`features/archive/category_card_review_screen.dart`)는 마지막 카드의 넘김 전환이 끝나면 나가기와 같은 콜백으로 카테고리 콘텐츠 목록에 돌아갑니다(정렬·스크롤 유지). 처음부터 0개면 기존 빈 상태와 나가기를 보여 줍니다. 루트 앱 확인은 `flutter test test/card_review_auto_exit_test.dart`, 기기 확인은 [작업 이력](../docs/history/2026-11-09-card-review-auto-exit.md)에 기록합니다.
-- iOS·Android 공유 메뉴는 송신 앱 위에 공유 저장 시트(손잡이·저장하기·안내 문구)를 띄웁니다.
-  저장 요청 중에는 `전송 중 ...`·회색 버튼·종이비행기와 저장 중 안내를 표시하고 중복 탭을 막습니다. 구현·검증과 남은 화면 확인은 [작업 이력](../docs/history/2026-11-06-share-save-progress.md)에 기록합니다.
-  저장이 완료되면 `✓ 저장 완료!` 토스트를 보여 준 다음 송신 앱으로 돌아갑니다. 본앱의 저장 대기 공유 재개는 기존 전체 화면 작성기를 씁니다.
-  오류·로그인 필요는 분류별 OS 알림창([닫기]·[다시 시도], Android는 [허투루 열기] 추가)으로 안내합니다.
-  화면 동작은 [모바일 공유 저장](../docs/frontend/behavior.md#모바일-공유-저장)을 따릅니다.
-- 이미지 보관 한도·파일 크기 오류는 기존 저장 오류 영역으로 표시합니다(iOS·Android 공유 저장 시트는 OS 알림창). Dart API 오류 검사는
-  `flutter test test/image_upload_policy_api_test.dart`로 실행하며 실제 양쪽 공유 UI 검사는
-  [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
+- iOS·Android 공유 메뉴의 공유 저장 시트(진행 표시·완료 토스트·분류별 OS 알림창)와 이미지 보관 한도·파일 크기 오류는 [모바일 공유 저장](../docs/frontend/behavior.md#모바일-공유-저장)을 따릅니다([진행 표시 이력](../docs/history/2026-11-06-share-save-progress.md)).
+  Dart API 오류 검사는 `flutter test test/image_upload_policy_api_test.dart`, 실제 양쪽 공유 UI 검사는 [iOS 공유 검증](ios/ShareVerification/README.md)·[Android 공유 검증](android/SHARE_TESTING.md)을 따릅니다.
 - 홈의 `home-scroll`은 `CustomScrollView`로 상단 소개와 흰 콘텐츠 패널을 함께 스크롤합니다. 패널은 상단 소개의 실제 높이를 제외한 뷰포트의 남은 높이를 최소 높이로 채우며, 내용이 길면 자연 높이로 늘어납니다. 하단 배경 회귀는 `flutter test --no-pub test/home_panel_background_test.dart`로 확인합니다. [화면 기준](../docs/figma-ui-alignment-plan.md#figma-current-home-panel-bottom)을 따릅니다.
 - 홈 '최근 저장한 콘텐츠' 카드 목록은 `home_screen.dart`의 `_RecentCardSnapPhysics`로 306 단위(가까운 카드, 빠르게 튕기면 그 방향으로 한 장 더)에 맞춰 멈추고, 카드 4장을 처음부터 배치해 끝 위치를 정확히 씁니다. 회귀는 `flutter test --no-pub test/home_alignment_test.dart --plain-name 'recent cards snap'`로 확인합니다. [#389 이력](../docs/history/2026-11-15-home-recent-snap.md)
 - 최초 홈은 카테고리와 첫 목록을 전체 15초 안에 준비하며, 실패하면 기존 복구 화면에서 수동으로 다시 시도합니다. 사용자 정보·통계는 홈 진입을 막지 않는 별도 조회입니다. 범위와 인증 보존은 [홈 복구 정책](../docs/frontend/home-loading-recovery.md)을 따릅니다.
 - 마이 통계는 사용자 Repository가 조회 상태를 소유하고 계정 ViewModel이 화면에 투영합니다. 미확인 값은 `—`이며, 실제 마이 진입 때 갱신하고 실패하면 통계만 다시 시도합니다. 같은 계정의 진행 중 조회는 전체10초의 남은 시간을 공유하고, 마지막 확인값은 이번 앱 실행 동안 유지합니다. 프로필 조회와 통계 표시는 독립적입니다. 자세한 동작은 [마이 통계 정책](../docs/frontend/account-stats-recovery.md)을 따릅니다.
-- 카테고리 생성·수정은 공통 시트가 비동기 제출 결과를 기다리고 Action이 인증 갱신 포함 전체10초를 관리합니다. 실패·미확인 시 초안을 유지하며, 미확인은 같은 제출 키로 수동 재확인합니다. 수정은 현재 이름·색상으로 시작하며 삭제된 대상은 목록 복귀를 제공합니다. 키 없는 호출·프리뷰·삭제의 기존 인터페이스는 유지합니다. [정책·디자인](../docs/frontend/category-save-recovery.md)과 [구현 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)을 따릅니다.
-- 카테고리 생성·수정은 단색 8개를 기존 순서·크기의 한 줄로 표시합니다. 2026-11-06 #242 결정에 따라 색 줄의 양끝을 맞추고 사이 간격을 균등 분배하며, 최소 간격8px로도 넘치는 좁은 폭에서는 가로 스크롤합니다. #242 승인에 따라 무지개 버튼은 숨깁니다. 팔레트 밖 기존 색은 미리보기와 이름만 수정하는 저장에 유지하며, 단색을 고를 때만 색이 바뀝니다. 실제 자유 색상 선택기는 디자인 확정 전까지 보류합니다.
-- 아카이브·관리에서 생성·수정 시트를 열기 전에 카테고리 GET을 별도 전체10초로 확인합니다. 생성은 빈 입력, 수정은 낙관적 표시와 구분한 현재 서버 값으로 시작합니다. 조회 실패의 **다시 불러오기**는 GET만 복구한 뒤 새 시트를 열며, 직접 닫기·앱 종료 뒤 이전 초안·제출 키를 복원하거나 재전송하지 않습니다. [닫기와 재진입](../docs/frontend/behavior.md#카테고리-시트-닫기와-재진입)을 따릅니다.
-- 실제 계정 전환·로그아웃 완료는 카테고리 시트와 닫기 확인창을 함께 정리합니다. 같은 계정의 토큰 갱신·로그아웃 일반 실패는 초안을 유지하며, 카테고리 제한 시간이 끝나도 다른 현재 요청의 공유 인증 갱신은 유지합니다. 이전 응답과 재시도는 새 계정에 적용하지 않습니다.
-- 카테고리 저장 후 목록은 저장 대기와 별개인 전체10초로 조회합니다. 실패하면 마지막 목록과 닫힌 시트를 유지하며 스낵바의 **다시 불러오기**는 카테고리 GET만 실행합니다. 공통 콘텐츠·통계 갱신과 구분하며 [현재 동작](../docs/frontend/behavior.md#카테고리-저장-후-목록-복구)을 따릅니다.
+- 카테고리 생성·수정 시트(전체10초 제출, 초안·제출 키 보존, 열기 전 GET 확인, 계정 전환 정리, 저장 후 목록 복구, 단색 8개 색 줄)는
+  [카테고리 생성·수정](../docs/frontend/behavior.md#카테고리-생성수정)·[카테고리 저장 후 목록 복구](../docs/frontend/behavior.md#카테고리-저장-후-목록-복구)·[카테고리 시트 닫기와 재진입](../docs/frontend/behavior.md#카테고리-시트-닫기와-재진입)을 따릅니다.
+  정책은 [카테고리 입력 보존·저장 복구](../docs/frontend/category-save-recovery.md), 경과는 [구현 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)·[작은 UI 묶음 이력](../docs/history/2026-11-06-small-ui-batch-1.md)·[간격 재배치 이력](../docs/history/2026-11-06-category-palette-spacing.md)에 있습니다.
+- 목록 전체 개수와 옛 서버의 `-` 표시, 아카이브 전체보기·카테고리·미분류의 즐겨찾기 우선(서버 `sort=favorites_first` 단일 피드)과 커서 복구는 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.
 - 화면별 프리뷰·재현 명령은 관련 작업 기록에 보존합니다. 과거 명령은 당시 코드·기기·데이터 기준이며 제품 빌드에는 `lib/main.dart`를 명시합니다.
 
 ## 상세 문서
 
 - [세션·저장·탐색·실패 복구와 화면 동작](../docs/frontend/behavior.md)
 - [홈 최초 불러오기 복구 정책과 구현 범위](../docs/frontend/home-loading-recovery.md) · [구현 명세 #76](https://github.com/clip-back/clipback/issues/76)
-- [마이 통계 조회 상태·복구 정책](../docs/frontend/account-stats-recovery.md) · [구현 명세 #80](https://github.com/clip-back/clipback/issues/80) · [본문 사본](../docs/frontend/account-stats-recovery-spec.md) · [구현·검증 이력](../docs/history/2026-10-25-account-stats-recovery-implementation.md)
+- [마이 통계 조회 상태·복구 정책](../docs/frontend/account-stats-recovery.md) · [구현 명세 #80](https://github.com/clip-back/clipback/issues/80) · [본문 사본](../docs/history/2026-10-24-account-stats-recovery-issue-80.md) · [구현·검증 이력](../docs/history/2026-10-25-account-stats-recovery-implementation.md)
 - [카테고리 입력 보존·저장 복구 정책](../docs/frontend/category-save-recovery.md) · [구현 명세 #86](https://github.com/clip-back/clipback/issues/86) · [구현·검증 이력](../docs/history/2026-10-25-category-save-recovery-implementation.md)
 - [소셜·플랫폼 설정과 실행·검증·TestFlight](../docs/frontend/development.md)
 - [백엔드 API 계약](../docs/backend/api-contracts.md)
@@ -359,12 +333,3 @@ API·세션 저장소·소셜 인증 어댑터는 기존 위치와 인터페이�
 - <a id="로컬-공유-검증"></a>[로컬 공유 검증](../docs/frontend/development.md#로컬-공유-검증)
 
 </details>
-
-목록 전체 개수와 옛 서버의 `-` 표시는 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.
-
-아카이브 전체보기·카테고리·미분류의 즐겨찾기 우선은 서버 `sort=favorites_first` 단일 피드를 사용합니다.
-개수·옛 서버 호환·커서 복구 기준은 [프론트 동작](../docs/frontend/behavior.md)을 따릅니다.
-
-빈 화면·저장 문구·색상 선택·하단 별의 최종 실행 범위와 양 플랫폼 비교는
-[작은 UI 묶음 이력](../docs/history/2026-11-06-small-ui-batch-1.md)에 있습니다.
-화면 피드백으로 바뀐8색 간격과 최신 검증은 [간격 재배치 이력](../docs/history/2026-11-06-category-palette-spacing.md)에 있습니다.

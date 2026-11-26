@@ -1,12 +1,7 @@
 # 홈 최초 불러오기 복구
 
-2026-10-24 사용자가 확정한 정책과 현재 구현 범위를 안내합니다.
-통합 브랜치 `feature/home-loading-recovery`는 이미지 보관 PR #75와 분리해 PR #79로 main에 병합했습니다(2026-10-24).
-앱 배포 여부는 [배포 기록](../releases/)을 따릅니다.
-확정 명세는 [GitHub 이슈 #76](https://github.com/clip-back/clipback/issues/76)에서 관리합니다.
-하위 작업은 [필수 목록 준비 시 홈 진입 #77](https://github.com/clip-back/clipback/issues/77),
-[전체 15초 제한과 안전한 수동 재시도 #78](https://github.com/clip-back/clipback/issues/78)입니다.
-구현·실행 결과는 [구현 이력](../history/2026-10-24-home-loading-recovery-implementation.md)에서 확인합니다.
+2026-10-24 확정한 정책과 현재 구현 범위를 안내합니다. 구현은 PR #79로 main에 병합됐습니다(2026-10-24).
+명세는 [GitHub 이슈 #76](https://github.com/clip-back/clipback/issues/76)(하위 [#77](https://github.com/clip-back/clipback/issues/77)·[#78](https://github.com/clip-back/clipback/issues/78)), 경과는 [구현 이력](../history/2026-10-24-home-loading-recovery-implementation.md)에 있습니다.
 
 ## 확정된 범위
 

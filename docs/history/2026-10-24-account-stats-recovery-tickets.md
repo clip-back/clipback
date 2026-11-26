@@ -2,7 +2,7 @@
 
 ## 기준과 승인
 
-- 원문은 [구현 스펙 #80](https://github.com/clip-back/clipback/issues/80)입니다. 작성 기준 코드는 `f31c6c9`이며, [정책](../frontend/account-stats-recovery.md)과 [원문 사본](../frontend/account-stats-recovery-spec.md)을 대조했습니다.
+- 원문은 [구현 스펙 #80](https://github.com/clip-back/clipback/issues/80)입니다. 작성 기준 코드는 `f31c6c9`이며, [정책](../frontend/account-stats-recovery.md)과 [원문 사본](2026-10-24-account-stats-recovery-issue-80.md)을 대조했습니다.
 - 요청한 `to-tickets` 스킬에 따라 원문의 전체 본문·댓글·기존 하위 이슈를 조회했습니다. 조회 당시 원문은 로컬 사본과 일치했고 댓글·하위 이슈는 없었습니다.
 - 사용자는 연결된 초안 본문 그대로 4개 하위 이슈를 생성하고 `ready-for-agent` 라벨·GitHub 기본 선행 관계를 연결하는 안을 승인했습니다.
 - 화면·조회·통합 테스트를 함께 완성하는 동작 단위로 나눴습니다. 별도 계층별 작업이나 대규모 선행 리팩터링 티켓은 만들지 않았습니다.

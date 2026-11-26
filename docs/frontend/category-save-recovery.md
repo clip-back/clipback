@@ -1,11 +1,7 @@
 # 카테고리 생성·수정의 입력 보존과 실패 복구
 
-2026-10-25 설계 인터뷰의 Q18에서 Q1~Q17을 포함한 전체 정책·디자인을 최종 확정했습니다.
-생성·수정 시트, 제출 API, 저장 후 목록 복구, 재진입과 계정 수명 보호를 #87~#91로 나누어 적용했습니다. 검증 범위와 배포 여부는
-[구현 이력](../history/2026-10-25-category-save-recovery-implementation.md)을 따릅니다.
-이 합의를 구현 가능한 계약·사용자 스토리·검증 기준으로 정리한 [구현 스펙](category-save-recovery-spec.md)과
-[GitHub 이슈 #86](https://github.com/clip-back/clipback/issues/86)을 함께 따릅니다.
-조사 기준·코드 근거·Figma 조회·라운드 이력은 [설계 이력](../history/2026-10-25-category-save-recovery-design.md)을 따릅니다.
+이 문서는 2026-10-25 확정한 카테고리 생성·수정 정책·디자인을 관리합니다. 구현은 #87–#91로 나누어 적용했습니다.
+경과는 [설계](../history/2026-10-25-category-save-recovery-design.md)·[구현](../history/2026-10-25-category-save-recovery-implementation.md) 이력과 [GitHub 이슈 #86](https://github.com/clip-back/clipback/issues/86)([본문 사본](../history/2026-10-25-category-save-recovery-issue-86.md))에 있습니다.
 
 ## 대상
 
