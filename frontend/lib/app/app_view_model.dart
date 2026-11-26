@@ -122,6 +122,10 @@ class AppViewModel extends ChangeNotifier {
   AppRoute? _aiConsentDestination;
   bool _aiConsentSaving = false;
 
+  /// Opened from 계정 관리 (#479): closing keeps the choice and is not the
+  /// first display's "closed in this run".
+  bool _aiConsentFromAccount = false;
+
   /// The first screen was chosen before the account's own read answered
   /// (the home loading path does not wait for it): its answer decides then,
   /// keeping this first destination.
@@ -298,6 +302,7 @@ class AppViewModel extends ChangeNotifier {
     _authenticatedUser = null;
     _aiConsentDestination = null;
     _aiConsentSaving = false;
+    _aiConsentFromAccount = false;
     _aiConsentPending = null;
   }
 
@@ -319,24 +324,35 @@ class AppViewModel extends ChangeNotifier {
   void _leaveAiConsent() {
     _route = _aiConsentDestination ?? AppRoute.home;
     _aiConsentDestination = null;
+    _aiConsentFromAccount = false;
     _notify();
   }
 
   /// The same screen opened from 계정 관리 (#479); leaving it returns there.
   void openAiConsent() {
+    // The row shows the repository's account; when the first read failed,
+    // a later read of this account generation stands in (as in
+    // openAccountLogin).
+    final user =
+        _authenticatedUser ??
+        (_users.accountVersion == _accountGeneration ? _users.user : null);
     if (_disposed ||
         _route != AppRoute.account ||
         _authBusy ||
-        _authenticatedUser == null) {
+        !_session.hasSession ||
+        _session.pendingSessionClear ||
+        user == null) {
       return;
     }
+    _authenticatedUser = user;
+    _aiConsentFromAccount = true;
     _aiConsentDestination = AppRoute.account;
     _route = AppRoute.aiConsent;
     _notify();
   }
 
-  /// ✕ or system back: nothing is saved and this account is not asked again
-  /// in this app run.
+  /// ✕ or system back: nothing is saved. Closing the first display also
+  /// means this account is not asked again in this app run.
   void closeAiConsent() {
     final user = _authenticatedUser;
     if (_disposed ||
@@ -345,7 +361,7 @@ class AppViewModel extends ChangeNotifier {
         user == null) {
       return;
     }
-    _aiConsentClosedUsers.add(user.id);
+    if (!_aiConsentFromAccount) _aiConsentClosedUsers.add(user.id);
     _leaveAiConsent();
   }
 

@@ -147,12 +147,33 @@ void main() {
       (svg.bytesLoader as SvgAssetLoader).assetName,
       'assets/icons/account-ai-consent-chevron.svg',
     );
-    // Inside the existing 계정 group, above 로그아웃 (488:5457).
+    // Under 계정, its own rounded card meeting the 로그아웃·회원 탈퇴 card with
+    // no gap (488:5457 above 487:5439): the background shows at the corners.
     final group = find.byKey(const ValueKey('account-actions-group'));
     expect(find.descendant(of: group, matching: _row), findsOneWidget);
+    Material card(Finder child) => tester.widget<Material>(
+      find.ancestor(of: child, matching: find.byType(Material)).first,
+    );
+    final logout = find.byKey(const ValueKey('account-row-로그아웃'));
+    final mine = card(_row), theirs = card(logout);
+    expect(identical(mine, theirs), isFalse);
+    for (final m in [mine, theirs]) {
+      expect(m.color, AppColors.surface);
+      expect(m.borderRadius, BorderRadius.circular(8));
+    }
     expect(
       tester.getRect(_row).bottom,
-      tester.getRect(find.byKey(const ValueKey('account-row-로그아웃'))).top,
+      tester.getRect(find.byWidget(theirs)).top,
+    );
+    expect(
+      tester.getRect(find.byWidget(mine)).top,
+      tester
+          .getRect(find.byKey(const ValueKey('account-section-actions')))
+          .bottom,
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('account-row-회원 탈퇴'))).top,
+      greaterThan(tester.getRect(logout).bottom),
     );
   });
 

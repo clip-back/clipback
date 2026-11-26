@@ -162,12 +162,13 @@ class AccountManagementScreen extends StatelessWidget {
                       ),
                       _AccountGroup(
                         id: 'account-actions-group',
+                        leading: consent == null
+                            ? null
+                            : _AiConsentRow(
+                                status: consent,
+                                onTap: busy ? null : onOpenAiConsent,
+                              ),
                         children: [
-                          if (consent != null)
-                            _AiConsentRow(
-                              status: consent,
-                              onTap: busy ? null : onOpenAiConsent,
-                            ),
                           AccountManagementTile(
                             leading: '로그아웃',
                             onTap: busy ? null : () => unawaited(onLogout()),
@@ -321,28 +322,47 @@ class _AccountSection extends StatelessWidget {
 }
 
 class _AccountGroup extends StatelessWidget {
-  const _AccountGroup({required this.id, required this.children});
+  const _AccountGroup({required this.id, required this.children, this.leading});
 
   final String id;
   final List<Widget> children;
 
+  /// Its own card directly above the group's card (no gap), as 488:5457.
+  final Widget? leading;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Material(
-        key: ValueKey(id),
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
-        ),
+    final group = _card(
+      key: leading == null ? ValueKey(id) : null,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
       ),
     );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: leading == null
+          ? group
+          : Column(
+              key: ValueKey(id),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _card(child: leading!),
+                group,
+              ],
+            ),
+    );
   }
+
+  static Widget _card({required Widget child, Key? key}) => Material(
+    key: key,
+    color: AppColors.surface,
+    borderRadius: BorderRadius.circular(8),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
 }
 
 /// Figma 487:5410: the 1.0 shape grows with the text scale (no 1.3 frame).
