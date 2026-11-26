@@ -842,6 +842,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _go(AppRoute.logoutConfirmation);
   }
 
+  void _openAiConsent() {
+    if (!_canUseAccountActions) return;
+    _d.app.openAiConsent();
+  }
+
   Future<void> _confirmLogout() async {
     if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
       return;
@@ -1472,6 +1477,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onConnect: _d.app.openAccountLogin,
           onWithdraw: _openAccountDeletion,
           busy: _d.app.authBusy,
+          aiConsentStatus: _d.account.aiConsentStatus,
+          onOpenAiConsent: _openAiConsent,
         ),
         AppRoute.accountDeletion => AccountDeletionScreen(
           key: ValueKey(_d.app.accountGeneration),

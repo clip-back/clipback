@@ -322,6 +322,19 @@ class AppViewModel extends ChangeNotifier {
     _notify();
   }
 
+  /// The same screen opened from 계정 관리 (#479); leaving it returns there.
+  void openAiConsent() {
+    if (_disposed ||
+        _route != AppRoute.account ||
+        _authBusy ||
+        _authenticatedUser == null) {
+      return;
+    }
+    _aiConsentDestination = AppRoute.account;
+    _route = AppRoute.aiConsent;
+    _notify();
+  }
+
   /// ✕ or system back: nothing is saved and this account is not asked again
   /// in this app run.
   void closeAiConsent() {

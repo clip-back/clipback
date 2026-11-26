@@ -1151,4 +1151,180 @@ void main() {
       });
     }
   });
+
+  // #479: the same screen opened from 계정 관리 ("계정 관리에서 연 화면" column).
+  group('account management', () {
+    final account = find.byType(AccountManagementScreen);
+    final row = find.byKey(const ValueKey('account-ai-consent'));
+    String status(WidgetTester tester) => tester
+        .widget<Text>(find.byKey(const ValueKey('account-ai-consent-status')))
+        .data!;
+    Map<String, Object> saved(String status) => {
+      'status': status,
+      'notice_version': 1,
+      'decided_at': '2026-11-26T03:00:00Z',
+    };
+
+    Future<void> openAccount(WidgetTester tester) async {
+      if (_consent.evaluate().isNotEmpty) {
+        await tester.tap(_close);
+        await tester.pumpAndSettle();
+      }
+      tester.widget<HomeScreen>(_home).onTab(AppRoute.my);
+      await tester.pumpAndSettle();
+      tester.widget<MyScreen>(find.byType(MyScreen)).onOpenAccount();
+      await tester.pumpAndSettle();
+      expect(account, findsOneWidget);
+    }
+
+    Future<void> openRow(WidgetTester tester) async {
+      await tester.ensureVisible(row);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(_consent, findsOneWidget);
+      expect(account, findsNothing);
+    }
+
+    for (final (value, text) in [
+      ('granted', '동의함'),
+      ('denied', '동의 안 함'),
+      ('undecided', '선택 전'),
+    ]) {
+      testWidgets('$value shows "$text" in the row', (tester) async {
+        final server = _Server()..consent[1] = value;
+        await _app(tester, server, () async {
+          await openAccount(tester);
+          expect(find.text('AI 전송 동의'), findsOneWidget);
+          expect(status(tester), text);
+          expect(server.puts, isEmpty);
+        });
+      });
+    }
+
+    testWidgets('an answer without the field shows no row', (tester) async {
+      final server = _Server()..consent.remove(1);
+      await _app(tester, server, () async {
+        await openAccount(tester);
+        expect(row, findsNothing);
+        expect(find.text('로그아웃'), findsOneWidget);
+      });
+    });
+
+    testWidgets('the row opens the same screen with the detail link', (
+      tester,
+    ) async {
+      final server = _Server()..consent[1] = 'granted';
+      await _app(tester, server, () async {
+        await openAccount(tester);
+        await openRow(tester);
+        expect(find.text('AI 전송에 동의하시겠어요?'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('ai-consent-detail-link')),
+          findsOneWidget,
+        );
+        expect(_screen(tester).saving, isFalse);
+      });
+    });
+
+    for (final (from, finder, sent, text) in [
+      ('granted', _deny, 'denied', '동의 안 함'),
+      ('denied', _agree, 'granted', '동의함'),
+      ('undecided', _agree, 'granted', '동의함'),
+      ('undecided', _deny, 'denied', '동의 안 함'),
+    ]) {
+      testWidgets('$from → $sent is saved and the row shows "$text"', (
+        tester,
+      ) async {
+        final server = _Server()..consent[1] = from;
+        await _app(tester, server, () async {
+          await openAccount(tester);
+          await openRow(tester);
+          await tester.tap(finder);
+          await tester.pumpAndSettle();
+          expect(server.puts, [(1, sent, 1)]);
+          expect(server.consent[1], sent);
+          expect(_consent, findsNothing);
+          expect(account, findsOneWidget);
+          expect(status(tester), text);
+          expect(find.text(_saveFailed), findsNothing);
+        });
+      });
+    }
+
+    for (final (name, leave) in <(String, Future<void> Function(WidgetTester))>[
+      ('✕', (tester) => tester.tap(_close)),
+      ('system back', (tester) => tester.binding.handlePopRoute()),
+    ]) {
+      for (final value in ['granted', 'undecided']) {
+        testWidgets('$name keeps $value and returns to the account', (
+          tester,
+        ) async {
+          final server = _Server()..consent[1] = value;
+          await _app(tester, server, () async {
+            await openAccount(tester);
+            final before = status(tester);
+            await openRow(tester);
+            await leave(tester);
+            await tester.pumpAndSettle();
+            expect(_consent, findsNothing);
+            expect(account, findsOneWidget);
+            expect(status(tester), before);
+            expect(server.puts, isEmpty);
+            expect(server.consent[1], value);
+          });
+        });
+      }
+    }
+
+    testWidgets('a failure stays with the notice, a retry saves', (
+      tester,
+    ) async {
+      var fail = true;
+      final server = _Server()..consent[1] = 'granted';
+      server.putRespond = (request) async {
+        if (fail) return _json({'detail': 'no'}, 500);
+        server.consent[1] = 'denied';
+        return _json(saved('denied'));
+      };
+      await _app(tester, server, () async {
+        await openAccount(tester);
+        await openRow(tester);
+        await tester.tap(_deny);
+        await tester.pumpAndSettle();
+        expect(_consent, findsOneWidget);
+        expect(account, findsNothing);
+        expect(find.text(_saveFailed), findsOneWidget);
+        expect(_screen(tester).saving, isFalse);
+        fail = false;
+        await tester.tap(_deny);
+        await tester.pumpAndSettle();
+        expect(server.puts, [(1, 'denied', 1), (1, 'denied', 1)]);
+        expect(account, findsOneWidget);
+        expect(status(tester), '동의 안 함');
+      });
+    });
+
+    testWidgets('✕ and back are locked while saving', (tester) async {
+      final put = Completer<http.Response>();
+      final server = _Server()
+        ..consent[1] = 'granted'
+        ..putRespond = (_) => put.future;
+      await _app(tester, server, () async {
+        await openAccount(tester);
+        await openRow(tester);
+        await tester.tap(_deny);
+        await tester.pump();
+        expect(_screen(tester).saving, isTrue);
+        await tester.tap(_close, warnIfMissed: false);
+        await tester.binding.handlePopRoute();
+        await tester.pump();
+        expect(_consent, findsOneWidget);
+        expect(server.puts, hasLength(1));
+        put.complete(_json(saved('denied')));
+        await tester.pumpAndSettle();
+        expect(account, findsOneWidget);
+        expect(status(tester), '동의 안 함');
+      });
+    });
+  });
 }
