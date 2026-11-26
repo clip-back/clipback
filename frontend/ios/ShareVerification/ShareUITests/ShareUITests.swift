@@ -137,7 +137,7 @@ final class ShareUITests: XCTestCase {
     let save = main.buttons["share.save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10), main.debugDescription)
     tapReady(save)
-    XCTAssertTrue(main.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35), main.debugDescription)
+    XCTAssertTrue(main.staticTexts["저장 완료!"].waitForExistence(timeout: 35), main.debugDescription)
     tapReady(main.buttons["share.close"])
     XCTAssertFalse(main.buttons["share.save"].waitForExistence(timeout: 2))
   }
@@ -303,7 +303,7 @@ final class ShareUITests: XCTestCase {
                   main.debugDescription)
     capture("ios-interrupted-\(suffix)-recovery")
     tapReady(save)
-    XCTAssertTrue(main.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 15), main.debugDescription)
+    XCTAssertTrue(main.staticTexts["저장 완료!"].waitForExistence(timeout: 15), main.debugDescription)
     XCTAssertEqual(savedCount(), before + 1)
     XCTAssertEqual(saveRequests(), requests + 2)
     tapReady(main.buttons["share.close"])
@@ -462,7 +462,7 @@ final class ShareUITests: XCTestCase {
     XCTAssertTrue(save.waitForExistence(timeout: 10), main.debugDescription)
     capture("ios-share-recovery-modal")
     tapReady(save)
-    XCTAssertTrue(main.staticTexts["저장 완료! 분류와 요약은 앱에서 확인할 수 있습니다."].waitForExistence(timeout: 35))
+    XCTAssertTrue(main.staticTexts["저장 완료!"].waitForExistence(timeout: 35))
     tapReady(main.buttons["share.close"])
     XCTAssertFalse(main.buttons["share.save"].waitForExistence(timeout: 2))
     XCTAssertEqual(main.state, .runningForeground)

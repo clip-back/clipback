@@ -1,3 +1,4 @@
+import 'package:clipback_frontend/clipback_api.dart';
 import 'package:clipback_frontend/data/repositories/user_repository.dart';
 import 'package:clipback_frontend/shared/models/app_user.dart';
 import 'package:clipback_frontend/shared/presentation/content_mapper.dart';
@@ -10,6 +11,9 @@ class AccountViewModel extends ViewModel {
   final UserRepository repository;
 
   AppUser get user => userFromApi(repository.user, repository.stats);
+
+  AiConsentStatus get aiConsentStatus =>
+      repository.user?.aiConsentStatus ?? AiConsentStatus.unknown;
 
   String? get statsMessage => switch (repository.statsStatus) {
     UserStatsStatus.idle || UserStatsStatus.loading =>

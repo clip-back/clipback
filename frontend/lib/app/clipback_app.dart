@@ -21,6 +21,7 @@ import 'package:clipback_frontend/features/auth/account_link_conflict_screen.dar
 import 'package:clipback_frontend/features/auth/login_screen.dart';
 import 'package:clipback_frontend/features/auth/login_failure_screen.dart';
 import 'package:clipback_frontend/features/auth/login_status_screen.dart';
+import 'package:clipback_frontend/features/auth/ai_consent_screen.dart';
 import 'package:clipback_frontend/features/auth/onboarding_screen.dart';
 import 'package:clipback_frontend/features/auth/permission_guide_sheet.dart';
 import 'package:clipback_frontend/features/auth/splash_screen.dart';
@@ -46,6 +47,7 @@ import 'app_dependencies.dart';
 import 'app_view_model.dart';
 import 'exit_confirmation_dialog.dart';
 import '../features/share/pending_share_prompt.dart';
+import '../data/repositories/share_repository.dart';
 import '../data/services/search_history_storage.dart';
 import '../data/services/native_share_service.dart';
 
@@ -76,6 +78,9 @@ enum _LaunchPhase { showing, mounting, ready }
 class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final AppDependencies _d;
   _LaunchPhase _launchPhase = _LaunchPhase.showing;
+  bool _onAiConsent = false;
+  List<PendingShareDraft>? _ownedDrafts;
+  bool _ownsNextDrafts = false;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
@@ -845,6 +850,11 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     _go(AppRoute.logoutConfirmation);
   }
 
+  void _openAiConsent() {
+    if (!_canUseAccountActions) return;
+    _d.app.openAiConsent();
+  }
+
   Future<void> _confirmLogout() async {
     if (!_canUseAccountActions || _d.app.route != AppRoute.logoutConfirmation) {
       return;
@@ -1122,6 +1132,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
               _go(AppRoute.my);
             case AppRoute.interests:
               _go(AppRoute.onboarding);
+            case AppRoute.aiConsent:
+              _d.app.closeAiConsent();
             default:
               break;
           }
@@ -1193,6 +1205,34 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  /// Held while the AI 전송 동의 screen is shown (#474 J11). The first
+  /// prompt after it shows only drafts of the current account; later reads
+  /// follow the usual rule, which also keeps drafts without an account.
+  List<PendingShareDraft> _promptDrafts() {
+    const unread = <PendingShareDraft>[];
+    final onConsent = _d.app.route == AppRoute.aiConsent;
+    final drafts = _d.sharing.drafts;
+    // Each read of the native drafts is a new list; before the first read for
+    // this account it is the empty const list. A receipt check after the read
+    // keeps sharing busy, so busy does not tell whether drafts were read.
+    if (_onAiConsent && !onConsent) {
+      _ownsNextDrafts = identical(drafts, unread);
+      _ownedDrafts = _ownsNextDrafts ? null : drafts;
+    }
+    _onAiConsent = onConsent;
+    if (onConsent) return const [];
+    if (_ownsNextDrafts && !identical(drafts, unread)) {
+      _ownedDrafts = drafts;
+      _ownsNextDrafts = false;
+    }
+    if (!identical(drafts, _ownedDrafts)) return drafts;
+    final user = _d.app.authenticatedUser?.id;
+    return [
+      for (final draft in _d.sharing.drafts)
+        if (draft.userId != null && draft.userId == user) draft,
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
@@ -1221,8 +1261,10 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
             : PendingSharePrompt(
                 navigatorKey: _navigatorKey,
                 promptVersion: _d.sharing.promptVersion,
-                drafts: _d.sharing.drafts,
-                error: _d.sharing.error,
+                drafts: _promptDrafts(),
+                error: _d.app.route == AppRoute.aiConsent
+                    ? null
+                    : _d.sharing.error,
                 busy: _d.sharing.busy,
                 onRetry: () => unawaited(_d.sharing.retry()),
                 onOpen: (draft) => unawaited(_d.sharing.present(draft)),
@@ -1271,6 +1313,16 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onRetry: _d.app.restoreSession,
         ),
         AppRoute.splash => SplashScreen(onDone: _d.app.finishSplash),
+        // A new screen per account: a late policy-open failure of the
+        // previous account is not shown.
+        AppRoute.aiConsent => AiConsentScreen(
+          key: ValueKey(('ai-consent', _d.app.accountGeneration)),
+          saving: _d.app.aiConsentSaving,
+          onAgree: () =>
+              unawaited(_d.app.saveAiConsent(AiConsentStatus.granted)),
+          onDeny: () => unawaited(_d.app.saveAiConsent(AiConsentStatus.denied)),
+          onClose: _d.app.closeAiConsent,
+        ),
         AppRoute.login => _buildLogin(),
         AppRoute.onboarding => OnboardingScreen(
           onDone: () => _go(AppRoute.interests),
@@ -1437,6 +1489,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
           onConnect: _d.app.openAccountLogin,
           onWithdraw: _openAccountDeletion,
           busy: _d.app.authBusy,
+          aiConsentStatus: _d.account.aiConsentStatus,
+          onOpenAiConsent: _openAiConsent,
         ),
         AppRoute.accountDeletion => AccountDeletionScreen(
           key: ValueKey(_d.app.accountGeneration),
