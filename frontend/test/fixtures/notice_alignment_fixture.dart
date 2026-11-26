@@ -407,6 +407,40 @@ class NoticeSocial extends isolated.ArchiveAllSocialAuth {
   }
 }
 
+/// [list] as a `GET /api/v1/notices` answer (#486).
+Map<String, Object?> noticesJson(List<Notice> list) => {
+  'notices': [
+    for (final n in list)
+      {
+        'title': n.title,
+        'published_on': n.publishedLabel.replaceAll('. ', '-'),
+        'pinned': n.pinned,
+        'intro_title': n.introTitle,
+        'intro': n.intro,
+        'steps': [
+          for (final s in n.steps)
+            {'title': s.title, 'body': s.body, 'note': s.note},
+        ],
+        'closing_title': n.closingTitle,
+        'closing': n.closing,
+      },
+  ],
+};
+
+/// A server-only example: not pinned and no steps, like a policy revision notice.
+const revisionNotice = Notice(
+  title: '개인정보 처리방침 개정 안내',
+  publishedLabel: '2026. 12. 02',
+  pinned: false,
+  introTitle: '개인정보 처리방침이 바뀌어요.',
+  intro:
+      '2027년 1월 1일부터 개정된 개인정보 처리방침이 시행돼요. '
+      '바뀌는 내용을 미리 확인해 주세요.',
+  steps: [],
+  closingTitle: '자세한 내용은 처리방침에서 확인해 주세요.',
+  closing: '마이의 개인정보 처리방침에서 개정된 전문을 볼 수 있어요.',
+);
+
 class NoticeServer {
   NoticeServer(String kind) : kind = kind, base = account.AccountServer(kind);
   String kind;
@@ -422,8 +456,24 @@ class NoticeServer {
   Completer<http.Response>? get logoutGate => base.logoutGate;
   set logoutGate(Completer<http.Response>? value) => base.logoutGate = value;
   http.Response json(Object v, [int status = 200]) => base.json(v, status);
+
+  /// `GET /api/v1/notices`: 'same' (the in-app two), 'added' (plus
+  /// [revisionNotice]) or 'fail' (503 for this path only).
+  String noticeMode = 'same';
   late final client = MockClient((r) async {
     final path = r.url.path;
+    if (path == '/api/v1/notices') {
+      base.requests.add({
+        'method': r.method,
+        'path': path,
+        'query': r.url.queryParameters,
+      });
+      return switch (noticeMode) {
+        'fail' => json({'detail': 'controlled'}, 503),
+        'added' => json(noticesJson([...notices, revisionNotice])),
+        _ => json(noticesJson(notices)),
+      };
+    }
     if (path == '/api/v1/auth/guest') {
       kind = 'guest';
       base.records.clear();

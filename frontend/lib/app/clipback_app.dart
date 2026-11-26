@@ -367,6 +367,7 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
       if (!_canOpenNotices(from, generation, epoch)) return;
       _noticesFromHome = from == AppRoute.home;
       _go(AppRoute.noticeList);
+      _d.noticeStore.refresh();
     };
   }
 
@@ -387,10 +388,13 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   Widget _noticeList(AppRoute back) => PageStorage(
     key: ObjectKey(_myNoticePageStorageBucket),
     bucket: _myNoticePageStorageBucket,
-    child: NoticeListScreen(
-      notices: notices,
-      onBack: _noticeNavigation(AppRoute.noticeList, back),
-      onOpen: _noticeOpening(AppRoute.noticeList),
+    child: ValueListenableBuilder(
+      valueListenable: _d.noticeStore,
+      builder: (context, notices, _) => NoticeListScreen(
+        notices: notices,
+        onBack: _noticeNavigation(AppRoute.noticeList, back),
+        onOpen: _noticeOpening(AppRoute.noticeList),
+      ),
     ),
   );
 

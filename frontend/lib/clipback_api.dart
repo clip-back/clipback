@@ -1602,6 +1602,10 @@ class ClipbackApi {
     return ApiFeed.fromJson(json);
   }
 
+  /// Public notices (#486); the caller checks the answer's shape.
+  Future<Map<String, dynamic>> fetchNotices() =>
+      _json('GET', '/notices', authenticated: false);
+
   Future<void> createCategoryFilterEvent(int categoryId) => _json(
     'POST',
     '/metrics/events',

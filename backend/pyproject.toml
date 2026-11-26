@@ -61,3 +61,6 @@ known-third-party = ["alembic"]
 [tool.setuptools.packages.find]
 include = ["app*"]
 exclude = ["alembic*", "scripts*", "tests*"]
+
+[tool.setuptools.package-data]
+app = ["notices.json"]

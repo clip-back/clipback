@@ -42,6 +42,8 @@ final _sessions = <f.NoticeServer>[],
 late Directory _output;
 Map<String, Object?> _fonts = {};
 String _kind = 'member';
+// `GET /api/v1/notices` answer for the next scene (#486): same|added|fail.
+String _noticeMode = 'same';
 bool _busy = false, _done = false, _coverage = false;
 int _epoch = 0, _pointer = 68000;
 double _openingMyOffset = 0;
@@ -186,6 +188,8 @@ Future<void> _fresh(String kind, {bool open = true}) async {
     'Actual user/stats mapping missing',
   );
   await _hideKeyboard();
+  // After the app start and before the list entry, which asks for notices.
+  _server.noticeMode = _noticeMode;
   if (open) await _open();
   await _wait(
     () => _sharePrompt()?.busy == false,
@@ -210,6 +214,7 @@ Map<String, Object?> _snapshot() {
     'ready': true,
     'phase': noticePhase,
     'kind': _kind,
+    'noticeMode': _noticeMode,
     'platform': Platform.operatingSystem,
     'route': _route(),
     'busy': _busy,
@@ -354,6 +359,7 @@ Future<void> _maxScroll() async {
 }
 
 Future<void> _run() async {
+  _noticeMode = 'same';
   _checks.clear();
   _sessions.clear();
   _done = false;
@@ -528,6 +534,11 @@ Future<void> main() => http.runWithClient(() async {
           _require(
             ['member', 'guest'].contains(kind),
             'kind member|guest required',
+          );
+          _noticeMode = request.uri.queryParameters['notices'] ?? 'same';
+          _require(
+            ['same', 'added', 'fail'].contains(_noticeMode),
+            'notices same|added|fail required',
           );
           await _fresh(kind);
           await _captureScene();
