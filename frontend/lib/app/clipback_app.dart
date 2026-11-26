@@ -79,7 +79,8 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   late final AppDependencies _d;
   _LaunchPhase _launchPhase = _LaunchPhase.showing;
   bool _onAiConsent = false;
-  int? _ownedDraftsPrompt;
+  List<PendingShareDraft>? _ownedDrafts;
+  bool _ownsNextDrafts = false;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _isSessionStorageBusy = ValueNotifier(false);
@@ -1201,19 +1202,23 @@ class _ClipbackAppState extends State<ClipbackApp> with WidgetsBindingObserver {
   /// prompt after it shows only drafts of the current account; later reads
   /// follow the usual rule, which also keeps drafts without an account.
   List<PendingShareDraft> _promptDrafts() {
+    const unread = <PendingShareDraft>[];
     final onConsent = _d.app.route == AppRoute.aiConsent;
+    final drafts = _d.sharing.drafts;
+    // Each read of the native drafts is a new list; before the first read for
+    // this account it is the empty const list. A receipt check after the read
+    // keeps sharing busy, so busy does not tell whether drafts were read.
     if (_onAiConsent && !onConsent) {
-      final version = _d.sharing.promptVersion;
-      // Drafts not read yet for this account come with the next version.
-      _ownedDraftsPrompt = _d.sharing.ready && !_d.sharing.busy
-          ? version
-          : version + 1;
+      _ownsNextDrafts = identical(drafts, unread);
+      _ownedDrafts = _ownsNextDrafts ? null : drafts;
     }
     _onAiConsent = onConsent;
     if (onConsent) return const [];
-    if (_ownedDraftsPrompt != _d.sharing.promptVersion) {
-      return _d.sharing.drafts;
+    if (_ownsNextDrafts && !identical(drafts, unread)) {
+      _ownedDrafts = drafts;
+      _ownsNextDrafts = false;
     }
+    if (!identical(drafts, _ownedDrafts)) return drafts;
     final user = _d.app.authenticatedUser?.id;
     return [
       for (final draft in _d.sharing.drafts)

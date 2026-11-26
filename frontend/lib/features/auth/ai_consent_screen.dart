@@ -101,6 +101,21 @@ class AiConsentScreen extends StatefulWidget {
 }
 
 class _AiConsentScreenState extends State<AiConsentScreen> {
+  /// A choice was tapped and the screen has not rebuilt since: the saving
+  /// state it holds may be a frame old, so it is locked meanwhile.
+  bool _chosen = false;
+
+  @override
+  void didUpdateWidget(covariant AiConsentScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _chosen = false;
+  }
+
+  VoidCallback _choose(VoidCallback save) => () {
+    _chosen = true;
+    save();
+  };
+
   Future<void> _openPolicy() async {
     // A late failure is shown only while this screen (this account's) stays.
     // Only over this screen itself, not over '자세히 보기' opened meanwhile.
@@ -115,7 +130,7 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
 
   void _openDetail() {
     // While saving the screen may leave at any moment; it opens nothing.
-    if (widget.saving) return;
+    if (widget.saving || _chosen) return;
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const AiConsentDetailScreen()),
@@ -125,7 +140,7 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final locked = widget.saving;
+    final locked = widget.saving || _chosen;
     return PhoneFrame(
       child: Scaffold(
         backgroundColor: Colors.white,
@@ -168,7 +183,7 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
                       _ConsentLink(
                         key: const ValueKey('ai-consent-detail-link'),
                         label: '자세히 보기',
-                        onTap: _openDetail,
+                        onTap: locked ? null : _openDetail,
                       ),
                       _ConsentLink(
                         key: const ValueKey('ai-consent-policy-link'),
@@ -190,7 +205,7 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
                       label: '동의하지 않음',
                       height: 48,
                       primary: false,
-                      onPressed: locked ? null : widget.onDeny,
+                      onPressed: locked ? null : _choose(widget.onDeny),
                     ),
                     const SizedBox(height: 16),
                     _ConsentButton(
@@ -198,7 +213,7 @@ class _AiConsentScreenState extends State<AiConsentScreen> {
                       label: '동의하고 계속',
                       height: 56,
                       primary: true,
-                      onPressed: locked ? null : widget.onAgree,
+                      onPressed: locked ? null : _choose(widget.onAgree),
                     ),
                   ],
                 ),
@@ -392,7 +407,7 @@ class _ConsentLink extends StatelessWidget {
   const _ConsentLink({required this.label, required this.onTap, super.key});
 
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Semantics(
