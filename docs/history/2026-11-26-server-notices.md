@@ -25,4 +25,11 @@
   📌 없는 행·단계 0개 상세의 폭 320·360·393 × 글자 1.0·1.3배, 실제 Pretendard).
 - 바뀐 기존 테스트는 이슈 허용 표 안: `notice_guides_test.dart`·`notification_navigation_test.dart`의 요청 수 단언(더한 1건이 `GET /api/v1/notices`),
   대역 `NoticeServer`·`HomeBaseServer`·`ArchiveAllServer`(GET 공지 응답), K01 진입.
-- 미검증: iOS Simulator·Android Emulator 화면 확인(감독 촬영 단계), CI, 운영 배포, wheel 설치본의 `notices.json` 포함 실행.
+- iPhone 16(iOS 18.6 Simulator, 393×852)과 Medium_Phone(Android 16 Emulator, 약 411×914)에서 K01 메모리 서버로 이슈 촬영 표 5행을 확인했다. 변경 전 기준은 `643ffaf`, 변경 후 앱 코드는 전체 검증을 마친 `7eae777`이다.
+  - 마이와 홈 종에서 열면 기존 두 행이 표시된다. 변경 전에는 공지 요청 0건, 변경 후에는 진입마다 GET 1건이었다. 종에서 들어간 뒤 뒤로가면 홈으로 돌아왔다.
+  - 공지 경로만 503으로 설정한 변경 후 장면은 GET 1건, 기존 두 행과 안내 없는 목록을 보였다. 변경 전 대응 장면은 사용자 결정에 따라 요청 0건과 두 행으로 기록했다.
+  - 세 번째 공지는 고정 핀 없이 표시됐고, 단계 없는 상세의 실제 배율 1.0·1.3에서 제목과 본문 및 맺음말을 확인했다. 이 상태들은 시작 커밋에 없으며, 단계 없는 상세와 일반 행을 위한 별도 Figma 디자인도 없다.
+  - Figma 목록 `423:4464`·상세 `423:4520`은 2026-11-26 16:53 KST에 조회했다. 기기 화면은 OS 안전 영역을 포함한 원본이다. 비교는 그대로 비례 축소했다.
+  - iOS 첫 기본 목록 AX 조회가 503이었다. 앱 상태를 다시 확인하고 해당 장면에서 1회 재조회해 두 제목을 확인했다. 실제 기기 오류 재시도는 없었다.
+  - 로컬 증거는 `.utmp/ticket-486/compare-{ios,android}.png`, `.utmp/ticket-486/after-{ios,android}/notice-navigation.mp4`와 같은 폴더의 장면별 PNG·상태 JSON·AX다.
+- CI·운영 배포·실기기는 이번 실행 범위 밖이다. wheel 설치본의 `notices.json` 포함 여부는 실행 미검증이다.
