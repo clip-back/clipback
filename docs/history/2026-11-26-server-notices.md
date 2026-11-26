@@ -33,3 +33,7 @@
   - iOS 첫 기본 목록 AX 조회가 503이었다. 앱 상태를 다시 확인하고 해당 장면에서 1회 재조회해 두 제목을 확인했다. 실제 기기 오류 재시도는 없었다.
   - 로컬 증거는 `.utmp/ticket-486/compare-{ios,android}.png`, `.utmp/ticket-486/after-{ios,android}/notice-navigation.mp4`와 같은 폴더의 장면별 PNG·상태 JSON·AX다.
 - CI·운영 배포·실기기는 이번 실행 범위 밖이다. wheel 설치본의 `notices.json` 포함 여부는 실행 미검증이다.
+
+### #488 병합 후 최종 로컬 검증
+
+`dc52468`을 합친 `d0e55f0`에서 전체 검사를 한 번 실행해 `VERIFY result=PASS scope=all checks=12 failed=0`을 확인했다. Flutter 4,440건, pytest 3,528건이 통과했다. pytest에서 건너뛴 52건의 사유는 위와 같다. 공지 목록·상세와 진입 함수에 변경이 없어 화면은 다시 촬영하지 않았다.
