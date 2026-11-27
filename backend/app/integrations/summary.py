@@ -65,6 +65,7 @@ class SummaryError(Exception):
         self.provider_status: str | None = None
         self.reason: str | None = None
         self.image: dict | None = None
+        self.original_title: str | None = None
 
 
 @dataclass

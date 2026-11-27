@@ -238,6 +238,8 @@ class SummaryWorker:
             job.usage = [*job.usage, {"attempt": job.attempts, "tokens": usage}]
             job.lease_token = job.lease_expires_at = None
             if error:
+                if job.apply_title and error.original_title is not None:
+                    content.title = error.original_title
                 job.error_code = error.code
                 if error.retryable and job.attempts < 2:
                     job.status = "queued"

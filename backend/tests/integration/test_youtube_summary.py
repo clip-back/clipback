@@ -274,6 +274,76 @@ async def test_permanent_error_does_not_retry(api, worker, code, skipped):
     assert not await run.run_once() and state.calls == 1
 
 
+@pytest.mark.parametrize(
+    "saved_fields,original_title,code,skipped,expected_title",
+    [
+        ({}, "원래 영상 제목", "duration_exceeded", True, "원래 영상 제목"),
+        ({"title": "직접 제목"}, "원래 영상 제목", "provider_error", False, "직접 제목"),
+        ({}, None, "configuration_error", False, "저장한 콘텐츠"),
+    ],
+)
+async def test_title_after_youtube_summary_stops(
+    api, worker, saved_fields, original_title, code, skipped, expected_title
+):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers, **saved_fields)
+    state.error = SummaryError(code, skipped=skipped)
+    state.error.original_title = original_title
+
+    assert await run.run_once()
+
+    result = await detail(api, headers, content)
+    assert result["title"] == expected_title
+    assert result["summary_status"] == ("skipped" if skipped else "failed")
+    assert result["summary_error_code"] == code
+
+
+async def test_original_title_during_retry_is_replaced_on_success(api, worker, database_connection):
+    run, state = worker
+    headers, _, _ = await guest(api)
+    content = await save(api, headers)
+    state.error = SummaryError("timeout", retryable=True)
+    state.error.original_title = "원래 영상 제목"
+
+    assert await run.run_once()
+    queued = await detail(api, headers, content)
+    assert queued["title"] == "원래 영상 제목"
+    assert (queued["summary_status"], queued["summary_error_code"]) == ("queued", "timeout")
+    assert not await run.run_once()
+
+    state.error = None
+    await database_connection.execute(
+        update(SummaryJob).values(next_run_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
+    assert await run.run_once()
+    completed = await detail(api, headers, content)
+    assert completed["title"] == "영상 제목"
+    assert (completed["summary_status"], completed["summary_error_code"]) == ("completed", None)
+
+
+@pytest.mark.parametrize("expired", [False, True])
+async def test_stale_failure_cannot_apply_original_title(api, worker, database_connection, expired):
+    run, _ = worker
+    headers, _, user = await guest(api)
+    content = await save(api, headers)
+    claimed = await run.claim()
+    assert claimed is not None
+    if expired:
+        await database_connection.execute(
+            update(SummaryJob).values(lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+    error = SummaryError("duration_exceeded", skipped=True)
+    error.original_title = "원래 영상 제목"
+    token = claimed.lease_token if expired else "different-token"
+
+    await run.finish(content["id"], user["id"], token, None, error)
+
+    result = await detail(api, headers, content)
+    assert result["title"] == "저장한 콘텐츠"
+    assert (result["summary_status"], result["summary_error_code"]) == ("processing", None)
+
+
 async def test_unexpected_client_exception_fails_immediately(api, worker, database_connection):
     run, state = worker
     headers, _, _ = await guest(api)
