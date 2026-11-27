@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app.core.config import Settings
-from app.integrations.summary import SummaryError
+from app.integrations.summary import SummaryError, summary_send_guard
 from app.integrations.youtube_summary_client import YouTubeSummaryClient
 
 
@@ -71,6 +71,99 @@ async def test_preflight_blocks_gemini(data, code):
             await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
     assert exc.value.code == code
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data,http_status,code,title",
+    [
+        (video("PT20M1S"), 200, "duration_exceeded", "제목"),
+        (video(live="live"), 200, "live_not_supported", "제목"),
+        (video(privacy="unlisted"), 200, "video_unavailable", "제목"),
+        (video("PT0S"), 200, "video_unavailable", "제목"),
+        (video("bad"), 200, "invalid_response", "제목"),
+        ({"items": [{}]}, 200, "invalid_response", None),
+        ({"items": []}, 200, "video_unavailable", None),
+        (video(), 403, "configuration_error", None),
+    ],
+)
+async def test_preflight_error_carries_available_original_title(data, http_status, code, title):
+    def handler(request):
+        assert request.method == "GET"
+        return httpx.Response(http_status, json=data)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(SummaryError) as exc:
+            await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
+    assert exc.value.code == code
+    assert exc.value.original_title == title
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("  원래 제목  ", "원래 제목"),
+        ("", None),
+        (" \t ", None),
+        ("제\x00목", None),
+        ("제\ud800목", None),
+        ("가" * 121, "가" * 120),
+        ("가" * 120 + "\x00", None),
+        (None, None),
+        (123, None),
+        (["제목"], None),
+    ],
+)
+async def test_preflight_error_only_carries_a_storable_title(title, expected):
+    data = video("PT20M1S")
+    data["items"][0]["snippet"]["title"] = title
+
+    def handler(request):
+        assert request.method == "GET"
+        return httpx.Response(200, content=json.dumps(data))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(SummaryError) as exc:
+            await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
+    assert exc.value.code == "duration_exceeded"
+    assert exc.value.original_title == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        ("403", "configuration_error"),
+        ("429", "provider_error"),
+        ("timeout", "timeout"),
+        ("invalid_output", "invalid_response"),
+        ("consent", "ai_consent_required"),
+    ],
+)
+async def test_error_after_preflight_carries_original_title(failure, code):
+    methods = []
+
+    def handler(request):
+        methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json=video())
+        if failure == "timeout":
+            raise httpx.ReadTimeout("test")
+        if failure == "invalid_output":
+            return httpx.Response(200, json={"candidates": []})
+        return httpx.Response(int(failure), json={})
+
+    async def check():
+        if failure == "consent":
+            raise SummaryError("ai_consent_required", skipped=True)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with summary_send_guard(check), pytest.raises(SummaryError) as exc:
+            await YouTubeSummaryClient(config(), http).summarize("dQw4w9WgXcQ", "model", [])
+    assert methods == (["GET"] if failure == "consent" else ["GET", "POST"])
+    assert exc.value.code == code
+    assert exc.value.original_title == "제목"
 
 
 @pytest.mark.asyncio

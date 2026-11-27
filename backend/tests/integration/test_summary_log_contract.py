@@ -330,6 +330,8 @@ async def test_author_metadata_stays_out_of_logs_and_public_fields(
     assert "youtube_summary_result" in caplog.text
     assert AUTHOR_MARKER not in caplog.text
     assert (public["summary_status"], public["summary_error_code"]) == (summary_status, error_code)
+    if status != 200:
+        assert public.pop("title") == f"제목 {AUTHOR_MARKER}"
     assert AUTHOR_MARKER not in json.dumps(public)
 
 

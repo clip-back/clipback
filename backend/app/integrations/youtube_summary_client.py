@@ -19,6 +19,7 @@ from app.integrations.summary import (
     check_summary_send,
     validated_result,
 )
+from app.schemas.text import contains_unstorable_text
 
 MAX_DESCRIPTION_LENGTH = 2200
 
@@ -95,6 +96,24 @@ class YouTubeSummaryClient:
             if not items:
                 raise SummaryError("video_unavailable", skipped=True)
             video = items[0]
+        except (KeyError, TypeError, IndexError) as exc:
+            raise SummaryError("invalid_response") from exc
+
+        try:
+            return await self._summarize_video(video, video_id, model, categories)
+        except SummaryError as error:
+            snippet = video.get("snippet") if isinstance(video, dict) else None
+            title = snippet.get("title") if isinstance(snippet, dict) else None
+            if isinstance(title, str):
+                title = title.strip()
+                if title and not contains_unstorable_text(title):
+                    error.original_title = title[:MAX_TITLE_LENGTH]
+            raise
+
+    async def _summarize_video(
+        self, video: dict, video_id: str, model: str, categories: list[dict]
+    ) -> SummaryResult:
+        try:
             if video["status"]["privacyStatus"] != "public":
                 raise SummaryError("video_unavailable", skipped=True)
             details = video["contentDetails"]
