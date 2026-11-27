@@ -152,7 +152,7 @@ async def connection_leaks(state) -> dict[str, int]:
     async with state.checker.connect() as connection:
         busy = await connection.scalar(text(
             "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-            "AND pid <> pg_backend_pid() AND state <> 'idle'"
+            "AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND state <> 'idle'"
         ))
         advisory = await connection.scalar(text(
             "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = "
