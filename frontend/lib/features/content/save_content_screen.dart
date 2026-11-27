@@ -1197,6 +1197,9 @@ class SaveFlowButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: loading ? '저장 중' : label,
+      // 안쪽 글자가 이름에 다시 붙지 않게 막고, 막힌 tap 동작은 여기서 다시 준다.
+      excludeSemantics: true,
+      onTap: enabled ? onPressed : null,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: enabled ? onPressed : null,
